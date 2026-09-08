@@ -2,9 +2,8 @@
 
 | Priority | Task | Dependency / scope |
 |---|---|---|
-| Next | Add scheduled database backups and verify restoration. | VM106. |
 | Next | Alert on prolonged source failures and recovery. | Avoid repeated alerts for the same outage. |
-| Blocked | Route Gemini API through the existing WARP lane. | Key works locally; VM106 receives Google's unsupported-location response. Requires an OpenWrt routing change. |
+| Blocked | Reach the Gemini API from a supported location. | Not a routing problem: every exit available here is refused. Tested 2026-09-08 — home WAN, awg1/awg3 (Timeweb NL), awg2 (VDSka DE), Cloudflare WARP (AMS) all return `User location is not supported`. Google rejects the hosting ASN, not the country, so no tunnel this project controls can fix it. The way out is Vertex AI with a service account, which carries no such check, or dropping the catalog and taking Google model data from OpenRouter. Needs an owner decision. |
 | When key arrives | Add a GitHub token and verify catch-up under repository activity. | GitHub token. |
 | Next | Tune notification importance using actual events. | Reduce noise while preserving meaningful model, price and capability changes. |
 | Later | Add readable summaries of code and large web diffs. | Choose a model and spending limit; retain raw evidence and distinguish proposals from releases. |

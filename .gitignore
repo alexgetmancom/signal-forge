@@ -8,3 +8,4 @@ data/
 *.db-wal
 
 signal-forge.json
+backups/
