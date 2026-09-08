@@ -7,6 +7,8 @@ import {
   eventEmbed,
   isRoutine,
   MAX_DETAIL_LINES,
+  prepareDeliveries,
+  type RecordData,
   renderEvent,
   saveCollection,
   splitMessage,
@@ -339,4 +341,29 @@ test("entering a board is a sentence, waits for the digest, and pings nobody", (
   expect(embed.description).not.toContain("Maker:");
   // A scoreboard moving is not worth interrupting a few hundred people for.
   expect(isRoutine(event)).toBe(true);
+});
+
+test("a price that rounds away produces no message at all", () => {
+  const db = openDatabase(":memory:");
+  const destination: Destination = { id: "d", platform: "discord", channelId: "1", streams: ["openrouter"] };
+  const priced = (prompt: string): RecordData => ({
+    id: "deepseek/v4-pro",
+    name: "DeepSeek V4 Pro",
+    pricing: { prompt, completion: prompt },
+  });
+  const collection = {
+    source: "openrouter",
+    stream: "openrouter",
+    url: "https://openrouter.ai",
+    raw: [],
+    records: [priced("0.000000949692")],
+  };
+  saveCollection(db, collection, [destination], "2026-09-08T10:00:00.000Z");
+  // OpenRouter converts currencies, so a price drifts in the sixth decimal all day long.
+  collection.records = [priced("0.000000948126")];
+  saveCollection(db, collection, [destination], "2026-09-08T10:05:00.000Z");
+  prepareDeliveries(db, Date.parse("2026-09-08T11:00:00.000Z"));
+  expect(db.query<{ c: number }, []>("SELECT COUNT(*) c FROM deliveries").get()?.c).toBe(0);
+  // The observation is still recorded; it simply is not worth a message.
+  expect(db.query<{ c: number }, []>("SELECT COUNT(*) c FROM events WHERE kind='changed'").get()?.c).toBe(1);
 });

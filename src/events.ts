@@ -257,6 +257,12 @@ export function renderEvent(
         lines.push(...prices(before[key], after[key]));
         continue;
       }
+      // Prose is not a field. An incident's latest update reads as a sentence; printing it as
+      // "summary: old → new" makes the reader diff two paragraphs by eye.
+      if (["summary", "description", "message"].includes(key)) {
+        lines.push(describe(after[key]));
+        continue;
+      }
       if (key === "rank") {
         lines.push(rankMove(before[key], after[key]));
         continue;
@@ -614,6 +620,19 @@ export function prepareDeliveries(
           "SELECT destination_id,destination_json FROM batch_targets WHERE batch_id=? ORDER BY rowid",
         )
         .all(batch.id);
+      // A price that moved below the printed precision renders to an empty body. The observation
+      // stays in the database, but a message with a title and no content is worse than silence.
+      const speaking = events.filter((event) => {
+        // Only a "changed" event can be empty: something appearing or disappearing is news even
+        // with no fields, while a change whose every difference rounded away has nothing to say.
+        if (event.kind !== "changed") return true;
+        const body = renderEvent(event, event.url, undefined, "telegram").split("\n").slice(3, -3).join("").trim();
+        return body.length > 0;
+      });
+      if (!speaking.length) {
+        db.query("UPDATE batches SET sealed=1 WHERE id=?").run(batch.id);
+        continue;
+      }
       for (const target of targets) {
         const d = JSON.parse(target.destination_json) as Destination;
         const source =
@@ -626,12 +645,12 @@ export function prepareDeliveries(
         // A header that repeats what the embed already says is a line nobody reads. One event
         // needs no header at all; several need only the count, so the reader knows to scroll.
         const header = batch.digest
-          ? `🗞 ${source} · ${events.length} in the last hour\n\n`
-          : events.length > 1
-            ? `📡 ${source} · ${events.length} updates\n\n`
+          ? `🗞 ${source} · ${speaking.length} in the last hour\n\n`
+          : speaking.length > 1
+            ? `📡 ${source} · ${speaking.length} updates\n\n`
             : "";
         // Keep each item compact; full before/after evidence remains available by event ID.
-        const text = events
+        const text = speaking
           .map((event) => {
             const rendered = renderEvent(event, event.url, reportBaseUrl, d.platform);
             const lines = rendered.split("\n");
@@ -666,7 +685,7 @@ export function prepareDeliveries(
               ];
           const mentions = roles.map((role) => `<@&${role}>`).join(" ");
           // One embed per event, ten per message — Discord's own limit, and a natural page size.
-          const embeds = events.map((event) => eventEmbed(event, event.url, reportBaseUrl, summaries.get(event.id)));
+          const embeds = speaking.map((event) => eventEmbed(event, event.url, reportBaseUrl, summaries.get(event.id)));
           for (let index = 0; index * 10 < embeds.length; index += 1) {
             const page = embeds.slice(index * 10, index * 10 + 10);
             const content = index === 0 ? [header.trim(), mentions].filter(Boolean).join("\n") : "";
