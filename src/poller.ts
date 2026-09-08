@@ -84,9 +84,7 @@ export function sourceJobs(
     // than anything else here. The documents are small and answer in milliseconds.
     ...PLATFORMS.map((platform) => ({
       id: `status:${platform.id}`,
-      // Two minutes was too eager: Anthropic's WAF started serving a CAPTCHA instead of the
-      // document. Five still means a reader hears about an outage within minutes.
-      interval: 300,
+      interval: platform.interval,
       run: () => collectPlatformStatus(platform),
     })),
     ...NPM_PACKAGES.map((name, index) => ({

@@ -34,12 +34,17 @@ const summary = z.object({
     .default([]),
 });
 
-export const PLATFORMS: { id: string; name: string; url: string; page: string }[] = [
+/**
+ * `interval` is per platform because their bot protection differs: OpenAI's Statuspage tolerates a
+ * five-minute poll, Anthropic's WAF started serving a CAPTCHA at that rate and is given room.
+ */
+export const PLATFORMS: { id: string; name: string; url: string; page: string; interval: number }[] = [
   {
     id: "openai",
     name: "OpenAI",
     url: "https://status.openai.com/api/v2/summary.json",
     page: "https://status.openai.com",
+    interval: 300,
   },
   // The Anthropic host redirects to status.claude.com, which is a different origin and therefore
   // refused by the fetcher on purpose; the final address is used directly instead.
@@ -48,6 +53,7 @@ export const PLATFORMS: { id: string; name: string; url: string; page: string }[
     name: "Anthropic",
     url: "https://status.claude.com/api/v2/summary.json",
     page: "https://status.claude.com",
+    interval: 900,
   },
 ];
 
