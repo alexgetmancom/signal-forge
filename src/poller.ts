@@ -48,7 +48,7 @@ export function sourceJobs(
     ...HF_AUTHORS.map((author) => ({
       id: `huggingface:${author}`,
       interval: 1800,
-      run: () => collectHuggingFace(author),
+      run: () => collectHuggingFace(author, fetch, cache),
     })),
     ...MODELSCOPE_PATHS.map((path) => ({
       id: `modelscope:${path}`,
@@ -61,8 +61,8 @@ export function sourceJobs(
       run: () => collectDesignArena(category),
     })),
     { id: "cursor-changelog", interval: 1800, run: () => collectCursorChangelog() },
-    ...NPM_PACKAGES.map((name) => ({ id: `npm:${name}`, interval: 900, run: () => collectNpm(name) })),
-    ...PYPI_PACKAGES.map((name) => ({ id: `pypi:${name}`, interval: 900, run: () => collectPypi(name) })),
+    ...NPM_PACKAGES.map((name) => ({ id: `npm:${name}`, interval: 900, run: () => collectNpm(name, fetch, cache) })),
+    ...PYPI_PACKAGES.map((name) => ({ id: `pypi:${name}`, interval: 900, run: () => collectPypi(name, fetch, cache) })),
   ];
   if (config.OPENAI_API_KEY)
     jobs.push({ id: "openai", interval: config.pollSeconds, run: () => collectOpenAI(config) });

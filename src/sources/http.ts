@@ -64,16 +64,16 @@ export async function fetchText(
     await reader.cancel();
   }
   const text = Buffer.concat(chunks).toString("utf8");
-  if (cache && !send)
-    cache.put(url, {
-      // Not every server offers a validator. `learn.chatgpt.com` returns none on GET, and a HEAD
-      // probe for one was measured and removed: its ETag comes and goes with the edge cache, so the
-      // probe doubled the request count and bought no 304s. Those pages are re-read in full, and
-      // the cache still stores them so a later change in behaviour needs no new plumbing.
-      etag: response.headers.get("etag"),
-      lastModified: response.headers.get("last-modified"),
-      freshUntil: freshUntil(response.headers.get("cache-control")),
-      body: text,
-    });
+  const etag = response.headers.get("etag");
+  const lastModified = response.headers.get("last-modified");
+  const reusableUntil = freshUntil(response.headers.get("cache-control"));
+  // A body worth storing is one we can ask about later. Without a validator the next observation
+  // downloads it again regardless, so keeping a copy would be weight with no saving.
+  //
+  // `learn.chatgpt.com` is the case in point: it returns no validator on GET, and its ETag on HEAD
+  // comes and goes with the edge cache. A HEAD probe was implemented, measured (298 requests
+  // instead of 149, no 304s) and removed.
+  if (cache && !send && (etag || lastModified || reusableUntil > 0))
+    cache.put(url, { etag, lastModified, freshUntil: reusableUntil, body: text });
   return text;
 }

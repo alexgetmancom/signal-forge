@@ -382,3 +382,12 @@ test("only immutable responses are reused without asking", () => {
   expect(freshUntil("max-age=31536000,immutable", now)).toBe(now + 30 * 24 * 3600 * 1000);
   expect(freshUntil(null, now)).toBe(0);
 });
+
+test("a body with no validator is not stored: it cannot save anything later", async () => {
+  const db = openDatabase(":memory:");
+  const cache = new HttpCache(db);
+  const url = "https://example.test/page";
+  const request = async () => new Response("body", { status: 200, headers: { "cache-control": "public, max-age=0" } });
+  expect(await fetchText(url, {}, request, undefined, cache)).toBe("body");
+  expect(cache.get(url)).toBeNull();
+});

@@ -13,7 +13,9 @@
 | Later | Add Bedrock models and regional availability. | Needs AWS credentials: the Bedrock endpoints are SigV4-signed and answer nothing anonymously, so this is blocked on an account rather than on code. |
 | Last | Publish reports on the public site. | Explicitly deferred by the owner: everything else comes first. When it resumes, the shape discussed was a `signal.alexgetman.com` subdomain carrying full diffs, which would also give the Discord embeds a "full report" link they do not have today. |
 | Blocked | Reach the Vercel AI Gateway catalogue from VM106. | Measured 2026-09-08: `tw-nl` pulls the full 383 KB listing in 0.09 s, VM106 receives 13-16 KB and then stalls until timeout. The collector and the schema are fine; the home channel cuts the response. The fix is a routing rule sending `ai-gateway.vercel.sh` through a tunnel on `home-101`, which is an OpenWrt change and needs the owner. |
-| Deferred | Vendor role pings. | Waiting on role IDs from the owner; `vendorOf()` already resolves the vendor of an event. |
+| Deferred | A role for removals. | The owner declined it for now. It would follow models that disappear from a catalogue — the one event a reader running that model in production has to act on today. Worth revisiting if such readers turn up. |
+| Owner decision | Vercel AI Gateway routing and the Google catalogue. | The owner is deciding both, 2026-09-09: whether to add the router rule for `ai-gateway.vercel.sh`, and whether Google comes from Vertex AI or from OpenRouter. Nothing to build until then; the measurements are below. |
+| Done | Vendor role pings. | Waiting on role IDs from the owner; `vendorOf()` already resolves the vendor of an event. |
 
 
 # Request footprint
@@ -29,6 +31,10 @@ exits are refused. Measured 2026-09-08 with the same request from both:
 So the home address is the working one and worth protecting. Before caching, an observation cost
 608 requests and 21 MB to `claude.ai` alone, hourly — around 20,000 requests and 0.8 GB a day.
 
+Bytes below are wire bytes. The client sends `Accept-Encoding: gzip, deflate, br, zstd` (verified,
+not assumed), so a 13 MB registry document costs 1.2 MB in transit; an earlier note quoting
+decompressed sizes overstated the traffic by roughly ten times.
+
 The HTTP cache (`http_cache`, `src/storage/httpCache.ts`) fixes the large half:
 
 - Claude's assets are served `immutable` with a content hash in the filename, so the same URL can
@@ -39,6 +45,13 @@ The HTTP cache (`http_cache`, `src/storage/httpCache.ts`) fixes the large half:
   and goes with the edge cache. A HEAD probe was implemented, measured (298 requests instead of 149,
   no 304s) and removed. Those 148 pages are re-read in full every hour, which is deliberate — the
   documentation is where a feature shows up first, and 1.2 MB is a fair price.
+
+- npm was the quiet hog: the full registry document for `@openai/codex` is 13.6 MB uncompressed,
+  1.2 MB on the wire, and it was pulled every 15 minutes. It carries an ETag, so a revalidation now
+  costs **0 bytes** — measured. The same holds for pypi (0.64 MB) and Hugging Face.
+- A body arriving without a validator is deliberately **not** stored: the next observation
+  downloads it again regardless, so a copy would be weight with no saving. That covers
+  `openrouter`, `arena`, the RSS feeds and `learn.chatgpt.com`.
 
 Only `immutable` is trusted for reuse without asking. A plain `max-age` on a page we watch for
 changes would hide the change this project exists to report.

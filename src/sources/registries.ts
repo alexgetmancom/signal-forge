@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Fetch } from "../delivery.js";
 import type { Collection } from "../events.js";
+import type { HttpCache } from "../storage/httpCache.js";
 import { fetchText } from "./http.js";
 
 /**
@@ -61,9 +62,13 @@ export function parseHuggingFace(payload: string, author: string): Collection {
   };
 }
 
-export async function collectHuggingFace(author: string, request: Fetch = fetch): Promise<Collection> {
+export async function collectHuggingFace(
+  author: string,
+  request: Fetch = fetch,
+  cache?: HttpCache,
+): Promise<Collection> {
   const url = `https://huggingface.co/api/models?author=${encodeURIComponent(author)}&sort=createdAt&direction=-1&limit=50`;
-  return parseHuggingFace(await fetchText(url, { accept: "application/json" }, request), author);
+  return parseHuggingFace(await fetchText(url, { accept: "application/json" }, request, undefined, cache), author);
 }
 
 const npmPackage = z.object({
@@ -101,9 +106,9 @@ export function parseNpm(payload: string): Collection {
   };
 }
 
-export async function collectNpm(name: string, request: Fetch = fetch): Promise<Collection> {
+export async function collectNpm(name: string, request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
   const url = `https://registry.npmjs.org/${name.replace("/", "%2F")}`;
-  return parseNpm(await fetchText(url, { accept: "application/json" }, request));
+  return parseNpm(await fetchText(url, { accept: "application/json" }, request, undefined, cache));
 }
 
 const pypiPackage = z.object({
@@ -131,8 +136,10 @@ export function parsePypi(payload: string): Collection {
   };
 }
 
-export async function collectPypi(name: string, request: Fetch = fetch): Promise<Collection> {
-  return parsePypi(await fetchText(`https://pypi.org/pypi/${name}/json`, { accept: "application/json" }, request));
+export async function collectPypi(name: string, request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
+  return parsePypi(
+    await fetchText(`https://pypi.org/pypi/${name}/json`, { accept: "application/json" }, request, undefined, cache),
+  );
 }
 
 const gatewayModels = z.object({
