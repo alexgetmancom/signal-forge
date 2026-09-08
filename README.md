@@ -62,6 +62,10 @@ Set `TELEGRAM_BOT_TOKEN` in `.env`. Configure one destination in `signal-forge.j
 Replace the example chat ID with the actual destination. Give the bot permission to post;
 for personal delivery, start it first. Deploy after configuration changes.
 
+Timestamps: Discord messages carry `<t:unix:f>`, which every reader sees in their own timezone;
+Telegram has no such markup and gets a fixed UTC stamp built without `Intl`, because the runtime's
+ICU data disagrees with itself about whether `short` is "Sep" or "Sept".
+
 Discord destinations take a `channelId` and the same `streams`. A bot only reaches a private
 category when its role is granted `VIEW_CHANNEL` there; creating channels additionally needs
 `MANAGE_CHANNELS`, which the bot does not have and does not need for delivery. Verify a new channel

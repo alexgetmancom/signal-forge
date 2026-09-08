@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import type { Destination } from "../src/config.js";
-import { type Collection, canonical, saveCollection, splitMessage } from "../src/events.js";
+import { type Collection, canonical, renderEvent, saveCollection, splitMessage } from "../src/events.js";
 import { openDatabase } from "../src/storage/database.js";
 
 const db = openDatabase(":memory:");
@@ -170,4 +170,20 @@ test("shared feed keeps topic headings on every bounded message part", () => {
   expect(db.query("SELECT DISTINCT source,stream FROM events").all()).toEqual([
     { source: "openrouter", stream: "openrouter" },
   ]);
+});
+
+test("timestamps let each platform speak its reader's clock", () => {
+  const event = {
+    id: 7,
+    source: "openrouter",
+    stream: "openrouter",
+    entity_id: "vendor/model",
+    kind: "new" as const,
+    before_json: null,
+    after_json: JSON.stringify({ id: "vendor/model", name: "Vendor: Model" }),
+    detected_at: "2026-09-08T14:06:00.000Z",
+  };
+  // Discord renders this in the viewer's own timezone; a fixed zone cannot.
+  expect(renderEvent(event, "https://example.com", undefined, "discord")).toContain("<t:1788876360:f>");
+  expect(renderEvent(event, "https://example.com", undefined, "telegram")).toContain("08 Sep 14:06 UTC");
 });

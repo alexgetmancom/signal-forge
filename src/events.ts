@@ -89,6 +89,19 @@ function describe(value: unknown): string {
       .join(", ");
   return String(value);
 }
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/**
+ * Built by hand rather than through Intl: the runtime's ICU data decides whether `short` means
+ * "Sep" or "Sept" and whether the separator is a comma or " at ", so the same event rendered on a
+ * laptop and in the container came out differently. A feed's timestamps must not depend on that.
+ */
+export function utcStamp(iso: string): string {
+  const at = new Date(iso);
+  const pad = (value: number) => String(value).padStart(2, "0");
+  return `${pad(at.getUTCDate())} ${MONTHS[at.getUTCMonth()]} ${pad(at.getUTCHours())}:${pad(at.getUTCMinutes())} UTC`;
+}
+
 export function meaningfulWebString(value: string): boolean {
   if (value.length < 18 || value.length > 500 || /^[-+\d\s.,:;/()]+$/.test(value)) return false;
   return /\b(Claude|model|agent|Cowork|Code|browser|connector|plugin|skill|MCP|API|usage|context|remote|project|worktree|GitHub|Slack|memory|plan|tool|SSH|Bedrock|security|permission|approval)\b/i.test(
@@ -117,7 +130,12 @@ function prices(before: unknown, after: unknown): string[] {
   }
   return result;
 }
-export function renderEvent(event: Event, url: string, reportBaseUrl?: string): string {
+export function renderEvent(
+  event: Event,
+  url: string,
+  reportBaseUrl?: string,
+  platform: Destination["platform"] = "telegram",
+): string {
   const before = event.before_json ? (JSON.parse(event.before_json) as RecordData) : null;
   const after = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
   const record = after ?? before;
@@ -183,17 +201,15 @@ export function renderEvent(event: Event, url: string, reportBaseUrl?: string): 
       : event.source === "openrouter"
         ? `https://openrouter.ai/${event.entity_id}`
         : url;
-  const time = new Intl.DateTimeFormat("en-GB", {
-    timeZone: "UTC",
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(event.detected_at));
+  // Discord renders <t:unix:f> in each viewer's own timezone, so a reader in California sees
+  // California time and one in Berlin sees Berlin time. No fixed zone can do that, which is why
+  // the platform decides here instead of the feed picking somebody's home clock.
+  const stamp = Math.floor(Date.parse(event.detected_at) / 1000);
+  const time = platform === "discord" ? `<t:${stamp}:f>` : utcStamp(event.detected_at);
   lines.push("", link);
   if (reportBaseUrl && event.stream === "web")
     lines.push(`Full report: ${reportBaseUrl.replace(/\/$/, "")}/reports/${event.id}`);
-  lines.push(`Signal Forge · ${time} UTC · #${event.id}`);
+  lines.push(`Signal Forge · ${time} · #${event.id}`);
   return lines.join("\n");
 }
 export function saveCollection(
@@ -409,7 +425,7 @@ export function prepareDeliveries(db: Database, now = Date.now(), reportBaseUrl?
         // Keep each item compact; full before/after evidence remains available by event ID.
         const text = events
           .map((event) => {
-            const rendered = renderEvent(event, event.url, reportBaseUrl);
+            const rendered = renderEvent(event, event.url, reportBaseUrl, d.platform);
             const lines = rendered.split("\n");
             const footer = lines.slice(-2).join("\n");
             const content = lines.slice(1, -2).join("\n").trim();
