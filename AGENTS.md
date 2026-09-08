@@ -1,7 +1,11 @@
 # Working agreement
 
 One developer and operator. Work on main, no pull requests, compatibility shims or speculative layers.
-Code, comments and docs are English; product messages may be Russian.
+English everywhere you write: code, comments, docs, commit messages, log lines, error text, and
+every operational or verification message you send anywhere — a delivery test posted into a channel,
+a note about what was deployed or changed, a status line. If a human will read it as part of running
+this system, it is English. The only Russian in this repository is the product copy that subscribers
+receive, and that is data with an owner decision behind it, not something to write ad hoc.
 Run `bun run check` before pushing. Tests target data loss, duplicate delivery and source parsing.
 Only config.ts reads process.env. Validate external responses with Zod.
 Register background work with the runtime supervisor. Never log credentials or request URLs containing them.
