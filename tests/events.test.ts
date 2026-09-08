@@ -6,7 +6,7 @@ import { openDatabase } from "../src/storage/database.js";
 const db = openDatabase(":memory:");
 afterEach(() =>
   db.exec(
-    "DELETE FROM deliveries; DELETE FROM batches; DELETE FROM events; DELETE FROM records; DELETE FROM snapshots; DELETE FROM sources;",
+    "DELETE FROM deliveries; DELETE FROM batches; DELETE FROM events; DELETE FROM change_candidates; DELETE FROM records; DELETE FROM snapshots; DELETE FROM sources;",
   ),
 );
 const targets: Destination[] = [
@@ -64,6 +64,18 @@ test("changed metadata preserves before and after; key order has no effect", () 
   expect(JSON.parse(event?.before_json ?? "{}").pricing.input).toBe(1);
   expect(JSON.parse(event?.after_json ?? "{}").pricing.input).toBe(2);
 });
+test("confirmed changes suppress one-observation catalog jitter", () => {
+  const c = { ...collection(["a"]), confirmChanges: true };
+  c.records[0] = { id: "a", name: "A", pricing: { prompt: 1 } };
+  saveCollection(db, c, []);
+  c.records[0] = { id: "a", name: "A", pricing: { prompt: 2 } };
+  expect(saveCollection(db, c, [])).toBe(0);
+  c.records[0] = { id: "a", name: "A", pricing: { prompt: 1 } };
+  expect(saveCollection(db, c, [])).toBe(0);
+  c.records[0] = { id: "a", name: "A", pricing: { prompt: 2 } };
+  expect(saveCollection(db, c, [])).toBe(0);
+  expect(saveCollection(db, c, [])).toBe(1);
+});
 test("append-only feeds do not remove older entries or reannounce edited entries", () => {
   saveCollection(db, { ...collection(["a"]), appendOnly: true }, []);
   expect(saveCollection(db, { ...collection([]), appendOnly: true }, [])).toBe(0);
@@ -112,6 +124,12 @@ test("Telegram copy displays readable prices and only changed parameters", async
   expect(text).toContain("Параметры: + structured_outputs");
   expect(text).not.toContain('"prompt"');
   expect(text).toContain("05:00 МСК");
+});
+
+test("web copy hides routine strings but keeps product signals", async () => {
+  const { meaningfulWebString } = await import("../src/events.js");
+  expect(meaningfulWebString("Open in new tab")).toBe(false);
+  expect(meaningfulWebString("Claude Code can now open a remote worktree")).toBe(true);
 });
 
 test("multiple changes form one message and hourly digest survives until due", async () => {

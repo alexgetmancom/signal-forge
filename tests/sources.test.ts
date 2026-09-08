@@ -3,10 +3,10 @@ import { loadConfig } from "../src/config.js";
 import { saveCollection } from "../src/events.js";
 import { parseArena, parseLeaderboards } from "../src/sources/arena.js";
 import { collectAnthropic, collectOpenRouter } from "../src/sources/catalogs.js";
-import { extractStrings } from "../src/sources/claude.js";
+import { claudeAssetImports, extractStrings } from "../src/sources/claude.js";
 import { collectGithubCommits, summarizeDiff } from "../src/sources/github.js";
 import { fetchText } from "../src/sources/http.js";
-import { parseOpenAINews } from "../src/sources/news.js";
+import { parseAnthropicNews, parseOpenAINews } from "../src/sources/news.js";
 import { openDatabase } from "../src/storage/database.js";
 
 function nextPage(value: unknown): string {
@@ -41,12 +41,37 @@ test("RSS parses escaped titles and preserves article dates", () => {
   expect(c.records[0]?.published).toBe("2026-09-07T10:00:00.000Z");
   expect(() => parseOpenAINews("<html>unavailable</html>")).toThrow();
 });
+test("Anthropic newsroom parser keeps official title, category and date", () => {
+  const html = `<ul><li><a href="/news/new-model" class="item"><div><time class="date">Sep 1, 2026</time><span class="subject">Product</span></div><span class="title">Claude &amp; tools</span></a></li></ul>`;
+  const c = parseAnthropicNews(html);
+  expect(c.records).toEqual([
+    {
+      id: "https://www.anthropic.com/news/new-model",
+      name: "Claude & tools",
+      url: "https://www.anthropic.com/news/new-model",
+      category: "Product",
+      published: "2026-09-01T00:00:00.000Z",
+    },
+  ]);
+  expect(() => parseAnthropicNews("<html>unavailable</html>")).toThrow("not found");
+});
 test("Claude extraction decodes strings without executing source", () => {
   expect(
     extractStrings(
       'throw Error("never run");const a={defaultMessage:"Hello\\nworld"};x({defaultMessage:"Hello\\nworld"})',
     ),
   ).toEqual(["Hello\nworld"]);
+});
+test("Claude asset discovery follows static and dynamic relative imports", () => {
+  expect(
+    claudeAssetImports(
+      'import x from "./one.js";const y=import("../two.js");import("https://example.com/no.js")',
+      "https://assets-proxy.anthropic.com/claude-ai/app/chunks/main.js",
+    ),
+  ).toEqual([
+    "https://assets-proxy.anthropic.com/claude-ai/app/chunks/one.js",
+    "https://assets-proxy.anthropic.com/claude-ai/app/two.js",
+  ]);
 });
 test("OpenRouter schema rejects error pages and normalizes modality ordering", async () => {
   const data = {

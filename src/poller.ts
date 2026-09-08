@@ -8,7 +8,7 @@ import { collectAnthropic, collectGemini, collectOpenAI, collectOpenRouter } fro
 import { collectClaude } from "./sources/claude.js";
 import { collectCodexDocs } from "./sources/codex.js";
 import { collectGithubCommits, collectGithubPulls, collectGithubReleases } from "./sources/github.js";
-import { collectOpenAINews } from "./sources/news.js";
+import { collectAnthropicNews, collectOpenAINews } from "./sources/news.js";
 
 export function sourceJobs(
   db: Database,
@@ -17,6 +17,7 @@ export function sourceJobs(
   const jobs = [
     { id: "openrouter", interval: config.pollSeconds, run: () => collectOpenRouter() },
     { id: "openai-news", interval: 900, run: () => collectOpenAINews() },
+    { id: "anthropic-news", interval: 900, run: () => collectAnthropicNews() },
     { id: "arena", interval: config.pollSeconds, run: () => collectArena() },
     { id: "arena-leaderboards", interval: 1800, run: () => collectLeaderboards() },
     { id: "codex-docs", interval: 3600, run: () => collectCodexDocs() },
@@ -51,7 +52,13 @@ export async function pollSources(db: Database, config: AppConfig, force = false
     if (!force && last?.checked_at && Date.now() - Date.parse(last.checked_at) < job.interval * 1000) continue;
     try {
       const collection = await job.run();
-      const events = saveCollection(db, collection, config.destinations);
+      const events = saveCollection(
+        db,
+        collection,
+        config.destinations,
+        new Date().toISOString(),
+        config.REPORT_BASE_URL,
+      );
       log("info", "Source collected", { source: job.id, records: collection.records.length, events });
     } catch (error) {
       // Source errors may contain credentials or an entire invalid response. Keep a safe operational category.

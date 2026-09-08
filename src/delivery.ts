@@ -19,7 +19,7 @@ export function recoverInterruptedDeliveries(db: Database): void {
   ).run(Date.now());
 }
 export async function deliverPending(db: Database, config: AppConfig, request: Fetch = fetch): Promise<void> {
-  prepareDeliveries(db);
+  prepareDeliveries(db, Date.now(), config.REPORT_BASE_URL);
   // One sequential sender respects channel order; each claim is conditional even if another process races it.
   for (let n = 0; n < 20; n++) {
     const now = Date.now();

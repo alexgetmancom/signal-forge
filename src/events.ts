@@ -11,6 +11,7 @@ export type Collection = {
   appendOnly?: boolean;
   silentIds?: string[];
   trackChanges?: boolean;
+  confirmChanges?: boolean;
 };
 export type Event = {
   id: number;
@@ -74,6 +75,7 @@ const sourceLabels: Record<string, string> = {
   arena: "Arena",
   "arena-leaderboards": "Arena · рейтинги",
   "openai-news": "OpenAI · новости",
+  "anthropic-news": "Anthropic · новости",
   "claude-web": "Claude · интерфейс",
   "codex-docs": "Codex · документация",
 };
@@ -86,6 +88,12 @@ function describe(value: unknown): string {
       .map(([k, v]) => (v === true ? k : `${k}: ${describe(v)}`))
       .join(", ");
   return String(value);
+}
+export function meaningfulWebString(value: string): boolean {
+  if (value.length < 18 || value.length > 500 || /^[-+\d\s.,:;/()]+$/.test(value)) return false;
+  return /\b(Claude|model|agent|Cowork|Code|browser|connector|plugin|skill|MCP|API|usage|context|remote|project|worktree|GitHub|Slack|memory|plan|tool|SSH|Bedrock|security|permission|approval)\b/i.test(
+    value,
+  );
 }
 function prices(before: unknown, after: unknown): string[] {
   const old = before && typeof before === "object" ? (before as Record<string, unknown>) : {};
@@ -109,7 +117,7 @@ function prices(before: unknown, after: unknown): string[] {
   }
   return result;
 }
-export function renderEvent(event: Event, url: string): string {
+export function renderEvent(event: Event, url: string, reportBaseUrl?: string): string {
   const before = event.before_json ? (JSON.parse(event.before_json) as RecordData) : null;
   const after = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
   const record = after ?? before;
@@ -127,11 +135,17 @@ export function renderEvent(event: Event, url: string): string {
       current = new Set(after.strings as string[]);
     const added = [...current].filter((s) => !previous.has(s)),
       removed = [...previous].filter((s) => !current.has(s));
-    lines.push(`Новых строк: ${added.length}; исчезнувших: ${removed.length}`);
+    const usefulAdded = added.filter(meaningfulWebString);
+    const usefulRemoved = removed.filter(meaningfulWebString);
     lines.push(
-      ...added.slice(0, 12).map((s) => `+ ${s.slice(0, 180)}`),
-      ...removed.slice(0, 3).map((s) => `− ${s.slice(0, 180)}`),
+      `Значимых строк: +${usefulAdded.length}/−${usefulRemoved.length}; всего изменено: +${added.length}/−${removed.length}`,
     );
+    lines.push(
+      ...usefulAdded.slice(0, 12).map((s) => `+ ${s.slice(0, 180)}`),
+      ...usefulRemoved.slice(0, 3).map((s) => `− ${s.slice(0, 180)}`),
+    );
+    if (!usefulAdded.length && !usefulRemoved.length)
+      lines.push("Только служебные или короткие строки; подробности оставлены в отчёте.");
     lines.push("Изменение публичного текста — ещё не подтверждение выпуска функции.");
   } else if (event.stream === "github") {
     if (record?.stage) lines.push(describe(record.stage));
@@ -176,7 +190,10 @@ export function renderEvent(event: Event, url: string): string {
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(event.detected_at));
-  lines.push("", link, `Signal Forge · ${time} МСК · #${event.id}`);
+  lines.push("", link);
+  if (reportBaseUrl && event.stream === "web")
+    lines.push(`Полный отчёт: ${reportBaseUrl.replace(/\/$/, "")}/reports/${event.id}`);
+  lines.push(`Signal Forge · ${time} МСК · #${event.id}`);
   return lines.join("\n");
 }
 export function saveCollection(
@@ -184,6 +201,7 @@ export function saveCollection(
   c: Collection,
   destinations: Destination[],
   now = new Date().toISOString(),
+  reportBaseUrl?: string,
 ): number {
   if (!c.records.length && !c.appendOnly) throw new Error(`${c.source}: empty collection rejected`);
   if (new Set(c.records.map((r) => r.id)).size !== c.records.length)
@@ -239,6 +257,7 @@ export function saveCollection(
     for (const record of c.records) {
       const body = canonical(record),
         before = previous.get(record.id);
+      previous.delete(record.id);
       if (initialized?.last_success && !before && !c.silentIds?.includes(record.id)) emit(record.id, "new", null, body);
       else if (
         initialized?.last_success &&
@@ -246,17 +265,33 @@ export function saveCollection(
         before.body !== body &&
         (!c.appendOnly || c.trackChanges) &&
         !c.silentIds?.includes(record.id)
-      )
-        emit(record.id, "changed", before.body, body);
+      ) {
+        if (c.confirmChanges) {
+          const candidate = db
+            .query<{ body: string; observations: number }, [string, string]>(
+              "SELECT body,observations FROM change_candidates WHERE source=? AND id=?",
+            )
+            .get(c.source, record.id);
+          if (candidate?.body === body && candidate.observations >= 1) {
+            emit(record.id, "changed", before.body, body);
+            db.query("DELETE FROM change_candidates WHERE source=? AND id=?").run(c.source, record.id);
+          } else {
+            db.query(
+              "INSERT INTO change_candidates(source,id,body,observations) VALUES(?,?,?,1) ON CONFLICT(source,id) DO UPDATE SET body=excluded.body,observations=1",
+            ).run(c.source, record.id, body);
+            continue;
+          }
+        } else emit(record.id, "changed", before.body, body);
+      } else db.query("DELETE FROM change_candidates WHERE source=? AND id=?").run(c.source, record.id);
       db.query(
         "INSERT INTO records(source,id,body) VALUES(?,?,?) ON CONFLICT(source,id) DO UPDATE SET body=excluded.body,missing_count=0",
       ).run(c.source, record.id, body);
-      previous.delete(record.id);
     }
     if (!c.appendOnly)
       for (const row of previous.values()) {
         if (row.missing_count >= 1) {
           emit(row.id, "removed", row.body, null);
+          db.query("DELETE FROM change_candidates WHERE source=? AND id=?").run(c.source, row.id);
           db.query("DELETE FROM records WHERE source=? AND id=?").run(c.source, row.id);
         } else
           db.query("UPDATE records SET missing_count=missing_count+1 WHERE source=? AND id=?").run(c.source, row.id);
@@ -290,7 +325,7 @@ export function saveCollection(
           JSON.stringify(d),
         );
     }
-    prepareDeliveries(db, Date.parse(now));
+    prepareDeliveries(db, Date.parse(now), reportBaseUrl);
     db.query(
       "INSERT INTO sources(id,last_success,checked_at) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET last_success=excluded.last_success,checked_at=excluded.checked_at,last_error=NULL",
     ).run(c.source, now, now);
@@ -324,7 +359,7 @@ export function isRoutine(event: Event): boolean {
   return !important.some((key) => canonical(before[key]) !== canonical(after[key]));
 }
 
-export function prepareDeliveries(db: Database, now = Date.now()): void {
+export function prepareDeliveries(db: Database, now = Date.now(), reportBaseUrl?: string): void {
   db.transaction(() => {
     const batches = db
       .query<{ id: number; digest: number; source: string }, [number]>(
@@ -364,7 +399,7 @@ export function prepareDeliveries(db: Database, now = Date.now()): void {
         for (const event of events) for (const tag of (topics[event.stream] ?? "#Обновления").split(" ")) tags.add(tag);
         if (batch.source === "codex-docs" || batch.source.startsWith("github:openai/codex:")) tags.add("#Codex");
         if (batch.source === "codex-docs") tags.add("#Документация");
-        if (batch.source === "claude-web" || batch.source === "anthropic") tags.add("#Claude");
+        if (["claude-web", "anthropic", "anthropic-news"].includes(batch.source)) tags.add("#Claude");
         if (batch.source === "openai" || batch.source === "openai-news") tags.add("#OpenAI");
         if (batch.source === "gemini") tags.add("#Gemini");
         if (batch.source.endsWith(":pulls")) tags.add("#PR");
@@ -374,7 +409,7 @@ export function prepareDeliveries(db: Database, now = Date.now()): void {
         // Keep each item compact; full before/after evidence remains available by event ID.
         const text = events
           .map((event) => {
-            const rendered = renderEvent(event, event.url);
+            const rendered = renderEvent(event, event.url, reportBaseUrl);
             const lines = rendered.split("\n");
             const footer = lines.slice(-2).join("\n");
             const content = lines.slice(1, -2).join("\n").trim();

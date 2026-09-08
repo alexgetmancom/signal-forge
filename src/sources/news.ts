@@ -49,3 +49,41 @@ export function parseOpenAINews(text: string): Collection {
 export async function collectOpenAINews(request: Fetch = fetch): Promise<Collection> {
   return parseOpenAINews(await fetchText("https://openai.com/news/rss.xml", {}, request));
 }
+
+const anthropicItem =
+  /<li><a href="(\/news\/[^"]+)"[^>]*>.*?<time[^>]*>([^<]+)<\/time>.*?<span[^>]*subject[^>]*>([^<]*)<\/span>.*?<span[^>]*title[^>]*>([^<]+)<\/span><\/a><\/li>/gs;
+
+function decodeHtml(text: string): string {
+  const named: Record<string, string> = { amp: "&", apos: "'", gt: ">", lt: "<", quot: '"' };
+  return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (_match, entity: string) => {
+    if (entity.startsWith("#x")) return String.fromCodePoint(Number.parseInt(entity.slice(2), 16));
+    if (entity.startsWith("#")) return String.fromCodePoint(Number.parseInt(entity.slice(1), 10));
+    return named[entity.toLowerCase()] ?? `&${entity};`;
+  });
+}
+
+export function parseAnthropicNews(html: string): Collection {
+  const records = [...html.matchAll(anthropicItem)].map((match) => {
+    const path = match[1] ?? "";
+    return {
+      id: `https://www.anthropic.com${path}`,
+      name: decodeHtml(match[4] ?? "").trim(),
+      url: `https://www.anthropic.com${path}`,
+      category: decodeHtml(match[3] ?? "").trim() || null,
+      published: new Date(`${match[2]} UTC`).toISOString(),
+    };
+  });
+  if (!records.length) throw new Error("Anthropic newsroom entries not found");
+  return {
+    source: "anthropic-news",
+    stream: "news",
+    url: "https://www.anthropic.com/news",
+    raw: html,
+    appendOnly: true,
+    records,
+  };
+}
+
+export async function collectAnthropicNews(request: Fetch = fetch): Promise<Collection> {
+  return parseAnthropicNews(await fetchText("https://www.anthropic.com/news", {}, request));
+}

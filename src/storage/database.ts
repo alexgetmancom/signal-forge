@@ -16,6 +16,10 @@ export function openDatabase(path: string): Database {
       source TEXT NOT NULL, id TEXT NOT NULL, body TEXT NOT NULL, missing_count INTEGER NOT NULL DEFAULT 0,
       PRIMARY KEY(source,id)
     );
+    CREATE TABLE IF NOT EXISTS change_candidates (
+      source TEXT NOT NULL, id TEXT NOT NULL, body TEXT NOT NULL, observations INTEGER NOT NULL,
+      PRIMARY KEY(source,id)
+    );
     CREATE TABLE IF NOT EXISTS events (
       id INTEGER PRIMARY KEY, source TEXT NOT NULL, stream TEXT NOT NULL, entity_id TEXT NOT NULL,
       kind TEXT NOT NULL CHECK(kind IN ('new','changed','removed')), before_json TEXT, after_json TEXT,

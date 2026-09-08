@@ -26,6 +26,7 @@ export async function collectOpenRouter(request: Fetch = fetch): Promise<Collect
   return {
     source: "openrouter",
     stream: "openrouter",
+    confirmChanges: true,
     url,
     raw,
     records: data.data.map((m) => ({

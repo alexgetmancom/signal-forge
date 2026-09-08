@@ -11,6 +11,13 @@ test("health is public, operational state requires token, MCP lists matching sch
     }),
     app = createHttpApp(config, db);
   expect((await app.request("/readyz")).status).toBe(200);
+  expect((await app.request("/reports/1")).status).toBe(404);
+  db.exec(`INSERT INTO snapshots(id,source,collected_at,raw_json) VALUES(1,'web','2026-09-08','{}');
+    INSERT INTO events(id,source,stream,entity_id,kind,before_json,after_json,detected_at,snapshot_id)
+    VALUES(1,'web','web','<script>','changed','{"strings":[]}','{"strings":["Claude Code"]}','2026-09-08',1)`);
+  const report = await app.request("/reports/1");
+  expect(report.status).toBe(200);
+  expect(await report.text()).toContain("&lt;script&gt;");
   expect((await app.request("/api/status")).status).toBe(401);
   const response = await app.request("/api/mcp", {
     method: "POST",

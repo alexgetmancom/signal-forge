@@ -19,29 +19,38 @@ export function extractStrings(code: string): string[] {
   }
   return [...values].sort();
 }
+export function claudeAssetImports(code: string, parent: string): string[] {
+  const urls = new Set<string>();
+  for (const match of code.matchAll(/(?:\bfrom\s*|\bimport\s*\(\s*)["'](\.\.?\/[^"'?]+\.js)["']/g))
+    urls.add(assetSchema.parse(new URL(match[1] ?? "", parent).href));
+  return [...urls];
+}
 export async function collectClaude(request: Fetch = fetch): Promise<Collection> {
   const html = await fetchText("https://claude.ai", {}, request);
   const entry = assetSchema.parse(
     html.match(/<script[^>]+src="(https:\/\/assets-proxy\.anthropic\.com\/[^"]+\.js)"/)?.[1],
   );
   const code = await fetchText(entry, {}, request);
-  const imports = [
-    ...new Set(
-      [...code.matchAll(/from\s*"(\.\/[^"?]+\.js)"/g)].map((m) => assetSchema.parse(new URL(m[1] ?? "", entry).href)),
-    ),
-  ];
-  if (imports.length > 80) throw new Error("Public page Claude import count exceeds limit");
   const raw: Record<string, string> = { [entry]: code };
   let bytes = code.length;
-  // Only the public entry and its direct imports. A failed asset invalidates the whole observation.
-  for (let i = 0; i < imports.length; i += 4) {
+  const queued = claudeAssetImports(code, entry).map((url) => ({ url, depth: 1 }));
+  const seen = new Set([entry, ...queued.map((item) => item.url)]);
+  // Two levels include feature chunks omitted by the entry bundle without traversing the entire vendor graph.
+  for (let i = 0; i < queued.length; i += 4) {
     const batch = await Promise.all(
-      imports.slice(i, i + 4).map(async (url) => ({ url, code: await fetchText(url, {}, request) })),
+      queued.slice(i, i + 4).map(async (item) => ({ ...item, code: await fetchText(item.url, {}, request) })),
     );
     for (const asset of batch) {
       bytes += asset.code.length;
-      if (bytes > 50_000_000) throw new Error("Public page Claude assets exceed 50 MB limit");
+      if (bytes > 150_000_000) throw new Error("Public page Claude assets exceed 150 MB limit");
       raw[asset.url] = asset.code;
+      if (asset.depth >= 2) continue;
+      for (const url of claudeAssetImports(asset.code, asset.url)) {
+        if (seen.has(url)) continue;
+        seen.add(url);
+        queued.push({ url, depth: asset.depth + 1 });
+        if (seen.size > 1200) throw new Error("Public page Claude asset graph exceeds 1200 files at depth 2");
+      }
     }
   }
   const strings = [...new Set(Object.values(raw).flatMap(extractStrings))].sort();

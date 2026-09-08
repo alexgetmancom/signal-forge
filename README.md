@@ -6,7 +6,7 @@ separate in the database. Outstanding work is in [WORKING-NOTES.md](WORKING-NOTE
 ## Production
 
 One instance runs on `vm106` in `/opt/signal-forge`. SQLite is in `data/app.db`.
-HTTP is available only at `127.0.0.1:18081` on VM106. Do not start a second production collector.
+HTTP reports are available on the home LAN at `http://192.168.10.106:18081`; operational APIs still require the bearer token. Do not start a second production collector.
 
 Local `.env` and `signal-forge.json` are the deployment configuration. Deploy through:
 
@@ -44,6 +44,7 @@ for personal delivery, start it first. Deploy after configuration changes.
 Destinations receive future events only. The first source observation is quiet.
 
 Set `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` and `GEMINI_API_KEY` to enable their catalogs.
+Set `REPORT_BASE_URL` to the LAN origin used for full web-diff links.
 Set `GITHUB_TOKEN` to raise the GitHub request allowance. Optional `github` entries accept
 `repo` and `paths`; the default repository is `openai/codex`.
 

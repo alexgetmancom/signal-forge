@@ -14,6 +14,35 @@ export function createHttpApp(config: AppConfig, db: Database): Hono {
     db.query("SELECT 1").get();
     return c.text("ready\n");
   });
+  app.get("/reports/:id", (c) => {
+    const id = z.coerce.number().int().positive().safeParse(c.req.param("id"));
+    if (!id.success) return c.text("Invalid report ID\n", 400);
+    const event = db
+      .query<
+        {
+          id: number;
+          source: string;
+          entity_id: string;
+          kind: string;
+          before_json: string | null;
+          after_json: string | null;
+          detected_at: string;
+        },
+        [number]
+      >("SELECT id,source,entity_id,kind,before_json,after_json,detected_at FROM events WHERE id=?")
+      .get(id.data);
+    if (!event) return c.text("Report not found\n", 404);
+    const escapeHtml = (value: unknown) =>
+      String(value ?? "")
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;");
+    const pretty = (value: string | null) => (value ? JSON.stringify(JSON.parse(value), null, 2) : "—");
+    return c.html(
+      `<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Signal Forge · #${event.id}</title><style>body{font:16px system-ui;max-width:1100px;margin:40px auto;padding:0 20px;color:#17202a}h1{margin-bottom:4px}small{color:#667085}section{margin-top:28px}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f4f6f8;padding:18px;border-radius:10px}</style></head><body><h1>${escapeHtml(event.entity_id)}</h1><small>Signal Forge · ${escapeHtml(event.source)} · ${escapeHtml(event.kind)} · ${escapeHtml(event.detected_at)} · #${event.id}</small><section><h2>До</h2><pre>${escapeHtml(pretty(event.before_json))}</pre></section><section><h2>После</h2><pre>${escapeHtml(pretty(event.after_json))}</pre></section></body></html>`,
+    );
+  });
   app.use("/api/*", bodyLimit({ maxSize: 64 * 1024 }));
   app.use("/api/*", async (c, next) => {
     if (!config.MCP_TOKEN || !bearerTokenAccepted(c.req.raw, config.MCP_TOKEN)) return c.text("unauthorized\n", 401);
