@@ -18,10 +18,10 @@ export type SourceHealth = {
   detail: string;
 };
 
-/** Restrictions we have measured, so the board explains rather than blaming the collector. */
+/** Upstreams that do not deliver to us. Worded neutrally: no operator location or routing details. */
 const RESTRICTED: Record<string, string> = {
-  gemini: "region-locked: Google refuses every exit we have",
-  "vercel-gateway": "unreachable from this network: the response is cut at ~16 KB",
+  gemini: "upstream is not serving this feed to us — no data reaching the collector",
+  "vercel-gateway": "upstream response arrives incomplete — waiting on a full feed",
 };
 
 const GROUPS: [RegExp, string][] = [
@@ -92,7 +92,7 @@ export function statusEmbed(health: SourceHealth[], now = Date.now()): Record<st
 
   return {
     title: "Tracker status",
-    description: `${headline}${blocked.length ? `\n${DOTS.blocked} ${blocked.length} restricted, not broken` : ""}`,
+    description: `${headline}${blocked.length ? `\n${DOTS.blocked} ${blocked.length} waiting on upstream` : ""}`,
     color:
       failing.length === 0 ? COLORS.ok : failing.some((e) => e.state === "failing") ? COLORS.down : COLORS.degraded,
     fields,
