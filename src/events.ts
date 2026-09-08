@@ -80,6 +80,8 @@ const sourceLabels: Record<string, string> = {
   "codex-docs": "Codex · docs",
   "vercel-gateway": "Vercel AI Gateway",
   "cursor-changelog": "Cursor · changelog",
+  "status:openai": "OpenAI · status",
+  "status:anthropic": "Anthropic · status",
 };
 function describe(value: unknown): string {
   if (value === null || value === undefined || value === "") return "not set";
@@ -292,6 +294,7 @@ const EYEBROWS: Record<string, string> = {
   github: "REPOSITORY",
   weights: "OPEN WEIGHTS",
   packages: "PACKAGE",
+  incidents: "PLATFORM HEALTH",
 };
 
 /** One line saying where the observation came from, so a reader knows how much to trust it. */

@@ -1,7 +1,11 @@
 # Signal Forge
 
-One shared Telegram feed with source headings and topic hashtags. Source and stream remain
-separate in the database. Outstanding work is in [WORKING-NOTES.md](WORKING-NOTES.md).
+Six Discord channels, one stream per subject, plus two boards that are edited in place rather than
+posted repeatedly. Source and stream remain separate in the database, so a channel layout is a
+configuration choice and not a schema. Outstanding work is in [WORKING-NOTES.md](WORKING-NOTES.md).
+
+Telegram delivery is implemented and tested but has no destination configured: the audience is on
+Discord. Re-enabling it is one entry in `signal-forge.json`, which is why the code stays.
 
 ## Production
 
@@ -21,10 +25,19 @@ Deployment runs checks, builds on VM106 and waits for container health. It prese
 database. Credentials are excluded from the image. The container runs as UID 1000 and restarts
 automatically.
 
-## Status board
+## Boards
 
-Set `statusChannelId` in `signal-forge.json` and one Discord message in that channel becomes a
-board: every collector with a coloured dot, grouped, edited in place every five minutes. It is
+Two messages are edited in place instead of being reposted, so a channel holds a state rather than
+a log. Both are rewritten only when their content actually changed — editing an unchanged board
+would mark the channel unread for everyone watching it. Deleting a board by hand makes the next
+cycle post a fresh one, which is also how their order in the channel is fixed.
+
+**Platform health** (`platformBoardChannelId`, defaults to the status channel) shows what OpenAI's
+and Anthropic's own status pages say, with their open incidents. Vendors that do not run Statuspage
+are absent on purpose: `status.x.ai` refuses its own API, and Google publishes a different document
+for the whole cloud.
+
+**Tracker status** (`statusChannelId`) is about us: every collector with a coloured dot, grouped, edited in place every five minutes. It is
 rewritten only when something actually changed, so the channel holds a board rather than a log, and
 deleting the message by hand makes the next cycle post a fresh one.
 
@@ -52,26 +65,43 @@ ssh vm106 'cd /opt/signal-forge && gunzip -c backups/app-<stamp>.db.gz > data/ap
 ssh vm106 'cd /opt/signal-forge && docker compose up -d --wait'
 ```
 
+## Alerts
+
+`alertChannelId` names a private channel that receives one message when a collector stops
+reporting and one when it recovers — never a repeat while the same outage continues. This is
+operational noise for the owner, not content for subscribers, so it does not go to a feed channel.
+A rejected alert leaves the stored state untouched, so the next cycle retries rather than losing
+the transition.
+
 ## Configuration
 
-Set `TELEGRAM_BOT_TOKEN` in `.env`. Configure one destination in `signal-forge.json`:
+Set `DISCORD_BOT_TOKEN` in `.env`. Configure destinations in `signal-forge.json`:
 
 ```json
 {
   "pollSeconds": 300,
   "destinations": [
     {
-      "id": "telegram-feed",
-      "platform": "telegram",
-      "chatId": "-1001234567890",
-      "streams": ["api-models", "openrouter", "news", "arena", "leaderboards", "web", "github"]
+      "id": "discord-api-models",
+      "platform": "discord",
+      "channelId": "000000000000000000",
+      "streams": ["api-models", "openrouter", "weights"]
     }
-  ]
+  ],
+  "statusChannelId": "000000000000000000",
+  "alertChannelId": "000000000000000000",
+  "vendorRoles": { "OpenAI": "000000000000000000" }
 }
 ```
 
-Replace the example chat ID with the actual destination. Give the bot permission to post;
-for personal delivery, start it first. Deploy after configuration changes.
+Replace the example IDs with the actual ones. Deploy after configuration changes.
+
+`vendorRoles` maps a vendor, as `vendorOf()` resolves it, to the role that follows that vendor. A
+role is pinged only when a model appears or disappears — a price edit travels in the same message
+without waking anyone — and never from a digest. The permitted mention list names exactly the roles
+the message mentions, so a stray ID cannot ping. Mentioning a role that is not "mentionable"
+requires the bot to hold *Mention @everyone, @here and All Roles* in that channel; a channel that
+still inherits its category's permissions gets this automatically.
 
 Timestamps: Discord messages carry `<t:unix:f>`, which every reader sees in their own timezone;
 Telegram has no such markup and gets a fixed UTC stamp built without `Intl`, because the runtime's
@@ -86,8 +116,17 @@ Destinations receive future events only. The first source observation is quiet.
 
 Set `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` and `GEMINI_API_KEY` to enable their catalogs.
 Set `REPORT_BASE_URL` to the LAN origin used for full web-diff links.
-Set `GITHUB_TOKEN` to raise the GitHub request allowance. Optional `github` entries accept
+Set `GITHUB_TOKEN` to raise the GitHub request allowance from 60 to 5000 an hour. Listing requests
+are conditional, and a 304 costs no quota at all. Optional `github` entries accept
 `repo` and `paths`; the default repository is `openai/codex`.
+
+## Request footprint
+
+Observations are conditional wherever a server offers a validator: `http_cache` stores the body
+with its `ETag`, and an unchanged page answers 304 with no body. Assets served `immutable` — the
+Claude bundle, whose filenames carry a content hash — are not requested again at all, which took
+one observation from 608 requests and 21 MB to 2 requests and 0.1 MB. A body arriving without a
+validator is deliberately not stored, since the next observation must download it regardless.
 
 ## Inspect delivery problems
 

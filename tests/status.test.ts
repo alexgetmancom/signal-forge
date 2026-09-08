@@ -1,7 +1,8 @@
 import { expect, test } from "bun:test";
 import { publishAlerts } from "../src/alerts.js";
 import { loadConfig } from "../src/config.js";
-import { publishStatus, sourceHealth, statusEmbed } from "../src/status.js";
+import { PLATFORMS, parsePlatformStatus } from "../src/sources/platforms.js";
+import { platformEmbed, publishStatus, sourceHealth, statusEmbed } from "../src/status.js";
 import { openDatabase } from "../src/storage/database.js";
 
 const config = loadConfig({
@@ -122,4 +123,47 @@ test("an alert that cannot be delivered is retried, not forgotten", async () => 
   await publishAlerts(db, config, failing, now);
   await publishAlerts(db, config, failing, now);
   expect(attempts).toBe(2);
+});
+
+test("the platform board reads the stored observation and names the open incidents", () => {
+  const db = openDatabase(":memory:");
+  db.query("INSERT INTO snapshots(source,collected_at,raw_json) VALUES(?,?,?)").run(
+    "status:openai",
+    "2026-09-08T12:00:00.000Z",
+    JSON.stringify({
+      headline: "Partial System Degradation",
+      indicator: "major",
+      incidents: [{ name: "Elevated errors on the API", status: "investigating", impact: "major" }],
+    }),
+  );
+  const embed = platformEmbed(db, Date.parse("2026-09-08T12:00:00.000Z")) as {
+    description: string;
+    color: number;
+  };
+  expect(embed.description).toContain("🟠 **OpenAI** — Partial System Degradation");
+  expect(embed.description).toContain("Elevated errors on the API (investigating, major)");
+  // A platform never read is not reported as healthy.
+  expect(embed.description).toContain("**Anthropic** — not read yet");
+});
+test("an incident becomes an event, and its resolution is a change rather than a deletion", () => {
+  const open = {
+    status: { description: "Partial System Degradation", indicator: "major" },
+    incidents: [
+      {
+        id: "abc",
+        name: "Elevated errors",
+        status: "investigating",
+        impact: "major",
+        incident_updates: [{ body: "We are looking into it." }],
+      },
+    ],
+  };
+  const parsed = parsePlatformStatus(JSON.stringify(open), PLATFORMS[0] as (typeof PLATFORMS)[number]);
+  expect(parsed.stream).toBe("incidents");
+  expect(parsed.appendOnly).toBe(true);
+  expect(parsed.trackChanges).toBe(true);
+  expect(parsed.records[0]).toMatchObject({ id: "abc", name: "OpenAI: Elevated errors", stage: "investigating" });
+  // A calm platform reports no incidents, and that is a valid observation, not an empty collection.
+  const calm = JSON.stringify({ status: { description: "All Systems Operational", indicator: "none" }, incidents: [] });
+  expect(parsePlatformStatus(calm, PLATFORMS[0] as (typeof PLATFORMS)[number]).records).toHaveLength(0);
 });

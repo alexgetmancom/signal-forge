@@ -16,6 +16,7 @@ import {
 } from "./sources/community.js";
 import { collectGithubCommits, collectGithubPulls, collectGithubReleases } from "./sources/github.js";
 import { collectAnthropicNews, collectOpenAINews } from "./sources/news.js";
+import { collectPlatformStatus, PLATFORMS } from "./sources/platforms.js";
 import {
   collectHuggingFace,
   collectNpm,
@@ -61,6 +62,13 @@ export function sourceJobs(
       run: () => collectDesignArena(category),
     })),
     { id: "cursor-changelog", interval: 1800, run: () => collectCursorChangelog() },
+    // Health is the one thing a reader may need within minutes, so it is polled far more often
+    // than anything else here. The documents are small and answer in milliseconds.
+    ...PLATFORMS.map((platform) => ({
+      id: `status:${platform.id}`,
+      interval: 120,
+      run: () => collectPlatformStatus(platform),
+    })),
     ...NPM_PACKAGES.map((name) => ({ id: `npm:${name}`, interval: 900, run: () => collectNpm(name, fetch, cache) })),
     ...PYPI_PACKAGES.map((name) => ({ id: `pypi:${name}`, interval: 900, run: () => collectPypi(name, fetch, cache) })),
   ];

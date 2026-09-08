@@ -1,22 +1,52 @@
 # Remaining work
 
+Ordered by what would help a reader most, not by effort.
+
 | Priority | Task | Dependency / scope |
 |---|---|---|
-| Next | Alert on prolonged source failures and recovery. | Avoid repeated alerts for the same outage. |
-| Blocked | Reach the Gemini catalog from a supported location. | See *Gemini access* below. Running without it for now. |
-| Next | Tune notification importance using actual events. | Reduce noise while preserving meaningful model, price and capability changes. |
-| Later | Add readable summaries of code and large web diffs. | Choose a model and spending limit; retain raw evidence and distinguish proposals from releases. A message now shows the first eight changed fields and counts the rest; a summary would replace that count with a sentence. |
-| Later | Separate Codex-specific documentation updates from shared ChatGPT edits. | Preserve relevant shared changes. |
-| Later | Add Codex interface-string monitoring. | Identify a usable public source. |
-| Later | Select individual Codex PR authors to follow. | Owner's author shortlist. |
-| Later | Correlate related events across sources. | Link PR → merge → documentation → release without merging their statuses. |
-| Later | Add Bedrock models and regional availability. | Needs AWS credentials: the Bedrock endpoints are SigV4-signed and answer nothing anonymously, so this is blocked on an account rather than on code. |
-| Last | Publish reports on the public site. | Explicitly deferred by the owner: everything else comes first. When it resumes, the shape discussed was a `signal.alexgetman.com` subdomain carrying full diffs, which would also give the Discord embeds a "full report" link they do not have today. |
-| Blocked | Reach the Vercel AI Gateway catalogue from VM106. | Measured 2026-09-08: `tw-nl` pulls the full 383 KB listing in 0.09 s, VM106 receives 13-16 KB and then stalls until timeout. The collector and the schema are fine; the home channel cuts the response. The fix is a routing rule sending `ai-gateway.vercel.sh` through a tunnel on `home-101`, which is an OpenWrt change and needs the owner. |
-| Deferred | A role for removals. | The owner declined it for now. It would follow models that disappear from a catalogue — the one event a reader running that model in production has to act on today. Worth revisiting if such readers turn up. |
-| Owner decision | Vercel AI Gateway routing and the Google catalogue. | The owner is deciding both, 2026-09-09: whether to add the router rule for `ai-gateway.vercel.sh`, and whether Google comes from Vertex AI or from OpenRouter. Nothing to build until then; the measurements are below. |
-| Done | Vendor role pings. | Waiting on role IDs from the owner; `vendorOf()` already resolves the vendor of an event. |
+| Next | A channel for incidents. | The platform board shows the current state, but an outage that starts and clears between two glances at the board is invisible. Incident events are already collected and stored; they have no destination until the owner names a channel. |
+| Next | Deprecation notices. | `platform.openai.com/docs/deprecations` and the equivalents. The one event a reader must act on by a date; the natural companion to a removals role. |
+| Next | More repositories. | Only `openai/codex` is watched. `anthropics/claude-code`, `google-gemini/gemini-cli` and the SDKs are one config entry each. |
+| Next | Tune notification importance against real events. | 72 events so far, 55% of them from OpenRouter. Enough traffic to see which changes readers ignore. |
+| Owner decision | Vercel AI Gateway routing and the Google catalogue. | Whether to add the router rule for `ai-gateway.vercel.sh`, and whether Google comes from Vertex AI or from OpenRouter. Measurements below. |
+| Later | Readable summaries of large diffs. | A message now shows the first eight changed fields and counts the rest. A sentence instead of a count needs a model and a spending limit. |
+| Later | Confidence labels. | A string in a bundle is not a release. Marking observations as seen / confirmed / shipped protects trust in the feed; one false certainty costs more than ten missed scoops. |
+| Later | An onboarding channel. | A reader arriving now lands in a stream with no map of which channel holds what, or how to take a role. |
+| Later | Slash commands over our own history. | `/latest openai`, `/search gpt-6`. The database already answers these; only Discord does not. |
+| Later | Correlate related events. | PR → merge → documentation → release currently arrive as separate messages. Nobody else does this, which is the argument for doing it. |
+| Later | Cloud catalogues: Bedrock, Vertex, Azure AI Foundry. | "Available on Bedrock" is its own news for corporate readers. Bedrock needs AWS credentials; its endpoints are SigV4-signed and answer nothing anonymously. |
+| Later | Mobile app releases. | App Store versions of the ChatGPT and Claude apps; release notes often name a feature days before the blog. |
+| Later | Separate Codex documentation changes from shared ChatGPT edits. | Preserve relevant shared changes. |
+| Later | Codex interface strings. | Needs a usable public source. |
+| Later | Individual Codex PR authors. | Owner's shortlist. |
+| Later | xAI status. | `status.x.ai` returns 403 on its own API and renders in the browser; Google publishes a different shape for the whole cloud. Both need their own parser. |
+| Deferred | A role for removals. | Declined for now. It would follow models that disappear from a catalogue — the one event a reader running that model in production has to act on today. Worth revisiting if such readers turn up. |
+| Deferred | Telegram delivery. | Implemented and tested, no destination configured. The audience is on Discord; re-enabling costs one config entry, which is why the code stays. |
+| Last | Publish reports on the public site. | Explicitly deferred by the owner: everything else comes first. The shape discussed was a `signal.alexgetman.com` subdomain carrying full diffs, which would also give the embeds a "full report" link they do not have today. |
 
+## Not open any more
+
+- Alerting on collector outages and recovery — built, and it caught a real failure (`cursor-changelog`
+  emitting duplicate IDs) six minutes after being switched on.
+- Vendor role pings, the HTTP cache, the GitHub credential, embeds, rank moves, codename
+  resolution, and the registry sources.
+- Backups run: `signal-forge-backup.timer` is scheduled and `backups/` holds verified copies.
+
+# Platform health
+
+Two vendors run Statuspage and expose `api/v2/summary.json`: OpenAI, and Anthropic — whose status
+host redirects to `status.claude.com`, a different origin, which the fetcher refuses on purpose, so
+the final address is used directly. Mistral answers that path with an HTML 404 page and 200, which
+is why a schema failure there is a wrong URL rather than an outage.
+
+The document carries both halves at once. The headline feeds the board and produces no events, so a
+flapping description cannot manufacture news. The open incidents are records, tracked for changes,
+so `investigating → identified → monitoring → resolved` reads as one story rather than four
+unrelated messages. They are append-only: an incident leaving the summary has been resolved, not
+deleted.
+
+Polled every two minutes — far more often than anything else here — because health is the one thing
+a reader may need within minutes. The documents are ~2 KB.
 
 # Request footprint
 

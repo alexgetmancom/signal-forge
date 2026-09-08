@@ -11,6 +11,7 @@ export const streamSchema = z.enum([
   "github",
   "weights",
   "packages",
+  "incidents",
 ]);
 const streams = z.array(streamSchema).min(1);
 export const destinationSchema = z.discriminatedUnion("platform", [
@@ -51,6 +52,8 @@ export const settingsSchema = z
      * subscriber picks the makers they care about instead of a channel they cannot filter.
      */
     vendorRoles: z.record(z.string(), z.string().regex(/^\d+$/)).default({}),
+    /** Channel holding the platform status board, edited in place. Defaults to the status channel. */
+    platformBoardChannelId: z.string().regex(/^\d+$/).optional(),
     /** Private channel for operational alerts: collector outages, not model news. */
     alertChannelId: z.string().regex(/^\d+$/).optional(),
     github: z

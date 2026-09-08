@@ -3,6 +3,7 @@ import type { AppConfig } from "./config.js";
 import type { Fetch } from "./delivery.js";
 import { log } from "./logger.js";
 import { sourceJobs } from "./poller.js";
+import { PLATFORMS } from "./sources/platforms.js";
 
 /**
  * A source can be silent for three different reasons, and a status board that calls all three
@@ -30,6 +31,7 @@ const GROUPS: [RegExp, string][] = [
   [/news$/, "Official news"],
   [/^(claude-web|codex-docs)$/, "Web"],
   [/^cursor-changelog$/, "Official news"],
+  [/^status:/, "Platform health"],
   [/^github:/, "GitHub"],
   [/^(huggingface|modelscope):/, "Open weights"],
   [/^(npm|pypi):/, "Packages"],
@@ -111,31 +113,55 @@ export async function publishStatus(
   config: AppConfig,
   request: Fetch = fetch,
   now = Date.now(),
-): Promise<"skipped" | "created" | "edited" | "unchanged"> {
+): Promise<BoardResult> {
   if (!config.statusChannelId || !config.DISCORD_BOT_TOKEN) return "skipped";
+  return publishBoard(
+    db,
+    config,
+    "status",
+    config.statusChannelId,
+    statusEmbed(sourceHealth(db, config, now), now),
+    request,
+  );
+}
 
-  const embed = statusEmbed(sourceHealth(db, config, now), now);
+export type BoardResult = "skipped" | "created" | "edited" | "unchanged";
+
+/**
+ * A board is one message that is edited in place, so the channel holds a state rather than a log.
+ * The rendered payload is compared before sending: a board that has not changed is not an event,
+ * and editing it anyway would mark the channel unread for everyone watching it.
+ */
+async function publishBoard(
+  db: Database,
+  config: AppConfig,
+  key: string,
+  channelId: string,
+  embed: Record<string, unknown>,
+  request: Fetch = fetch,
+): Promise<BoardResult> {
+  if (!config.DISCORD_BOT_TOKEN) return "skipped";
   const comparable = JSON.stringify({ ...embed, timestamp: undefined });
-  const state = db.query<{ value: string }, [string]>("SELECT value FROM app_state WHERE key=?").get("status_render");
-  const messageId = db
-    .query<{ value: string }, [string]>("SELECT value FROM app_state WHERE key=?")
-    .get("status_message");
+  const renderKey = `${key}_render`;
+  const messageKey = `${key}_message`;
+  const state = db.query<{ value: string }, [string]>("SELECT value FROM app_state WHERE key=?").get(renderKey);
+  const messageId = db.query<{ value: string }, [string]>("SELECT value FROM app_state WHERE key=?").get(messageKey);
   if (state?.value === comparable && messageId) return "unchanged";
 
   const headers = {
     "content-type": "application/json",
     Authorization: `Bot ${config.DISCORD_BOT_TOKEN}`,
   };
-  const base = `https://discord.com/api/v10/channels/${config.statusChannelId}/messages`;
+  const base = `https://discord.com/api/v10/channels/${channelId}/messages`;
   const payload = JSON.stringify({ embeds: [embed], allowed_mentions: { parse: [] } });
 
   const remember = (id: string) => {
-    db.query("INSERT INTO app_state(key,value) VALUES('status_message',?) ON CONFLICT(key) DO UPDATE SET value=?").run(
-      id,
+    db.query("INSERT INTO app_state(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(
+      messageKey,
       id,
     );
-    db.query("INSERT INTO app_state(key,value) VALUES('status_render',?) ON CONFLICT(key) DO UPDATE SET value=?").run(
-      comparable,
+    db.query("INSERT INTO app_state(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(
+      renderKey,
       comparable,
     );
   };
@@ -148,17 +174,68 @@ export async function publishStatus(
     }
     // The board was deleted by hand; posting a fresh one is the recovery, not an error to retry.
     if (edited.status !== 404) {
-      log("warn", "Status board edit rejected", { status: edited.status });
+      log("warn", "Board edit rejected", { board: key, status: edited.status });
       return "unchanged";
     }
   }
 
   const created = await request(base, { method: "POST", headers, body: payload });
   if (!created.ok) {
-    log("warn", "Status board post rejected", { status: created.status });
+    log("warn", "Board post rejected", { board: key, status: created.status });
     return "unchanged";
   }
   const body = (await created.json()) as { id?: unknown };
   if (typeof body.id === "string") remember(body.id);
   return "created";
+}
+
+const INDICATORS: Record<string, string> = {
+  none: "🟢",
+  minor: "🟡",
+  major: "🟠",
+  critical: "🔴",
+  maintenance: "🔵",
+};
+
+/** What each platform's own status page says right now, read from the stored observation. */
+export function platformEmbed(db: Database, now = Date.now()): Record<string, unknown> {
+  const lines: string[] = [];
+  let worst = "none";
+  for (const platform of PLATFORMS) {
+    const row = db
+      .query<{ raw_json: string }, [string]>("SELECT raw_json FROM snapshots WHERE source=? ORDER BY id DESC LIMIT 1")
+      .get(`status:${platform.id}`);
+    if (!row) {
+      lines.push(`⚪ **${platform.name}** — not read yet`);
+      continue;
+    }
+    const raw = JSON.parse(row.raw_json) as {
+      headline?: string;
+      indicator?: string;
+      incidents?: { name: string; status: string; impact: string }[];
+    };
+    const indicator = raw.indicator ?? "none";
+    if (indicator !== "none" && worst === "none") worst = indicator;
+    lines.push(`${INDICATORS[indicator] ?? "⚪"} **${platform.name}** — ${raw.headline ?? "unknown"}`);
+    for (const incident of (raw.incidents ?? []).slice(0, 3))
+      lines.push(`　└ ${incident.name} (${incident.status}, ${incident.impact})`);
+  }
+  return {
+    title: "Platform health",
+    description: lines.join("\n").slice(0, 4000),
+    color: worst === "none" ? COLORS.ok : worst === "critical" || worst === "major" ? COLORS.down : COLORS.degraded,
+    footer: { text: "Read from each vendor's own status page · updates itself in place" },
+    timestamp: new Date(now).toISOString(),
+  };
+}
+
+export async function publishPlatformBoard(
+  db: Database,
+  config: AppConfig,
+  request: Fetch = fetch,
+  now = Date.now(),
+): Promise<BoardResult> {
+  const channelId = config.platformBoardChannelId ?? config.statusChannelId;
+  if (!channelId || !config.DISCORD_BOT_TOKEN) return "skipped";
+  return publishBoard(db, config, "platforms", channelId, platformEmbed(db, now), request);
 }
