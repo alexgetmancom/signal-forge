@@ -239,3 +239,67 @@ export async function publishPlatformBoard(
   if (!channelId || !config.DISCORD_BOT_TOKEN) return "skipped";
   return publishBoard(db, config, "platforms", channelId, platformEmbed(db, now), request);
 }
+
+/**
+ * The board a reader looks at first: what actually happened today, in counts they can check
+ * against the channels. Facts only — no model writes this one, because a headline that cannot be
+ * verified against the feed underneath it is worth less than no headline.
+ */
+export function activityEmbed(db: Database, now = Date.now()): Record<string, unknown> {
+  const since = new Date(now - 24 * 3_600_000).toISOString();
+  const count = (sql: string, ...params: string[]) =>
+    Number(db.query<{ c: number }, string[]>(sql).get(...params)?.c ?? 0);
+
+  const models = count(
+    "SELECT COUNT(*) c FROM events WHERE detected_at > ? AND kind='new' AND stream IN ('api-models','openrouter')",
+    since,
+  );
+  const gone = count(
+    "SELECT COUNT(*) c FROM events WHERE detected_at > ? AND kind='removed' AND stream IN ('api-models','openrouter')",
+    since,
+  );
+  const prices = count(
+    "SELECT COUNT(*) c FROM events WHERE detected_at > ? AND kind='changed' AND stream IN ('api-models','openrouter')",
+    since,
+  );
+  const weights = count("SELECT COUNT(*) c FROM events WHERE detected_at > ? AND stream='weights'", since);
+  const news = count("SELECT COUNT(*) c FROM events WHERE detected_at > ? AND stream='news'", since);
+  const codenames = count(
+    "SELECT COUNT(*) c FROM events WHERE detected_at > ? AND stream='arena' AND kind='changed'",
+    since,
+  );
+  const retirements = count("SELECT COUNT(*) c FROM events WHERE detected_at > ? AND stream='deprecations'", since);
+  const incidents = count("SELECT COUNT(*) c FROM events WHERE detected_at > ? AND stream='incidents'", since);
+
+  const lines = [
+    `**${models}** new models · **${gone}** withdrawn · **${prices}** price and limit changes`,
+    `**${weights}** open-weight releases · **${codenames}** codenames resolved`,
+    `**${news}** announcements · **${retirements}** retirement updates · **${incidents}** platform incidents`,
+  ];
+  const headline = db
+    .query<{ id: number; name: string }, [string]>(
+      `SELECT id, json_extract(after_json,'$.name') name FROM events
+       WHERE detected_at > ? AND kind='new' AND stream IN ('api-models','openrouter','weights')
+       ORDER BY id DESC LIMIT 1`,
+    )
+    .get(since);
+  if (headline?.name) lines.push("", `Latest: ${headline.name} (#${headline.id})`);
+  return {
+    title: "Last 24 hours",
+    description: lines.join("\n"),
+    color: COLORS.ok,
+    footer: { text: "Counts from the feed itself · updates itself in place" },
+    timestamp: new Date(now).toISOString(),
+  };
+}
+
+export async function publishActivityBoard(
+  db: Database,
+  config: AppConfig,
+  request: Fetch = fetch,
+  now = Date.now(),
+): Promise<BoardResult> {
+  const channelId = config.platformBoardChannelId ?? config.statusChannelId;
+  if (!channelId || !config.DISCORD_BOT_TOKEN) return "skipped";
+  return publishBoard(db, config, "activity", channelId, activityEmbed(db, now), request);
+}

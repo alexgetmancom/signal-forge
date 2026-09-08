@@ -48,6 +48,12 @@ export function openDatabase(path: string): Database {
       UNIQUE(batch_id,destination_id,part)
     );
     CREATE TABLE IF NOT EXISTS app_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    -- One plain sentence in front of a large diff. Kept beside the event rather than inside it:
+    -- the evidence is what was observed, the sentence is only a reading of it.
+    CREATE TABLE IF NOT EXISTS summaries (
+      event_id INTEGER PRIMARY KEY REFERENCES events(id) ON DELETE CASCADE,
+      text TEXT NOT NULL, created_at TEXT NOT NULL
+    );
     -- Bodies already downloaded, kept so an unchanged page costs a 304 with no body, and an asset
     -- served as immutable costs no request at all.
     CREATE TABLE IF NOT EXISTS http_cache (

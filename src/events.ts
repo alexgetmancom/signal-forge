@@ -327,7 +327,12 @@ const KIND_COLORS: Record<Event["kind"], number> = { new: 0x2ecc71, changed: 0xf
  * and whose, and the embed's own timestamp is drawn in each reader's timezone. The text renderer
  * stays for Telegram, which has none of that.
  */
-export function eventEmbed(event: Event, url: string, reportBaseUrl?: string): Record<string, unknown> {
+export function eventEmbed(
+  event: Event,
+  url: string,
+  reportBaseUrl?: string,
+  summary?: string,
+): Record<string, unknown> {
   const before = event.before_json ? (JSON.parse(event.before_json) as RecordData) : null;
   const after = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
   const record = after ?? before;
@@ -338,11 +343,13 @@ export function eventEmbed(event: Event, url: string, reportBaseUrl?: string): R
   const vendor = vendorOf(event, record);
   // The eyebrow already carries the vendor, so a "Maker: OpenAI" line under it is the same word
   // twice in four lines.
-  const description = body
+  const evidence = body
     .split("\n")
     .filter((line) => line !== `Maker: ${vendor}`)
-    .join("\n")
-    .slice(0, 4000);
+    .join("\n");
+  // The sentence goes in front of the evidence, never instead of it: a reading that turns out to
+  // be wrong should be visibly wrong, with the observation right underneath it.
+  const description = (summary ? `${summary}\n\n${evidence}` : evidence).slice(0, 4000);
   const link =
     typeof record?.url === "string"
       ? record.url
@@ -577,6 +584,12 @@ export function prepareDeliveries(
           "SELECT e.*,b.url FROM batch_events b JOIN events e ON e.id=b.event_id WHERE b.batch_id=? ORDER BY e.id",
         )
         .all(batch.id);
+      const summaries = new Map(
+        db
+          .query<{ event_id: number; text: string }, []>("SELECT event_id,text FROM summaries")
+          .all()
+          .map((row) => [row.event_id, row.text] as const),
+      );
       const targets = db
         .query<{ destination_id: string; destination_json: string }, [number]>(
           "SELECT destination_id,destination_json FROM batch_targets WHERE batch_id=? ORDER BY rowid",
@@ -634,7 +647,7 @@ export function prepareDeliveries(
               ];
           const mentions = roles.map((role) => `<@&${role}>`).join(" ");
           // One embed per event, ten per message — Discord's own limit, and a natural page size.
-          const embeds = events.map((event) => eventEmbed(event, event.url, reportBaseUrl));
+          const embeds = events.map((event) => eventEmbed(event, event.url, reportBaseUrl, summaries.get(event.id)));
           for (let index = 0; index * 10 < embeds.length; index += 1) {
             const page = embeds.slice(index * 10, index * 10 + 10);
             const content = index === 0 ? [header.trim(), mentions].filter(Boolean).join("\n") : "";

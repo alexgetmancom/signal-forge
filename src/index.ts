@@ -7,7 +7,7 @@ import { pollSources } from "./poller.js";
 import { stopServerGracefully } from "./runtime/shutdown.js";
 import { RuntimeSupervisor } from "./runtime/supervisor.js";
 import { startIntervalWorker } from "./runtime/worker.js";
-import { publishPlatformBoard, publishStatus } from "./status.js";
+import { publishActivityBoard, publishPlatformBoard, publishStatus } from "./status.js";
 import { openDatabase } from "./storage/database.js";
 import { HttpCache } from "./storage/httpCache.js";
 
@@ -21,6 +21,9 @@ supervisor.register(startIntervalWorker("delivery", 1500, () => deliverPending(d
 supervisor.register(startIntervalWorker("sources", 30_000, () => pollSources(db, config)));
 supervisor.register(
   startIntervalWorker("status", 300_000, async () => {
+    // Order matters on a first run: the channel reads top to bottom, so what happened comes first,
+    // then how the vendors are doing, then how we are doing.
+    await publishActivityBoard(db, config);
     await publishPlatformBoard(db, config);
     await publishStatus(db, config);
     await publishAlerts(db, config);

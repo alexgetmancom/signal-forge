@@ -14,6 +14,20 @@ import { sourceHealth } from "./status.js";
 /** Alerting only on these states; `blocked` is a known restriction and `idle` is a fresh source. */
 const ALERTING = new Set(["failing", "stale"]);
 
+/**
+ * A source must be down for two consecutive checks — ten minutes — before it is announced. Today's
+ * outages lasted five to seven minutes and cleared themselves; alerting on the first failed cycle
+ * turned one broken network path into four messages about six collectors, which is how an alert
+ * channel becomes something people mute.
+ */
+const CONFIRMATIONS = 2;
+
+/**
+ * Above this, the sources are not individually broken — something they share is. Naming twenty
+ * collectors teaches nothing that "twenty at once" does not.
+ */
+const PATH_OUTAGE = 4;
+
 export type AlertOutcome = { down: string[]; recovered: string[]; posted: boolean };
 
 export async function publishAlerts(
@@ -28,7 +42,21 @@ export async function publishAlerts(
   const health = sourceHealth(db, config, now);
   const stored = db.query<{ value: string }, [string]>("SELECT value FROM app_state WHERE key=?").get("alert_down");
   const previous = new Set<string>(stored ? (JSON.parse(stored.value) as string[]) : []);
-  const current = new Set(health.filter((entry) => ALERTING.has(entry.state)).map((entry) => entry.id));
+  const failing = health.filter((entry) => ALERTING.has(entry.state)).map((entry) => entry.id);
+
+  // Count consecutive failed checks per source, so a blip has to persist to become an alert.
+  const strikesRow = db
+    .query<{ value: string }, [string]>("SELECT value FROM app_state WHERE key=?")
+    .get("alert_strikes");
+  const strikes: Record<string, number> = strikesRow ? (JSON.parse(strikesRow.value) as Record<string, number>) : {};
+  const nextStrikes: Record<string, number> = {};
+  for (const id of failing) nextStrikes[id] = (strikes[id] ?? 0) + 1;
+  const value = JSON.stringify(nextStrikes);
+  db.query("INSERT INTO app_state(key,value) VALUES('alert_strikes',?) ON CONFLICT(key) DO UPDATE SET value=?").run(
+    value,
+    value,
+  );
+  const current = new Set(failing.filter((id) => (nextStrikes[id] ?? 0) >= CONFIRMATIONS));
 
   const detail = new Map(health.map((entry) => [entry.id, entry.detail]));
   outcome.down = [...current].filter((id) => !previous.has(id));
@@ -47,10 +75,17 @@ export async function publishAlerts(
     return outcome;
   }
 
-  const lines = [
-    ...outcome.down.map((id) => `🔴 **${id}** stopped reporting — ${detail.get(id) || "no detail"}`),
-    ...outcome.recovered.map((id) => `🟢 **${id}** is reporting again`),
-  ];
+  const lines =
+    outcome.down.length >= PATH_OUTAGE
+      ? [
+          `🔴 **${outcome.down.length} collectors stopped reporting at once** — this is one shared path, not ${outcome.down.length} broken sources.`,
+          outcome.down.slice(0, 6).join(", ") + (outcome.down.length > 6 ? ", …" : ""),
+          ...outcome.recovered.map((id) => `🟢 **${id}** is reporting again`),
+        ]
+      : [
+          ...outcome.down.map((id) => `🔴 **${id}** stopped reporting — ${detail.get(id) || "no detail"}`),
+          ...outcome.recovered.map((id) => `🟢 **${id}** is reporting again`),
+        ];
   const embed = {
     title: outcome.down.length ? "Collector problem" : "Collectors recovered",
     description: lines.join("\n").slice(0, 4000),

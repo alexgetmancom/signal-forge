@@ -92,6 +92,9 @@ test("an outage is announced once, and so is the recovery", async () => {
       .run(error, success, new Date(now).toISOString());
 
   mark("Source returned HTTP 500", null);
+  // The first failed check is not an alert: today's outages lasted minutes and cleared themselves.
+  expect((await publishAlerts(db, config, request, now)).down).toEqual([]);
+  expect(posts).toHaveLength(0);
   expect((await publishAlerts(db, config, request, now)).down).toContain("openrouter");
   // The same outage on the next cycle is the same outage; it is not announced twice.
   const second = await publishAlerts(db, config, request, now);
@@ -120,6 +123,8 @@ test("an alert that cannot be delivered is retried, not forgotten", async () => 
   db.query("INSERT INTO sources(id,last_error,checked_at) VALUES('openrouter','boom',?)").run(
     new Date(now).toISOString(),
   );
+  // Two checks to confirm the outage, then every later check retries the undelivered alert.
+  await publishAlerts(db, config, failing, now);
   await publishAlerts(db, config, failing, now);
   await publishAlerts(db, config, failing, now);
   expect(attempts).toBe(2);
@@ -166,4 +171,29 @@ test("an incident becomes an event, and its resolution is a change rather than a
   // A calm platform reports no incidents, and that is a valid observation, not an empty collection.
   const calm = JSON.stringify({ status: { description: "All Systems Operational", indicator: "none" }, incidents: [] });
   expect(parsePlatformStatus(calm, PLATFORMS[0] as (typeof PLATFORMS)[number]).records).toHaveLength(0);
+});
+
+test("many collectors failing together is reported as one shared path", async () => {
+  const db = openDatabase(":memory:");
+  const config = {
+    ...loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname }),
+    DISCORD_BOT_TOKEN: "token",
+    alertChannelId: "999",
+  };
+  const posts: { embeds: { description: string }[] }[] = [];
+  const request = async (_url: string, init?: RequestInit) => {
+    posts.push(JSON.parse(String(init?.body)) as { embeds: { description: string }[] });
+    return new Response("{}", { status: 200 });
+  };
+  const now = Date.parse("2026-09-08T12:00:00.000Z");
+  for (const id of ["openrouter", "openai-news", "anthropic-news", "arena", "arena-leaderboards"])
+    db.query("INSERT INTO sources(id,last_error,checked_at) VALUES(?,'gone',?)").run(id, new Date(now).toISOString());
+
+  await publishAlerts(db, config, request, now);
+  await publishAlerts(db, config, request, now);
+  expect(posts).toHaveLength(1);
+  const description = posts[0]?.embeds[0]?.description ?? "";
+  // Naming five collectors teaches nothing that "five at once" does not.
+  expect(description).toContain("5 collectors stopped reporting at once");
+  expect(description).toContain("one shared path");
 });
