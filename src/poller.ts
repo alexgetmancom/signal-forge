@@ -71,16 +71,20 @@ export function sourceJobs(
   if (config.GEMINI_API_KEY)
     jobs.push({ id: "gemini", interval: config.pollSeconds, run: () => collectGemini(config) });
   for (const watch of config.github) {
-    jobs.push({ id: `github:${watch.repo}:pulls`, interval: 1800, run: () => collectGithubPulls(db, config, watch) });
+    jobs.push({
+      id: `github:${watch.repo}:pulls`,
+      interval: 1800,
+      run: () => collectGithubPulls(db, config, watch, fetch, cache),
+    });
     jobs.push({
       id: `github:${watch.repo}:commits`,
       interval: 1800,
-      run: () => collectGithubCommits(db, config, watch),
+      run: () => collectGithubCommits(db, config, watch, fetch, cache),
     });
     jobs.push({
       id: `github:${watch.repo}:releases`,
       interval: 1800,
-      run: () => collectGithubReleases(db, config, watch),
+      run: () => collectGithubReleases(db, config, watch, fetch, cache),
     });
   }
   return jobs;

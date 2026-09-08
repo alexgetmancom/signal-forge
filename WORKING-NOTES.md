@@ -53,6 +53,29 @@ The HTTP cache (`http_cache`, `src/storage/httpCache.ts`) fixes the large half:
   downloads it again regardless, so a copy would be weight with no saving. That covers
   `openrouter`, `arena`, the RSS feeds and `learn.chatgpt.com`.
 
+- GitHub answers conditionally too, and there the saving is the quota rather than the bytes: a 304
+  does **not** count against the hourly limit (measured — three conditional requests in a row left
+  `x-ratelimit-remaining` at 4989). Only the listing calls are cached; a commit or a release never
+  changes once read, so caching a detail would store bytes nobody asks for twice.
+
+Where it stands after all of it, per day, on the wire:
+
+| Source | Requests | Traffic |
+|---|---|---|
+| arena (+ leaderboards) | 336 | 26 MB |
+| openrouter | 288 | 21 MB |
+| modelscope, 5 organisations | 240 | 20 MB |
+| news feeds, 2 | 192 | 19 MB |
+| codex-docs, 148 pages hourly | 3576 | 7 MB |
+| everything answering 304 (npm, pypi, HF, GitHub, Claude assets) | ~1400 | <1 MB |
+| **Total** | **~6900** | **~95 MB** |
+
+What is left has no cheap fix. Nothing above offers a validator, so the only remaining levers are
+polling less often or watching less — both product decisions, not engineering ones. The one idea
+worth revisiting is backing off a source that has been quiet for hours and resetting it on the
+first event, which would cut the request count roughly in half at the cost of some minutes of
+delay on a release that lands during a quiet stretch.
+
 Only `immutable` is trusted for reuse without asking. A plain `max-age` on a page we watch for
 changes would hide the change this project exists to report.
 

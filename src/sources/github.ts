@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { AppConfig } from "../config.js";
 import type { Fetch } from "../delivery.js";
 import type { Collection, RecordData } from "../events.js";
+import type { HttpCache } from "../storage/httpCache.js";
 import { fetchText } from "./http.js";
 
 const commitSchema = z.object({
@@ -58,6 +59,7 @@ export async function collectGithubCommits(
   config: AppConfig,
   watch: AppConfig["github"][number],
   request: Fetch = fetch,
+  cache?: HttpCache,
 ): Promise<Collection> {
   const source = `github:${watch.repo}:commits`,
     url = `https://api.github.com/repos/${watch.repo}/commits`;
@@ -73,7 +75,9 @@ export async function collectGithubCommits(
   let reachedKnown = false;
   const pending: z.infer<typeof commitSchema>[] = [];
   for (let page = 1; page <= 10; page++) {
-    const body: unknown = JSON.parse(await fetchText(`${url}?per_page=100&page=${page}`, headers, request));
+    const body: unknown = JSON.parse(
+      await fetchText(`${url}?per_page=100&page=${page}`, headers, request, undefined, cache),
+    );
     const commits = z.array(commitSchema).parse(body);
     raw.push(body);
     for (const commit of commits) {
@@ -130,6 +134,7 @@ export async function collectGithubReleases(
   config: AppConfig,
   watch: AppConfig["github"][number],
   request: Fetch = fetch,
+  cache?: HttpCache,
 ): Promise<Collection> {
   const url = `https://api.github.com/repos/${watch.repo}/releases`,
     headers: Record<string, string> = { Accept: "application/vnd.github+json" };
@@ -141,7 +146,9 @@ export async function collectGithubReleases(
     silentIds: string[] = [];
   let reachedKnown = false;
   for (let page = 1; page <= 20; page++) {
-    const body: unknown = JSON.parse(await fetchText(`${url}?per_page=5&page=${page}`, headers, request));
+    const body: unknown = JSON.parse(
+      await fetchText(`${url}?per_page=5&page=${page}`, headers, request, undefined, cache),
+    );
     const releases = z.array(releaseSchema).parse(body);
     // Assets can be huge; retain release metadata and notes rather than irrelevant download inventories.
     raw.push(releases);
@@ -191,6 +198,7 @@ export async function collectGithubPulls(
   config: AppConfig,
   watch: AppConfig["github"][number],
   request: Fetch = fetch,
+  cache?: HttpCache,
 ): Promise<Collection> {
   const source = `github:${watch.repo}:pulls`;
   const base = `https://api.github.com/repos/${watch.repo}/pulls`;
@@ -207,7 +215,13 @@ export async function collectGithubPulls(
       .array(pullSchema)
       .parse(
         JSON.parse(
-          await fetchText(`${base}?state=all&sort=updated&direction=desc&per_page=100&page=${page}`, headers, request),
+          await fetchText(
+            `${base}?state=all&sort=updated&direction=desc&per_page=100&page=${page}`,
+            headers,
+            request,
+            undefined,
+            cache,
+          ),
         ),
       );
     raw.push(pulls);
