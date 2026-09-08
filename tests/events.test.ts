@@ -174,8 +174,7 @@ test("each platform is paged by its own limit", () => {
   expect(telegram.length).toBeGreaterThan(1);
   for (const row of telegram) {
     // Telegram has no embeds, so the heading is repeated on every split part.
-    expect(row.body).toStartWith("📡 Updates · OpenRouter");
-    expect(row.body).toContain("#OpenRouter #Models");
+    expect(row.body).toStartWith("📡 OpenRouter · 12");
     expect(row.body.length).toBeLessThanOrEqual(3900);
   }
 
@@ -186,7 +185,8 @@ test("each platform is paged by its own limit", () => {
     // Ten embeds is Discord's own ceiling; the heading belongs on the first page only, because
     // the embeds below it already carry their own headings.
     expect(payload.embeds.length).toBeLessThanOrEqual(10);
-    if (index === 0) expect(payload.content).toStartWith("📡 Updates · OpenRouter");
+    // Only the first page carries a heading, and only because this batch holds twelve events.
+    if (index === 0) expect(payload.content).toStartWith("📡 OpenRouter · 12");
   });
 
   expect(db.query("SELECT DISTINCT source,stream FROM events").all()).toEqual([

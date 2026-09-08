@@ -46,6 +46,13 @@ export function splitMessage(text: string, limit = 1900): string[] {
   if (text) parts.push(text);
   return parts;
 }
+/**
+ * Fields that describe the observation rather than the news: a publish timestamp next to Discord's
+ * own timestamp, a URL that is already the title's link, an internal cursor. Every one of them was
+ * a line the reader had to skip.
+ */
+const NOISE = new Set(["head", "updated", "published", "created", "started", "url", "detected"]);
+
 const fieldLabels: Record<string, string> = {
   name: "Name",
   context: "Context",
@@ -215,13 +222,18 @@ export function renderEvent(
     lines.push(describe(record?.summary));
   } else if (before && after) {
     for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
-      if (["head", "updated"].includes(key) || canonical(before[key]) === canonical(after[key])) continue;
+      if (NOISE.has(key) || canonical(before[key]) === canonical(after[key])) continue;
       if (key === "pricing") {
         lines.push(...prices(before[key], after[key]));
         continue;
       }
       if (key === "rank") {
         lines.push(rankMove(before[key], after[key]));
+        continue;
+      }
+      // A version bump reads as itself; the word "version" in front of it is furniture.
+      if (key === "version") {
+        lines.push(`${describe(before[key])} → ${describe(after[key])}`);
         continue;
       }
       if (Array.isArray(before[key]) && Array.isArray(after[key])) {
@@ -235,7 +247,7 @@ export function renderEvent(
     }
   } else {
     for (const [key, value] of Object.entries(record ?? {})) {
-      if (["id", "name", "url", "prerelease", "head", "updated"].includes(key)) continue;
+      if (key === "id" || key === "name" || key === "prerelease" || NOISE.has(key)) continue;
       if (key === "pricing") lines.push(...prices(null, value));
       else if (key === "description" || key === "summary" || key === "message") lines.push(describe(value));
       else lines.push(`${fieldLabels[key] ?? key}: ${describe(value)}`);
@@ -297,22 +309,6 @@ const EYEBROWS: Record<string, string> = {
   incidents: "PLATFORM HEALTH",
 };
 
-/** One line saying where the observation came from, so a reader knows how much to trust it. */
-const ORIGINS: Record<string, string> = {
-  openrouter: "Listing changed on OpenRouter.",
-  openai: "Seen in the OpenAI catalogue.",
-  anthropic: "Seen in the Anthropic catalogue.",
-  gemini: "Seen in the Gemini catalogue.",
-  arena: "Spotted on Arena.",
-  "arena-leaderboards": "Ranking published on Arena.",
-  "openai-news": "Published by OpenAI.",
-  "anthropic-news": "Published by Anthropic.",
-  "claude-web": "Found in the public Claude bundle.",
-  "codex-docs": "Changed in the Codex documentation.",
-  "vercel-gateway": "Listed on Vercel AI Gateway.",
-  "cursor-changelog": "Published in the Cursor changelog.",
-};
-
 const KIND_COLORS: Record<Event["kind"], number> = { new: 0x2ecc71, changed: 0xf1c40f, removed: 0xe74c3c };
 
 /**
@@ -328,8 +324,8 @@ export function eventEmbed(event: Event, url: string, reportBaseUrl?: string): R
   // renderEvent's first line is the kind and source, the last two are link and signature; the
   // middle is the body worth showing, and it is already the filtered, human version.
   const body = rendered.slice(2, -2).join("\n").trim();
-  const origin = ORIGINS[event.source] ?? "";
-  const description = [origin, body].filter(Boolean).join("\n\n").slice(0, 4000);
+  const vendor = vendorOf(event, record);
+  const description = body.slice(0, 4000);
   const link =
     typeof record?.url === "string"
       ? record.url
@@ -338,12 +334,18 @@ export function eventEmbed(event: Event, url: string, reportBaseUrl?: string): R
         : url;
 
   const embed: Record<string, unknown> = {
-    author: { name: `${EYEBROWS[event.stream] ?? "UPDATE"} · ${vendorOf(event, record).toUpperCase()}` },
+    // "· UNKNOWN" is not information. When the vendor cannot be resolved the label stands alone.
+    author: {
+      name: [EYEBROWS[event.stream] ?? "UPDATE", vendor === "Unknown" ? null : vendor.toUpperCase()]
+        .filter(Boolean)
+        .join(" · "),
+    },
     title: String(record?.name ?? event.entity_id).slice(0, 250),
     color: KIND_COLORS[event.kind],
     description,
-    footer: { text: `Signal Forge · #${event.id}` },
-    timestamp: new Date(event.detected_at).toISOString(),
+    // Discord already stamps the message with the time it arrived, and the bot's name is on it.
+    // The number stays because it is how an event is looked up later.
+    footer: { text: `#${event.id}` },
   };
   if (link) embed.url = link;
   if (reportBaseUrl && event.stream === "web")
@@ -500,6 +502,9 @@ export function isRoutine(event: Event): boolean {
   if (event.kind !== "changed") return false;
   // A rank move is real news but not urgent news: it belongs in the hourly digest, not in a ping.
   if (event.stream === "leaderboards") return true;
+  // A nightly or preview channel moves several times a day and says nothing about a product. The
+  // release channels people actually install on stay immediate.
+  if (event.stream === "packages" && !["latest", "stable"].includes(event.entity_id)) return true;
   if (!["openrouter", "api-models", "arena"].includes(event.stream)) return false;
   const before = JSON.parse(event.before_json ?? "{}") as Record<string, unknown>;
   const after = JSON.parse(event.after_json ?? "{}") as Record<string, unknown>;
@@ -560,28 +565,13 @@ export function prepareDeliveries(
             .replace(":commits", " · commits")
             .replace(":pulls", " · PR")
             .replace(":releases", " · releases");
-        const tags = new Set<string>();
-        const topics: Record<string, string> = {
-          "api-models": "#Models",
-          openrouter: "#OpenRouter #Models",
-          arena: "#Arena",
-          leaderboards: "#Leaderboards",
-          news: "#News",
-          weights: "#Weights",
-          packages: "#Packages",
-          web: "#Web",
-          github: "#GitHub",
-        };
-        for (const event of events) for (const tag of (topics[event.stream] ?? "#Updates").split(" ")) tags.add(tag);
-        if (batch.source === "codex-docs" || batch.source.startsWith("github:openai/codex:")) tags.add("#Codex");
-        if (batch.source === "codex-docs") tags.add("#Docs");
-        if (["claude-web", "anthropic", "anthropic-news"].includes(batch.source)) tags.add("#Claude");
-        if (batch.source === "openai" || batch.source === "openai-news") tags.add("#OpenAI");
-        if (batch.source === "gemini") tags.add("#Gemini");
-        if (batch.source.endsWith(":pulls")) tags.add("#PR");
-        if (batch.source.endsWith(":releases")) tags.add("#Releases");
-        if (batch.digest) tags.add("#Digest");
-        const header = `${batch.digest ? "🗞 Hourly digest" : "📡 Updates"} · ${source} · ${events.length}\n${[...tags].join(" ")}\n\n`;
+        // A header that repeats what the embed already says is a line nobody reads. One event
+        // needs no header at all; several need only the count, so the reader knows to scroll.
+        const header = batch.digest
+          ? `🗞 ${source} · ${events.length} in the last hour\n\n`
+          : events.length > 1
+            ? `📡 ${source} · ${events.length}\n\n`
+            : "";
         // Keep each item compact; full before/after evidence remains available by event ID.
         const text = events
           .map((event) => {

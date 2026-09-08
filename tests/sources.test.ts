@@ -8,6 +8,7 @@ import { parseCursorChangelog, parseDesignArena, parseModelScope } from "../src/
 import { collectGithubCommits, summarizeDiff } from "../src/sources/github.js";
 import { fetchText } from "../src/sources/http.js";
 import { parseAnthropicNews, parseOpenAINews } from "../src/sources/news.js";
+import { parseNpm } from "../src/sources/registries.js";
 import { openDatabase } from "../src/storage/database.js";
 import { freshUntil, HttpCache } from "../src/storage/httpCache.js";
 
@@ -419,3 +420,20 @@ test("a dropped connection is retried, a refusal is not", async () => {
   await expect(fetchText("https://example.test/c", {}, failing)).rejects.toThrow("unreachable");
   expect(calls).toBe(3);
 }, 30_000);
+
+test("npm keeps the channels people install and drops the per-platform copies", () => {
+  const payload = JSON.stringify({
+    name: "@openai/codex",
+    "dist-tags": {
+      latest: "0.153.4",
+      alpha: "0.154.0-alpha.7",
+      "alpha-win32-x64": "0.154.0-alpha.7-win32-x64",
+      "darwin-arm64": "0.153.4-darwin-arm64",
+      "linux-x64": "0.153.4-linux-x64",
+    },
+    time: { "0.153.4": "2026-09-08T00:00:00.000Z" },
+  });
+  const ids = parseNpm(payload).records.map((record) => record.id);
+  // One alpha bump used to arrive as seven identical messages, one per architecture.
+  expect(ids.sort()).toEqual(["alpha", "latest"]);
+});

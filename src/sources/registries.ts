@@ -86,9 +86,16 @@ export const NPM_PACKAGES = [
 ];
 export const PYPI_PACKAGES = ["openai", "anthropic", "mistralai"];
 
+/**
+ * `@openai/codex` publishes the same version under a tag per operating system and architecture:
+ * one alpha bump appears as seven identical events. The platform tags are dropped, leaving the
+ * channels a person actually installs.
+ */
+const PLATFORM_TAG = /(^|-)(win32|darwin|linux|freebsd|android|x64|arm64|arm|ia32|musl|glibc)(-|$)/;
+
 export function parseNpm(payload: string): Collection {
   const data = npmPackage.parse(JSON.parse(payload));
-  const tags = data["dist-tags"];
+  const tags = Object.fromEntries(Object.entries(data["dist-tags"]).filter(([tag]) => !PLATFORM_TAG.test(tag)));
   return {
     source: `npm:${data.name}`,
     stream: "packages",
