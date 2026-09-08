@@ -480,3 +480,12 @@ test("Anthropic model status is tracked per model, so a state change is the even
   expect(parsed.records[0]).toMatchObject({ stage: "Active", deprecated: null });
   expect(parsed.records[1]).toMatchObject({ stage: "Retired", deprecated: "June 5, 2026" });
 });
+
+test("a bot-protection challenge is named as one, not as a broken endpoint", async () => {
+  const challenged = async () =>
+    new Response("<html>Human Verification</html>", { status: 405, headers: { "x-amzn-waf-action": "captcha" } });
+  await expect(fetchText("https://example.test/a", {}, challenged)).rejects.toThrow("challenged by bot protection");
+  // A plain refusal still reads as a refusal.
+  const refused = async () => new Response("no", { status: 405 });
+  await expect(fetchText("https://example.test/b", {}, refused)).rejects.toThrow("HTTP 405");
+});

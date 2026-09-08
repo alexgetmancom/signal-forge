@@ -63,6 +63,15 @@ export function openDatabase(path: string): Database {
     CREATE INDEX IF NOT EXISTS deliveries_pending ON deliveries(status,next_attempt);
     CREATE INDEX IF NOT EXISTS events_source ON events(source,id);
   `);
+  // A source that keeps failing should be asked less often, not at full speed: hammering an
+  // endpoint that is refusing us is how a collector earns a harder refusal.
+  if (
+    !db
+      .query<{ name: string }, []>("PRAGMA table_info(sources)")
+      .all()
+      .some((column) => column.name === "failures")
+  )
+    db.run("ALTER TABLE sources ADD COLUMN failures INTEGER NOT NULL DEFAULT 0");
   if (
     db
       .query<{ name: string }, []>("PRAGMA table_info(deliveries)")

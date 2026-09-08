@@ -77,6 +77,11 @@ export async function fetchText(
     cache?.touch(url, freshUntil(response.headers.get("cache-control")));
     return cached.body;
   }
+  // AWS WAF answers a challenged client with a CAPTCHA page under an unrelated status code, so
+  // the status alone reads as a broken endpoint. Naming it correctly matters: the answer to being
+  // challenged is to ask less often, never to look like something else.
+  if (response.headers.get("x-amzn-waf-action") || response.headers.get("cf-mitigated"))
+    throw new Error("Source challenged by bot protection");
   if (!response.ok) throw new Error(`Source returned HTTP ${response.status}`);
   const reader = response.body?.getReader();
   if (!reader) throw new Error("Source returned no body");

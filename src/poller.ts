@@ -29,6 +29,17 @@ import {
 } from "./sources/registries.js";
 import { HttpCache } from "./storage/httpCache.js";
 
+/**
+ * Each consecutive failure doubles the wait, up to eight times the normal interval. A source that
+ * is refusing us recovers on its own schedule, and asking every two minutes in the meantime is how
+ * a refusal turns into a block — which is exactly what happened when a status page's bot
+ * protection started answering with a CAPTCHA.
+ */
+export function due(checkedAt: string | null, interval: number, failures: number, now = Date.now()): boolean {
+  if (!checkedAt) return true;
+  return now - Date.parse(checkedAt) >= interval * Math.min(2 ** failures, 8) * 1000;
+}
+
 export function sourceJobs(
   db: Database,
   config: AppConfig,
@@ -70,7 +81,9 @@ export function sourceJobs(
     // than anything else here. The documents are small and answer in milliseconds.
     ...PLATFORMS.map((platform) => ({
       id: `status:${platform.id}`,
-      interval: 120,
+      // Two minutes was too eager: Anthropic's WAF started serving a CAPTCHA instead of the
+      // document. Five still means a reader hears about an outage within minutes.
+      interval: 300,
       run: () => collectPlatformStatus(platform),
     })),
     ...NPM_PACKAGES.map((name) => ({ id: `npm:${name}`, interval: 900, run: () => collectNpm(name, fetch, cache) })),
@@ -104,9 +117,11 @@ export function sourceJobs(
 export async function pollSources(db: Database, config: AppConfig, force = false): Promise<void> {
   for (const job of sourceJobs(db, config)) {
     const last = db
-      .query<{ checked_at: string | null }, [string]>("SELECT checked_at FROM sources WHERE id=?")
+      .query<{ checked_at: string | null; failures: number }, [string]>(
+        "SELECT checked_at,failures FROM sources WHERE id=?",
+      )
       .get(job.id);
-    if (!force && last?.checked_at && Date.now() - Date.parse(last.checked_at) < job.interval * 1000) continue;
+    if (!force && !due(last?.checked_at ?? null, job.interval, last?.failures ?? 0)) continue;
     try {
       const collection = await job.run();
       const events = saveCollection(
@@ -117,6 +132,7 @@ export async function pollSources(db: Database, config: AppConfig, force = false
         config.REPORT_BASE_URL,
         config.vendorRoles,
       );
+      db.query("UPDATE sources SET failures=0 WHERE id=?").run(job.id);
       log("info", "Source collected", { source: job.id, records: collection.records.length, events });
     } catch (error) {
       // Source errors may contain credentials or an entire invalid response. Keep a safe operational category.
@@ -128,7 +144,9 @@ export async function pollSources(db: Database, config: AppConfig, force = false
           ? error.message
           : "Collection failed: network or schema validation error";
       db.query(
-        "INSERT INTO sources(id,last_error,checked_at) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET last_error=excluded.last_error,checked_at=excluded.checked_at",
+        `INSERT INTO sources(id,last_error,checked_at,failures) VALUES(?,?,?,1)
+         ON CONFLICT(id) DO UPDATE SET last_error=excluded.last_error,checked_at=excluded.checked_at,
+           failures=MIN(sources.failures+1,6)`,
       ).run(job.id, message, new Date().toISOString());
       // A failure breaks consecutive confirmation of a disappearance.
       db.query("UPDATE records SET missing_count=0 WHERE source=?").run(job.id);

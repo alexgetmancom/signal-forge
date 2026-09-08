@@ -367,3 +367,16 @@ test("a price that rounds away produces no message at all", () => {
   // The observation is still recorded; it simply is not worth a message.
   expect(db.query<{ c: number }, []>("SELECT COUNT(*) c FROM events WHERE kind='changed'").get()?.c).toBe(1);
 });
+
+test("a failing source is asked less often, and a healthy one keeps its interval", async () => {
+  const { due } = await import("../src/poller.js");
+  const now = Date.parse("2026-09-08T12:00:00.000Z");
+  const fiveMinutesAgo = "2026-09-08T11:55:00.000Z";
+  // Healthy: a 300-second interval is up.
+  expect(due(fiveMinutesAgo, 300, 0, now)).toBe(true);
+  // Three failures means eight times the wait, so the same moment is far too early.
+  expect(due(fiveMinutesAgo, 300, 3, now)).toBe(false);
+  expect(due(fiveMinutesAgo, 300, 1, now)).toBe(false);
+  // A source never asked is always due.
+  expect(due(null, 3600, 5, now)).toBe(true);
+});
