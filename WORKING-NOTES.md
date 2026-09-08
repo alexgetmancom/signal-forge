@@ -48,6 +48,27 @@ deleted.
 Polled every two minutes — far more often than anything else here — because health is the one thing
 a reader may need within minutes. The documents are ~2 KB.
 
+# The link this runs on
+
+Measured 2026-09-08. Between 18:44 and 18:50 every OpenAI and Anthropic host failed its TLS
+handshake from VM106 — `status.openai.com`, `status.claude.com`, `api.openai.com`, `openai.com`,
+`www.anthropic.com` — while `arena.ai` and `huggingface.co` answered normally. Pings to the same
+addresses ran at 53 ms with no loss. It recovered on its own, untouched.
+
+That shape is a channel problem, not a ban: a refusal answers with 403 or 429, and a rate limit does
+not hit five hosts across two vendors at once, nor does it clear itself in seven minutes.
+
+**The router already routes these domains correctly**, which is worth writing down because it looks
+like a missing rule and is not. `openai.com`, `chatgpt.com`, `anthropic.com`, `claude.ai` and
+`huggingface.co` are matched in `lan-global-awg-warp.json` and sent to `warp-out` — a SOCKS proxy
+reached *through* the AWG tunnel, so the exit is Cloudflare WARP rather than a hosting range. That
+is why `learn.chatgpt.com` answers 200 here and 403 from a datacentre: the exit is already right.
+Adding routing rules for these hosts would change nothing.
+
+The remedy is therefore on this side: `fetchText` retries a dropped connection twice, at 3 s and
+9 s. That covers the outages actually observed. A longer one is a real outage and is reported as
+one, which is what the alert channel is for.
+
 # Request footprint
 
 Everything is collected from the owner's home connection, which is not a choice: the datacentre

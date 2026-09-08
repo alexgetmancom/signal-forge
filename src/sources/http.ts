@@ -1,6 +1,36 @@
 import type { Fetch } from "../delivery.js";
 import { freshUntil, type HttpCache } from "../storage/httpCache.js";
 
+/** How long the channel is given to come back before an observation is called a failure. */
+const RETRY_DELAYS_MS = [3_000, 9_000];
+
+/**
+ * The link this collector runs on drops for minutes at a time — measured: every OpenAI and
+ * Anthropic host failed its TLS handshake for seven minutes and then recovered untouched. A single
+ * attempt turns that into a failed source, a red board and an alert about a service that was never
+ * broken. Two retries cover the outages actually seen; anything longer is a real outage and should
+ * be reported as one.
+ *
+ * Only transport failures and the server's own "try again" codes are retried. A 4xx is an answer,
+ * and repeating a request the server already refused is how a collector earns a rate limit.
+ */
+async function attempt(url: string, request: Fetch, init: RequestInit): Promise<Response> {
+  let last: unknown;
+  for (let index = 0; ; index++) {
+    try {
+      const response = await request(url, init);
+      if (![429, 502, 503, 504].includes(response.status) || index >= RETRY_DELAYS_MS.length) return response;
+      await response.body?.cancel();
+      last = new Error(`Source returned HTTP ${response.status}`);
+    } catch (error) {
+      last = error;
+      if (index >= RETRY_DELAYS_MS.length) break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[index]));
+  }
+  throw last;
+}
+
 export async function fetchText(
   url: string,
   headers: Record<string, string> = {},
@@ -23,7 +53,7 @@ export async function fetchText(
   if (cached?.etag) conditional["if-none-match"] = cached.etag;
   else if (cached?.lastModified) conditional["if-modified-since"] = cached.lastModified;
   for (let hop = 0; hop < 4; hop++) {
-    response = await request(url, {
+    response = await attempt(url, request, {
       headers: { "User-Agent": "SignalForge/0.1", ...conditional, ...headers },
       signal: AbortSignal.timeout(30_000),
       redirect: "manual",

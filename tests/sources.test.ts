@@ -391,3 +391,31 @@ test("a body with no validator is not stored: it cannot save anything later", as
   expect(await fetchText(url, {}, request, undefined, cache)).toBe("body");
   expect(cache.get(url)).toBeNull();
 });
+
+test("a dropped connection is retried, a refusal is not", async () => {
+  let calls = 0;
+  const flaky = async () => {
+    calls += 1;
+    if (calls < 3) throw new Error("TLS connect error");
+    return new Response("body", { status: 200 });
+  };
+  expect(await fetchText("https://example.test/a", {}, flaky)).toBe("body");
+  expect(calls).toBe(3);
+
+  calls = 0;
+  const refusing = async () => {
+    calls += 1;
+    return new Response("no", { status: 403 });
+  };
+  await expect(fetchText("https://example.test/b", {}, refusing)).rejects.toThrow("HTTP 403");
+  // Repeating a request the server already refused is how a collector earns a rate limit.
+  expect(calls).toBe(1);
+
+  calls = 0;
+  const failing = async () => {
+    calls += 1;
+    throw new Error("network is unreachable");
+  };
+  await expect(fetchText("https://example.test/c", {}, failing)).rejects.toThrow("unreachable");
+  expect(calls).toBe(3);
+}, 30_000);
