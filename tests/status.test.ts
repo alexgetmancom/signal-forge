@@ -35,6 +35,28 @@ test("a restricted source is reported apart from a broken one", () => {
   db.close();
 });
 
+test("a rate-limited source waits on upstream instead of reporting a broken collector", () => {
+  const db = openDatabase(":memory:");
+  const recent = new Date(now - 60_000).toISOString();
+  seed(db, "huggingface:openai", { last_error: "Source returned HTTP 429", checked_at: recent });
+  const health = sourceHealth(db, withStatus, now).find((entry) => entry.id === "huggingface:openai");
+  expect(health).toMatchObject({ state: "blocked", detail: "rate limited — backing off" });
+  db.close();
+});
+
+test("multi-source hosts have one shared request pace", async () => {
+  const { sourceJobs } = await import("../src/poller.js");
+  const db = openDatabase(":memory:");
+  const jobs = sourceJobs(db, config);
+  for (const prefix of ["huggingface:", "modelscope:", "designarena:"]) {
+    const paced = jobs.filter((job) => job.id.startsWith(prefix)).map((job) => job.pace);
+    expect(paced.length).toBeGreaterThan(1);
+    expect(new Set(paced.map((pace) => pace?.group)).size).toBe(1);
+    expect(paced.every((pace) => pace?.seconds === 60)).toBe(true);
+  }
+  db.close();
+});
+
 test("a source that missed three of its own intervals is stale, not failing", () => {
   const db = openDatabase(":memory:");
   const old = new Date(now - 4 * 300 * 1000).toISOString();

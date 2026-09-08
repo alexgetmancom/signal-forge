@@ -16,6 +16,7 @@ import {
 } from "./sources/community.js";
 import { collectAnthropicDeprecations, collectOpenAIDeprecations } from "./sources/deprecations.js";
 import { collectGithubCommits, collectGithubPulls, collectGithubReleases } from "./sources/github.js";
+import { SourceHttpError } from "./sources/http.js";
 import { collectAnthropicNews, collectOpenAINews } from "./sources/news.js";
 import { collectPlatformStatus, PLATFORMS } from "./sources/platforms.js";
 import {
@@ -29,6 +30,13 @@ import {
 } from "./sources/registries.js";
 import { HttpCache } from "./storage/httpCache.js";
 
+type SourceJob = {
+  id: string;
+  interval: number;
+  run: () => Promise<Collection>;
+  pace?: { group: string; seconds: number };
+};
+
 /**
  * Each consecutive failure doubles the wait, up to eight times the normal interval. A source that
  * is refusing us recovers on its own schedule, and asking every two minutes in the meantime is how
@@ -40,10 +48,7 @@ export function due(checkedAt: string | null, interval: number, failures: number
   return now - Date.parse(checkedAt) >= interval * Math.min(2 ** failures, 8) * 1000;
 }
 
-export function sourceJobs(
-  db: Database,
-  config: AppConfig,
-): { id: string; interval: number; run: () => Promise<Collection> }[] {
+export function sourceJobs(db: Database, config: AppConfig): SourceJob[] {
   const cache = new HttpCache(db);
   const jobs = [
     { id: "openrouter", interval: config.pollSeconds, run: () => collectOpenRouter() },
@@ -58,22 +63,25 @@ export function sourceJobs(
     { id: "claude-web", interval: 3600, run: () => collectClaude(fetch, cache) },
     // Registries move slowly and are many, so they are polled far apart and spread over the hour
     // rather than hammered together every cycle.
-    // Twelve requests to one host in the same second read as a burst and earned a 429. Each entry
-    // gets a slightly longer interval than the one before it, so after the first cycle they drift
-    // apart and stay spread across the half hour.
+    // Twelve requests to one host in the same second read as a burst and earned a 429. The shared
+    // pace survives restarts through each source's stored check time; differing intervals keep the
+    // steady-state schedule spread out as well.
     ...HF_AUTHORS.map((author, index) => ({
       id: `huggingface:${author}`,
       interval: 1800 + index * 90,
+      pace: { group: "huggingface.co", seconds: 60 },
       run: () => collectHuggingFace(author, fetch, cache),
     })),
     ...MODELSCOPE_PATHS.map((path, index) => ({
       id: `modelscope:${path}`,
       interval: 1800 + index * 90,
+      pace: { group: "modelscope.cn", seconds: 60 },
       run: () => collectModelScope(path),
     })),
     ...DESIGNARENA_CATEGORIES.map((category, index) => ({
       id: `designarena:${category}`,
       interval: 3600 + index * 120,
+      pace: { group: "designarena.ai", seconds: 60 },
       run: () => collectDesignArena(category),
     })),
     { id: "cursor-changelog", interval: 1800, run: () => collectCursorChangelog() },
@@ -124,24 +132,43 @@ export function sourceJobs(
   return jobs;
 }
 export async function pollSources(db: Database, config: AppConfig, force = false): Promise<void> {
-  for (const job of sourceJobs(db, config)) {
-    const last = db
-      .query<{ checked_at: string | null; failures: number }, [string]>(
-        "SELECT checked_at,failures FROM sources WHERE id=?",
-      )
-      .get(job.id);
-    if (!force && !due(last?.checked_at ?? null, job.interval, last?.failures ?? 0)) continue;
+  const jobs = sourceJobs(db, config);
+  const rows = new Map(
+    jobs.map((job) => [
+      job.id,
+      db
+        .query<{ checked_at: string | null; failures: number; retry_at: string | null }, [string]>(
+          "SELECT checked_at,failures,retry_at FROM sources WHERE id=?",
+        )
+        .get(job.id),
+    ]),
+  );
+  const pacedAt = new Map<string, number>();
+  for (const job of jobs) {
+    const checkedAt = rows.get(job.id)?.checked_at;
+    if (job.pace && checkedAt)
+      pacedAt.set(job.pace.group, Math.max(pacedAt.get(job.pace.group) ?? 0, Date.parse(checkedAt)));
+  }
+
+  for (const job of jobs) {
+    const last = rows.get(job.id);
+    const now = Date.now();
+    if (last?.retry_at && Date.parse(last.retry_at) > now) continue;
+    if (!force && !due(last?.checked_at ?? null, job.interval, last?.failures ?? 0, now)) continue;
+    if (job.pace && now - (pacedAt.get(job.pace.group) ?? 0) < job.pace.seconds * 1000) continue;
     try {
       const collection = await job.run();
+      const checkedAt = new Date().toISOString();
       const events = saveCollection(
         db,
         collection,
         config.destinations,
-        new Date().toISOString(),
+        checkedAt,
         config.REPORT_BASE_URL,
         config.vendorRoles,
       );
-      db.query("UPDATE sources SET failures=0 WHERE id=?").run(job.id);
+      db.query("UPDATE sources SET failures=0,retry_at=NULL WHERE id=?").run(job.id);
+      if (job.pace) pacedAt.set(job.pace.group, Date.parse(checkedAt));
       log("info", "Source collected", { source: job.id, records: collection.records.length, events });
     } catch (error) {
       // Source errors may contain credentials or an entire invalid response. Keep a safe operational category.
@@ -152,11 +179,14 @@ export async function pollSources(db: Database, config: AppConfig, force = false
         )
           ? error.message
           : "Collection failed: network or schema validation error";
+      const checkedAt = new Date().toISOString();
+      const retryAt = error instanceof SourceHttpError ? error.retryAt : null;
       db.query(
-        `INSERT INTO sources(id,last_error,checked_at,failures) VALUES(?,?,?,1)
+        `INSERT INTO sources(id,last_error,checked_at,failures,retry_at) VALUES(?,?,?,1,?)
          ON CONFLICT(id) DO UPDATE SET last_error=excluded.last_error,checked_at=excluded.checked_at,
-           failures=MIN(sources.failures+1,6)`,
-      ).run(job.id, message, new Date().toISOString());
+           failures=MIN(sources.failures+1,6),retry_at=excluded.retry_at`,
+      ).run(job.id, message, checkedAt, retryAt);
+      if (job.pace) pacedAt.set(job.pace.group, Date.parse(checkedAt));
       // A failure breaks consecutive confirmation of a disappearance.
       db.query("UPDATE records SET missing_count=0 WHERE source=?").run(job.id);
       log("warn", "Source collection failed", { source: job.id, error: message });

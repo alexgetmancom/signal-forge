@@ -13,9 +13,15 @@ export function operations(db: Database, config: AppConfig) {
           id: job.id,
           intervalSeconds: job.interval,
           ...(db
-            .query<{ last_success: string | null; last_error: string | null; checked_at: string | null }, [string]>(
-              "SELECT last_success,last_error,checked_at FROM sources WHERE id=?",
-            )
+            .query<
+              {
+                last_success: string | null;
+                last_error: string | null;
+                checked_at: string | null;
+                retry_at: string | null;
+              },
+              [string]
+            >("SELECT last_success,last_error,checked_at,retry_at FROM sources WHERE id=?")
             .get(job.id) ?? {}),
         })),
         unavailable: [

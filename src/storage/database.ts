@@ -73,6 +73,13 @@ export function openDatabase(path: string): Database {
   )
     db.run("ALTER TABLE sources ADD COLUMN failures INTEGER NOT NULL DEFAULT 0");
   if (
+    !db
+      .query<{ name: string }, []>("PRAGMA table_info(sources)")
+      .all()
+      .some((column) => column.name === "retry_at")
+  )
+    db.run("ALTER TABLE sources ADD COLUMN retry_at TEXT");
+  if (
     db
       .query<{ name: string }, []>("PRAGMA table_info(deliveries)")
       .all()

@@ -46,9 +46,10 @@ function groupOf(id: string): string {
 export function sourceHealth(db: Database, config: AppConfig, now = Date.now()): SourceHealth[] {
   return sourceJobs(db, config).map((job) => {
     const row = db
-      .query<{ last_success: string | null; last_error: string | null; checked_at: string | null }, [string]>(
-        "SELECT last_success,last_error,checked_at FROM sources WHERE id=?",
-      )
+      .query<
+        { last_success: string | null; last_error: string | null; checked_at: string | null; retry_at: string | null },
+        [string]
+      >("SELECT last_success,last_error,checked_at,retry_at FROM sources WHERE id=?")
       .get(job.id);
     const group = groupOf(job.id);
     const restriction = RESTRICTED[job.id];
@@ -56,6 +57,13 @@ export function sourceHealth(db: Database, config: AppConfig, now = Date.now()):
     if (!row?.checked_at) return { id: job.id, group, state: "idle", detail: "no observation yet" };
     if (row.last_error) {
       if (restriction) return { id: job.id, group, state: "blocked", detail: restriction };
+      if (/HTTP 429$/.test(row.last_error))
+        return {
+          id: job.id,
+          group,
+          state: "blocked",
+          detail: row.retry_at ? `rate limited — waiting until ${row.retry_at}` : "rate limited — backing off",
+        };
       return { id: job.id, group, state: "failing", detail: row.last_error };
     }
     const since = row.last_success ? now - Date.parse(row.last_success) : Number.POSITIVE_INFINITY;

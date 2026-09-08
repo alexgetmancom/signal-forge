@@ -4,6 +4,28 @@ import { freshUntil, type HttpCache } from "../storage/httpCache.js";
 /** How long the channel is given to come back before an observation is called a failure. */
 const RETRY_DELAYS_MS = [3_000, 9_000];
 
+export class SourceHttpError extends Error {
+  constructor(
+    message: string,
+    readonly retryAt: string | null = null,
+  ) {
+    super(message);
+  }
+}
+
+function retryAt(headers: Headers, now = Date.now()): string | null {
+  const retryAfter = headers.get("retry-after");
+  if (retryAfter) {
+    const seconds = Number(retryAfter);
+    const time = Number.isFinite(seconds) ? now + seconds * 1000 : Date.parse(retryAfter);
+    if (Number.isFinite(time) && time > now) return new Date(time + 1000).toISOString();
+  }
+  const window = headers.get("ratelimit")?.match(/(?:^|;)\s*t=(\d+)/i)?.[1];
+  if (window) return new Date(now + Number(window) * 1000 + 1000).toISOString();
+  const reset = Number(headers.get("x-ratelimit-reset"));
+  return Number.isFinite(reset) && reset * 1000 > now ? new Date(reset * 1000 + 1000).toISOString() : null;
+}
+
 /**
  * The link this collector runs on drops for minutes at a time — measured: every OpenAI and
  * Anthropic host failed its TLS handshake for seven minutes and then recovered untouched. A single
@@ -85,7 +107,11 @@ export async function fetchText(
   // challenged is to ask less often, never to look like something else.
   if (response.headers.get("x-amzn-waf-action") || response.headers.get("cf-mitigated"))
     throw new Error("Source challenged by bot protection");
-  if (!response.ok) throw new Error(`Source returned HTTP ${response.status}`);
+  if (!response.ok)
+    throw new SourceHttpError(
+      `Source returned HTTP ${response.status}`,
+      response.status === 429 ? retryAt(response.headers) : null,
+    );
   const reader = response.body?.getReader();
   if (!reader) throw new Error("Source returned no body");
   const chunks: Uint8Array[] = [];

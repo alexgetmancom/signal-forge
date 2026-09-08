@@ -7,7 +7,7 @@ import { claudeAssetImports, extractStrings } from "../src/sources/claude.js";
 import { parseCursorChangelog, parseDesignArena, parseModelScope } from "../src/sources/community.js";
 import { parseAnthropicDeprecations, parseOpenAIDeprecations } from "../src/sources/deprecations.js";
 import { collectGithubCommits, summarizeDiff } from "../src/sources/github.js";
-import { fetchText } from "../src/sources/http.js";
+import { fetchText, SourceHttpError } from "../src/sources/http.js";
 import { parseAnthropicNews, parseOpenAINews } from "../src/sources/news.js";
 import { parseNpm } from "../src/sources/registries.js";
 import { openDatabase } from "../src/storage/database.js";
@@ -499,4 +499,19 @@ test("a rate limit is obeyed rather than retried", async () => {
   await expect(fetchText("https://example.test/a", {}, limited)).rejects.toThrow("HTTP 429");
   // Answering "too many requests" with another request is the opposite of what was asked.
   expect(calls).toBe(1);
+});
+
+test("a rate limit carries the server's reset time to the scheduler", async () => {
+  const before = Date.now();
+  const limited = async () =>
+    new Response("slow down", { status: 429, headers: { ratelimit: '"api|pages|resolvers";r=0;t=120' } });
+  try {
+    await fetchText("https://example.test/a", {}, limited);
+    throw new Error("Expected a rate limit");
+  } catch (error) {
+    expect(error).toBeInstanceOf(SourceHttpError);
+    const retryAt = Date.parse((error as SourceHttpError).retryAt ?? "");
+    expect(retryAt).toBeGreaterThanOrEqual(before + 120_000);
+    expect(retryAt).toBeLessThanOrEqual(Date.now() + 122_000);
+  }
 });
