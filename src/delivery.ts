@@ -51,7 +51,15 @@ export async function deliverPending(db: Database, config: AppConfig, request: F
         if (!config.DISCORD_BOT_TOKEN) throw new Error("Missing Discord token");
         url = `https://discord.com/api/v10/channels/${destination.channelId}/messages`;
         headers = { "content-type": "application/json", Authorization: `Bot ${config.DISCORD_BOT_TOKEN}` };
-        body = { content: job.body, allowed_mentions: { parse: [] }, nonce: `sf-${job.id}`, enforce_nonce: true };
+        body = {
+          content: job.body,
+          allowed_mentions: { parse: [] },
+          // SUPPRESS_EMBEDS. The unfurl is Discord's own render of whatever OG image the linked
+          // site ships: uncontrollable, and on a phone it buries the event under a banner.
+          flags: 4,
+          nonce: `sf-${job.id}`,
+          enforce_nonce: true,
+        };
       }
       const response = await request(url, {
         method: "POST",

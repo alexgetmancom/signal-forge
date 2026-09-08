@@ -85,3 +85,26 @@ test("permanent platform rejection fails one target without blocking another", a
     { status: "sent" },
   ]);
 });
+
+test("discord sends suppress the link unfurl", async () => {
+  const db = openDatabase(":memory:");
+  const destination: Destination = {
+    id: "d",
+    platform: "discord",
+    channelId: "1",
+    streams: ["openrouter"],
+  };
+  db.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'openrouter',0,1)").run();
+  db.query(
+    "INSERT INTO deliveries(batch_id,destination_id,destination_json,body,part,updated_at) VALUES(1,'d',?,'text',0,0)",
+  ).run(JSON.stringify(destination));
+
+  let sent: Record<string, unknown> = {};
+  await deliverPending(db, config, async (_url, init) => {
+    sent = JSON.parse(String(init?.body)) as Record<string, unknown>;
+    return new Response(JSON.stringify({ id: "9" }), { status: 200 });
+  });
+  // The unfurl is Discord's render of the linked site, not ours, and it dominates a phone screen.
+  expect(sent.flags).toBe(4);
+  db.close();
+});
