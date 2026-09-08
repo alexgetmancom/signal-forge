@@ -1,3 +1,4 @@
+import { publishAlerts } from "./alerts.js";
 import { loadConfig } from "./config.js";
 import { deliverPending, recoverInterruptedDeliveries } from "./delivery.js";
 import { createHttpApp } from "./http.js";
@@ -20,6 +21,7 @@ supervisor.register(startIntervalWorker("sources", 30_000, () => pollSources(db,
 supervisor.register(
   startIntervalWorker("status", 300_000, async () => {
     await publishStatus(db, config);
+    await publishAlerts(db, config);
   }),
 );
 let stopping = false;

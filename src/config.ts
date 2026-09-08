@@ -51,6 +51,8 @@ export const settingsSchema = z
      * subscriber picks the makers they care about instead of a channel they cannot filter.
      */
     vendorRoles: z.record(z.string(), z.string().regex(/^\d+$/)).default({}),
+    /** Private channel for operational alerts: collector outages, not model news. */
+    alertChannelId: z.string().regex(/^\d+$/).optional(),
     github: z
       .array(
         z.object({
