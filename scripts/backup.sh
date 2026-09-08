@@ -15,8 +15,9 @@ STAMP=$(date +%Y%m%d-%H%M%S)
 mkdir -p "$DEST"
 cd "$DIR"
 
-# The container owns the database file, so the copy is made from inside it.
-docker compose exec -T app bun -e "
+# A one-off container rather than `exec`: `exec` needs the service running, so a backup taken
+# while the collector is stopped for a migration — the moment a backup matters most — did nothing.
+docker compose run --rm --no-deps -T app bun -e "
   const { Database } = require('bun:sqlite');
   const db = new Database('/app/data/app.db', { readonly: true });
   db.exec(\"VACUUM INTO '/app/data/backup-$STAMP.db'\");
@@ -26,7 +27,7 @@ mv "$DIR/data/backup-$STAMP.db" "$DEST/app-$STAMP.db"
 gzip -f "$DEST/app-$STAMP.db"
 
 # A backup that cannot be opened is not a backup: read it back before trusting it.
-docker compose exec -T app bun -e "
+docker compose run --rm --no-deps -T app bun -e "
   const { Database } = require('bun:sqlite');
   const { gunzipSync } = require('node:zlib');
   const { readFileSync, writeFileSync, unlinkSync } = require('node:fs');

@@ -1,7 +1,17 @@
 import { readFileSync } from "node:fs";
 import { z } from "zod";
 
-export const streamSchema = z.enum(["api-models", "openrouter", "news", "arena", "leaderboards", "web", "github"]);
+export const streamSchema = z.enum([
+  "api-models",
+  "openrouter",
+  "news",
+  "arena",
+  "leaderboards",
+  "web",
+  "github",
+  "weights",
+  "packages",
+]);
 const streams = z.array(streamSchema).min(1);
 export const destinationSchema = z.discriminatedUnion("platform", [
   z.object({

@@ -16,6 +16,8 @@
 | Deferred | Connect and verify Discord delivery. | Only after Telegram is refined and the owner resumes Discord work. |
 
 
+| Blocked | Reach the Vercel AI Gateway catalogue from VM106. | Measured 2026-09-08: `tw-nl` pulls the full 383 KB listing in 0.09 s, VM106 receives 13-16 KB and then stalls until timeout. The collector and the schema are fine; the home channel cuts the response. The fix is a routing rule sending `ai-gateway.vercel.sh` through a tunnel on `home-101`, which is an OpenWrt change and needs the owner. |
+
 # Gemini access
 
 The `gemini` source returns HTTP 400 `User location is not supported for the API use.` and is the

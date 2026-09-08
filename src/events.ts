@@ -78,6 +78,7 @@ const sourceLabels: Record<string, string> = {
   "anthropic-news": "Anthropic · news",
   "claude-web": "Claude · interface",
   "codex-docs": "Codex · docs",
+  "vercel-gateway": "Vercel AI Gateway",
 };
 function describe(value: unknown): string {
   if (value === null || value === undefined || value === "") return "not set";
@@ -108,6 +109,19 @@ export function meaningfulWebString(value: string): boolean {
     value,
   );
 }
+/**
+ * A rank is only interesting as a movement. Reporting "rank: 7 → 5" makes the reader do the
+ * subtraction; reporting the arrow and the distance is the sentence they would have written.
+ */
+export function rankMove(before: unknown, after: unknown): string {
+  const from = Number(before);
+  const to = Number(after);
+  if (!Number.isFinite(from) || !Number.isFinite(to)) return `Rank: ${describe(before)} → ${describe(after)}`;
+  const distance = Math.abs(to - from);
+  const arrow = to < from ? "🔼" : "🔽";
+  return `Rank ${to} ${arrow} ${distance} (was ${from})`;
+}
+
 function prices(before: unknown, after: unknown): string[] {
   const old = before && typeof before === "object" ? (before as Record<string, unknown>) : {};
   const next = after && typeof after === "object" ? (after as Record<string, unknown>) : {};
@@ -165,6 +179,15 @@ export function renderEvent(
     if (!usefulAdded.length && !usefulRemoved.length)
       lines.push("Only boilerplate or short strings; the report has the details.");
     lines.push("A public text change is not yet confirmation that a feature shipped.");
+  } else if (event.stream === "arena" && before && after && before.name !== after.name) {
+    // Arenas list unreleased models under a codename and rename them once the model is announced.
+    // That rename is the story: it is the moment a codename becomes a product.
+    lines.push(`${describe(before.name)} → ${describe(after.name)}`);
+    if (after.maker && after.maker !== before.maker) lines.push(`Identified as ${describe(after.maker)}`);
+    for (const key of ["input", "output", "selectable"]) {
+      if (canonical(before[key]) !== canonical(after[key]))
+        lines.push(`${fieldLabels[key] ?? key}: ${describe(before[key])} → ${describe(after[key])}`);
+    }
   } else if (event.stream === "github") {
     if (record?.stage) lines.push(describe(record.stage));
     else if (event.source.endsWith(":commits")) lines.push("Repository change; not a release yet");
@@ -176,6 +199,10 @@ export function renderEvent(
       if (["head", "updated"].includes(key) || canonical(before[key]) === canonical(after[key])) continue;
       if (key === "pricing") {
         lines.push(...prices(before[key], after[key]));
+        continue;
+      }
+      if (key === "rank") {
+        lines.push(rankMove(before[key], after[key]));
         continue;
       }
       if (Array.isArray(before[key]) && Array.isArray(after[key])) {
@@ -212,6 +239,97 @@ export function renderEvent(
   lines.push(`Signal Forge · ${time} · #${event.id}`);
   return lines.join("\n");
 }
+const VENDORS: [RegExp, string][] = [
+  [/openai|gpt|codex|chatgpt|sora/i, "OpenAI"],
+  [/anthropic|claude/i, "Anthropic"],
+  [/google|gemini|deepmind|lyria|imagen|veo/i, "Google"],
+  [/x-ai|xai|grok/i, "xAI"],
+  [/deepseek/i, "DeepSeek"],
+  [/qwen|alibaba/i, "Qwen"],
+  [/meta-llama|llama|^meta\//i, "Meta"],
+  [/mistral/i, "Mistral"],
+  [/moonshot|kimi/i, "Moonshot"],
+  [/minimax/i, "MiniMax"],
+  [/z-ai|zhipu|glm/i, "Z.ai"],
+  [/cohere/i, "Cohere"],
+  [/perplexity/i, "Perplexity"],
+];
+
+/** The vendor an event is about, for the eyebrow line and later for role pings. */
+export function vendorOf(event: Event, record: RecordData | null): string {
+  const haystack = [record?.maker, record?.provider, event.entity_id, event.source]
+    .filter((value) => typeof value === "string")
+    .join(" ");
+  return VENDORS.find(([pattern]) => pattern.test(haystack))?.[1] ?? "Unknown";
+}
+
+const EYEBROWS: Record<string, string> = {
+  "api-models": "MODEL CATALOGUE",
+  openrouter: "AVAILABILITY",
+  arena: "ARENA",
+  leaderboards: "LEADERBOARD",
+  news: "OFFICIAL NEWS",
+  web: "INTERFACE",
+  github: "REPOSITORY",
+  weights: "OPEN WEIGHTS",
+  packages: "PACKAGE",
+};
+
+/** One line saying where the observation came from, so a reader knows how much to trust it. */
+const ORIGINS: Record<string, string> = {
+  openrouter: "Listing changed on OpenRouter.",
+  openai: "Seen in the OpenAI catalogue.",
+  anthropic: "Seen in the Anthropic catalogue.",
+  gemini: "Seen in the Gemini catalogue.",
+  arena: "Spotted on Arena.",
+  "arena-leaderboards": "Ranking published on Arena.",
+  "openai-news": "Published by OpenAI.",
+  "anthropic-news": "Published by Anthropic.",
+  "claude-web": "Found in the public Claude bundle.",
+  "codex-docs": "Changed in the Codex documentation.",
+  "vercel-gateway": "Listed on Vercel AI Gateway.",
+};
+
+const KIND_COLORS: Record<Event["kind"], number> = { new: 0x2ecc71, changed: 0xf1c40f, removed: 0xe74c3c };
+
+/**
+ * Discord renders one embed per event: the coloured bar carries the kind, the eyebrow carries what
+ * and whose, and the embed's own timestamp is drawn in each reader's timezone. The text renderer
+ * stays for Telegram, which has none of that.
+ */
+export function eventEmbed(event: Event, url: string, reportBaseUrl?: string): Record<string, unknown> {
+  const before = event.before_json ? (JSON.parse(event.before_json) as RecordData) : null;
+  const after = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
+  const record = after ?? before;
+  const rendered = renderEvent(event, url, undefined, "telegram").split("\n");
+  // renderEvent's first line is the kind and source, the last two are link and signature; the
+  // middle is the body worth showing, and it is already the filtered, human version.
+  const body = rendered.slice(2, -2).join("\n").trim();
+  const origin = ORIGINS[event.source] ?? "";
+  const description = [origin, body].filter(Boolean).join("\n\n").slice(0, 4000);
+  const link =
+    typeof record?.url === "string"
+      ? record.url
+      : event.source === "openrouter"
+        ? `https://openrouter.ai/${event.entity_id}`
+        : url;
+
+  const embed: Record<string, unknown> = {
+    author: { name: `${EYEBROWS[event.stream] ?? "UPDATE"} · ${vendorOf(event, record).toUpperCase()}` },
+    title: String(record?.name ?? event.entity_id).slice(0, 250),
+    color: KIND_COLORS[event.kind],
+    description,
+    footer: { text: `Signal Forge · #${event.id}` },
+    timestamp: new Date(event.detected_at).toISOString(),
+  };
+  if (link) embed.url = link;
+  if (reportBaseUrl && event.stream === "web")
+    embed.fields = [
+      { name: "Full report", value: `${reportBaseUrl.replace(/\/$/, "")}/reports/${event.id}`, inline: false },
+    ];
+  return embed;
+}
+
 export function saveCollection(
   db: Database,
   c: Collection,
@@ -356,6 +474,8 @@ export function saveCollection(
 export function isRoutine(event: Event): boolean {
   if (event.source === "claude-web") return true;
   if (event.kind !== "changed") return false;
+  // A rank move is real news but not urgent news: it belongs in the hourly digest, not in a ping.
+  if (event.stream === "leaderboards") return true;
   if (!["openrouter", "api-models", "arena"].includes(event.stream)) return false;
   const before = JSON.parse(event.before_json ?? "{}") as Record<string, unknown>;
   const after = JSON.parse(event.after_json ?? "{}") as Record<string, unknown>;
@@ -409,6 +529,8 @@ export function prepareDeliveries(db: Database, now = Date.now(), reportBaseUrl?
           arena: "#Arena",
           leaderboards: "#Leaderboards",
           news: "#News",
+          weights: "#Weights",
+          packages: "#Packages",
           web: "#Web",
           github: "#GitHub",
         };
@@ -433,10 +555,24 @@ export function prepareDeliveries(db: Database, now = Date.now(), reportBaseUrl?
             return `${kind} ${content.length > 800 ? `${content.slice(0, 800)}…` : content}\n${footer}`;
           })
           .join("\n\n────────\n\n");
-        splitMessage(text, (d.platform === "telegram" ? 3900 : 1900) - header.length).forEach((body, part) => {
-          db.query(
-            "INSERT INTO deliveries(batch_id,destination_id,destination_json,body,part,updated_at) VALUES(?,?,?,?,?,?)",
-          ).run(batch.id, target.destination_id, target.destination_json, header + body, part, now);
+        const store = (payload: string, part: number) =>
+          db
+            .query(
+              "INSERT INTO deliveries(batch_id,destination_id,destination_json,body,part,updated_at) VALUES(?,?,?,?,?,?)",
+            )
+            .run(batch.id, target.destination_id, target.destination_json, payload, part, now);
+
+        if (d.platform === "discord") {
+          // One embed per event, ten per message — Discord's own limit, and a natural page size.
+          const embeds = events.map((event) => eventEmbed(event, event.url, reportBaseUrl));
+          for (let index = 0; index * 10 < embeds.length; index += 1) {
+            const page = embeds.slice(index * 10, index * 10 + 10);
+            store(JSON.stringify({ content: index === 0 ? header.trim() : "", embeds: page }), index);
+          }
+          continue;
+        }
+        splitMessage(text, 3900 - header.length).forEach((body, part) => {
+          store(header + body, part);
         });
       }
       db.query("UPDATE batches SET sealed=1 WHERE id=?").run(batch.id);

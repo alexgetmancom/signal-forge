@@ -9,6 +9,15 @@ import { collectClaude } from "./sources/claude.js";
 import { collectCodexDocs } from "./sources/codex.js";
 import { collectGithubCommits, collectGithubPulls, collectGithubReleases } from "./sources/github.js";
 import { collectAnthropicNews, collectOpenAINews } from "./sources/news.js";
+import {
+  collectHuggingFace,
+  collectNpm,
+  collectPypi,
+  collectVercelGateway,
+  HF_AUTHORS,
+  NPM_PACKAGES,
+  PYPI_PACKAGES,
+} from "./sources/registries.js";
 
 export function sourceJobs(
   db: Database,
@@ -18,10 +27,20 @@ export function sourceJobs(
     { id: "openrouter", interval: config.pollSeconds, run: () => collectOpenRouter() },
     { id: "openai-news", interval: 900, run: () => collectOpenAINews() },
     { id: "anthropic-news", interval: 900, run: () => collectAnthropicNews() },
+    { id: "vercel-gateway", interval: config.pollSeconds, run: () => collectVercelGateway() },
     { id: "arena", interval: config.pollSeconds, run: () => collectArena() },
     { id: "arena-leaderboards", interval: 1800, run: () => collectLeaderboards() },
     { id: "codex-docs", interval: 3600, run: () => collectCodexDocs() },
     { id: "claude-web", interval: 3600, run: () => collectClaude() },
+    // Registries move slowly and are many, so they are polled far apart and spread over the hour
+    // rather than hammered together every cycle.
+    ...HF_AUTHORS.map((author) => ({
+      id: `huggingface:${author}`,
+      interval: 1800,
+      run: () => collectHuggingFace(author),
+    })),
+    ...NPM_PACKAGES.map((name) => ({ id: `npm:${name}`, interval: 900, run: () => collectNpm(name) })),
+    ...PYPI_PACKAGES.map((name) => ({ id: `pypi:${name}`, interval: 900, run: () => collectPypi(name) })),
   ];
   if (config.OPENAI_API_KEY)
     jobs.push({ id: "openai", interval: config.pollSeconds, run: () => collectOpenAI(config) });

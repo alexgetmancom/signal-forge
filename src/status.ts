@@ -21,6 +21,7 @@ export type SourceHealth = {
 /** Restrictions we have measured, so the board explains rather than blaming the collector. */
 const RESTRICTED: Record<string, string> = {
   gemini: "region-locked: Google refuses every exit we have",
+  "vercel-gateway": "unreachable from this network: the response is cut at ~16 KB",
 };
 
 const GROUPS: [RegExp, string][] = [
@@ -29,6 +30,9 @@ const GROUPS: [RegExp, string][] = [
   [/news$/, "Official news"],
   [/^(claude-web|codex-docs)$/, "Web"],
   [/^github:/, "GitHub"],
+  [/^huggingface:/, "Open weights"],
+  [/^(npm|pypi):/, "Packages"],
+  [/^vercel-gateway$/, "Catalogues"],
 ];
 
 function groupOf(id: string): string {

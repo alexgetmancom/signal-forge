@@ -23,15 +23,19 @@ test("Arena accepts models without internal name but requires valid public field
   expect(() => parseArena("<html>Challenge</html>")).toThrow("no longer exposes");
   expect(() => parseArena(nextPage({ initialModels: [{ id: "one" }] }))).toThrow();
 });
-test("leaderboard identity includes category and ignores score movement", () => {
+test("leaderboard keeps rank for the leading places and drops it below them", () => {
   const board = {
     arenaSlug: "text",
     leaderboardSlug: "overall",
-    entries: [{ modelKey: "a", modelDisplayName: "A", modelOrganization: "Maker", rank: 1 }],
+    entries: [
+      { modelKey: "a", modelDisplayName: "A", modelOrganization: "Maker", rank: 1 },
+      { modelKey: "z", modelDisplayName: "Z", modelOrganization: "Maker", rank: 44 },
+    ],
   };
-  const first = parseLeaderboards(nextPage({ leaderboards: [board] }));
-  board.entries = board.entries.map((e) => ({ ...e, rank: 2 }));
-  expect(parseLeaderboards(nextPage({ leaderboards: [board] })).records).toEqual(first.records);
+  const parsed = parseLeaderboards(nextPage({ leaderboards: [board] }));
+  expect(parsed.records[0]).toMatchObject({ id: "text:overall:a", rank: 1 });
+  // Deep in a board the order churns daily; storing it would buy events and no news.
+  expect(parsed.records[1]).not.toHaveProperty("rank");
 });
 test("RSS parses escaped titles and preserves article dates", () => {
   const c = parseOpenAINews(
@@ -232,4 +236,60 @@ test("Codex PR monitor suppresses outsiders and distinguishes merges from releas
   pr.updated_at = "2026-09-08T03:00:00Z";
   expect((await collectGithubPulls(db, config, watch, request)).silentIds).toContain("10");
   db.close();
+});
+
+test("Hugging Face listing is append-only and keeps access and origin", async () => {
+  const { parseHuggingFace } = await import("../src/sources/registries.js");
+  const c = parseHuggingFace(
+    JSON.stringify([
+      {
+        id: "openai/whisper-4",
+        author: "openai",
+        createdAt: "2026-09-01T00:00:00.000Z",
+        pipeline_tag: "asr",
+        gated: false,
+      },
+      { id: "openai/secret", author: "openai", createdAt: "2026-09-02T00:00:00.000Z", gated: "auto" },
+    ]),
+    "openai",
+  );
+  // A listing that omits a repository is paging, not a deletion.
+  expect(c.appendOnly).toBe(true);
+  expect(c.records[0]).toMatchObject({ id: "openai/whisper-4", access: "public", category: "asr" });
+  expect(c.records[1]).toMatchObject({ access: "gated" });
+  expect(() => parseHuggingFace("{}", "openai")).toThrow();
+});
+
+test("npm is tracked per channel, so a nightly does not become an event per version", async () => {
+  const { parseNpm } = await import("../src/sources/registries.js");
+  const c = parseNpm(
+    JSON.stringify({
+      name: "@openai/codex",
+      "dist-tags": { latest: "1.2.3", alpha: "1.3.0-alpha.1" },
+      time: { "1.2.3": "2026-09-01T00:00:00.000Z", "1.3.0-alpha.1": "2026-09-02T00:00:00.000Z" },
+    }),
+  );
+  expect(c.records.map((r) => r.id).sort()).toEqual(["alpha", "latest"]);
+  expect(c.records.find((r) => r.id === "latest")).toMatchObject({ version: "1.2.3" });
+});
+
+test("Vercel gateway models carry maker, context and pricing", async () => {
+  const { parseVercelGateway } = await import("../src/sources/registries.js");
+  const c = parseVercelGateway(
+    JSON.stringify({ data: [{ id: "alibaba/qwen-3", name: "Qwen3", owned_by: "alibaba", context_window: 128000 }] }),
+  );
+  expect(c.stream).toBe("api-models");
+  expect(c.records[0]).toMatchObject({ id: "alibaba/qwen-3", name: "Qwen3", maker: "alibaba", context: 128000 });
+});
+
+test("pypi reports the current version as one record", async () => {
+  const { parsePypi } = await import("../src/sources/registries.js");
+  const c = parsePypi(
+    JSON.stringify({
+      info: { name: "anthropic", version: "1.4.0" },
+      releases: { "1.4.0": [{ upload_time_iso_8601: "2026-09-05T10:00:00.000Z" }] },
+    }),
+  );
+  expect(c.records).toHaveLength(1);
+  expect(c.records[0]).toMatchObject({ id: "latest", version: "1.4.0", published: "2026-09-05T10:00:00.000Z" });
 });

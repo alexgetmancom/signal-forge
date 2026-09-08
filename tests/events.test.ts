@@ -153,7 +153,7 @@ test("multiple changes form one message and hourly digest survives until due", a
   expect(db.query("SELECT COUNT(*) AS n FROM deliveries").get()).toEqual({ n: 6 });
 });
 
-test("shared feed keeps topic headings on every bounded message part", () => {
+test("each platform is paged by its own limit", () => {
   saveCollection(db, collection(["a"]), targets);
   const c = collection(["a", ...Array.from({ length: 12 }, (_, i) => `model-${i}`)]);
   c.records = c.records.map((r) => ({ ...r, description: "Details ".repeat(150) }));
@@ -161,12 +161,26 @@ test("shared feed keeps topic headings on every bounded message part", () => {
   const rows = db
     .query<{ body: string; destination_id: string }, []>("SELECT body,destination_id FROM deliveries")
     .all();
-  expect(rows.length).toBeGreaterThan(2);
-  for (const row of rows) {
+
+  const telegram = rows.filter((row) => row.destination_id === "tg");
+  expect(telegram.length).toBeGreaterThan(1);
+  for (const row of telegram) {
+    // Telegram has no embeds, so the heading is repeated on every split part.
     expect(row.body).toStartWith("📡 Updates · OpenRouter");
     expect(row.body).toContain("#OpenRouter #Models");
-    expect(row.body.length).toBeLessThanOrEqual(row.destination_id === "tg" ? 3900 : 1900);
+    expect(row.body.length).toBeLessThanOrEqual(3900);
   }
+
+  const discord = rows.filter((row) => row.destination_id !== "tg");
+  expect(discord.length).toBeGreaterThan(1);
+  discord.forEach((row, index) => {
+    const payload = JSON.parse(row.body) as { content: string; embeds: unknown[] };
+    // Ten embeds is Discord's own ceiling; the heading belongs on the first page only, because
+    // the embeds below it already carry their own headings.
+    expect(payload.embeds.length).toBeLessThanOrEqual(10);
+    if (index === 0) expect(payload.content).toStartWith("📡 Updates · OpenRouter");
+  });
+
   expect(db.query("SELECT DISTINCT source,stream FROM events").all()).toEqual([
     { source: "openrouter", stream: "openrouter" },
   ]);
@@ -186,4 +200,10 @@ test("timestamps let each platform speak its reader's clock", () => {
   // Discord renders this in the viewer's own timezone; a fixed zone cannot.
   expect(renderEvent(event, "https://example.com", undefined, "discord")).toContain("<t:1788876360:f>");
   expect(renderEvent(event, "https://example.com", undefined, "telegram")).toContain("08 Sep 14:06 UTC");
+});
+
+test("a rank change reads as a movement, not as two numbers", async () => {
+  const { rankMove } = await import("../src/events.js");
+  expect(rankMove(7, 5)).toBe("Rank 5 🔼 2 (was 7)");
+  expect(rankMove(2, 6)).toBe("Rank 6 🔽 4 (was 2)");
 });
