@@ -143,16 +143,24 @@ function prices(before: unknown, after: unknown): string[] {
     input_cache_read: "Cache read",
     input_cache_write: "Cache write",
   };
-  const money = (v: unknown) =>
-    typeof v === "string" && v.trim() && Number.isFinite(Number(v)) && Number(v) >= 0
-      ? `$${Number((Number(v) * 1_000_000).toFixed(6))}`
-      : describe(v);
+  // OpenRouter carries prices to six decimals because it converts currencies. Printing all of them
+  // makes a reader parse "$1.899384 → $1.896252" to discover that nothing they care about moved.
+  const money = (v: unknown) => {
+    if (typeof v !== "string" || !v.trim() || !Number.isFinite(Number(v)) || Number(v) < 0) return describe(v);
+    const perMillion = Number(v) * 1_000_000;
+    const rounded = perMillion >= 1 ? perMillion.toFixed(2) : perMillion.toPrecision(2);
+    return `$${Number(rounded)}`;
+  };
   const result: string[] = [];
   for (const key of new Set([...Object.keys(old), ...Object.keys(next)])) {
     if (canonical(old[key]) === canonical(next[key])) continue;
-    if (labels[key])
-      result.push(`${labels[key]}: ${before ? `${money(old[key])} → ` : ""}${money(next[key])} / 1M tokens`);
-    else result.push(`Pricing ${key}: ${before ? `${describe(old[key])} → ` : ""}${describe(next[key])}`);
+    if (labels[key]) {
+      const from = money(old[key]);
+      const to = money(next[key]);
+      // Below the printed precision the number did not move as far as the reader is concerned.
+      if (before && from === to) continue;
+      result.push(`${labels[key]}: ${before ? `${from} → ` : ""}${to} / 1M tokens`);
+    } else result.push(`Pricing ${key}: ${before ? `${describe(old[key])} → ` : ""}${describe(next[key])}`);
   }
   return result;
 }
@@ -215,6 +223,18 @@ export function renderEvent(
     for (const key of ["input", "output", "selectable"]) {
       if (canonical(before[key]) !== canonical(after[key]))
         lines.push(`${fieldLabels[key] ?? key}: ${describe(before[key])} → ${describe(after[key])}`);
+    }
+  } else if (event.stream === "arena" && !before && after) {
+    // A model turning up on an arena is usually the first public trace of it, often under a
+    // codename. That sentence is the news; the capability fields are the supporting detail.
+    lines.push(
+      after.selectable === false
+        ? "Appeared on Arena, not yet selectable — usually a model being tested before announcement"
+        : "Appeared on Arena and can be picked",
+    );
+    for (const key of ["model", "input", "output"]) {
+      if (after[key] !== undefined && canonical(after[key]) !== canonical(after.name))
+        lines.push(`${fieldLabels[key] ?? key}: ${describe(after[key])}`);
     }
   } else if (event.stream === "leaderboards" && !before && after) {
     // "Category / Maker / rank: 1" is three fields the reader has to assemble. This is the sentence
@@ -279,7 +299,7 @@ export function renderEvent(
   lines.push("", link);
   if (reportBaseUrl && event.stream === "web")
     lines.push(`Full report: ${reportBaseUrl.replace(/\/$/, "")}/reports/${event.id}`);
-  lines.push(`Signal Forge · ${time} · #${event.id}`);
+  lines.push(`Signal Forge · ${time}`);
   return lines.join("\n");
 }
 const VENDORS: [RegExp, string][] = [
@@ -345,7 +365,7 @@ export function eventEmbed(
   // twice in four lines.
   const evidence = body
     .split("\n")
-    .filter((line) => line !== `Maker: ${vendor}`)
+    .filter((line) => line.toLowerCase() !== `maker: ${vendor.toLowerCase()}`)
     .join("\n");
   // The sentence goes in front of the evidence, never instead of it: a reading that turns out to
   // be wrong should be visibly wrong, with the observation right underneath it.
@@ -367,9 +387,8 @@ export function eventEmbed(
     title: String(record?.name ?? event.entity_id).slice(0, 250),
     color: KIND_COLORS[event.kind],
     description,
-    // Discord already stamps the message with the time it arrived, and the bot's name is on it.
-    // The number stays because it is how an event is looked up later.
-    footer: { text: `#${event.id}` },
+    // No footer at all. Discord stamps the time and names the bot; the event number was ours, and
+    // a reader who cannot query the database has no use for it.
   };
   if (link) embed.url = link;
   if (reportBaseUrl && event.stream === "web")
@@ -559,7 +578,7 @@ export function isRoutine(event: Event): boolean {
  * news a follower of that vendor acts on; a price or capability edit is worth reading, not worth a
  * notification on a phone, so it travels in the same message without the ping.
  */
-const PINGABLE = new Set(["api-models", "openrouter", "weights", "arena", "deprecations"]);
+const PINGABLE = new Set(["api-models", "openrouter", "weights", "arena", "deprecations", "news"]);
 function pingWorthy(event: Event): boolean {
   // A ping says "something you can use appeared or disappeared". A leaderboard entry says a
   // scoreboard moved, and waking a few hundred people for that is how a role gets removed.

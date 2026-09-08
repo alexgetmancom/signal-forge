@@ -27,8 +27,15 @@ const DAILY_CALL_LIMIT = 300;
 /** Only diffs the reader cannot skim on their own are worth a call. */
 const LONG_ENOUGH = MAX_DETAIL_LINES;
 
+/**
+ * Measured on the material, not on the rendered message. The message is already collapsed and
+ * truncated — a 30 KB commit diff and a one-line version bump can render to the same three lines,
+ * and it is exactly the collapsed one that needs a sentence.
+ */
 export function needsSummary(event: Event, url: string): boolean {
   if (event.kind === "removed") return false;
+  const material = (event.before_json?.length ?? 0) + (event.after_json?.length ?? 0);
+  if (material > 1_200) return true;
   const body = renderEvent(event, url).split("\n").slice(3, -3);
   return body.length >= LONG_ENOUGH || body.join("\n").length > 700;
 }
@@ -119,7 +126,11 @@ export async function fillSummaries(
       break;
     }
     if (!needsSummary(event, event.url)) continue;
-    const body = renderEvent(event, event.url).split("\n").slice(1, -3).join("\n");
+    // The model reads the observation itself rather than our shortened rendering of it, because
+    // the whole point is to describe what the rendering had to leave out.
+    const body = [event.before_json ? `PREVIOUS:\n${event.before_json}` : "", `CURRENT:\n${event.after_json ?? ""}`]
+      .filter(Boolean)
+      .join("\n\n");
     let sentence: string | null = null;
     try {
       recordCall(db, now);

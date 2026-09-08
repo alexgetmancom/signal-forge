@@ -130,7 +130,7 @@ test("Telegram copy displays readable prices and only changed parameters", async
     detected_at: "2026-09-08T02:00:00Z",
   };
   const text = renderEvent(event, "https://openrouter.ai");
-  expect(text).toContain("Input: $0.12 → $0.2275 / 1M tokens");
+  expect(text).toContain("Input: $0.12 → $0.23 / 1M tokens");
   expect(text).toContain("Parameters: + structured_outputs");
   expect(text).not.toContain('"prompt"');
   expect(text).toContain("02:00 UTC");
@@ -240,7 +240,8 @@ test("a rewritten record is collapsed to a readable message instead of a wall of
   expect(details).toHaveLength(MAX_DETAIL_LINES + 1);
   expect(details.at(-1)).toBe("…and 12 more changes not shown");
   // The link and the signature survive the collapse, so the reader can still reach the source.
-  expect(lines.at(-1)).toContain("#1");
+  expect(lines.at(-2)).toContain("https://");
+  expect(lines.at(-1)).toStartWith("Signal Forge");
 });
 test("a single long value is trimmed rather than dropped", () => {
   const long = "x".repeat(900);

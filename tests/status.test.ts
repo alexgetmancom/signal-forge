@@ -49,7 +49,7 @@ test("the board posts once and edits afterwards", async () => {
 
   const calls: string[] = [];
   const request = async (url: string, init?: RequestInit) => {
-    calls.push(`${init?.method} ${String(url).split("/channels/")[1]}`);
+    calls.push(`${init?.method ?? "GET"} ${String(url).split("/channels/")[1]}`);
     return new Response(JSON.stringify({ id: "555" }), { status: 200 });
   };
   expect(await publishStatus(db, withStatus, request, now)).toBe("created");
@@ -58,7 +58,24 @@ test("the board posts once and edits afterwards", async () => {
 
   seed(db, "arena", { last_error: "Source returned HTTP 500", checked_at: new Date(now).toISOString() });
   expect(await publishStatus(db, withStatus, request, now)).toBe("edited");
-  expect(calls).toEqual(["POST 99/messages", "PATCH 99/messages/555"]);
+  // The unchanged cycle still checks the board is there: a board deleted by hand must come back.
+  expect(calls).toEqual(["POST 99/messages", "GET 99/messages/555", "PATCH 99/messages/555"]);
+  db.close();
+});
+
+test("a board deleted by hand is posted again even though its content did not change", async () => {
+  const db = openDatabase(":memory:");
+  seed(db, "openrouter", { last_success: new Date(now - 1000).toISOString(), checked_at: new Date(now).toISOString() });
+  let deleted = false;
+  const request = async (_url: string, init?: RequestInit) => {
+    const method = init?.method ?? "GET";
+    if (deleted && method !== "POST") return new Response("{}", { status: 404 });
+    return new Response(JSON.stringify({ id: "555" }), { status: 200 });
+  };
+  expect(await publishStatus(db, withStatus, request, now)).toBe("created");
+  deleted = true;
+  // This is how the boards are put in the right order: delete one, and the next cycle reposts it.
+  expect(await publishStatus(db, withStatus, request, now)).toBe("created");
   db.close();
 });
 

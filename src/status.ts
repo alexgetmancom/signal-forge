@@ -146,7 +146,16 @@ async function publishBoard(
   const messageKey = `${key}_message`;
   const state = db.query<{ value: string }, [string]>("SELECT value FROM app_state WHERE key=?").get(renderKey);
   const messageId = db.query<{ value: string }, [string]>("SELECT value FROM app_state WHERE key=?").get(messageKey);
-  if (state?.value === comparable && messageId) return "unchanged";
+  if (state?.value === comparable && messageId) {
+    // An unchanged board still has to exist. Deleting one by hand is how its position in the
+    // channel gets fixed, and without this check the board would never come back: the content
+    // matches, so nothing would ever be sent again.
+    const present = await request(`https://discord.com/api/v10/channels/${channelId}/messages/${messageId.value}`, {
+      headers: { Authorization: `Bot ${config.DISCORD_BOT_TOKEN}` },
+    });
+    await present.body?.cancel();
+    if (present.ok) return "unchanged";
+  }
 
   const headers = {
     "content-type": "application/json",
