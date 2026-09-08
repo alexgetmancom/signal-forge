@@ -47,6 +47,7 @@ export function openDatabase(path: string): Database {
       external_id TEXT, error TEXT, updated_at INTEGER NOT NULL,
       UNIQUE(batch_id,destination_id,part)
     );
+    CREATE TABLE IF NOT EXISTS app_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
     CREATE INDEX IF NOT EXISTS deliveries_pending ON deliveries(status,next_attempt);
     CREATE INDEX IF NOT EXISTS events_source ON events(source,id);
   `);

@@ -21,6 +21,17 @@ Deployment runs checks, builds on VM106 and waits for container health. It prese
 database. Credentials are excluded from the image. The container runs as UID 1000 and restarts
 automatically.
 
+## Status board
+
+Set `statusChannelId` in `signal-forge.json` and one Discord message in that channel becomes a
+board: every collector with a coloured dot, grouped, edited in place every five minutes. It is
+rewritten only when something actually changed, so the channel holds a board rather than a log, and
+deleting the message by hand makes the next cycle post a fresh one.
+
+A blocked source is not a broken one. `gemini` answers everywhere except the addresses this project
+can reach, so it shows as restricted with its cause instead of counting against the headline — a
+board that calls every silence an outage teaches people to ignore it.
+
 ## Backups
 
 `signal-forge-backup.timer` on VM106 runs `scripts/backup.sh` nightly at 04:20 MSK. It copies the

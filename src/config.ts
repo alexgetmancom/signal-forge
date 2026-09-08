@@ -34,6 +34,8 @@ export const settingsSchema = z
   .object({
     pollSeconds: z.number().int().min(60).default(300),
     destinations: z.array(destinationSchema).default([]),
+    /** One Discord channel holding a status board that is edited in place, not a stream of posts. */
+    statusChannelId: z.string().regex(/^\d+$/).optional(),
     github: z
       .array(
         z.object({

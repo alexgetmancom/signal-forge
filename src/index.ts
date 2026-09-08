@@ -6,6 +6,7 @@ import { pollSources } from "./poller.js";
 import { stopServerGracefully } from "./runtime/shutdown.js";
 import { RuntimeSupervisor } from "./runtime/supervisor.js";
 import { startIntervalWorker } from "./runtime/worker.js";
+import { publishStatus } from "./status.js";
 import { openDatabase } from "./storage/database.js";
 
 const config = loadConfig();
@@ -16,6 +17,11 @@ const server = Bun.serve({ hostname: config.BIND_HOST, port: config.PORT, fetch:
 const supervisor = new RuntimeSupervisor();
 supervisor.register(startIntervalWorker("delivery", 1500, () => deliverPending(db, config)));
 supervisor.register(startIntervalWorker("sources", 30_000, () => pollSources(db, config)));
+supervisor.register(
+  startIntervalWorker("status", 300_000, async () => {
+    await publishStatus(db, config);
+  }),
+);
 let stopping = false;
 async function shutdown(): Promise<void> {
   if (stopping) return;
