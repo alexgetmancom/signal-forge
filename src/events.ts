@@ -47,25 +47,25 @@ export function splitMessage(text: string, limit = 1900): string[] {
   return parts;
 }
 const fieldLabels: Record<string, string> = {
-  name: "Название",
-  context: "Контекст",
-  input: "Вход",
-  output: "Выход",
-  parameters: "Параметры",
-  provider: "Провайдер",
-  maker: "Разработчик",
-  selectable: "Можно выбрать",
-  model: "Модель",
-  created: "Создана",
-  published: "Опубликовано",
-  stage: "Статус",
-  author: "Автор",
-  association: "Связь с репозиторием",
-  owner: "Владелец",
-  category: "Категория",
-  methods: "Методы",
-  inputTokenLimit: "Входных токенов",
-  outputTokenLimit: "Выходных токенов",
+  name: "Name",
+  context: "Context",
+  input: "Input",
+  output: "Output",
+  parameters: "Parameters",
+  provider: "Provider",
+  maker: "Maker",
+  selectable: "Selectable",
+  model: "Model",
+  created: "Created",
+  published: "Published",
+  stage: "Stage",
+  author: "Author",
+  association: "Repository association",
+  owner: "Owner",
+  category: "Category",
+  methods: "Methods",
+  inputTokenLimit: "Input token limit",
+  outputTokenLimit: "Output token limit",
 };
 const sourceLabels: Record<string, string> = {
   openrouter: "OpenRouter",
@@ -73,15 +73,15 @@ const sourceLabels: Record<string, string> = {
   anthropic: "Anthropic API",
   gemini: "Gemini API",
   arena: "Arena",
-  "arena-leaderboards": "Arena · рейтинги",
-  "openai-news": "OpenAI · новости",
-  "anthropic-news": "Anthropic · новости",
-  "claude-web": "Claude · интерфейс",
-  "codex-docs": "Codex · документация",
+  "arena-leaderboards": "Arena · leaderboards",
+  "openai-news": "OpenAI · news",
+  "anthropic-news": "Anthropic · news",
+  "claude-web": "Claude · interface",
+  "codex-docs": "Codex · docs",
 };
 function describe(value: unknown): string {
-  if (value === null || value === undefined || value === "") return "не указано";
-  if (typeof value === "boolean") return value ? "да" : "нет";
+  if (value === null || value === undefined || value === "") return "not set";
+  if (typeof value === "boolean") return value ? "yes" : "no";
   if (Array.isArray(value)) return value.map(describe).join(", ");
   if (typeof value === "object")
     return Object.entries(value)
@@ -99,10 +99,10 @@ function prices(before: unknown, after: unknown): string[] {
   const old = before && typeof before === "object" ? (before as Record<string, unknown>) : {};
   const next = after && typeof after === "object" ? (after as Record<string, unknown>) : {};
   const labels: Record<string, string> = {
-    prompt: "Вход",
-    completion: "Выход",
-    input_cache_read: "Чтение кеша",
-    input_cache_write: "Запись кеша",
+    prompt: "Input",
+    completion: "Output",
+    input_cache_read: "Cache read",
+    input_cache_write: "Cache write",
   };
   const money = (v: unknown) =>
     typeof v === "string" && v.trim() && Number.isFinite(Number(v)) && Number(v) >= 0
@@ -112,8 +112,8 @@ function prices(before: unknown, after: unknown): string[] {
   for (const key of new Set([...Object.keys(old), ...Object.keys(next)])) {
     if (canonical(old[key]) === canonical(next[key])) continue;
     if (labels[key])
-      result.push(`${labels[key]}: ${before ? `${money(old[key])} → ` : ""}${money(next[key])} / 1 млн токенов`);
-    else result.push(`Тариф ${key}: ${before ? `${describe(old[key])} → ` : ""}${describe(next[key])}`);
+      result.push(`${labels[key]}: ${before ? `${money(old[key])} → ` : ""}${money(next[key])} / 1M tokens`);
+    else result.push(`Pricing ${key}: ${before ? `${describe(old[key])} → ` : ""}${describe(next[key])}`);
   }
   return result;
 }
@@ -121,13 +121,13 @@ export function renderEvent(event: Event, url: string, reportBaseUrl?: string): 
   const before = event.before_json ? (JSON.parse(event.before_json) as RecordData) : null;
   const after = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
   const record = after ?? before;
-  const labels = { new: "🆕 Новое", changed: "✏️ Изменение", removed: "🗑️ Удалено" };
+  const labels = { new: "🆕 New", changed: "✏️ Changed", removed: "🗑️ Removed" };
   const source =
     sourceLabels[event.source] ??
     event.source
       .replace("github:", "GitHub · ")
-      .replace(":commits", " · код")
-      .replace(":releases", " · релизы")
+      .replace(":commits", " · commits")
+      .replace(":releases", " · releases")
       .replace(":pulls", " · PR");
   const lines = [`${labels[event.kind]} · ${source}`, String(record?.name ?? event.entity_id), ""];
   if (event.stream === "web" && before && after && Array.isArray(before.strings) && Array.isArray(after.strings)) {
@@ -138,20 +138,20 @@ export function renderEvent(event: Event, url: string, reportBaseUrl?: string): 
     const usefulAdded = added.filter(meaningfulWebString);
     const usefulRemoved = removed.filter(meaningfulWebString);
     lines.push(
-      `Значимых строк: +${usefulAdded.length}/−${usefulRemoved.length}; всего изменено: +${added.length}/−${removed.length}`,
+      `Meaningful strings: +${usefulAdded.length}/−${usefulRemoved.length}; total changed: +${added.length}/−${removed.length}`,
     );
     lines.push(
       ...usefulAdded.slice(0, 12).map((s) => `+ ${s.slice(0, 180)}`),
       ...usefulRemoved.slice(0, 3).map((s) => `− ${s.slice(0, 180)}`),
     );
     if (!usefulAdded.length && !usefulRemoved.length)
-      lines.push("Только служебные или короткие строки; подробности оставлены в отчёте.");
-    lines.push("Изменение публичного текста — ещё не подтверждение выпуска функции.");
+      lines.push("Only boilerplate or short strings; the report has the details.");
+    lines.push("A public text change is not yet confirmation that a feature shipped.");
   } else if (event.stream === "github") {
     if (record?.stage) lines.push(describe(record.stage));
-    else if (event.source.endsWith(":commits")) lines.push("Изменение в репозитории; это ещё не релиз");
-    else if (event.source.endsWith(":releases")) lines.push("Опубликованный релиз");
-    if (record?.author) lines.push(`Автор: ${describe(record.author)} (${describe(record.association)})`);
+    else if (event.source.endsWith(":commits")) lines.push("Repository change; not a release yet");
+    else if (event.source.endsWith(":releases")) lines.push("Published release");
+    if (record?.author) lines.push(`Author: ${describe(record.author)} (${describe(record.association)})`);
     lines.push(describe(record?.summary));
   } else if (before && after) {
     for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
@@ -183,17 +183,17 @@ export function renderEvent(event: Event, url: string, reportBaseUrl?: string): 
       : event.source === "openrouter"
         ? `https://openrouter.ai/${event.entity_id}`
         : url;
-  const time = new Intl.DateTimeFormat("ru-RU", {
-    timeZone: "Europe/Moscow",
+  const time = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "UTC",
     day: "2-digit",
-    month: "2-digit",
+    month: "short",
     hour: "2-digit",
     minute: "2-digit",
   }).format(new Date(event.detected_at));
   lines.push("", link);
   if (reportBaseUrl && event.stream === "web")
-    lines.push(`Полный отчёт: ${reportBaseUrl.replace(/\/$/, "")}/reports/${event.id}`);
-  lines.push(`Signal Forge · ${time} МСК · #${event.id}`);
+    lines.push(`Full report: ${reportBaseUrl.replace(/\/$/, "")}/reports/${event.id}`);
+  lines.push(`Signal Forge · ${time} UTC · #${event.id}`);
   return lines.join("\n");
 }
 export function saveCollection(
@@ -383,29 +383,29 @@ export function prepareDeliveries(db: Database, now = Date.now(), reportBaseUrl?
           sourceLabels[batch.source] ??
           batch.source
             .replace("github:", "GitHub · ")
-            .replace(":commits", " · код")
+            .replace(":commits", " · commits")
             .replace(":pulls", " · PR")
-            .replace(":releases", " · релизы");
+            .replace(":releases", " · releases");
         const tags = new Set<string>();
         const topics: Record<string, string> = {
-          "api-models": "#Модели",
-          openrouter: "#OpenRouter #Модели",
+          "api-models": "#Models",
+          openrouter: "#OpenRouter #Models",
           arena: "#Arena",
-          leaderboards: "#Рейтинги",
-          news: "#Новости",
+          leaderboards: "#Leaderboards",
+          news: "#News",
           web: "#Web",
           github: "#GitHub",
         };
-        for (const event of events) for (const tag of (topics[event.stream] ?? "#Обновления").split(" ")) tags.add(tag);
+        for (const event of events) for (const tag of (topics[event.stream] ?? "#Updates").split(" ")) tags.add(tag);
         if (batch.source === "codex-docs" || batch.source.startsWith("github:openai/codex:")) tags.add("#Codex");
-        if (batch.source === "codex-docs") tags.add("#Документация");
+        if (batch.source === "codex-docs") tags.add("#Docs");
         if (["claude-web", "anthropic", "anthropic-news"].includes(batch.source)) tags.add("#Claude");
         if (batch.source === "openai" || batch.source === "openai-news") tags.add("#OpenAI");
         if (batch.source === "gemini") tags.add("#Gemini");
         if (batch.source.endsWith(":pulls")) tags.add("#PR");
-        if (batch.source.endsWith(":releases")) tags.add("#Релизы");
-        if (batch.digest) tags.add("#Дайджест");
-        const header = `${batch.digest ? "🗞 Часовой дайджест" : "📡 Обновления"} · ${source} · ${events.length}\n${[...tags].join(" ")}\n\n`;
+        if (batch.source.endsWith(":releases")) tags.add("#Releases");
+        if (batch.digest) tags.add("#Digest");
+        const header = `${batch.digest ? "🗞 Hourly digest" : "📡 Updates"} · ${source} · ${events.length}\n${[...tags].join(" ")}\n\n`;
         // Keep each item compact; full before/after evidence remains available by event ID.
         const text = events
           .map((event) => {

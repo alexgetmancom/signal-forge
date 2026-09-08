@@ -120,10 +120,10 @@ test("Telegram copy displays readable prices and only changed parameters", async
     detected_at: "2026-09-08T02:00:00Z",
   };
   const text = renderEvent(event, "https://openrouter.ai");
-  expect(text).toContain("Вход: $0.12 → $0.2275 / 1 млн токенов");
-  expect(text).toContain("Параметры: + structured_outputs");
+  expect(text).toContain("Input: $0.12 → $0.2275 / 1M tokens");
+  expect(text).toContain("Parameters: + structured_outputs");
   expect(text).not.toContain('"prompt"');
-  expect(text).toContain("05:00 МСК");
+  expect(text).toContain("02:00 UTC");
 });
 
 test("web copy hides routine strings but keeps product signals", async () => {
@@ -163,8 +163,8 @@ test("shared feed keeps topic headings on every bounded message part", () => {
     .all();
   expect(rows.length).toBeGreaterThan(2);
   for (const row of rows) {
-    expect(row.body).toStartWith("📡 Обновления · OpenRouter");
-    expect(row.body).toContain("#OpenRouter #Модели");
+    expect(row.body).toStartWith("📡 Updates · OpenRouter");
+    expect(row.body).toContain("#OpenRouter #Models");
     expect(row.body.length).toBeLessThanOrEqual(row.destination_id === "tg" ? 3900 : 1900);
   }
   expect(db.query("SELECT DISTINCT source,stream FROM events").all()).toEqual([

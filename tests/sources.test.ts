@@ -224,7 +224,7 @@ test("Codex PR monitor suppresses outsiders and distinguishes merges from releas
   pr.state = "closed";
   pr.merged_at = pr.updated_at;
   const merged = await collectGithubPulls(db, config, watch, request);
-  expect(merged.records[0]?.stage).toContain("ещё не релиз");
+  expect(merged.records[0]?.stage).toContain("not a release yet");
   expect(merged.silentIds).toEqual([]);
   saveCollection(db, merged, []);
   pr.number = 10;

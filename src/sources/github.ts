@@ -231,12 +231,12 @@ export async function collectGithubPulls(
       .get(source, id);
     const before = old ? (JSON.parse(old.body) as RecordData) : null;
     const stage = pr.merged_at
-      ? "Слито в репозиторий; это ещё не релиз"
+      ? "Merged; not a release yet"
       : pr.state === "closed"
-        ? "Закрыто без слияния"
+        ? "Closed without merging"
         : pr.draft
-          ? "Черновик; не выпущено"
-          : "Открытый PR; предложение, не выпущено";
+          ? "Draft; not shipped"
+          : "Open PR; a proposal, not shipped";
     const trusted = ["OWNER", "MEMBER", "COLLABORATOR"].includes(pr.author_association);
     const changed =
       !before || before.head !== pr.head.sha || before.stage !== stage || before.name !== `#${pr.number} ${pr.title}`;

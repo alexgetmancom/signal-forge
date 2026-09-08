@@ -1,11 +1,16 @@
 # Working agreement
 
 One developer and operator. Work on main, no pull requests, compatibility shims or speculative layers.
-English everywhere you write: code, comments, docs, commit messages, log lines, error text, and
-every operational or verification message you send anywhere — a delivery test posted into a channel,
-a note about what was deployed or changed, a status line. If a human will read it as part of running
-this system, it is English. The only Russian in this repository is the product copy that subscribers
-receive, and that is data with an owner decision behind it, not something to write ad hoc.
+English everywhere, with no exception. Code, comments, docs, commit messages, logs, error text,
+operational and verification messages, and every word a subscriber reads: headers, field labels,
+hashtags, stage descriptions, report pages. This product is for an English-speaking audience, so a
+Russian string anywhere in `src/` is a defect — grep for Cyrillic before you push.
+
+Timestamps are UTC. The operator's timezone means nothing to a reader in another country.
+
+Some of those strings are stored inside `records.body` and compared byte for byte to decide whether
+something changed — PR stages are the live example. Rewording one without migrating the stored rows
+emits a "changed" event for every record carrying it. Migrate with the collector stopped.
 Run `bun run check` before pushing. Tests target data loss, duplicate delivery and source parsing.
 Only config.ts reads process.env. Validate external responses with Zod.
 Register background work with the runtime supervisor. Never log credentials or request URLs containing them.

@@ -60,6 +60,6 @@ export async function collectClaude(request: Fetch = fetch): Promise<Collection>
     stream: "web",
     url: "https://claude.ai",
     raw,
-    records: [{ id: "public-entry-strings", name: "Claude: строки публичного интерфейса", strings }],
+    records: [{ id: "public-entry-strings", name: "Claude: public interface strings", strings }],
   };
 }
