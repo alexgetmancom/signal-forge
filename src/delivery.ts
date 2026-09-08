@@ -19,7 +19,7 @@ export function recoverInterruptedDeliveries(db: Database): void {
   ).run(Date.now());
 }
 export async function deliverPending(db: Database, config: AppConfig, request: Fetch = fetch): Promise<void> {
-  prepareDeliveries(db, Date.now(), config.REPORT_BASE_URL);
+  prepareDeliveries(db, Date.now(), config.REPORT_BASE_URL, config.vendorRoles);
   // One sequential sender respects channel order; each claim is conditional even if another process races it.
   for (let n = 0; n < 20; n++) {
     const now = Date.now();
@@ -59,8 +59,10 @@ export async function deliverPending(db: Database, config: AppConfig, request: F
         // plain text, where the thing being suppressed is Discord's unfurl of a linked page.
         const hasEmbeds = Array.isArray(payload.embeds) && payload.embeds.length > 0;
         body = {
-          ...payload,
+          // A payload may carry its own allowed_mentions to permit the specific roles it names;
+          // anything without one mentions nobody.
           allowed_mentions: { parse: [] },
+          ...payload,
           ...(hasEmbeds ? {} : { flags: 4 }),
           nonce: `sf-${job.id}`,
           enforce_nonce: true,

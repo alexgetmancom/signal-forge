@@ -245,3 +245,46 @@ test("a single long value is trimmed rather than dropped", () => {
   expect(collapseDetails([long])[0]).toHaveLength(300);
   expect(collapseDetails(["short"])).toEqual(["short"]);
 });
+
+test("a new model pings the role of its vendor and nothing else", async () => {
+  const { prepareDeliveries, saveCollection } = await import("../src/events.js");
+  const db = openDatabase(":memory:");
+  const destination: Destination = { id: "d", platform: "discord", channelId: "1", streams: ["api-models"] };
+  const roles = { OpenAI: "111", Anthropic: "222" };
+  const collection = {
+    source: "openrouter",
+    stream: "api-models",
+    url: "https://example.test",
+    raw: [],
+    records: [{ id: "openai/gpt-6", name: "GPT-6", maker: "OpenAI" }],
+  };
+  saveCollection(db, collection, [destination], "2026-09-08T10:00:00.000Z", undefined, roles);
+  collection.records.push({ id: "openai/gpt-6-mini", name: "GPT-6 mini", maker: "OpenAI" });
+  saveCollection(db, collection, [destination], "2026-09-08T10:05:00.000Z", undefined, roles);
+  prepareDeliveries(db, Date.parse("2026-09-08T10:05:00.000Z"), undefined, roles);
+  const body = db.query<{ body: string }, []>("SELECT body FROM deliveries ORDER BY id DESC LIMIT 1").get();
+  const payload = JSON.parse(body?.body ?? "{}") as {
+    content: string;
+    allowed_mentions?: { roles: string[] };
+  };
+  expect(payload.content).toContain("<@&111>");
+  expect(payload.content).not.toContain("<@&222>");
+  // The permission list names exactly the roles the message mentions, so a stray id cannot ping.
+  expect(payload.allowed_mentions?.roles).toEqual(["111"]);
+});
+test("a price edit travels without a ping", async () => {
+  const { prepareDeliveries, saveCollection } = await import("../src/events.js");
+  const db = openDatabase(":memory:");
+  const destination: Destination = { id: "d", platform: "discord", channelId: "1", streams: ["api-models"] };
+  const roles = { OpenAI: "111" };
+  const records = [{ id: "openai/gpt-6", name: "GPT-6", maker: "OpenAI", context: 100 }];
+  const collection = { source: "openrouter", stream: "api-models", url: "https://e.test", raw: [], records };
+  saveCollection(db, collection, [destination], "2026-09-08T10:00:00.000Z", undefined, roles);
+  records[0] = { id: "openai/gpt-6", name: "GPT-6", maker: "OpenAI", context: 200 };
+  saveCollection(db, collection, [destination], "2026-09-08T10:05:00.000Z", undefined, roles);
+  prepareDeliveries(db, Date.parse("2026-09-08T10:05:00.000Z"), undefined, roles);
+  const body = db.query<{ body: string }, []>("SELECT body FROM deliveries ORDER BY id DESC LIMIT 1").get();
+  const payload = JSON.parse(body?.body ?? "{}") as { content: string; allowed_mentions?: unknown };
+  expect(payload.content).not.toContain("<@&");
+  expect(payload.allowed_mentions).toBeUndefined();
+});

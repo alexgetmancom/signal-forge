@@ -356,6 +356,7 @@ export function saveCollection(
   destinations: Destination[],
   now = new Date().toISOString(),
   reportBaseUrl?: string,
+  vendorRoles: Record<string, string> = {},
 ): number {
   if (!c.records.length && !c.appendOnly) throw new Error(`${c.source}: empty collection rejected`);
   if (new Set(c.records.map((r) => r.id)).size !== c.records.length)
@@ -479,7 +480,7 @@ export function saveCollection(
           JSON.stringify(d),
         );
     }
-    prepareDeliveries(db, Date.parse(now), reportBaseUrl);
+    prepareDeliveries(db, Date.parse(now), reportBaseUrl, vendorRoles);
     db.query(
       "INSERT INTO sources(id,last_success,checked_at) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET last_success=excluded.last_success,checked_at=excluded.checked_at,last_error=NULL",
     ).run(c.source, now, now);
@@ -515,7 +516,21 @@ export function isRoutine(event: Event): boolean {
   return !important.some((key) => canonical(before[key]) !== canonical(after[key]));
 }
 
-export function prepareDeliveries(db: Database, now = Date.now(), reportBaseUrl?: string): void {
+/**
+ * Which events are worth pulling somebody's attention for. A model appearing or disappearing is
+ * news a follower of that vendor acts on; a price or capability edit is worth reading, not worth a
+ * notification on a phone, so it travels in the same message without the ping.
+ */
+function pingWorthy(event: Event): boolean {
+  return event.kind === "new" || event.kind === "removed";
+}
+
+export function prepareDeliveries(
+  db: Database,
+  now = Date.now(),
+  reportBaseUrl?: string,
+  vendorRoles: Record<string, string> = {},
+): void {
   db.transaction(() => {
     const batches = db
       .query<{ id: number; digest: number; source: string }, [number]>(
@@ -583,11 +598,35 @@ export function prepareDeliveries(db: Database, now = Date.now(), reportBaseUrl?
             .run(batch.id, target.destination_id, target.destination_json, payload, part, now);
 
         if (d.platform === "discord") {
+          // A digest is the quiet channel by definition, so it never pings; the roles named are the
+          // vendors this batch is actually about, and only they are allowed to be mentioned.
+          const roles = batch.digest
+            ? []
+            : [
+                ...new Set(
+                  events
+                    .filter(pingWorthy)
+                    .map((event) =>
+                      vendorOf(event, event.after_json ? (JSON.parse(event.after_json) as RecordData) : null),
+                    )
+                    .map((vendor) => vendorRoles[vendor])
+                    .filter((role): role is string => Boolean(role)),
+                ),
+              ];
+          const mentions = roles.map((role) => `<@&${role}>`).join(" ");
           // One embed per event, ten per message — Discord's own limit, and a natural page size.
           const embeds = events.map((event) => eventEmbed(event, event.url, reportBaseUrl));
           for (let index = 0; index * 10 < embeds.length; index += 1) {
             const page = embeds.slice(index * 10, index * 10 + 10);
-            store(JSON.stringify({ content: index === 0 ? header.trim() : "", embeds: page }), index);
+            const content = index === 0 ? [header.trim(), mentions].filter(Boolean).join("\n") : "";
+            store(
+              JSON.stringify({
+                content,
+                embeds: page,
+                ...(index === 0 && roles.length ? { allowed_mentions: { parse: [], roles } } : {}),
+              }),
+              index,
+            );
           }
           continue;
         }

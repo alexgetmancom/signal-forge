@@ -46,6 +46,11 @@ export const settingsSchema = z
     destinations: z.array(destinationSchema).default([]),
     /** One Discord channel holding a status board that is edited in place, not a stream of posts. */
     statusChannelId: z.string().regex(/^\d+$/).optional(),
+    /**
+     * Vendor name (as `vendorOf` resolves it) to the Discord role that follows that vendor. A
+     * subscriber picks the makers they care about instead of a channel they cannot filter.
+     */
+    vendorRoles: z.record(z.string(), z.string().regex(/^\d+$/)).default({}),
     github: z
       .array(
         z.object({

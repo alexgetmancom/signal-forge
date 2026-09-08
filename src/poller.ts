@@ -95,6 +95,7 @@ export async function pollSources(db: Database, config: AppConfig, force = false
         config.destinations,
         new Date().toISOString(),
         config.REPORT_BASE_URL,
+        config.vendorRoles,
       );
       log("info", "Source collected", { source: job.id, records: collection.records.length, events });
     } catch (error) {
