@@ -340,4 +340,6 @@ test("Cursor changelog takes the slug as identity and refuses a page it cannot r
     url: "https://cursor.com/changelog/08-19-26",
   });
   expect(() => parseCursorChangelog("<html>Nothing here</html>")).toThrow("no longer exposes");
+  // The page ships the same heading twice for its responsive layout; that is one entry, not two.
+  expect(parseCursorChangelog(html + html).records).toHaveLength(1);
 });

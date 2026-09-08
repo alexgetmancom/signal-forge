@@ -117,13 +117,16 @@ export function parseCursorChangelog(html: string): Collection {
   // that entry. Anchoring on the heading avoids the navigation and image links that carry the same
   // slug but no title.
   const heading = /<h1[^>]*>\s*<a[^>]*href="\/changelog\/([a-z0-9.-]+)"[^>]*>([^<]{3,200})<\/a>/g;
-  const records: { slug: string; title: string; published: string | null }[] = [];
+  // The page renders an entry's heading more than once (a responsive layout ships both variants),
+  // so the slug is a key rather than a list item: the same entry twice is one entry.
+  const seen = new Map<string, { slug: string; title: string; published: string | null }>();
   for (const match of html.matchAll(heading)) {
     const [, slug, title] = match;
-    if (!slug || !title) continue;
+    if (!slug || !title || seen.has(slug)) continue;
     const dates = [...html.slice(0, match.index).matchAll(/dateTime="([^"]+)"/g)];
-    records.push({ slug, title: title.trim(), published: dates.at(-1)?.[1] ?? null });
+    seen.set(slug, { slug, title: title.trim(), published: dates.at(-1)?.[1] ?? null });
   }
+  const records = [...seen.values()];
   if (!records.length) throw new Error("Public page no longer exposes changelog entries");
   return {
     source: "cursor-changelog",
