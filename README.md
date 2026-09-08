@@ -119,6 +119,8 @@ Set `REPORT_BASE_URL` to the LAN origin used for full web-diff links.
 Set `GITHUB_TOKEN` to raise the GitHub request allowance from 60 to 5000 an hour. Listing requests
 are conditional, and a 304 costs no quota at all. Optional `github` entries accept
 `repo` and `paths`; the default repository is `openai/codex`.
+Set `HF_TOKEN` to use the account's Hub API allowance instead of the anonymous allowance shared by
+the machine's public address.
 
 ## Request footprint
 

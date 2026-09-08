@@ -9,7 +9,7 @@ import { parseAnthropicDeprecations, parseOpenAIDeprecations } from "../src/sour
 import { collectGithubCommits, summarizeDiff } from "../src/sources/github.js";
 import { fetchText, SourceHttpError } from "../src/sources/http.js";
 import { parseAnthropicNews, parseOpenAINews } from "../src/sources/news.js";
-import { parseNpm } from "../src/sources/registries.js";
+import { collectHuggingFace, parseNpm } from "../src/sources/registries.js";
 import { openDatabase } from "../src/storage/database.js";
 import { freshUntil, HttpCache } from "../src/storage/httpCache.js";
 
@@ -262,6 +262,16 @@ test("Hugging Face listing is append-only and keeps access and origin", async ()
   expect(c.records[0]).toMatchObject({ id: "openai/whisper-4", access: "public", category: "asr" });
   expect(c.records[1]).toMatchObject({ access: "gated" });
   expect(() => parseHuggingFace("{}", "openai")).toThrow();
+});
+
+test("Hugging Face uses its account allowance when a token is configured", async () => {
+  const authorizations: (string | null)[] = [];
+  const request = async (_url: string | URL | Request, init?: RequestInit) => {
+    authorizations.push(new Headers(init?.headers).get("authorization"));
+    return Response.json([]);
+  };
+  await collectHuggingFace("openai", "test-token", request);
+  expect(authorizations).toEqual(["Bearer test-token"]);
 });
 
 test("npm is tracked per channel, so a nightly does not become an event per version", async () => {

@@ -37,6 +37,7 @@ const envSchema = z.object({
   TELEGRAM_BOT_TOKEN: optionalSecret,
   DISCORD_BOT_TOKEN: optionalSecret,
   GITHUB_TOKEN: optionalSecret,
+  HF_TOKEN: optionalSecret,
   DEEPSEEK_API_KEY: optionalSecret,
   OPENAI_API_KEY: optionalSecret,
   ANTHROPIC_API_KEY: optionalSecret,

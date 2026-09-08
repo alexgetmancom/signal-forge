@@ -70,7 +70,7 @@ export function sourceJobs(db: Database, config: AppConfig): SourceJob[] {
       id: `huggingface:${author}`,
       interval: 1800 + index * 90,
       pace: { group: "huggingface.co", seconds: 60 },
-      run: () => collectHuggingFace(author, fetch, cache),
+      run: () => collectHuggingFace(author, config.HF_TOKEN, fetch, cache),
     })),
     ...MODELSCOPE_PATHS.map((path, index) => ({
       id: `modelscope:${path}`,

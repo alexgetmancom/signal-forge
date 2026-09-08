@@ -64,11 +64,13 @@ export function parseHuggingFace(payload: string, author: string): Collection {
 
 export async function collectHuggingFace(
   author: string,
+  token?: string,
   request: Fetch = fetch,
   cache?: HttpCache,
 ): Promise<Collection> {
   const url = `https://huggingface.co/api/models?author=${encodeURIComponent(author)}&sort=createdAt&direction=-1&limit=50`;
-  return parseHuggingFace(await fetchText(url, { accept: "application/json" }, request, undefined, cache), author);
+  const headers = { accept: "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+  return parseHuggingFace(await fetchText(url, headers, request, undefined, cache), author);
 }
 
 const npmPackage = z.object({
