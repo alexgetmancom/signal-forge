@@ -4,6 +4,7 @@ import {
   type Collection,
   canonical,
   collapseDetails,
+  eventEmbed,
   isRoutine,
   MAX_DETAIL_LINES,
   renderEvent,
@@ -175,7 +176,7 @@ test("each platform is paged by its own limit", () => {
   expect(telegram.length).toBeGreaterThan(1);
   for (const row of telegram) {
     // Telegram has no embeds, so the heading is repeated on every split part.
-    expect(row.body).toStartWith("📡 OpenRouter · 12");
+    expect(row.body).toStartWith("📡 OpenRouter · 12 updates");
     expect(row.body.length).toBeLessThanOrEqual(3900);
   }
 
@@ -187,7 +188,7 @@ test("each platform is paged by its own limit", () => {
     // the embeds below it already carry their own headings.
     expect(payload.embeds.length).toBeLessThanOrEqual(10);
     // Only the first page carries a heading, and only because this batch holds twelve events.
-    if (index === 0) expect(payload.content).toStartWith("📡 OpenRouter · 12");
+    if (index === 0) expect(payload.content).toStartWith("📡 OpenRouter · 12 updates");
   });
 
   expect(db.query("SELECT DISTINCT source,stream FROM events").all()).toEqual([
@@ -308,4 +309,33 @@ test("a price move waits for the digest while a new capability does not", () => 
   expect(isRoutine(event({ pricing: { prompt: "1" }, name: "A" }, { pricing: { prompt: "2" }, name: "B" }))).toBe(
     false,
   );
+});
+
+test("entering a board is a sentence, waits for the digest, and pings nobody", () => {
+  const event = {
+    id: 116,
+    source: "arena-leaderboards",
+    stream: "leaderboards",
+    entity_id: "text-to-image:overall:lina-f-alpha",
+    kind: "new" as const,
+    before_json: null,
+    after_json: JSON.stringify({
+      id: "text-to-image:overall:lina-f-alpha",
+      name: "gpt-image-2.5-sunburst",
+      category: "text-to-image/overall",
+      maker: "OpenAI",
+      rank: 1,
+    }),
+    detected_at: "2026-09-08T19:27:00.000Z",
+  };
+  const embed = eventEmbed(event, "https://arena.ai/leaderboard") as {
+    description: string;
+    author: { name: string };
+  };
+  expect(embed.description).toContain("Enters text-to-image/overall at rank 1");
+  // The eyebrow already says OpenAI; the body must not say it again.
+  expect(embed.author.name).toBe("LEADERBOARD · OPENAI");
+  expect(embed.description).not.toContain("Maker:");
+  // A scoreboard moving is not worth interrupting a few hundred people for.
+  expect(isRoutine(event)).toBe(true);
 });

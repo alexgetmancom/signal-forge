@@ -216,6 +216,14 @@ export function renderEvent(
       if (canonical(before[key]) !== canonical(after[key]))
         lines.push(`${fieldLabels[key] ?? key}: ${describe(before[key])} → ${describe(after[key])}`);
     }
+  } else if (event.stream === "leaderboards" && !before && after) {
+    // "Category / Maker / rank: 1" is three fields the reader has to assemble. This is the sentence
+    // they would have assembled: a model turned up on a board, and where it landed.
+    lines.push(
+      after.rank
+        ? `Enters ${describe(after.category)} at rank ${describe(after.rank)}`
+        : `Enters ${describe(after.category)}, outside the leading places`,
+    );
   } else if (event.stream === "github") {
     if (record?.stage) lines.push(describe(record.stage));
     else if (event.source.endsWith(":commits")) lines.push("Repository change; not a release yet");
@@ -328,7 +336,13 @@ export function eventEmbed(event: Event, url: string, reportBaseUrl?: string): R
   // middle is the body worth showing, and it is already the filtered, human version.
   const body = rendered.slice(2, -2).join("\n").trim();
   const vendor = vendorOf(event, record);
-  const description = body.slice(0, 4000);
+  // The eyebrow already carries the vendor, so a "Maker: OpenAI" line under it is the same word
+  // twice in four lines.
+  const description = body
+    .split("\n")
+    .filter((line) => line !== `Maker: ${vendor}`)
+    .join("\n")
+    .slice(0, 4000);
   const link =
     typeof record?.url === "string"
       ? record.url
@@ -502,9 +516,10 @@ export function saveCollection(
 
 export function isRoutine(event: Event): boolean {
   if (event.source === "claude-web") return true;
-  if (event.kind !== "changed") return false;
-  // A rank move is real news but not urgent news: it belongs in the hourly digest, not in a ping.
+  // A board is a standing, not an announcement. Climbing it, entering it and leaving it are all
+  // worth reading together once an hour; none of them is worth interrupting somebody for.
   if (event.stream === "leaderboards") return true;
+  if (event.kind !== "changed") return false;
   // A nightly or preview channel moves several times a day and says nothing about a product. The
   // release channels people actually install on stay immediate.
   if (event.stream === "packages" && !["latest", "stable"].includes(event.entity_id)) return true;
@@ -537,8 +552,11 @@ export function isRoutine(event: Event): boolean {
  * news a follower of that vendor acts on; a price or capability edit is worth reading, not worth a
  * notification on a phone, so it travels in the same message without the ping.
  */
+const PINGABLE = new Set(["api-models", "openrouter", "weights", "arena", "deprecations"]);
 function pingWorthy(event: Event): boolean {
-  return event.kind === "new" || event.kind === "removed";
+  // A ping says "something you can use appeared or disappeared". A leaderboard entry says a
+  // scoreboard moved, and waking a few hundred people for that is how a role gets removed.
+  return PINGABLE.has(event.stream) && (event.kind === "new" || event.kind === "removed");
 }
 
 export function prepareDeliveries(
@@ -578,7 +596,7 @@ export function prepareDeliveries(
         const header = batch.digest
           ? `🗞 ${source} · ${events.length} in the last hour\n\n`
           : events.length > 1
-            ? `📡 ${source} · ${events.length}\n\n`
+            ? `📡 ${source} · ${events.length} updates\n\n`
             : "";
         // Keep each item compact; full before/after evidence remains available by event ID.
         const text = events
