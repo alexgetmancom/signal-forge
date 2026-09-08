@@ -25,11 +25,13 @@ import {
   NPM_PACKAGES,
   PYPI_PACKAGES,
 } from "./sources/registries.js";
+import { HttpCache } from "./storage/httpCache.js";
 
 export function sourceJobs(
   db: Database,
   config: AppConfig,
 ): { id: string; interval: number; run: () => Promise<Collection> }[] {
+  const cache = new HttpCache(db);
   const jobs = [
     { id: "openrouter", interval: config.pollSeconds, run: () => collectOpenRouter() },
     { id: "openai-news", interval: 900, run: () => collectOpenAINews() },
@@ -37,8 +39,10 @@ export function sourceJobs(
     { id: "vercel-gateway", interval: config.pollSeconds, run: () => collectVercelGateway() },
     { id: "arena", interval: config.pollSeconds, run: () => collectArena() },
     { id: "arena-leaderboards", interval: 1800, run: () => collectLeaderboards() },
-    { id: "codex-docs", interval: 3600, run: () => collectCodexDocs() },
-    { id: "claude-web", interval: 3600, run: () => collectClaude() },
+    // Documentation and the interface are watched often on purpose: a page appearing there is the
+    // earliest public sign of a feature. The cache is what makes "often" cheap.
+    { id: "codex-docs", interval: 3600, run: () => collectCodexDocs(fetch, cache) },
+    { id: "claude-web", interval: 3600, run: () => collectClaude(fetch, cache) },
     // Registries move slowly and are many, so they are polled far apart and spread over the hour
     // rather than hammered together every cycle.
     ...HF_AUTHORS.map((author) => ({

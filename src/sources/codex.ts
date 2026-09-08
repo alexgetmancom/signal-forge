@@ -1,5 +1,6 @@
 import type { Fetch } from "../delivery.js";
 import type { Collection } from "../events.js";
+import type { HttpCache } from "../storage/httpCache.js";
 import { fetchText } from "./http.js";
 
 export function codexPages(index: string): { name: string; url: string }[] {
@@ -26,8 +27,8 @@ export function markdownParagraphs(text: string): string[] {
     .map((s) => s.replace(/\s+/g, " ").trim())
     .filter((s) => s && !s.startsWith("> For the complete documentation index"));
 }
-export async function collectCodexDocs(request: Fetch = fetch): Promise<Collection> {
-  const index = await fetchText("https://learn.chatgpt.com/docs/llms.txt", {}, request);
+export async function collectCodexDocs(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
+  const index = await fetchText("https://learn.chatgpt.com/docs/llms.txt", {}, request, undefined, cache);
   const pages = codexPages(index);
   const records: Collection["records"] = [];
   const raw: Record<string, string> = { index };
@@ -36,7 +37,7 @@ export async function collectCodexDocs(request: Fetch = fetch): Promise<Collecti
   for (let offset = 0; offset < pages.length; offset += 4) {
     const results = await Promise.all(
       pages.slice(offset, offset + 4).map(async (page) => {
-        const text = await fetchText(page.url, {}, request);
+        const text = await fetchText(page.url, {}, request, undefined, cache);
         return { page, text, strings: markdownParagraphs(text) };
       }),
     );

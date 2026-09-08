@@ -1,4 +1,5 @@
 import type { Fetch } from "../delivery.js";
+import { freshUntil, type HttpCache } from "../storage/httpCache.js";
 
 export async function fetchText(
   url: string,
@@ -7,17 +8,29 @@ export async function fetchText(
   // Some catalogues only answer a POST/PUT with a filter body; the retry, redirect and size rules
   // are the same, so the verb is a parameter rather than a second copy of this function.
   send?: { method: string; body: string },
+  // When a cache is supplied the request becomes conditional: a page that has not changed answers
+  // 304 with no body, and an immutable asset is not requested at all.
+  cache?: HttpCache,
 ): Promise<string> {
   let response: Response | undefined;
   const origin = new URL(url).origin;
+  const cached = send ? null : (cache?.get(url) ?? null);
+  if (cached && cached.freshUntil > Date.now()) {
+    cache?.touch(url, cached.freshUntil);
+    return cached.body;
+  }
+  const conditional: Record<string, string> = {};
+  if (cached?.etag) conditional["if-none-match"] = cached.etag;
+  else if (cached?.lastModified) conditional["if-modified-since"] = cached.lastModified;
   for (let hop = 0; hop < 4; hop++) {
     response = await request(url, {
-      headers: { "User-Agent": "SignalForge/0.1", ...headers },
+      headers: { "User-Agent": "SignalForge/0.1", ...conditional, ...headers },
       signal: AbortSignal.timeout(30_000),
       redirect: "manual",
       ...(send ? { method: send.method, body: send.body } : {}),
     });
-    if (response.status >= 300 && response.status < 400) {
+    // 304 shares the 3xx range but is an answer, not a redirect: it means the cached body stands.
+    if (response.status >= 300 && response.status < 400 && response.status !== 304) {
       const location = response.headers.get("location");
       await response.body?.cancel();
       if (!location) throw new Error("Source redirect missing location");
@@ -29,6 +42,11 @@ export async function fetchText(
     break;
   }
   if (!response) throw new Error("Source returned no response");
+  if (response.status === 304 && cached) {
+    await response.body?.cancel();
+    cache?.touch(url, freshUntil(response.headers.get("cache-control")));
+    return cached.body;
+  }
   if (!response.ok) throw new Error(`Source returned HTTP ${response.status}`);
   const reader = response.body?.getReader();
   if (!reader) throw new Error("Source returned no body");
@@ -45,5 +63,17 @@ export async function fetchText(
   } finally {
     await reader.cancel();
   }
-  return Buffer.concat(chunks).toString("utf8");
+  const text = Buffer.concat(chunks).toString("utf8");
+  if (cache && !send)
+    cache.put(url, {
+      // Not every server offers a validator. `learn.chatgpt.com` returns none on GET, and a HEAD
+      // probe for one was measured and removed: its ETag comes and goes with the edge cache, so the
+      // probe doubled the request count and bought no 304s. Those pages are re-read in full, and
+      // the cache still stores them so a later change in behaviour needs no new plumbing.
+      etag: response.headers.get("etag"),
+      lastModified: response.headers.get("last-modified"),
+      freshUntil: freshUntil(response.headers.get("cache-control")),
+      body: text,
+    });
+  return text;
 }

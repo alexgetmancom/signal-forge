@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Fetch } from "../delivery.js";
 import type { Collection } from "../events.js";
+import type { HttpCache } from "../storage/httpCache.js";
 import { fetchText } from "./http.js";
 
 const assetSchema = z.url().refine((value) => {
@@ -25,12 +26,12 @@ export function claudeAssetImports(code: string, parent: string): string[] {
     urls.add(assetSchema.parse(new URL(match[1] ?? "", parent).href));
   return [...urls];
 }
-export async function collectClaude(request: Fetch = fetch): Promise<Collection> {
+export async function collectClaude(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
   const html = await fetchText("https://claude.ai", {}, request);
   const entry = assetSchema.parse(
     html.match(/<script[^>]+src="(https:\/\/assets-proxy\.anthropic\.com\/[^"]+\.js)"/)?.[1],
   );
-  const code = await fetchText(entry, {}, request);
+  const code = await fetchText(entry, {}, request, undefined, cache);
   const raw: Record<string, string> = { [entry]: code };
   let bytes = code.length;
   const queued = claudeAssetImports(code, entry).map((url) => ({ url, depth: 1 }));
@@ -38,7 +39,9 @@ export async function collectClaude(request: Fetch = fetch): Promise<Collection>
   // Two levels include feature chunks omitted by the entry bundle without traversing the entire vendor graph.
   for (let i = 0; i < queued.length; i += 4) {
     const batch = await Promise.all(
-      queued.slice(i, i + 4).map(async (item) => ({ ...item, code: await fetchText(item.url, {}, request) })),
+      queued
+        .slice(i, i + 4)
+        .map(async (item) => ({ ...item, code: await fetchText(item.url, {}, request, undefined, cache) })),
     );
     for (const asset of batch) {
       bytes += asset.code.length;

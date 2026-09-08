@@ -16,6 +16,33 @@
 | Deferred | Vendor role pings. | Waiting on role IDs from the owner; `vendorOf()` already resolves the vendor of an event. |
 
 
+# Request footprint
+
+Everything is collected from the owner's home connection, which is not a choice: the datacentre
+exits are refused. Measured 2026-09-08 with the same request from both:
+
+| Address | `chatgpt.com` | `auth.openai.com` | `learn.chatgpt.com` | `claude.ai` |
+|---|---|---|---|---|
+| Home | 200 | 200 | 200 | 302 (normal) |
+| Timeweb NL | 403 | 403 | 403 | 403 |
+
+So the home address is the working one and worth protecting. Before caching, an observation cost
+608 requests and 21 MB to `claude.ai` alone, hourly — around 20,000 requests and 0.8 GB a day.
+
+The HTTP cache (`http_cache`, `src/storage/httpCache.ts`) fixes the large half:
+
+- Claude's assets are served `immutable` with a content hash in the filename, so the same URL can
+  never hold different bytes. They are read once and then not requested at all until a rebuild
+  renames them: **608 requests and 21.4 MB became 2 requests and 0.1 MB**.
+- Anything with an ETag is revalidated instead of re-downloaded.
+- `learn.chatgpt.com` is the exception: it returns no validator on GET, and its ETag on HEAD comes
+  and goes with the edge cache. A HEAD probe was implemented, measured (298 requests instead of 149,
+  no 304s) and removed. Those 148 pages are re-read in full every hour, which is deliberate — the
+  documentation is where a feature shows up first, and 1.2 MB is a fair price.
+
+Only `immutable` is trusted for reuse without asking. A plain `max-age` on a page we watch for
+changes would hide the change this project exists to report.
+
 # Gemini access
 
 The `gemini` source returns HTTP 400 `User location is not supported for the API use.` and is the

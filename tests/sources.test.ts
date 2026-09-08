@@ -9,6 +9,7 @@ import { collectGithubCommits, summarizeDiff } from "../src/sources/github.js";
 import { fetchText } from "../src/sources/http.js";
 import { parseAnthropicNews, parseOpenAINews } from "../src/sources/news.js";
 import { openDatabase } from "../src/storage/database.js";
+import { freshUntil, HttpCache } from "../src/storage/httpCache.js";
 
 function nextPage(value: unknown): string {
   return `<script>self.__next_f.push(${JSON.stringify([1, `1:${JSON.stringify(value)}\n`])})</script>`;
@@ -342,4 +343,42 @@ test("Cursor changelog takes the slug as identity and refuses a page it cannot r
   expect(() => parseCursorChangelog("<html>Nothing here</html>")).toThrow("no longer exposes");
   // The page ships the same heading twice for its responsive layout; that is one entry, not two.
   expect(parseCursorChangelog(html + html).records).toHaveLength(1);
+});
+
+test("an unchanged page is revalidated, and an immutable asset is not requested at all", async () => {
+  const db = openDatabase(":memory:");
+  const cache = new HttpCache(db);
+  const seen: { url: string; headers: Headers }[] = [];
+  const page = "https://example.test/docs.md";
+  const asset = "https://example.test/app-AbCdEf12.js";
+  const request = async (url: string, init?: RequestInit) => {
+    seen.push({ url, headers: new Headers(init?.headers) });
+    if (url === asset)
+      return new Response("asset body", {
+        status: 200,
+        headers: { "cache-control": "public,max-age=31536000,immutable", etag: '"a1"' },
+      });
+    const conditional = new Headers(init?.headers).get("if-none-match");
+    if (conditional === '"p1"') return new Response(null, { status: 304 });
+    return new Response("page body", { status: 200, headers: { etag: '"p1"', "cache-control": "public, max-age=0" } });
+  };
+
+  expect(await fetchText(page, {}, request, undefined, cache)).toBe("page body");
+  // Second observation: the request still happens, but the answer carries no body.
+  expect(await fetchText(page, {}, request, undefined, cache)).toBe("page body");
+  expect(seen).toHaveLength(2);
+  expect(seen[1]?.headers.get("if-none-match")).toBe('"p1"');
+
+  expect(await fetchText(asset, {}, request, undefined, cache)).toBe("asset body");
+  expect(await fetchText(asset, {}, request, undefined, cache)).toBe("asset body");
+  // The URL of an immutable asset carries a content hash, so the same URL cannot hold new bytes.
+  expect(seen.filter((call) => call.url === asset)).toHaveLength(1);
+});
+test("only immutable responses are reused without asking", () => {
+  const now = Date.parse("2026-09-08T12:00:00.000Z");
+  expect(freshUntil("public, max-age=3600", now)).toBe(0);
+  expect(freshUntil("public,max-age=600,immutable", now)).toBe(now + 600_000);
+  // A year of freshness is capped: a cache this project cannot inspect is not a place to lose a page.
+  expect(freshUntil("max-age=31536000,immutable", now)).toBe(now + 30 * 24 * 3600 * 1000);
+  expect(freshUntil(null, now)).toBe(0);
 });

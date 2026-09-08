@@ -9,6 +9,7 @@ import { RuntimeSupervisor } from "./runtime/supervisor.js";
 import { startIntervalWorker } from "./runtime/worker.js";
 import { publishStatus } from "./status.js";
 import { openDatabase } from "./storage/database.js";
+import { HttpCache } from "./storage/httpCache.js";
 
 const config = loadConfig();
 configureLogger(config.NODE_ENV === "production");
@@ -22,6 +23,8 @@ supervisor.register(
   startIntervalWorker("status", 300_000, async () => {
     await publishStatus(db, config);
     await publishAlerts(db, config);
+    // Cached bodies for files nobody links to any more; a rebuilt bundle renames everything.
+    new HttpCache(db).prune();
   }),
 );
 let stopping = false;

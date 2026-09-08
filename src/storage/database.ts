@@ -48,6 +48,12 @@ export function openDatabase(path: string): Database {
       UNIQUE(batch_id,destination_id,part)
     );
     CREATE TABLE IF NOT EXISTS app_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+    -- Bodies already downloaded, kept so an unchanged page costs a 304 with no body, and an asset
+    -- served as immutable costs no request at all.
+    CREATE TABLE IF NOT EXISTS http_cache (
+      url TEXT PRIMARY KEY, etag TEXT, last_modified TEXT,
+      fresh_until INTEGER NOT NULL DEFAULT 0, body TEXT NOT NULL, used_at INTEGER NOT NULL
+    );
     CREATE INDEX IF NOT EXISTS deliveries_pending ON deliveries(status,next_attempt);
     CREATE INDEX IF NOT EXISTS events_source ON events(source,id);
   `);
