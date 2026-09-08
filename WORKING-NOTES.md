@@ -4,14 +4,12 @@ Ordered by what would help a reader most, not by effort.
 
 | Priority | Task | Dependency / scope |
 |---|---|---|
-| Next | A channel for incidents. | The platform board shows the current state, but an outage that starts and clears between two glances at the board is invisible. Incident events are already collected and stored; they have no destination until the owner names a channel. |
-| Next | Deprecation notices. | `platform.openai.com/docs/deprecations` and the equivalents. The one event a reader must act on by a date; the natural companion to a removals role. |
 | Next | More repositories. | Only `openai/codex` is watched. `anthropics/claude-code`, `google-gemini/gemini-cli` and the SDKs are one config entry each. |
-| Next | Tune notification importance against real events. | 72 events so far, 55% of them from OpenRouter. Enough traffic to see which changes readers ignore. |
+| Next | Watch the noise for a few days before adding anything. | Price moves now go to the hourly digest and leaderboards never ping, which should have removed most of it. Whether that is true is a question for the channels after a couple of days, not for a guess today. |
+| Next | A welcome channel. | A reader arriving now lands in a stream with no map of which channel holds what, or how to take a role. |
 | Owner decision | Vercel AI Gateway routing and the Google catalogue. | Whether to add the router rule for `ai-gateway.vercel.sh`, and whether Google comes from Vertex AI or from OpenRouter. Measurements below. |
 | Later | Readable summaries of large diffs. | A message now shows the first eight changed fields and counts the rest. A sentence instead of a count needs a model and a spending limit. |
 | Later | Confidence labels. | A string in a bundle is not a release. Marking observations as seen / confirmed / shipped protects trust in the feed; one false certainty costs more than ten missed scoops. |
-| Later | An onboarding channel. | A reader arriving now lands in a stream with no map of which channel holds what, or how to take a role. |
 | Later | Slash commands over our own history. | `/latest openai`, `/search gpt-6`. The database already answers these; only Discord does not. |
 | Later | Correlate related events. | PR → merge → documentation → release currently arrive as separate messages. Nobody else does this, which is the argument for doing it. |
 | Later | Cloud catalogues: Bedrock, Vertex, Azure AI Foundry. | "Available on Bedrock" is its own news for corporate readers. Bedrock needs AWS credentials; its endpoints are SigV4-signed and answer nothing anonymously. |
@@ -27,10 +25,82 @@ Ordered by what would help a reader most, not by effort.
 ## Not open any more
 
 - Alerting on collector outages and recovery — built, and it caught a real failure (`cursor-changelog`
-  emitting duplicate IDs) six minutes after being switched on.
+  emitting duplicate IDs) six minutes after being switched on. It now waits for two consecutive
+  failed checks and reports four or more simultaneous failures as one shared path, because the
+  first version turned a single broken route into four messages about six collectors.
+- Platform health, retirement dates, the daily activity board, and the `#incidents`,
+  `#deprecations` and `#open-weights` channels.
+- Summaries of large diffs (DeepSeek, `src/summary.ts`): the sentence goes in front of the
+  evidence, never instead of it, the input is treated as untrusted text, and a failure leaves the
+  message unchanged. Capped at 300 calls a day because the account is prepaid.
 - Vendor role pings, the HTTP cache, the GitHub credential, embeds, rank moves, codename
   resolution, and the registry sources.
 - Backups run: `signal-forge-backup.timer` is scheduled and `backups/` holds verified copies.
+
+# What is watched
+
+Fifty collectors, grouped by what a reader gets from them rather than by which API they call.
+Counts are records held, taken 2026-09-09.
+
+## Catalogues — a model you can call today
+
+| Source | Covers | Records | Note |
+|---|---|---|---|
+| `openrouter` | ~40 vendors in one listing | 431 | Half of all events; first to show price and availability moves |
+| `openai` | OpenAI API | 119 | Needs the API key |
+| `anthropic` | Anthropic API | 11 | Needs the API key |
+| `gemini` | Google API | — | Blocked, see *Gemini access* |
+| `vercel-gateway` | Vercel AI Gateway | — | Response truncated on this link, see *Remaining work* |
+
+## Open weights — a model you can download
+
+| Source | Organisations | Records |
+|---|---|---|
+| `huggingface:*` | openai, google, meta-llama, deepseek-ai, Qwen, moonshotai, mistralai, MiniMaxAI, zai-org, microsoft, nvidia, xai-org | 481 |
+| `modelscope:*` | Qwen, deepseek-ai, MiniMax, ZhipuAI, moonshotai | 129 |
+
+ModelScope is not a duplicate of Hugging Face: Chinese labs often publish there first.
+
+## Arenas — a model before it is announced
+
+| Source | Covers | Records | Why |
+|---|---|---|---|
+| `arena` | every model on Arena | 1056 | Codenames appear here weeks early; a rename is the reveal |
+| `arena-leaderboards` | text and image boards | 829 | Rank tracked for the top 20 only |
+| `designarena:*` | website, gamedev, image, logo, svg, uicomponent, dataviz | 924 | A separate audience from the text arenas |
+
+## Packages and code — a tool that ships before the blog post
+
+| Source | Covers | Records |
+|---|---|---|
+| `npm:*` | @openai/codex, @anthropic-ai/claude-code, @google/gemini-cli, @qwen-code/qwen-code | 23 |
+| `pypi:*` | openai, anthropic, mistralai | 3 |
+| `github:openai/codex:*` | commits, pull requests, releases | 300 |
+
+GitHub commits carry the actual diff — file, line counts and changed lines.
+
+## Words — what they say about it
+
+| Source | Covers | Records |
+|---|---|---|
+| `openai-news`, `anthropic-news` | official blogs | 1190 |
+| `cursor-changelog` | Cursor releases | 5 |
+| `codex-docs` | 148 documentation pages | 148 |
+| `claude-web` | strings inside the Claude bundle | 1 |
+| `openai-deprecations`, `anthropic-deprecations` | retirement dates | 50 |
+| `status:openai`, `status:anthropic` | platform health | 2 |
+
+## Vendor coverage
+
+Directly named somewhere above: OpenAI, Anthropic, Google, Meta, xAI, DeepSeek, Qwen/Alibaba,
+Mistral, Moonshot, MiniMax, Z.ai/Zhipu, Microsoft, NVIDIA, Cursor.
+
+Covered only through OpenRouter and the arenas, with no source of their own: Amazon, Cohere,
+Perplexity, Reka, AI21, Inception, Luma, Reve, ByteDance. Adding a first-party source for any of
+them is a config entry; nobody has asked yet, and each one is another thing that can fail.
+
+Not covered at all: Bedrock, Vertex and Azure AI Foundry — the cloud catalogues, where a model
+arriving is its own news for corporate readers. All three need credentials.
 
 # Platform health
 
@@ -47,6 +117,37 @@ deleted.
 
 Polled every two minutes — far more often than anything else here — because health is the one thing
 a reader may need within minutes. The documents are ~2 KB.
+
+# Being refused, and what to do about it
+
+Three different refusals were met on 2026-09-08, and they look alike in a log while needing
+opposite responses.
+
+**A challenge.** `status.claude.com` began answering with HTTP 405, a CloudFront page titled "Human
+Verification" and the header `x-amzn-waf-action: captcha`. Nothing was broken and no method was
+wrong: AWS WAF had decided a client polling every two minutes was a bot. The interval went to five
+minutes and the source recovered on its own seven minutes later, without a single extra request.
+`fetchText` now names this case (`x-amzn-waf-action`, `cf-mitigated`) instead of reporting a status
+code that means something else.
+
+**A rate limit.** Hugging Face answered 429 to twelve authors polled in the same second. Two
+mistakes met here: the burst, and a retry policy that answered "too many requests" with two more
+requests. Retries now cover transport failures and 502/503/504 only, and the twelve intervals are
+staggered so they drift apart after the first cycle.
+
+**A block.** `cursor.com` does not answer from the home address at all, answers through every AWG
+tunnel, and does not answer through the WARP exit — so it was added to the tunnel rules rather than
+the proxy rules.
+
+Underneath all three: **each consecutive failure now doubles a source's interval, up to eight
+times.** A source refusing us recovers on its own schedule, and asking at full speed meanwhile is
+how a temporary refusal is earned again tomorrow.
+
+The rule this project follows: identify honestly (`SignalForge/0.1`), prefer the machine-readable
+document a vendor publishes on purpose, ask less often when asked to. Impersonating a browser or
+another company's crawler is not on the table — it would not survive the fingerprinting that
+actually gates these endpoints, it borrows someone else's reputation for our traffic, and a feed
+that sells verifiable facts cannot lie about who is collecting them.
 
 # The link this runs on
 

@@ -489,3 +489,14 @@ test("a bot-protection challenge is named as one, not as a broken endpoint", asy
   const refused = async () => new Response("no", { status: 405 });
   await expect(fetchText("https://example.test/b", {}, refused)).rejects.toThrow("HTTP 405");
 });
+
+test("a rate limit is obeyed rather than retried", async () => {
+  let calls = 0;
+  const limited = async () => {
+    calls += 1;
+    return new Response("slow down", { status: 429 });
+  };
+  await expect(fetchText("https://example.test/a", {}, limited)).rejects.toThrow("HTTP 429");
+  // Answering "too many requests" with another request is the opposite of what was asked.
+  expect(calls).toBe(1);
+});

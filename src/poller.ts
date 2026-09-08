@@ -58,19 +58,22 @@ export function sourceJobs(
     { id: "claude-web", interval: 3600, run: () => collectClaude(fetch, cache) },
     // Registries move slowly and are many, so they are polled far apart and spread over the hour
     // rather than hammered together every cycle.
-    ...HF_AUTHORS.map((author) => ({
+    // Twelve requests to one host in the same second read as a burst and earned a 429. Each entry
+    // gets a slightly longer interval than the one before it, so after the first cycle they drift
+    // apart and stay spread across the half hour.
+    ...HF_AUTHORS.map((author, index) => ({
       id: `huggingface:${author}`,
-      interval: 1800,
+      interval: 1800 + index * 90,
       run: () => collectHuggingFace(author, fetch, cache),
     })),
-    ...MODELSCOPE_PATHS.map((path) => ({
+    ...MODELSCOPE_PATHS.map((path, index) => ({
       id: `modelscope:${path}`,
-      interval: 1800,
+      interval: 1800 + index * 90,
       run: () => collectModelScope(path),
     })),
-    ...DESIGNARENA_CATEGORIES.map((category) => ({
+    ...DESIGNARENA_CATEGORIES.map((category, index) => ({
       id: `designarena:${category}`,
-      interval: 3600,
+      interval: 3600 + index * 120,
       run: () => collectDesignArena(category),
     })),
     { id: "cursor-changelog", interval: 1800, run: () => collectCursorChangelog() },
@@ -86,8 +89,16 @@ export function sourceJobs(
       interval: 300,
       run: () => collectPlatformStatus(platform),
     })),
-    ...NPM_PACKAGES.map((name) => ({ id: `npm:${name}`, interval: 900, run: () => collectNpm(name, fetch, cache) })),
-    ...PYPI_PACKAGES.map((name) => ({ id: `pypi:${name}`, interval: 900, run: () => collectPypi(name, fetch, cache) })),
+    ...NPM_PACKAGES.map((name, index) => ({
+      id: `npm:${name}`,
+      interval: 900 + index * 45,
+      run: () => collectNpm(name, fetch, cache),
+    })),
+    ...PYPI_PACKAGES.map((name, index) => ({
+      id: `pypi:${name}`,
+      interval: 900 + index * 45,
+      run: () => collectPypi(name, fetch, cache),
+    })),
   ];
   if (config.OPENAI_API_KEY)
     jobs.push({ id: "openai", interval: config.pollSeconds, run: () => collectOpenAI(config) });

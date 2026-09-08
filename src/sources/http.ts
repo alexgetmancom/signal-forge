@@ -19,7 +19,10 @@ async function attempt(url: string, request: Fetch, init: RequestInit): Promise<
   for (let index = 0; ; index++) {
     try {
       const response = await request(url, init);
-      if (![429, 502, 503, 504].includes(response.status) || index >= RETRY_DELAYS_MS.length) return response;
+      // 429 is deliberately absent: it is the server saying "too many", and answering that with
+      // another request three seconds later is the opposite of what it asked for. The per-source
+      // backoff handles it by asking later instead.
+      if (![502, 503, 504].includes(response.status) || index >= RETRY_DELAYS_MS.length) return response;
       await response.body?.cancel();
       last = new Error(`Source returned HTTP ${response.status}`);
     } catch (error) {
