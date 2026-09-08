@@ -61,6 +61,12 @@ Set `TELEGRAM_BOT_TOKEN` in `.env`. Configure one destination in `signal-forge.j
 
 Replace the example chat ID with the actual destination. Give the bot permission to post;
 for personal delivery, start it first. Deploy after configuration changes.
+
+Discord destinations take a `channelId` and the same `streams`. A bot only reaches a private
+category when its role is granted `VIEW_CHANNEL` there; creating channels additionally needs
+`MANAGE_CHANNELS`, which the bot does not have and does not need for delivery. Verify a new channel
+with one manual `POST /channels/<id>/messages` before relying on it — a destination that cannot be
+written to only shows up as a failed delivery later.
 Destinations receive future events only. The first source observation is quiet.
 
 Set `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` and `GEMINI_API_KEY` to enable their catalogs.
