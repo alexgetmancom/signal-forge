@@ -4,6 +4,7 @@ import { deliverPending, recoverInterruptedDeliveries } from "./delivery.js";
 import { createHttpApp } from "./http.js";
 import { configureLogger, log } from "./logger.js";
 import { pollSources } from "./poller.js";
+import { logMemoryUsage, recordRuntimeStart, recordRuntimeStop } from "./runtime/observability.js";
 import { stopServerGracefully } from "./runtime/shutdown.js";
 import { RuntimeSupervisor } from "./runtime/supervisor.js";
 import { startIntervalWorker } from "./runtime/worker.js";
@@ -14,13 +15,14 @@ import { HttpCache } from "./storage/httpCache.js";
 const config = loadConfig();
 configureLogger(config.NODE_ENV === "production");
 const db = openDatabase(config.DATABASE_URL);
+recordRuntimeStart(db);
 recoverInterruptedDeliveries(db);
 const server = Bun.serve({ hostname: config.BIND_HOST, port: config.PORT, fetch: createHttpApp(config, db).fetch });
 const supervisor = new RuntimeSupervisor();
-supervisor.register(startIntervalWorker("delivery", 1500, () => deliverPending(db, config)));
-supervisor.register(startIntervalWorker("sources", 30_000, () => pollSources(db, config)));
+supervisor.register(startIntervalWorker(db, "delivery", 1500, () => deliverPending(db, config)));
+supervisor.register(startIntervalWorker(db, "sources", 30_000, () => pollSources(db, config)));
 supervisor.register(
-  startIntervalWorker("status", 300_000, async () => {
+  startIntervalWorker(db, "status", 300_000, async () => {
     // Order matters on a first run: the channel reads top to bottom, so what happened comes first,
     // then how the vendors are doing, then how we are doing.
     await publishActivityBoard(db, config);
@@ -31,12 +33,14 @@ supervisor.register(
     new HttpCache(db).prune();
   }),
 );
+supervisor.register(startIntervalWorker(db, "memory", 3_600_000, logMemoryUsage));
 let stopping = false;
 async function shutdown(): Promise<void> {
   if (stopping) return;
   stopping = true;
   await supervisor.stop();
   await stopServerGracefully(server);
+  recordRuntimeStop(db);
   db.close();
   log("info", "Service stopped");
 }

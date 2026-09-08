@@ -3,7 +3,13 @@ services:
     build: .
     image: signal-forge:latest
     restart: unless-stopped
+    mem_limit: 512m
     stop_grace_period: 2m
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
     env_file:
       - .env
     environment:
