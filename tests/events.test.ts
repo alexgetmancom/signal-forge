@@ -4,6 +4,7 @@ import {
   type Collection,
   canonical,
   collapseDetails,
+  isRoutine,
   MAX_DETAIL_LINES,
   renderEvent,
   saveCollection,
@@ -272,19 +273,39 @@ test("a new model pings the role of its vendor and nothing else", async () => {
   // The permission list names exactly the roles the message mentions, so a stray id cannot ping.
   expect(payload.allowed_mentions?.roles).toEqual(["111"]);
 });
-test("a price edit travels without a ping", async () => {
+test("a capability edit travels without a ping", async () => {
   const { prepareDeliveries, saveCollection } = await import("../src/events.js");
   const db = openDatabase(":memory:");
   const destination: Destination = { id: "d", platform: "discord", channelId: "1", streams: ["api-models"] };
   const roles = { OpenAI: "111" };
-  const records = [{ id: "openai/gpt-6", name: "GPT-6", maker: "OpenAI", context: 100 }];
+  const records = [{ id: "openai/gpt-6", name: "GPT-6", maker: "OpenAI", selectable: true }];
   const collection = { source: "openrouter", stream: "api-models", url: "https://e.test", raw: [], records };
   saveCollection(db, collection, [destination], "2026-09-08T10:00:00.000Z", undefined, roles);
-  records[0] = { id: "openai/gpt-6", name: "GPT-6", maker: "OpenAI", context: 200 };
+  records[0] = { id: "openai/gpt-6", name: "GPT-6", maker: "OpenAI", selectable: false };
   saveCollection(db, collection, [destination], "2026-09-08T10:05:00.000Z", undefined, roles);
   prepareDeliveries(db, Date.parse("2026-09-08T10:05:00.000Z"), undefined, roles);
   const body = db.query<{ body: string }, []>("SELECT body FROM deliveries ORDER BY id DESC LIMIT 1").get();
   const payload = JSON.parse(body?.body ?? "{}") as { content: string; allowed_mentions?: unknown };
   expect(payload.content).not.toContain("<@&");
   expect(payload.allowed_mentions).toBeUndefined();
+});
+
+test("a price move waits for the digest while a new capability does not", () => {
+  const event = (before: Record<string, unknown>, after: Record<string, unknown>) => ({
+    id: 1,
+    source: "openrouter",
+    stream: "openrouter",
+    entity_id: "m",
+    kind: "changed" as const,
+    before_json: JSON.stringify(before),
+    after_json: JSON.stringify(after),
+    detected_at: "2026-09-08T10:00:00.000Z",
+  });
+  expect(isRoutine(event({ pricing: { prompt: "1" } }, { pricing: { prompt: "2" } }))).toBe(true);
+  expect(isRoutine(event({ context: 100 }, { context: 200 }))).toBe(true);
+  // A model gaining a capability or leaving the picker is news the moment it happens.
+  expect(isRoutine(event({ selectable: true }, { selectable: false }))).toBe(false);
+  expect(isRoutine(event({ pricing: { prompt: "1" }, name: "A" }, { pricing: { prompt: "2" }, name: "B" }))).toBe(
+    false,
+  );
 });

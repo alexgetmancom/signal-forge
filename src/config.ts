@@ -12,6 +12,7 @@ export const streamSchema = z.enum([
   "weights",
   "packages",
   "incidents",
+  "deprecations",
 ]);
 const streams = z.array(streamSchema).min(1);
 export const destinationSchema = z.discriminatedUnion("platform", [

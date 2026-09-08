@@ -14,6 +14,7 @@ import {
   DESIGNARENA_CATEGORIES,
   MODELSCOPE_PATHS,
 } from "./sources/community.js";
+import { collectAnthropicDeprecations, collectOpenAIDeprecations } from "./sources/deprecations.js";
 import { collectGithubCommits, collectGithubPulls, collectGithubReleases } from "./sources/github.js";
 import { collectAnthropicNews, collectOpenAINews } from "./sources/news.js";
 import { collectPlatformStatus, PLATFORMS } from "./sources/platforms.js";
@@ -62,6 +63,9 @@ export function sourceJobs(
       run: () => collectDesignArena(category),
     })),
     { id: "cursor-changelog", interval: 1800, run: () => collectCursorChangelog() },
+    // Retirement dates change rarely and matter for months; hourly is plenty.
+    { id: "openai-deprecations", interval: 3600, run: () => collectOpenAIDeprecations() },
+    { id: "anthropic-deprecations", interval: 3600, run: () => collectAnthropicDeprecations() },
     // Health is the one thing a reader may need within minutes, so it is polled far more often
     // than anything else here. The documents are small and answer in milliseconds.
     ...PLATFORMS.map((platform) => ({

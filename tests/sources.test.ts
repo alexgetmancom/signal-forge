@@ -5,6 +5,7 @@ import { parseArena, parseLeaderboards } from "../src/sources/arena.js";
 import { collectAnthropic, collectOpenRouter } from "../src/sources/catalogs.js";
 import { claudeAssetImports, extractStrings } from "../src/sources/claude.js";
 import { parseCursorChangelog, parseDesignArena, parseModelScope } from "../src/sources/community.js";
+import { parseAnthropicDeprecations, parseOpenAIDeprecations } from "../src/sources/deprecations.js";
 import { collectGithubCommits, summarizeDiff } from "../src/sources/github.js";
 import { fetchText } from "../src/sources/http.js";
 import { parseAnthropicNews, parseOpenAINews } from "../src/sources/news.js";
@@ -436,4 +437,46 @@ test("npm keeps the channels people install and drops the per-platform copies", 
   const ids = parseNpm(payload).records.map((record) => record.id);
   // One alpha bump used to arrive as seven identical messages, one per architecture.
   expect(ids.sort()).toEqual(["alpha", "latest"]);
+});
+
+test("a deprecation announcement keeps its date and its prose, not its tables", () => {
+  const markdown = [
+    "## Upcoming deprecations",
+    "",
+    "### 2026-08-26: Transcription models",
+    "",
+    "On August 26, 2026, we notified developers using `whisper-1` of their removal on February 26, 2027.",
+    "",
+    "| Shutdown date | Model |",
+    "| --- | --- |",
+    "",
+    "### 2026-05-01: Older embeddings",
+    "",
+    "Embedding models retire in November.",
+  ].join("\n");
+  const parsed = parseOpenAIDeprecations(markdown);
+  expect(parsed.stream).toBe("deprecations");
+  expect(parsed.records).toHaveLength(2);
+  expect(parsed.records[0]).toMatchObject({
+    id: "2026-08-26-transcription-models",
+    name: "Transcription models (announced 2026-08-26)",
+  });
+  expect(String(parsed.records[0]?.summary)).toContain("whisper-1");
+  // The table under the heading is data for the page, not a sentence for a reader.
+  expect(String(parsed.records[0]?.summary)).not.toContain("|");
+  expect(() => parseOpenAIDeprecations("# Deprecations\n\nNothing here.")).toThrow("no longer exposes");
+});
+test("Anthropic model status is tracked per model, so a state change is the event", () => {
+  const markdown = [
+    "| API model name | Current state | Deprecated | Tentative retirement date |",
+    "| --- | --- | --- | --- |",
+    "| claude-opus-5 | Active | N/A | Not sooner than July 24, 2027 |",
+    "| claude-opus-4-1-20250805 | Retired | June 5, 2026 | August 5, 2026 |",
+    "| gpt-4 | Active | N/A | never |",
+  ].join("\n");
+  const parsed = parseAnthropicDeprecations(markdown);
+  // Only Claude rows: the page also links to tables belonging to other platforms.
+  expect(parsed.records.map((record) => record.id)).toEqual(["claude-opus-5", "claude-opus-4-1-20250805"]);
+  expect(parsed.records[0]).toMatchObject({ stage: "Active", deprecated: null });
+  expect(parsed.records[1]).toMatchObject({ stage: "Retired", deprecated: "June 5, 2026" });
 });

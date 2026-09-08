@@ -89,6 +89,8 @@ const sourceLabels: Record<string, string> = {
   "cursor-changelog": "Cursor · changelog",
   "status:openai": "OpenAI · status",
   "status:anthropic": "Anthropic · status",
+  "openai-deprecations": "OpenAI · deprecations",
+  "anthropic-deprecations": "Anthropic · deprecations",
 };
 function describe(value: unknown): string {
   if (value === null || value === undefined || value === "") return "not set";
@@ -307,6 +309,7 @@ const EYEBROWS: Record<string, string> = {
   weights: "OPEN WEIGHTS",
   packages: "PACKAGE",
   incidents: "PLATFORM HEALTH",
+  deprecations: "RETIREMENT",
 };
 
 const KIND_COLORS: Record<Event["kind"], number> = { new: 0x2ecc71, changed: 0xf1c40f, removed: 0xe74c3c };
@@ -521,7 +524,12 @@ export function isRoutine(event: Event): boolean {
     "outputTokenLimit",
     "methods",
   ];
-  return !important.some((key) => canonical(before[key]) !== canonical(after[key]));
+  const moved = important.filter((key) => canonical(before[key]) !== canonical(after[key]));
+  // Three quarters of everything collected so far was a price moving by fractions of a cent.
+  // Nobody reads a price at the moment it changes; they read it when working out a budget, and an
+  // hourly "twelve models got cheaper" is that same information without twelve notifications.
+  const budgetOnly = ["pricing", "context", "inputTokenLimit", "outputTokenLimit"];
+  return moved.length === 0 || moved.every((key) => budgetOnly.includes(key));
 }
 
 /**
