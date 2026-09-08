@@ -79,6 +79,7 @@ const sourceLabels: Record<string, string> = {
   "claude-web": "Claude · interface",
   "codex-docs": "Codex · docs",
   "vercel-gateway": "Vercel AI Gateway",
+  "cursor-changelog": "Cursor · changelog",
 };
 function describe(value: unknown): string {
   if (value === null || value === undefined || value === "") return "not set";
@@ -144,6 +145,22 @@ function prices(before: unknown, after: unknown): string[] {
   }
   return result;
 }
+/**
+ * A rewritten page or a reshaped record can change forty fields at once. Printing all of them
+ * turns the message into a wall nobody reads, so the message carries the first few and says how
+ * many it is holding back; the full before/after stays in the database either way.
+ */
+export const MAX_DETAIL_LINES = 8;
+const MAX_DETAIL_CHARS = 300;
+export function collapseDetails(details: string[], max = MAX_DETAIL_LINES): string[] {
+  const trimmed = details.map((line) =>
+    line.length > MAX_DETAIL_CHARS ? `${line.slice(0, MAX_DETAIL_CHARS - 1)}\u2026` : line,
+  );
+  if (trimmed.length <= max) return trimmed;
+  const hidden = trimmed.length - max;
+  return [...trimmed.slice(0, max), `\u2026and ${hidden} more change${hidden === 1 ? "" : "s"} not shown`];
+}
+
 export function renderEvent(
   event: Event,
   url: string,
@@ -222,6 +239,8 @@ export function renderEvent(
       else lines.push(`${fieldLabels[key] ?? key}: ${describe(value)}`);
     }
   }
+  // The header is three lines (kind/source, name, blank); everything after it is detail.
+  lines.push(...collapseDetails(lines.splice(3)));
   const link =
     typeof record?.url === "string"
       ? record.url
@@ -288,6 +307,7 @@ const ORIGINS: Record<string, string> = {
   "claude-web": "Found in the public Claude bundle.",
   "codex-docs": "Changed in the Codex documentation.",
   "vercel-gateway": "Listed on Vercel AI Gateway.",
+  "cursor-changelog": "Published in the Cursor changelog.",
 };
 
 const KIND_COLORS: Record<Event["kind"], number> = { new: 0x2ecc71, changed: 0xf1c40f, removed: 0xe74c3c };

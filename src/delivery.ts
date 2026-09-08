@@ -51,15 +51,17 @@ export async function deliverPending(db: Database, config: AppConfig, request: F
         if (!config.DISCORD_BOT_TOKEN) throw new Error("Missing Discord token");
         url = `https://discord.com/api/v10/channels/${destination.channelId}/messages`;
         headers = { "content-type": "application/json", Authorization: `Bot ${config.DISCORD_BOT_TOKEN}` };
-        // Discord deliveries carry a rendered payload; the flag suppresses the link unfurl, which
-        // is Discord's render of whatever OG image the linked site ships rather than ours.
         const payload = job.body.startsWith("{")
           ? (JSON.parse(job.body) as Record<string, unknown>)
           : { content: job.body };
+        // SUPPRESS_EMBEDS (4) hides every embed on the message, our own included — setting it on a
+        // message built out of embeds delivers a bare header and nothing else. It belongs only on
+        // plain text, where the thing being suppressed is Discord's unfurl of a linked page.
+        const hasEmbeds = Array.isArray(payload.embeds) && payload.embeds.length > 0;
         body = {
           ...payload,
           allowed_mentions: { parse: [] },
-          flags: 4,
+          ...(hasEmbeds ? {} : { flags: 4 }),
           nonce: `sf-${job.id}`,
           enforce_nonce: true,
         };

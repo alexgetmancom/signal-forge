@@ -1,6 +1,14 @@
 import { afterEach, expect, test } from "bun:test";
 import type { Destination } from "../src/config.js";
-import { type Collection, canonical, renderEvent, saveCollection, splitMessage } from "../src/events.js";
+import {
+  type Collection,
+  canonical,
+  collapseDetails,
+  MAX_DETAIL_LINES,
+  renderEvent,
+  saveCollection,
+  splitMessage,
+} from "../src/events.js";
 import { openDatabase } from "../src/storage/database.js";
 
 const db = openDatabase(":memory:");
@@ -206,4 +214,34 @@ test("a rank change reads as a movement, not as two numbers", async () => {
   const { rankMove } = await import("../src/events.js");
   expect(rankMove(7, 5)).toBe("Rank 5 🔼 2 (was 7)");
   expect(rankMove(2, 6)).toBe("Rank 6 🔽 4 (was 2)");
+});
+
+test("a rewritten record is collapsed to a readable message instead of a wall of fields", () => {
+  const before: Record<string, unknown> = { id: "m", name: "Model" };
+  const after: Record<string, unknown> = { id: "m", name: "Model" };
+  for (let index = 0; index < 20; index++) {
+    before[`field${index}`] = "old";
+    after[`field${index}`] = "new";
+  }
+  const event = {
+    id: 1,
+    source: "openrouter",
+    stream: "api-models",
+    entity_id: "m",
+    kind: "changed" as const,
+    before_json: JSON.stringify(before),
+    after_json: JSON.stringify(after),
+    detected_at: "2026-09-08T10:00:00.000Z",
+  };
+  const lines = renderEvent(event, "https://example.test").split("\n");
+  const details = lines.slice(3, -3);
+  expect(details).toHaveLength(MAX_DETAIL_LINES + 1);
+  expect(details.at(-1)).toBe("…and 12 more changes not shown");
+  // The link and the signature survive the collapse, so the reader can still reach the source.
+  expect(lines.at(-1)).toContain("#1");
+});
+test("a single long value is trimmed rather than dropped", () => {
+  const long = "x".repeat(900);
+  expect(collapseDetails([long])[0]).toHaveLength(300);
+  expect(collapseDetails(["short"])).toEqual(["short"]);
 });

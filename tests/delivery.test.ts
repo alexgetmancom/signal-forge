@@ -108,3 +108,28 @@ test("discord sends suppress the link unfurl", async () => {
   expect(sent.flags).toBe(4);
   db.close();
 });
+
+test("a message built from embeds is not sent with the embed-suppressing flag", async () => {
+  const sent: Record<string, unknown>[] = [];
+  const request = async (_url: string, init?: RequestInit) => {
+    sent.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+    return new Response(JSON.stringify({ id: "1" }), { status: 200 });
+  };
+  const local = openDatabase(":memory:");
+  local.query("INSERT INTO batches(id,source,digest,ready_at) VALUES(0,'test',0,0)").run();
+  const destination = { id: "d", platform: "discord" as const, channelId: "42", streams: ["api-models"] };
+  const queue = (body: string) =>
+    local
+      .query(
+        "INSERT INTO deliveries(batch_id,destination_id,destination_json,body,part,updated_at) VALUES(0,?,?,?,0,0)",
+      )
+      .run(destination.id, JSON.stringify(destination), body);
+  queue(JSON.stringify({ content: "Header", embeds: [{ title: "One" }] }));
+  await deliverPending(local, config, request);
+  expect(sent[0]?.flags).toBeUndefined();
+  local.query("DELETE FROM deliveries").run();
+  // Plain text still suppresses the unfurl, which is what the flag was added for.
+  queue("Plain https://example.test");
+  await deliverPending(local, config, request);
+  expect(sent[1]?.flags).toBe(4);
+});

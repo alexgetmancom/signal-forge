@@ -4,6 +4,9 @@ export async function fetchText(
   url: string,
   headers: Record<string, string> = {},
   request: Fetch = fetch,
+  // Some catalogues only answer a POST/PUT with a filter body; the retry, redirect and size rules
+  // are the same, so the verb is a parameter rather than a second copy of this function.
+  send?: { method: string; body: string },
 ): Promise<string> {
   let response: Response | undefined;
   const origin = new URL(url).origin;
@@ -12,6 +15,7 @@ export async function fetchText(
       headers: { "User-Agent": "SignalForge/0.1", ...headers },
       signal: AbortSignal.timeout(30_000),
       redirect: "manual",
+      ...(send ? { method: send.method, body: send.body } : {}),
     });
     if (response.status >= 300 && response.status < 400) {
       const location = response.headers.get("location");

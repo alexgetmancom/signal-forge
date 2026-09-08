@@ -26,11 +26,12 @@ const RESTRICTED: Record<string, string> = {
 
 const GROUPS: [RegExp, string][] = [
   [/^(openrouter|openai|anthropic|gemini)$/, "Catalogues"],
-  [/^arena/, "Arena"],
+  [/^(arena|designarena:)/, "Arena"],
   [/news$/, "Official news"],
   [/^(claude-web|codex-docs)$/, "Web"],
+  [/^cursor-changelog$/, "Official news"],
   [/^github:/, "GitHub"],
-  [/^huggingface:/, "Open weights"],
+  [/^(huggingface|modelscope):/, "Open weights"],
   [/^(npm|pypi):/, "Packages"],
   [/^vercel-gateway$/, "Catalogues"],
 ];

@@ -4,6 +4,7 @@ import { saveCollection } from "../src/events.js";
 import { parseArena, parseLeaderboards } from "../src/sources/arena.js";
 import { collectAnthropic, collectOpenRouter } from "../src/sources/catalogs.js";
 import { claudeAssetImports, extractStrings } from "../src/sources/claude.js";
+import { parseCursorChangelog, parseDesignArena, parseModelScope } from "../src/sources/community.js";
 import { collectGithubCommits, summarizeDiff } from "../src/sources/github.js";
 import { fetchText } from "../src/sources/http.js";
 import { parseAnthropicNews, parseOpenAINews } from "../src/sources/news.js";
@@ -292,4 +293,51 @@ test("pypi reports the current version as one record", async () => {
   );
   expect(c.records).toHaveLength(1);
   expect(c.records[0]).toMatchObject({ id: "latest", version: "1.4.0", published: "2026-09-05T10:00:00.000Z" });
+});
+
+test("ModelScope keeps organisation repositories and treats the page as append-only", () => {
+  const payload = JSON.stringify({
+    Data: {
+      Models: [
+        { Path: "Qwen", Name: "Qwen4-Next", CreatedTime: 1, Tasks: [{ Name: "text-generation" }] },
+        { Path: "Qwen", Name: "Qwen4-Next-FP8", CreatedTime: 2, Tasks: null },
+      ],
+    },
+  });
+  const parsed = parseModelScope(payload, "Qwen");
+  expect(parsed.source).toBe("modelscope:Qwen");
+  expect(parsed.appendOnly).toBe(true);
+  expect(parsed.records[0]).toMatchObject({ id: "Qwen/Qwen4-Next", category: "text-generation" });
+  // An organisation with nothing published yet is empty, not broken.
+  expect(parseModelScope(JSON.stringify({ Data: { Models: null } }), "Qwen").records).toHaveLength(0);
+});
+test("DesignArena ranks by elo and stores no vote counters", () => {
+  const payload = JSON.stringify({
+    success: true,
+    category: "website",
+    data: [
+      { modelId: "second", elo: 1200, winRate: 50, battles: 10 },
+      { modelId: "first", elo: 1400, winRate: 70, battles: 12 },
+    ],
+  });
+  const parsed = parseDesignArena(payload, "website");
+  expect(parsed.records.map((record) => record.id)).toEqual(["first", "second"]);
+  expect(parsed.records[0]).toMatchObject({ rank: 1, category: "designarena/website" });
+  // Elo and battles move on every vote; keeping them would make each poll an event.
+  expect(parsed.records[0]).not.toHaveProperty("elo");
+  expect(parsed.records[0]).not.toHaveProperty("battles");
+});
+test("Cursor changelog takes the slug as identity and refuses a page it cannot read", () => {
+  const html =
+    `<a href="/changelog/08-19-26"><time dateTime="2026-08-19T00:00:00.000Z">Aug 19, 2026</time></a>` +
+    `<h1 id="08-19-26"><a href="/changelog/08-19-26">Cloud Agents Improvements</a></h1>`;
+  const parsed = parseCursorChangelog(html);
+  expect(parsed.records).toHaveLength(1);
+  expect(parsed.records[0]).toMatchObject({
+    id: "08-19-26",
+    name: "Cloud Agents Improvements",
+    published: "2026-08-19T00:00:00.000Z",
+    url: "https://cursor.com/changelog/08-19-26",
+  });
+  expect(() => parseCursorChangelog("<html>Nothing here</html>")).toThrow("no longer exposes");
 });

@@ -7,6 +7,13 @@ import { collectArena, collectLeaderboards } from "./sources/arena.js";
 import { collectAnthropic, collectGemini, collectOpenAI, collectOpenRouter } from "./sources/catalogs.js";
 import { collectClaude } from "./sources/claude.js";
 import { collectCodexDocs } from "./sources/codex.js";
+import {
+  collectCursorChangelog,
+  collectDesignArena,
+  collectModelScope,
+  DESIGNARENA_CATEGORIES,
+  MODELSCOPE_PATHS,
+} from "./sources/community.js";
 import { collectGithubCommits, collectGithubPulls, collectGithubReleases } from "./sources/github.js";
 import { collectAnthropicNews, collectOpenAINews } from "./sources/news.js";
 import {
@@ -39,6 +46,17 @@ export function sourceJobs(
       interval: 1800,
       run: () => collectHuggingFace(author),
     })),
+    ...MODELSCOPE_PATHS.map((path) => ({
+      id: `modelscope:${path}`,
+      interval: 1800,
+      run: () => collectModelScope(path),
+    })),
+    ...DESIGNARENA_CATEGORIES.map((category) => ({
+      id: `designarena:${category}`,
+      interval: 3600,
+      run: () => collectDesignArena(category),
+    })),
+    { id: "cursor-changelog", interval: 1800, run: () => collectCursorChangelog() },
     ...NPM_PACKAGES.map((name) => ({ id: `npm:${name}`, interval: 900, run: () => collectNpm(name) })),
     ...PYPI_PACKAGES.map((name) => ({ id: `pypi:${name}`, interval: 900, run: () => collectPypi(name) })),
   ];
