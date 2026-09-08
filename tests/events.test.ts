@@ -134,3 +134,22 @@ test("multiple changes form one message and hourly digest survives until due", a
   prepareDeliveries(db, Date.parse("2026-09-08T11:00:00Z"));
   expect(db.query("SELECT COUNT(*) AS n FROM deliveries").get()).toEqual({ n: 6 });
 });
+
+test("shared feed keeps topic headings on every bounded message part", () => {
+  saveCollection(db, collection(["a"]), targets);
+  const c = collection(["a", ...Array.from({ length: 12 }, (_, i) => `model-${i}`)]);
+  c.records = c.records.map((r) => ({ ...r, description: "Details ".repeat(150) }));
+  saveCollection(db, c, targets);
+  const rows = db
+    .query<{ body: string; destination_id: string }, []>("SELECT body,destination_id FROM deliveries")
+    .all();
+  expect(rows.length).toBeGreaterThan(2);
+  for (const row of rows) {
+    expect(row.body).toStartWith("📡 Обновления · OpenRouter");
+    expect(row.body).toContain("#OpenRouter #Модели");
+    expect(row.body.length).toBeLessThanOrEqual(row.destination_id === "tg" ? 3900 : 1900);
+  }
+  expect(db.query("SELECT DISTINCT source,stream FROM events").all()).toEqual([
+    { source: "openrouter", stream: "openrouter" },
+  ]);
+});

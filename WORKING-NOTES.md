@@ -6,8 +6,10 @@ Build the RAGtag-style tracker described in `ragtag-system-analysis.md`, on the 
 `ts-boilerplate`. Keep all six feeds: API Models, Arena, News, Web/Claude,
 Leaderboards and OpenRouter. Add a seventh GitHub feed.
 
-Deliver through a Telegram bot to ordinary chats or individual forum topics, and
-through a Discord bot to selected server channels. Each destination selects its feeds.
+Use one shared Telegram feed with readable source headings and topic hashtags on every post,
+including continuation messages. Keep source and stream separate in the database so routing
+can be split later without rewriting history. The current destination is the owner's private
+chat; a separate Telegram channel has not been connected. Discord remains deferred.
 
 Codex is the first **GitHub repository**, not a restriction on the rest of the tracker.
 The audience particularly cares about Codex. Telegram is configured; provider keys are still absent.
@@ -38,7 +40,7 @@ The audience particularly cares about Codex. Telegram is configured; provider ke
 - Live source checks: OpenRouter 428 models; Arena 1,055 records; leaderboards 825 entries;
   OpenAI RSS 1,173 items; Claude 3,845 extracted strings; Codex commits and releases retrieved.
   Counts are observations from September 7, 2026, not configured expectations.
-- 50 passing tests plus lint, typecheck and production build. Migration checked on a copy of the live database.
+- 51 passing tests plus lint, typecheck and production build. Migration checked on a copy of the live database.
 - Unit/integration checks cover diff, deduplication, rollback, delivery routing, response
   failures, pagination, source validation, bounded GitHub excerpts and authenticated HTTP/MCP.
 - Telegram live delivery verified to the owner: message ID 2 via the durable queue.
@@ -70,3 +72,26 @@ The audience particularly cares about Codex. Telegram is configured; provider ke
   VM106 control message delivered through the queue: Telegram message ID 16.
   Copy uses prices per million tokens, changed-parameter lists and Moscow timestamps.
   No Discord messages sent; Discord is deferred until the Telegram experience is refined.
+
+## Scope table — updated September 8, 2026
+
+| Done | Not yet done from the original scope | Proposed next work |
+|---|---|---|
+| Telegram private delivery verified; group/forum routing implemented. One shared feed with headings and hashtags. | A separate Telegram channel has not been connected or tested. | Keep one destination; retain independent source/stream data for future routing. |
+| OpenRouter model additions/removals, prices, context and parameters. | — | Tune importance using real notifications. |
+| OpenAI, Anthropic and Gemini API collectors implemented. | Disabled and not verified with real credentials. | Supply keys and verify visible models. |
+| Arena roster and capability changes. | DesignArena collector absent. | Add DesignArena. |
+| Leaderboard model membership by category. | — | Keep rank/score movement quiet. |
+| Official OpenAI news RSS. | No Anthropic news collector; the original example showed OpenAI. | Add official Claude news and product updates. |
+| Claude public entry JS and direct imports; string diffs and raw evidence. | Deeper asset coverage and AI interpretation absent. | Expand coverage and select meaningful changes. |
+| Official Codex/shared ChatGPT documentation monitoring: 148 pages observed. | No Codex interface-string monitoring. | Separate Codex-specific documentation changes from shared product edits. |
+| Codex releases, selected commit paths and bounded diff excerpts. | No semantic AI summary; relevance is path-based. | Explain what changed and who benefits. |
+| Codex PRs from repository-associated authors; proposal/merge/release labels. | No personal author allowlist; catch-up can lag. | Add GitHub token, then select interesting authors. |
+| Per-source grouping, hourly routine digest, source links, shared-feed topic hashtags. | No cross-source story correlation. | Link PR → merge → documentation → release without conflating stages. |
+| Raw snapshots, before/after history, CLI and HTTP/MCP inspection. | No reader-facing Full report page. | Provide a full diff link from Telegram. |
+| Discord sender implemented; bot identity/access checked. | Channel configuration and real delivery deferred by owner. | Connect after Telegram is refined. |
+| — | Bedrock model/region collector absent. | Add after primary sources. |
+| VM106 deployment, automatic restart, migrated history; 51 tests passed, including hashtags and message limits. | No scheduled backup or alert for prolonged source failure. | Add database backups and failure alerts. |
+
+Suggested next work: source failure alerts and backups, Anthropic news, then readable summaries
+and Full report pages. Connect API credentials when supplied. Do not create separate topic channels.

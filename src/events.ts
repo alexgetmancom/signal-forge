@@ -344,24 +344,48 @@ export function prepareDeliveries(db: Database, now = Date.now()): void {
         .all(batch.id);
       for (const target of targets) {
         const d = JSON.parse(target.destination_json) as Destination;
-        const header = `${batch.digest ? "🗞 Часовой дайджест" : "📡 Обновления"} · ${sourceLabels[batch.source] ?? batch.source} · ${events.length}\n\n`;
+        const source =
+          sourceLabels[batch.source] ??
+          batch.source
+            .replace("github:", "GitHub · ")
+            .replace(":commits", " · код")
+            .replace(":pulls", " · PR")
+            .replace(":releases", " · релизы");
+        const tags = new Set<string>();
+        const topics: Record<string, string> = {
+          "api-models": "#Модели",
+          openrouter: "#OpenRouter #Модели",
+          arena: "#Arena",
+          leaderboards: "#Рейтинги",
+          news: "#Новости",
+          web: "#Web",
+          github: "#GitHub",
+        };
+        for (const event of events) for (const tag of (topics[event.stream] ?? "#Обновления").split(" ")) tags.add(tag);
+        if (batch.source === "codex-docs" || batch.source.startsWith("github:openai/codex:")) tags.add("#Codex");
+        if (batch.source === "codex-docs") tags.add("#Документация");
+        if (batch.source === "claude-web" || batch.source === "anthropic") tags.add("#Claude");
+        if (batch.source === "openai" || batch.source === "openai-news") tags.add("#OpenAI");
+        if (batch.source === "gemini") tags.add("#Gemini");
+        if (batch.source.endsWith(":pulls")) tags.add("#PR");
+        if (batch.source.endsWith(":releases")) tags.add("#Релизы");
+        if (batch.digest) tags.add("#Дайджест");
+        const header = `${batch.digest ? "🗞 Часовой дайджест" : "📡 Обновления"} · ${source} · ${events.length}\n${[...tags].join(" ")}\n\n`;
         // Keep each item compact; full before/after evidence remains available by event ID.
-        const text =
-          header +
-          events
-            .map((event) => {
-              const rendered = renderEvent(event, event.url);
-              const lines = rendered.split("\n");
-              const footer = lines.slice(-2).join("\n");
-              const content = lines.slice(1, -2).join("\n").trim();
-              const kind = { new: "🆕", changed: "✏️", removed: "🗑️" }[event.kind];
-              return `${kind} ${content.length > 800 ? `${content.slice(0, 800)}…` : content}\n${footer}`;
-            })
-            .join("\n\n────────\n\n");
-        splitMessage(text, d.platform === "telegram" ? 3900 : 1900).forEach((body, part) => {
+        const text = events
+          .map((event) => {
+            const rendered = renderEvent(event, event.url);
+            const lines = rendered.split("\n");
+            const footer = lines.slice(-2).join("\n");
+            const content = lines.slice(1, -2).join("\n").trim();
+            const kind = { new: "🆕", changed: "✏️", removed: "🗑️" }[event.kind];
+            return `${kind} ${content.length > 800 ? `${content.slice(0, 800)}…` : content}\n${footer}`;
+          })
+          .join("\n\n────────\n\n");
+        splitMessage(text, (d.platform === "telegram" ? 3900 : 1900) - header.length).forEach((body, part) => {
           db.query(
             "INSERT INTO deliveries(batch_id,destination_id,destination_json,body,part,updated_at) VALUES(?,?,?,?,?,?)",
-          ).run(batch.id, target.destination_id, target.destination_json, body, part, now);
+          ).run(batch.id, target.destination_id, target.destination_json, header + body, part, now);
         });
       }
       db.query("UPDATE batches SET sealed=1 WHERE id=?").run(batch.id);

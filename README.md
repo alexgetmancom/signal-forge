@@ -29,6 +29,10 @@ bun src/cli.ts deliveries
 Run only one collecting process against a database; stop the server before a manual poll.
 The service runs continuously while its process/container is running.
 
+The current strategy is one shared Telegram feed. Each message part carries a readable source
+heading and topic hashtags (for example `#Codex #GitHub #PR`). Source and stream remain
+separate in storage; splitting delivery later requires only destination configuration.
+
 ## Connect destinations
 
 Set `TELEGRAM_BOT_TOKEN` and/or `DISCORD_BOT_TOKEN` in `.env`. Add recipients to
