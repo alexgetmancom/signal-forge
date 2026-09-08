@@ -1,0 +1,74 @@
+import type { Database } from "bun:sqlite";
+import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
+import { z } from "zod";
+import { bearerTokenAccepted } from "./auth.js";
+import type { AppConfig } from "./config.js";
+import { operations } from "./operations.js";
+
+export function createHttpApp(config: AppConfig, db: Database): Hono {
+  const app = new Hono();
+  app.get("/", (c) => c.json({ name: "signal-forge", status: "ok" }));
+  app.get("/healthz", (c) => c.text("ok\n"));
+  app.get("/readyz", (c) => {
+    db.query("SELECT 1").get();
+    return c.text("ready\n");
+  });
+  app.use("/api/*", bodyLimit({ maxSize: 64 * 1024 }));
+  app.use("/api/*", async (c, next) => {
+    if (!config.MCP_TOKEN || !bearerTokenAccepted(c.req.raw, config.MCP_TOKEN)) return c.text("unauthorized\n", 401);
+    return next();
+  });
+  const defs = operations(db, config);
+  app.get("/api/status", (c) => c.json(defs.status.handler()));
+  app.get("/api/events", (c) => c.json(defs.events.handler({ limit: 20 })));
+  app.get("/api/events/:id", (c) => {
+    const id = z.coerce.number().int().positive().safeParse(c.req.param("id"));
+    if (!id.success) return c.json({ error: "Invalid event ID" }, 400);
+    const event = db.query("SELECT * FROM events WHERE id=?").get(id.data);
+    return event ? c.json(event) : c.json({ error: "Not found" }, 404);
+  });
+  app.post("/api/mcp", async (c) => {
+    const schema = z.object({
+      jsonrpc: z.literal("2.0"),
+      id: z.union([z.string(), z.number()]).optional(),
+      method: z.string(),
+      params: z.object({ name: z.string().optional(), arguments: z.unknown().optional() }).optional(),
+    });
+    const parsed = schema.safeParse(await c.req.json().catch(() => null));
+    if (!parsed.success)
+      return c.json({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid request" } });
+    const req = parsed.data;
+    if (req.id === undefined) return c.body(null, 202);
+    const success = (result: unknown) => c.json({ jsonrpc: "2.0", id: req.id, result });
+    if (req.method === "initialize")
+      return success({
+        protocolVersion: "2024-11-05",
+        capabilities: { tools: {} },
+        serverInfo: { name: "signal-forge", version: "0.1.0" },
+      });
+    if (req.method === "ping") return success({});
+    if (req.method === "tools/list")
+      return success({
+        tools: Object.entries(defs).map(([name, def]) => ({
+          name,
+          description: def.description,
+          inputSchema: z.toJSONSchema(def.schema, { io: "input" }),
+        })),
+      });
+    if (req.method === "tools/call") {
+      const name = req.params?.name;
+      if (name && Object.hasOwn(defs, name)) {
+        const def = defs[name as keyof typeof defs] as { schema: z.ZodType; handler: (input: never) => unknown };
+        const input = def.schema.safeParse(req.params?.arguments ?? {});
+        if (!input.success)
+          return success({ isError: true, content: [{ type: "text", text: "Invalid tool arguments" }] });
+        const result = def.handler(input.data as never);
+        return success({ content: [{ type: "text", text: JSON.stringify(result) }] });
+      }
+    }
+    return c.json({ jsonrpc: "2.0", id: req.id, error: { code: -32601, message: "Unknown method or tool" } });
+  });
+  app.onError((_error, c) => c.json({ error: "Internal server error" }, 500));
+  return app;
+}

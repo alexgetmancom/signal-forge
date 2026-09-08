@@ -1,0 +1,28 @@
+services:
+  app:
+    build: .
+    image: signal-forge:latest
+    restart: unless-stopped
+    stop_grace_period: 2m
+    env_file:
+      - .env
+    environment:
+      BIND_HOST: 0.0.0.0
+      DATABASE_URL: /app/data/app.db
+      NODE_ENV: production
+      PORT: 8080
+    ports:
+      - "127.0.0.1:18081:8080"
+    volumes:
+      - ./data:/app/data
+      - ./signal-forge.json:/app/signal-forge.json:ro
+    healthcheck:
+      test:
+        - CMD
+        - bun
+        - -e
+        - 'fetch("http://127.0.0.1:8080/healthz").then((response) => process.exit(response.ok ? 0 : 1)).catch(() => process.exit(1))'
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

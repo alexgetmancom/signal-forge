@@ -1,0 +1,10 @@
+node_modules/
+dist/
+data/
+.env
+*.log
+*.db
+*.db-shm
+*.db-wal
+
+signal-forge.json
