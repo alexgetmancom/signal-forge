@@ -5,13 +5,11 @@ Ordered by what would help a reader most, not by effort.
 | Priority | Task | Dependency / scope |
 |---|---|---|
 | Next | More repositories. | Only `openai/codex` is watched. `anthropics/claude-code`, `google-gemini/gemini-cli` and the SDKs are one config entry each. |
-| Next | Watch the noise for a few days before adding anything. | Price moves now go to the hourly digest and leaderboards never ping, which should have removed most of it. Whether that is true is a question for the channels after a couple of days, not for a guess today. |
+| Next | Watch source noise for a few days. | `bun src/cli.ts signal-quality 7` now reports collection, event, suppression and delivery ratios. Whether polling or notification policy needs changing is a question for the data, not a guess. |
 | Next | A welcome channel. | A reader arriving now lands in a stream with no map of which channel holds what, or how to take a role. |
 | Owner decision | Vercel AI Gateway routing and the Google catalogue. | Whether to add the router rule for `ai-gateway.vercel.sh`, and whether Google comes from Vertex AI or from OpenRouter. Measurements below. |
 | Later | Readable summaries of large diffs. | A message now shows the first eight changed fields and counts the rest. A sentence instead of a count needs a model and a spending limit. |
-| Later | Confidence labels. | A string in a bundle is not a release. Marking observations as seen / confirmed / shipped protects trust in the feed; one false certainty costs more than ten missed scoops. |
 | Later | Slash commands over our own history. | `/latest openai`, `/search gpt-6`. The database already answers these; only Discord does not. |
-| Later | Correlate related events. | PR → merge → documentation → release currently arrive as separate messages. Nobody else does this, which is the argument for doing it. |
 | Later | Cloud catalogues: Bedrock, Vertex, Azure AI Foundry. | "Available on Bedrock" is its own news for corporate readers. Bedrock needs AWS credentials; its endpoints are SigV4-signed and answer nothing anonymously. |
 | Later | Mobile app releases. | App Store versions of the ChatGPT and Claude apps; release notes often name a feature days before the blog. |
 | Later | Separate Codex documentation changes from shared ChatGPT edits. | Preserve relevant shared changes. |
@@ -35,6 +33,8 @@ Ordered by what would help a reader most, not by effort.
   message unchanged. Capped at 300 calls a day because the account is prepaid.
 - Vendor role pings, the HTTP cache, the GitHub credential, embeds, rank moves, codename
   resolution, and the registry sources.
+- Confidence labels and deterministic story projection — source semantics assign the label, and story
+  rows retain event IDs as immutable evidence.
 - Backups run: `signal-forge-backup.timer` is scheduled and `backups/` holds verified copies.
 
 # What is watched

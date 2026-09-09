@@ -1,29 +1,95 @@
 # Signal Forge
 
-Six Discord channels, one stream per subject, plus two boards that are edited in place rather than
-posted repeatedly. Source and stream remain separate in the database, so a channel layout is a
-configuration choice and not a schema. Outstanding work is in [WORKING-NOTES.md](WORKING-NOTES.md).
+Signal Forge is a compact Bun + TypeScript + SQLite observability service for changes in AI models,
+developer tools, documentation, packages, arenas, incidents and platform catalogues.
+
+It is for readers who need evidence before a normal news feed catches up: a model appearing in an
+arena, an API catalogue changing, a package shipping, a documentation page gaining a capability,
+or a platform incident moving state. It preserves before/after data, labels source confidence,
+correlates related evidence and delivers only the changes that pass the current notification policy.
+
+## What it watches
+
+- First-party model catalogues and OpenRouter availability and pricing.
+- Arena appearances and leaderboard movement, including early codenames.
+- GitHub commits, pull requests and releases for watched repositories.
+- npm and PyPI releases, open-weight registries, documentation and official news.
+- Vendor status pages, incident updates and deprecation notices.
+
+## Why this is different
+
+An observation is not presented as a fact stronger than its source. A public bundle string is
+`observed`, an official announcement is `supported`, a first-party catalogue is `confirmed`, and a
+published release is `shipped`. Every notification keeps the event's immutable before/after evidence.
+
+Example event:
+
+```text
+🆕 New · OpenRouter
+GPT-5
+Provider: OpenAI
+Signal Forge · 08 Sep 02:00 UTC
+```
+
+## How it works
+
+```mermaid
+flowchart LR
+  A[Sources] --> B[Collections]
+  B --> C[Canonical diff]
+  C --> D[Immutable events]
+  D --> E[Confidence and correlation]
+  E --> F[Digest or immediate delivery]
+```
+
+Collectors are declared in one source registry. SQLite migrations build fresh and upgraded
+databases through the same path. CLI, HTTP and MCP expose one shared operations layer.
+
+## Run it
+
+```sh
+bun install --frozen-lockfile
+cp signal-forge.example.json signal-forge.json
+bun run check
+bun run dev
+```
+
+Use a separate development database and destination configuration. The first source observation is
+quiet; later changes are compared against the stored record.
+
+## Architecture
+
+`src/sources/registry.ts` owns source metadata and scheduler projections. Event canonicalization,
+diffing, interpretation, rendering, batching and persistence live in separate modules. Storage does
+not know about Discord or Telegram, and collectors do not know about delivery. Versioned SQL files
+in `src/storage/migrations/` are checked for strict numbering in CI.
+
+## Operations
+
+```sh
+bun src/cli.ts status
+bun src/cli.ts issues
+bun src/cli.ts signal-quality 7
+bun src/cli.ts stories
+bun src/cli.ts deliveries-needing-verification
+```
+
+Operational APIs require the bearer token. Ambiguous sends are never retried blindly; inspect the
+destination, then record a reconciliation attempt. Stories expose event IDs so an agent can fetch
+full evidence and prepare a separate publication draft without a code or database dependency.
+
+Outstanding work is in [WORKING-NOTES.md](WORKING-NOTES.md).
+
+The independent handoff pattern for an agent preparing publication drafts is in
+[docs/agent-workflow.md](docs/agent-workflow.md).
 
 Telegram delivery is implemented and tested but has no destination configured: the audience is on
 Discord. Re-enabling it is one entry in `signal-forge.json`, which is why the code stays.
 
-## Production
+## Deployment
 
-One instance runs on `vm106` in `/opt/signal-forge`. SQLite is in `data/app.db`.
-HTTP reports are available on the home LAN at `http://192.168.10.106:18081`; operational APIs still require the bearer token. Do not start a second production collector.
-
-Local `.env` and `signal-forge.json` are the deployment configuration. Deploy through:
-
-```sh
-./scripts/deploy.sh
-ssh vm106 'cd /opt/signal-forge && docker compose exec -T app bun dist/src/cli.js status'
-ssh vm106 'cd /opt/signal-forge && docker compose logs --tail 50 app'
-ssh vm106 'curl -fsS http://192.168.10.106:18081/readyz'
-```
-
-Deployment runs checks, builds on VM106 and waits for container health. It preserves the server
-database. Credentials are excluded from the image. The container runs as UID 1000 and restarts
-automatically.
+The production instance, LAN binding, backup, restore and operator commands live in the private
+[operator runbook](docs/runbook.md).
 
 ## Boards
 
@@ -44,26 +110,6 @@ deleting the message by hand makes the next cycle post a fresh one.
 A blocked source is not a broken one. `gemini` answers everywhere except the addresses this project
 can reach, so it shows as restricted with its cause instead of counting against the headline — a
 board that calls every silence an outage teaches people to ignore it.
-
-## Backups
-
-`signal-forge-backup.timer` on VM106 runs `scripts/backup.sh` nightly at 04:20 MSK. It copies the
-database with `VACUUM INTO` — SQLite's own online copy, safe while the collector writes and complete
-without the `-wal` sidecar — gzips it into `backups/`, reads it back to check `integrity_check` and
-the event count, and keeps the last 14. A backup that fails verification fails the unit.
-
-```sh
-ssh vm106 'systemctl list-timers signal-forge-backup.timer'
-ssh vm106 'sudo systemctl start signal-forge-backup.service && ls -1t /opt/signal-forge/backups | head -3'
-```
-
-Restore into a stopped service, never over a live database:
-
-```sh
-ssh vm106 'cd /opt/signal-forge && docker compose down'
-ssh vm106 'cd /opt/signal-forge && gunzip -c backups/app-<stamp>.db.gz > data/app.db && rm -f data/app.db-wal data/app.db-shm'
-ssh vm106 'cd /opt/signal-forge && docker compose up -d --wait'
-```
 
 ## Alerts
 
@@ -136,8 +182,8 @@ Source errors appear in `status`; HTTP readiness does not imply all sources are 
 Inspect delivery outcomes with:
 
 ```sh
-ssh vm106 'cd /opt/signal-forge && docker compose exec -T app bun dist/src/cli.js deliveries'
-ssh vm106 'cd /opt/signal-forge && docker compose exec -T app bun dist/src/cli.js event 1'
+bun dist/src/cli.js deliveries
+bun dist/src/cli.js event 1
 ```
 
 Successful sends are never retried. HTTP 429 honors retry timing. Uncertain sends are marked
@@ -146,7 +192,8 @@ Full event evidence remains in the database even when a message excerpt is trunc
 
 For HTTP/MCP access, set `MCP_TOKEN` to at least 32 random characters and use
 `Authorization: Bearer <token>` with `/api/status`, `/api/events`, `/api/events/:id` or `/api/mcp`.
-Read-only MCP tools: `status`, `events`, `event`, `deliveries`.
+MCP operations: `status`, `events`, `event`, `deliveries`, `issues`, `capabilities`,
+`deliveries_needing_verification`, `reconcile_delivery`, `signal_quality` and `stories`.
 
 ## Local development
 
