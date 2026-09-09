@@ -4,59 +4,9 @@ import type { Fetch } from "../http-client.js";
 import { fetchText } from "./http.js";
 
 /**
- * Places that publish before the vendors do: a Chinese registry where the weights land first, a
- * design arena whose board is separate from the text arenas, and an editor whose changelog names
- * models the makers have not announced.
+ * Places that publish before the vendors do: a design arena whose board is separate from the text
+ * arenas, and an editor whose changelog names models the makers have not announced.
  */
-
-const modelScope = z.object({
-  Data: z.object({
-    Models: z
-      .array(
-        z.object({
-          Path: z.string().min(1),
-          Name: z.string().min(1),
-          ChineseName: z.string().nullish(),
-          CreatedTime: z.number().nullish(),
-          Tasks: z.array(z.object({ Name: z.string() })).nullish(),
-        }),
-      )
-      .nullable(),
-  }),
-});
-
-/** Organisations that ship on ModelScope; the global feed is mostly private user uploads. */
-export const MODELSCOPE_PATHS = ["Qwen", "deepseek-ai", "MiniMax", "ZhipuAI", "moonshotai"];
-
-export function parseModelScope(payload: string, path: string): Collection {
-  const models = modelScope.parse(JSON.parse(payload)).Data.Models ?? [];
-  return {
-    source: `modelscope:${path}`,
-    stream: "weights",
-    url: `https://modelscope.cn/organization/${path}`,
-    raw: payload,
-    // Same reasoning as Hugging Face: this is a newest-first page, so an absent repository is a
-    // paging artefact rather than a deletion.
-    appendOnly: true,
-    records: models.map((model) => ({
-      id: `${model.Path}/${model.Name}`,
-      name: `${model.Path}/${model.Name}`,
-      url: `https://modelscope.cn/models/${model.Path}/${model.Name}`,
-      maker: model.Path,
-      category: model.Tasks?.[0]?.Name ?? null,
-    })),
-  };
-}
-
-export async function collectModelScope(path: string, request: Fetch = fetch): Promise<Collection> {
-  const payload = await fetchText(
-    "https://modelscope.cn/api/v1/models",
-    { accept: "application/json", "content-type": "application/json" },
-    request,
-    { method: "PUT", body: JSON.stringify({ Path: path, PageSize: 30, PageNumber: 1, SortBy: "GmtCreated" }) },
-  );
-  return parseModelScope(payload, path);
-}
 
 const designArena = z.object({
   success: z.literal(true),
@@ -72,7 +22,7 @@ const designArena = z.object({
 });
 
 /** The categories the models arena actually serves; the site lists others that return 400. */
-export const DESIGNARENA_CATEGORIES = ["website", "gamedev", "image", "logo", "svg", "uicomponent", "dataviz"];
+export const DESIGNARENA_CATEGORIES = ["website", "uicomponent", "image"];
 
 /** Same rule as the text leaderboards: only the leading places are news when they move. */
 const RANKED_PLACES = 20;

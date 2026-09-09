@@ -7,14 +7,8 @@ import { collectArena, collectLeaderboards } from "./arena.js";
 import { collectAnthropic, collectGemini, collectOpenAI, collectOpenRouter } from "./catalogs.js";
 import { collectClaude } from "./claude.js";
 import { collectCodexDocs } from "./codex.js";
-import {
-  collectCursorChangelog,
-  collectDesignArena,
-  collectModelScope,
-  DESIGNARENA_CATEGORIES,
-  MODELSCOPE_PATHS,
-} from "./community.js";
-import { collectDeepSeekPricing, collectDeepSeekUpdates, DEEPSEEK_GITHUB_REPOS } from "./deepseek.js";
+import { collectCursorChangelog, collectDesignArena, DESIGNARENA_CATEGORIES } from "./community.js";
+import { collectDeepSeekPricing, collectDeepSeekUpdates } from "./deepseek.js";
 import { collectAnthropicDeprecations, collectOpenAIDeprecations } from "./deprecations.js";
 import {
   collectAnthropicSdkReleases,
@@ -314,19 +308,6 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
         enabled: true,
       }),
     ),
-    ...MODELSCOPE_PATHS.map(
-      (path, index): SourceDefinition => ({
-        id: `modelscope:${path}`,
-        label: sourceLabel(`modelscope:${path}`),
-        authority: "vendor_owned",
-        group: "Open weights",
-        stream: "weights",
-        intervalSeconds: 1800 + index * 90,
-        pace: { group: "modelscope.cn", seconds: 60 },
-        collector: () => collectModelScope(path),
-        enabled: true,
-      }),
-    ),
     ...DESIGNARENA_CATEGORIES.map(
       (category, index): SourceDefinition => ({
         id: `designarena:${category}`,
@@ -563,23 +544,6 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
         enabled: true,
       },
     );
-  }
-
-  const configuredGithubRepos = new Set(config.github.map((watch) => watch.repo));
-  for (const [index, repo] of DEEPSEEK_GITHUB_REPOS.entries()) {
-    if (configuredGithubRepos.has(repo)) continue;
-    const id = `github:${repo}:releases`;
-    definitions.push({
-      id,
-      label: sourceLabel(id),
-      authority: "vendor_owned",
-      vendor: "DeepSeek",
-      group: "GitHub",
-      stream: "github",
-      intervalSeconds: 3600 + index * 120,
-      collector: () => collectGithubReleases(db, config, { repo, paths: [""] }, fetch, cache),
-      enabled: requested(id),
-    });
   }
 
   validateSourceRegistry(definitions);

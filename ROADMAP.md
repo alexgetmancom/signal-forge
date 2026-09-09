@@ -41,7 +41,7 @@ current `main` branch with no known actionable issues.
   duplicate-story rate, attributed correctly when a digest contains multiple sources.
 - Collection boundaries reject malformed normalized records and suspicious catalogue shrinkage;
   source authority, degraded health, and independent story evidence are visible to operators.
-- DeepSeek API, website, GitHub, npm and Hugging Face signals are registered alongside official
+- DeepSeek API, website, npm and Hugging Face signals are registered alongside official
   lifecycle pages for Google, AWS, Azure, Groq, Cohere and xAI.
 - Official developer feeds cover Claude Code, Anthropic SDK releases, Google DeepMind, NVIDIA and
   Hugging Face; stale general feeds and the undated Aider benchmark were removed.
@@ -83,15 +83,15 @@ Ordered by risk and reader value.
 The current registry covers:
 
 - OpenRouter, OpenAI and Anthropic catalogues, with Gemini configured but blocked by the upstream
-  location response and Vercel Gateway awaiting an owner decision.
-- Hugging Face and ModelScope open-weight repositories.
+  location response; the Vercel AI Gateway feed remains enabled.
+- Hugging Face open-weight repositories.
 - Arena, Arena leaderboards and DesignArena categories.
 - npm, PyPI and GitHub activity for selected AI tools and repositories.
 - Official OpenAI Help Center and news, Anthropic Platform release notes, Gemini API changelog, xAI,
   Mistral, Groq and DeepSeek API release surfaces; Codex documentation, Claude Code and Anthropic SDK
   releases; and Google DeepMind, NVIDIA and Hugging Face developer feeds.
 - OpenAI, Anthropic, Google, AWS, Azure, Groq, Cohere and xAI lifecycle/deprecation sources.
-- Arena leaderboard observations, with selected active DeepSeek GitHub and npm channels.
+- Arena leaderboard observations, with selected DeepSeek npm channels.
 
 A failed or malformed collection is never treated as an empty catalogue. External responses are
 validated before they can change stored state.

@@ -9,18 +9,6 @@ export const DEEPSEEK_UPDATES_URL = "https://api-docs.deepseek.com/updates";
 export const DEEPSEEK_PRICING_URL =
   "https://api-docs.deepseek.com/quick_start/pricing/?article_id=article_1779470751466_8";
 
-/** Release surfaces selected for signal, not every repository in the organization. */
-export const DEEPSEEK_GITHUB_REPOS = [
-  "deepseek-ai/deepseek-harness",
-  "deepseek-ai/DeepGEMM",
-  "deepseek-ai/DeepEP",
-  "deepseek-ai/DeepSeek-V3.2-Exp",
-  "deepseek-ai/DeepSeek-OCR-2",
-  "deepseek-ai/FlashMLA",
-  "deepseek-ai/DeepSpec",
-  "deepseek-ai/TileKernels",
-] as const;
-
 const entrySchema = z.object({
   date: z
     .string()

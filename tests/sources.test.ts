@@ -1,10 +1,11 @@
 import { expect, test } from "bun:test";
 import { loadConfig } from "../src/config.js";
+import { selectMeaningfulWebStrings } from "../src/events/web.js";
 import { saveCollection } from "../src/events.js";
 import { parseArena, parseLeaderboards } from "../src/sources/arena.js";
 import { collectAnthropic, collectOpenRouter } from "../src/sources/catalogs.js";
 import { claudeAssetImports, extractStrings } from "../src/sources/claude.js";
-import { parseCursorChangelog, parseDesignArena, parseModelScope } from "../src/sources/community.js";
+import { parseCursorChangelog, parseDesignArena } from "../src/sources/community.js";
 import { parseDeepSeekPricing, parseDeepSeekUpdates } from "../src/sources/deepseek.js";
 import { parseAnthropicDeprecations, parseOpenAIDeprecations } from "../src/sources/deprecations.js";
 import { parseAnthropicSdkReleases, parseClaudeCodeChangelog, parseOfficialFeed } from "../src/sources/feeds.js";
@@ -397,6 +398,16 @@ test("Claude extraction decodes strings without executing source", () => {
     ),
   ).toEqual(["Hello\nworld"]);
 });
+test("Claude web keeps normalized product strings and drops interface boilerplate", () => {
+  expect(
+    selectMeaningfulWebStrings([
+      "Open in new tab",
+      "  Claude Code can open a remote worktree  ",
+      "A model can use an API connector",
+      "Loading",
+    ]),
+  ).toEqual(["A model can use an API connector", "Claude Code can open a remote worktree"]);
+});
 test("Claude asset discovery follows static and dynamic relative imports", () => {
   expect(
     claudeAssetImports(
@@ -635,22 +646,6 @@ test("pypi reports the current version as one record", async () => {
   expect(c.records[0]).toMatchObject({ id: "latest", version: "1.4.0", published: "2026-09-05T10:00:00.000Z" });
 });
 
-test("ModelScope keeps organisation repositories and treats the page as append-only", () => {
-  const payload = JSON.stringify({
-    Data: {
-      Models: [
-        { Path: "Qwen", Name: "Qwen4-Next", CreatedTime: 1, Tasks: [{ Name: "text-generation" }] },
-        { Path: "Qwen", Name: "Qwen4-Next-FP8", CreatedTime: 2, Tasks: null },
-      ],
-    },
-  });
-  const parsed = parseModelScope(payload, "Qwen");
-  expect(parsed.source).toBe("modelscope:Qwen");
-  expect(parsed.appendOnly).toBe(true);
-  expect(parsed.records[0]).toMatchObject({ id: "Qwen/Qwen4-Next", category: "text-generation" });
-  // An organisation with nothing published yet is empty, not broken.
-  expect(parseModelScope(JSON.stringify({ Data: { Models: null } }), "Qwen").records).toHaveLength(0);
-});
 test("DesignArena ranks by elo and stores no vote counters", () => {
   const payload = JSON.stringify({
     success: true,

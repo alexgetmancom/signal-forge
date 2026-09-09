@@ -109,7 +109,7 @@ The current source registry covers:
 
 * OpenRouter and optional first-party catalogs for OpenAI, Anthropic, and Gemini, plus the Vercel AI Gateway feed
 * Arena appearances, leaderboards, and DesignArena categories
-* Hugging Face and ModelScope open-weight repositories
+* Hugging Face open-weight repositories
 * npm and PyPI packages
 * GitHub commits, pull requests, and releases for selected repositories
 * Official OpenAI Help Center and news, Anthropic Platform, Gemini API, xAI, Mistral, Groq, DeepSeek, Google DeepMind, NVIDIA, and Hugging Face release surfaces, plus Codex documentation and Claude Code/Anthropic SDK releases

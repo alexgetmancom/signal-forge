@@ -38,8 +38,11 @@ test("source registry has unique IDs, valid streams, labels and consistent pacin
     expect(definitions.find((definition) => definition.id === id)).toBeUndefined();
   }
   expect(definitions.some((definition) => definition.id === "openai-developer-feed")).toBe(false);
-  expect(definitions.some((definition) => definition.id === "github:deepseek-ai/DeepSeek-V3:releases")).toBe(false);
-  expect(definitions.some((definition) => definition.id === "github:deepseek-ai/DeepSeek-R1:releases")).toBe(false);
+  expect(definitions.some((definition) => definition.id.startsWith("github:deepseek-ai/"))).toBe(false);
+  expect(definitions.some((definition) => definition.id.startsWith("modelscope:"))).toBe(false);
+  expect(
+    definitions.filter((definition) => definition.id.startsWith("designarena:")).map((definition) => definition.id),
+  ).toEqual(["designarena:website", "designarena:uicomponent", "designarena:image"]);
 
   const paceGroups = new Map<string, number>();
   for (const definition of definitions) {
@@ -51,7 +54,6 @@ test("source registry has unique IDs, valid streams, labels and consistent pacin
   expect(paceGroups).toEqual(
     new Map([
       ["huggingface.co", 60],
-      ["modelscope.cn", 60],
       ["designarena.ai", 60],
     ]),
   );

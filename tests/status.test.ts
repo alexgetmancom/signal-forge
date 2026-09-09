@@ -59,7 +59,7 @@ test("multi-source hosts have one shared request pace", async () => {
   const { sourceJobs } = await import("../src/sources/registry.js");
   const db = openDatabase(":memory:");
   const jobs = sourceJobs(db, config);
-  for (const prefix of ["huggingface:", "modelscope:", "designarena:"]) {
+  for (const prefix of ["huggingface:", "designarena:"]) {
     const paced = jobs.filter((job) => job.id.startsWith(prefix)).map((job) => job.pace);
     expect(paced.length).toBeGreaterThan(1);
     expect(new Set(paced.map((pace) => pace?.group)).size).toBe(1);
@@ -175,7 +175,7 @@ test("tracker status lists every registered source, including disabled and missi
     .map((field) => field.value)
     .join("\n");
   for (const entry of health) expect(sourceText).toContain(entry.label);
-  expect(fields.some((field) => field.name === "Open weights (2)")).toBe(true);
+  expect(fields.some((field) => field.name === "Open weights")).toBe(true);
   db.close();
 });
 

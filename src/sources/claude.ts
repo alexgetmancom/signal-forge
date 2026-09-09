@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Collection } from "../events/types.js";
+import { selectMeaningfulWebStrings } from "../events/web.js";
 import type { Fetch } from "../http-client.js";
 import type { HttpCache } from "../storage/httpCache.js";
 import { fetchText } from "./http.js";
@@ -56,7 +57,7 @@ export async function collectClaude(request: Fetch = fetch, cache?: HttpCache): 
       }
     }
   }
-  const strings = [...new Set(Object.values(raw).flatMap(extractStrings))].sort();
+  const strings = selectMeaningfulWebStrings(Object.values(raw).flatMap(extractStrings));
   if (!strings.length) throw new Error("Public page Claude strings not found");
   return {
     source: "claude-web",

@@ -1,4 +1,5 @@
 import { canonical } from "../canonical.js";
+import { meaningfulWebString, normalizeWebString } from "../web.js";
 
 /** Observation metadata that is useful in evidence but not useful in a notification. */
 export const NOISE = new Set(["head", "updated", "published", "created", "started", "url", "detected", "sampledAt"]);
@@ -49,24 +50,6 @@ export function utcStamp(iso: string): string {
   const at = new Date(iso);
   const pad = (value: number) => String(value).padStart(2, "0");
   return `${pad(at.getUTCDate())} ${MONTHS[at.getUTCMonth()]} ${pad(at.getUTCHours())}:${pad(at.getUTCMinutes())} UTC`;
-}
-
-/** Turn Markdown-shaped source paragraphs into readable notification evidence. */
-export function normalizeWebString(value: string): string {
-  return value
-    .replace(/^\s*(?:[-+*]|\d+[.)])\s+/, "")
-    .replace(/`([^`]+)`/g, "$1")
-    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-export function meaningfulWebString(value: string): boolean {
-  const normalized = normalizeWebString(value);
-  if (normalized.length < 18 || normalized.length > 500 || /^[-+\d\s.,:;/()]+$/.test(normalized)) return false;
-  return /\b(Claude|model|agent|Cowork|Code|browser|connector|plugin|skill|MCP|API|usage|context|remote|project|worktree|GitHub|Slack|memory|plan|tool|SSH|Bedrock|security|permission|approval)\b/i.test(
-    normalized,
-  );
 }
 
 /** Convert retained GitHub patch evidence into the only diff information readers need in a feed. */
