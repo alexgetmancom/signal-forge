@@ -1,33 +1,52 @@
 # Signal Forge
 
-Signal Forge is a compact Bun + TypeScript + SQLite observability service for changes in AI models,
-developer tools, documentation, packages, arenas, incidents and platform catalogues.
+Evidence-first monitoring for changes across the AI ecosystem.
 
-It is for readers who need evidence before a normal news feed catches up: a model appearing in an
-arena, an API catalogue changing, a package shipping, a documentation page gaining a capability,
-or a platform incident moving state. It preserves before/after data, labels source confidence,
-correlates related evidence and delivers only the changes that pass the current notification policy.
+Signal Forge watches model catalogs, arenas, package registries, GitHub repositories, documentation, official announcements, and platform status pages for meaningful changes.
 
-## What it watches
+Instead of forwarding every diff as news, it preserves the underlying before/after evidence, assigns confidence based on the source, correlates related signals, and delivers only events that pass the notification policy.
 
-- First-party model catalogues and OpenRouter availability and pricing.
-- Arena appearances and leaderboard movement, including early codenames.
-- GitHub commits, pull requests and releases for watched repositories.
-- npm and PyPI releases, open-weight registries, documentation and official news.
-- Vendor status pages, incident updates and deprecation notices.
+Built with Bun, TypeScript, and SQLite.
 
-## Why this is different
+## What it detects
 
-An observation is not presented as a fact stronger than its source. A public bundle string is
-`observed`, an official announcement is `supported`, a first-party catalogue is `confirmed`, and a
-published release is `shipped`. Every notification keeps the event's immutable before/after evidence.
+* First-party model catalogs from AI providers
+* OpenRouter model availability and pricing
+* Arena appearances, codenames, and leaderboard movement
+* GitHub commits, pull requests, and releases
+* npm and PyPI package releases
+* Hugging Face and other open-weight registries
+* Product documentation and changelogs
+* Official vendor announcements
+* Platform incidents and service status
+* Model deprecations and lifecycle changes
 
-The notification policy also filters price noise. A pricing change is omitted when it is at most
-$0.01 per 1M tokens and below 10% of the model's price; the observation and before/after event stay
-in SQLite. Larger changes, or a smaller absolute change that materially changes a cheap model's
-price, remain visible.
+## Why Signal Forge exists
 
-Example event:
+AI products often change before there is a conventional announcement.
+
+A model may appear in an API catalog before a blog post. A codename may surface in an arena before its identity is known. Documentation may expose a capability before it reaches a news feed. A package or repository may ship before broader coverage appears.
+
+Signal Forge is designed to capture those early signals without overstating what they mean.
+
+Each event retains its source and immutable before/after evidence.
+
+Confidence is derived from the evidence:
+
+* `observed`: visible in public technical evidence, but not independently confirmed
+* `supported`: backed by an official statement or related source
+* `confirmed`: present in a first-party product or API surface
+* `shipped`: published as a release
+
+An observation never becomes a stronger claim than its source supports.
+
+## Example
+
+A model might first appear as an unresolved arena codename, later show up in a provider catalog, and eventually ship as an official release.
+
+Signal Forge keeps those observations separate while correlating them around the same identity as stronger evidence becomes available.
+
+Example notification:
 
 ```text
 🆕 New · OpenRouter
@@ -36,40 +55,103 @@ Provider: OpenAI
 Signal Forge · availability catalogue · confirmed · 08 Sep 02:00 UTC
 ```
 
-## How it works
+## Signal, not noise
+
+Not every detected change becomes a notification.
+
+For example, insignificant pricing fluctuations can remain recorded in SQLite without generating an alert. Larger or materially significant changes remain visible.
+
+Failed or malformed source responses are never interpreted as empty catalogs, and uncertain message deliveries are never blindly retried.
+
+The goal is to preserve evidence while keeping the reader-facing signal useful.
+
+## Architecture
 
 ```mermaid
 flowchart LR
   A[Sources] --> B[Collections]
   B --> C[Canonical diff]
   C --> D[Immutable events]
-  D --> E[Confidence and correlation]
-  E --> F[Digest or immediate delivery]
+  D --> E[Confidence and identity]
+  E --> F[Correlation]
+  F --> G[Notification policy]
+  G --> H[Delivery]
 ```
 
-Collectors are declared in one source registry. SQLite migrations build fresh and upgraded
-databases through the same path. CLI, HTTP and MCP expose one shared operations layer.
+The system keeps collection, event processing, persistence, rendering, and delivery separate.
 
-## Run it
+Collectors do not know about Discord or Telegram. Storage does not depend on transport adapters. Architectural boundaries and circular dependencies are checked automatically in CI.
+
+## Quick start
+
+Requirements:
+
+* Bun 1.3.14 or newer
 
 ```sh
+git clone https://github.com/alexgetmancom/signal-forge.git
+cd signal-forge
+
 bun install --frozen-lockfile
 cp signal-forge.example.json signal-forge.json
+
 bun run check
 bun run dev
 ```
 
-Use a separate development database and destination configuration. The first source observation is
-quiet; later changes are compared against the stored record.
+The first observation establishes the baseline and does not emit change notifications. Later observations are compared against the stored state.
 
-## Architecture
+Some collectors require provider credentials. See the configuration section below for optional integrations.
 
-`src/sources/registry.ts` owns source metadata and scheduler projections. Event canonicalization,
-diffing, interpretation, identity, rendering, batching and persistence live in separate modules. Storage does
-not know about Discord or Telegram, and collectors do not know about delivery. Versioned SQL files
-in `src/storage/migrations/` are checked for strict numbering in CI.
+## Source coverage
+
+The current source registry covers:
+
+* OpenRouter and optional first-party catalogs for OpenAI, Anthropic, and Gemini, plus the Vercel AI Gateway feed
+* Arena appearances, leaderboards, and DesignArena categories
+* Hugging Face and ModelScope open-weight repositories
+* npm and PyPI packages
+* GitHub commits, pull requests, and releases for selected repositories
+* Official OpenAI and Anthropic news, the Cursor changelog, Codex documentation, and Claude web strings
+* OpenAI and Anthropic platform health and lifecycle/deprecation sources
+
+Provider credentials and upstream availability determine which optional sources can run. A failed or malformed collection is never treated as an empty catalog; external responses are validated before they can change stored state.
+
+## Configuration
+
+Copy `.env.example` to `.env` and set only the credentials required by the sources and destinations you enable. Configure polling, source selection, and destinations in `signal-forge.json`:
+
+```json
+{
+  "pollSeconds": 300,
+  "sourceEnabled": {
+    "openai": true,
+    "anthropic": true,
+    "gemini": true
+  },
+  "destinations": []
+}
+```
+
+API catalog collectors are requested by default. Set `sourceEnabled` to `false` for a source that is intentionally disabled; a requested source without its credential is reported as `missing` and is not scheduled.
+
+Set `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and `GEMINI_API_KEY` for their catalogs. Set `DEEPSEEK_API_KEY` to enable one-sentence summaries for large, publishable diffs after deterministic noise filtering; a missing key or failed summary call leaves the original evidence unchanged and never blocks delivery. Discord and Telegram keep the title and source evidence alongside the optional summary.
+
+Set `REPORT_BASE_URL` to the LAN origin used for full web-diff links. Set `GITHUB_TOKEN` to raise the GitHub request allowance from 60 to 5,000 per hour. Optional `github` entries accept `repo` and `paths`; the default repository is `openai/codex`. Set `HF_TOKEN` to use the account's Hub API allowance instead of the anonymous allowance shared by the machine's public address.
+
+See [docs/discord.md](docs/discord.md) for Discord destination, channel, board, role, and permission configuration.
+
+## Delivery
+
+Signal Forge currently delivers reader-facing signals to Discord. Telegram support is implemented and tested but is not enabled in the production configuration.
+
+Delivery is designed to avoid duplicate or misleading notifications. Successful sends are never retried, rate limits are respected, and ambiguous outcomes require explicit operator verification rather than automatic resending.
+
+See [docs/discord.md](docs/discord.md) for channel configuration, status boards, role mentions, permissions, and delivery behavior.
 
 ## Operations
+
+Signal Forge exposes the same operational model through CLI, HTTP, and MCP interfaces.
 
 ```sh
 bun src/cli.ts status
@@ -79,153 +161,80 @@ bun src/cli.ts stories
 bun src/cli.ts deliveries-needing-verification
 ```
 
-Operational APIs require the bearer token. Ambiguous sends are never retried blindly; inspect the
-destination, require manual delivery verification, then record the outcome as sent or failed. Stories
-expose event IDs so an agent can fetch
-full evidence and prepare a separate publication draft without a code or database dependency. Story
-views also expose `canonicalId`, `identityStatus` and aliases. Arena codenames remain unresolved until
-another source supplies a canonical identity.
+Operational endpoints require bearer-token authentication.
 
-Outstanding work is in [WORKING-NOTES.md](WORKING-NOTES.md).
+The system distinguishes between unavailable credentials, intentionally disabled sources, upstream restrictions, collection failures, and delivery failures instead of reducing them to a single healthy/unhealthy state.
 
-The independent handoff pattern for an agent preparing publication drafts is in
-[docs/agent-workflow.md](docs/agent-workflow.md).
+Story views expose event IDs, `canonicalId`, `identityStatus`, and aliases so downstream publication workflows can fetch and evaluate the underlying evidence. Arena codenames remain unresolved until another source supplies a canonical identity.
 
-Telegram delivery is implemented and tested but has no destination configured: the audience is on
-Discord. Re-enabling it is one entry in `signal-forge.json`, which is why the code stays.
+## Reliability
+
+Signal Forge is designed around external systems that fail in different ways.
+
+Key safeguards include:
+
+* immutable before/after event evidence
+* validation before external responses can modify stored state
+* conditional HTTP requests and response caching
+* upstream pacing and rate-limit handling
+* explicit source capability states
+* versioned SQLite migrations
+* delivery verification for uncertain send outcomes
+* architecture checks in CI
+* backup integrity verification
+
+Snapshots, events, and delivery jobs commit in one SQLite transaction. Immutable assets are not requested again, and responses without validators are not treated as cacheable.
 
 ## Deployment
 
-The production instance, backup, restore and operator commands live in the
-[operator runbook](docs/runbook.md). Deployment-specific hosts, paths and credentials stay outside
-the repository.
+The production deployment, backup, restore, and operator procedures live in the [operator runbook](docs/runbook.md). Deployment-specific hosts, paths, and credentials stay outside the repository.
 
-## Boards
+## Delivery semantics
 
-Two messages are edited in place instead of being reposted, so a channel holds a state rather than
-a log. Both are rewritten only when their content actually changed — editing an unchanged board
-would mark the channel unread for everyone watching it. Deleting a board by hand makes the next
-cycle post a fresh one, which is also how their order in the channel is fixed.
+The first observation establishes a baseline and is quiet; destinations receive future events only.
 
-**Platform health** (`platformBoardChannelId`, defaults to the status channel) shows what OpenAI's
-and Anthropic's own status pages say, with their open incidents. Vendors that do not run Statuspage
-are absent on purpose: `status.x.ai` refuses its own API, and Google publishes a different document
-for the whole cloud.
+Successful sends are never retried. HTTP 429 responses honor retry timing. An uncertain external outcome is marked `ambiguous` and never automatically repeated; inspect the destination, require manual delivery verification, and record the final outcome without sending again.
 
-**Tracker status** (`statusChannelId`) is about us: every collector with a coloured dot, grouped with
-its last successful observation, edited in place every five minutes. The board also shows delivery
-queue state and unavailable integrations. It is rewritten only when something actually changed, so
-the channel holds a board rather than a log, and deleting the message by hand makes the next cycle
-post a fresh one.
+Full event evidence remains in SQLite even when a message excerpt is truncated.
 
-A blocked source is not a broken one. `gemini` answers everywhere except the addresses this project
-can reach, so it shows as restricted with its cause instead of counting against the headline — a
-board that calls every silence an outage teaches people to ignore it.
+## HTTP / MCP API
 
-## Alerts
+For HTTP/MCP access, set `MCP_TOKEN` to at least 32 random characters and use `Authorization: Bearer <token>` with `/api/status`, `/api/events`, `/api/events/:id`, or `/api/mcp`.
 
-`alertChannelId` names a private channel that receives one message when a collector stops
-reporting and one when it recovers — never a repeat while the same outage continues. This is
-operational noise for the owner, not content for subscribers, so it does not go to a feed channel.
-A rejected alert leaves the stored state untouched, so the next cycle retries rather than losing
-the transition.
+MCP operations: `status`, `events`, `event`, `deliveries`, `issues`, `capabilities`, `deliveries_needing_verification`, `require_delivery_verification`, `resolve_delivery_verification`, `signal_quality`, and `stories`.
 
-## Configuration
+## Development
 
-Set `DISCORD_BOT_TOKEN` in `.env`. Configure destinations in `signal-forge.json`:
-
-```json
-{
-  "pollSeconds": 300,
-  "destinations": [
-    {
-      "id": "discord-model-catalog",
-      "platform": "discord",
-      "channelId": "000000000000000000",
-      "streams": ["api-models", "openrouter", "weights"]
-    }
-  ],
-  "statusChannelId": "000000000000000000",
-  "alertChannelId": "000000000000000000",
-  "vendorRoles": { "OpenAI": "000000000000000000" }
-}
-```
-
-Replace the example IDs with the actual ones. Deploy after configuration changes.
-
-`vendorRoles` maps a vendor, as `vendorOf()` resolves it, to the role that follows that vendor. A
-role is pinged only when a model appears or disappears — a price edit travels in the same message
-without waking anyone — and never from a digest. The permitted mention list names exactly the roles
-the message mentions, so a stray ID cannot ping. Mentioning a role that is not "mentionable"
-requires the bot to hold *Mention @everyone, @here and All Roles* in that channel; a channel that
-still inherits its category's permissions gets this automatically.
-
-Timestamps: Discord messages carry `<t:unix:f>`, which every reader sees in their own timezone;
-Telegram has no such markup and gets a fixed UTC stamp built without `Intl`, because the runtime's
-ICU data disagrees with itself about whether `short` is "Sep" or "Sept".
-
-Discord destinations take a `channelId` and the same `streams`. A bot only reaches a private
-category when its role is granted `VIEW_CHANNEL` there; creating channels additionally needs
-`MANAGE_CHANNELS`, which the bot does not have and does not need for delivery. Verify a new channel
-with one manual `POST /channels/<id>/messages` before relying on it — a destination that cannot be
-written to only shows up as a failed delivery later.
-Destinations receive future events only. The first source observation is quiet.
-
-API catalogue collectors are requested by default. Set `sourceEnabled` to `false` for a source that
-is intentionally disabled; a requested source without its credential is reported as `missing` and is
-not scheduled. Set `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` and `GEMINI_API_KEY` for their catalogues.
-Set `DEEPSEEK_API_KEY` to enable one-sentence summaries for large diffs; a missing key or failed
-summary call leaves the original evidence unchanged and never blocks delivery.
-Set `REPORT_BASE_URL` to the LAN origin used for full web-diff links.
-Set `GITHUB_TOKEN` to raise the GitHub request allowance from 60 to 5000 an hour. Listing requests
-are conditional, and a 304 costs no quota at all. Optional `github` entries accept
-`repo` and `paths`; the default repository is `openai/codex`.
-Set `HF_TOKEN` to use the account's Hub API allowance instead of the anonymous allowance shared by
-the machine's public address.
-
-## Request footprint
-
-Observations are conditional wherever a server offers a validator: `http_cache` stores the body
-with its `ETag`, and an unchanged page answers 304 with no body. Assets served `immutable` — the
-Claude bundle, whose filenames carry a content hash — are not requested again at all, which took
-one observation from 608 requests and 21 MB to 2 requests and 0.1 MB. A body arriving without a
-validator is deliberately not stored, since the next observation must download it regardless.
-
-## Inspect delivery problems
-
-Source errors appear in `status`; HTTP readiness does not imply all sources are healthy.
-Inspect delivery outcomes with:
+The main verification command runs formatting and lint checks, TypeScript validation, tests, migration checks, architecture checks, and the production build:
 
 ```sh
-bun dist/src/cli.js deliveries
-bun dist/src/cli.js event 1
-```
-
-Successful sends are never retried. HTTP 429 honors retry timing. Uncertain sends are marked
-`ambiguous` and never automatically repeated; inspect the actual chat before considering a resend.
-Full event evidence remains in the database even when a message excerpt is truncated.
-
-For HTTP/MCP access, set `MCP_TOKEN` to at least 32 random characters and use
-`Authorization: Bearer <token>` with `/api/status`, `/api/events`, `/api/events/:id` or `/api/mcp`.
-MCP operations: `status`, `events`, `event`, `deliveries`, `issues`, `capabilities`,
-`deliveries_needing_verification`, `require_delivery_verification`, `resolve_delivery_verification`,
-`signal_quality` and `stories`.
-
-## Local development
-
-Use a separate development database and destination configuration.
-
-```sh
-bun install --frozen-lockfile
-```
-
-On a fresh checkout, create `.env` and `signal-forge.json` from their example files.
-Do not overwrite the deployment configuration in an existing checkout.
-
-```sh
-bun run dev
 bun run check
 ```
 
-`bun run poll` collects once without sending the queue. Stop the development server before
-using it; run only one collector per database.
+Docker builds are also validated in CI.
+
+Use a separate database and destination configuration for local development.
+
+On a fresh checkout, create `.env` and `signal-forge.json` from their example files. Do not overwrite the deployment configuration in an existing checkout.
+
+```sh
+bun install --frozen-lockfile
+bun run dev
+```
+
+`bun run poll` collects once without sending the queue. Stop the development server before using it; run only one collector per database.
+
+## Project status
+
+Signal Forge is actively running and being evaluated against real-world signal quality.
+
+Current engineering priorities include restore testing, longer-term signal-quality measurement, improved outage-duration tracking, and selective expansion of source coverage.
+
+See [ROADMAP.md](ROADMAP.md) for current priorities.
+
+## Documentation
+
+* [docs/runbook.md](docs/runbook.md) — deployment, backup, restore, and operator procedures
+* [docs/agent-workflow.md](docs/agent-workflow.md) — evidence handoff for downstream publication workflows
+* [docs/discord.md](docs/discord.md) — Discord delivery, boards, roles, and channel configuration
+* [ROADMAP.md](ROADMAP.md) — current engineering priorities

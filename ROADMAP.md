@@ -1,22 +1,18 @@
-# Working Notes
+# Roadmap
 
 Updated 2026-09-09 UTC. This is the current backlog and implementation record; historical audits
 are not a second source of truth.
 
 ## Current state
 
-Signal Forge is a Bun, TypeScript and SQLite observability service for AI model catalogues, arenas,
+Signal Forge is a Bun, TypeScript and SQLite observability service for AI model catalogs, arenas,
 open-weight registries, packages, repositories, documentation, official news and platform health.
 It collects immutable before/after evidence, assigns source-derived confidence, correlates related
 events and delivers only changes that pass the notification policy.
 
-The latest production verification passed:
+Production health and readiness checks are passing. The full automated test suite passes on the
+current `main` branch with no known actionable issues.
 
-- `bun run check`: 134 tests passed, 0 failed.
-- Database schema version: 9.
-- Health and readiness checks: passing.
-- Actionable issues: none.
-- Delivery state: 155 sent deliveries, no pending or ambiguous deliveries.
 - Story reads are read-only; GitHub commit, pull request and release events are not merged into one
   repository-wide story.
 
@@ -39,8 +35,11 @@ The latest production verification passed:
   configured absolute and relative thresholds.
 - Multipart delivery ordering, HTTP caching, source backoff, health boards, outage alerts, role
   mentions, benchmark metadata, codename resolution and signal-quality reporting are implemented.
-- Optional DeepSeek summaries are generated for large diffs when `DEEPSEEK_API_KEY` is configured;
-  the Discord card keeps the commit title and raw evidence alongside the summary.
+- Optional DeepSeek summaries are generated for large, publishable diffs after deterministic noise
+  filtering when `DEEPSEEK_API_KEY` is configured; Discord and Telegram keep the title and raw
+  evidence alongside the summary.
+- Documentation diffs normalize Markdown bullets and suppress changes with no meaningful
+  user-facing strings; Codex documentation is labelled as documentation rather than interface text.
 - Backups use a separate memory budget and verify the compressed database with SQLite integrity and
   event-count checks.
 
