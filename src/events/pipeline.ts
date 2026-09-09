@@ -11,7 +11,6 @@ export function saveCollection(
   collection: Collection,
   destinations: Destination[],
   now = new Date().toISOString(),
-  reportBaseUrl?: string,
   vendorRoles: Record<string, string> = {},
 ): number {
   let projection: StoryProjection | null = null;
@@ -24,7 +23,7 @@ export function saveCollection(
       db.query<{ id: number | null }, []>("SELECT MAX(id) AS id FROM events").get()?.id ?? 0,
     );
     if (currentEventId > previousEventId) projection = updateStories(db);
-    prepareDeliveries(db, Date.parse(now), reportBaseUrl, vendorRoles);
+    prepareDeliveries(db, Date.parse(now), vendorRoles);
     return count;
   })();
   if (projection) rememberStoryProjection(db, projection);

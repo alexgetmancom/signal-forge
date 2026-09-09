@@ -34,6 +34,6 @@ export function hasNotificationContent(event: Event, url: string): boolean {
     }
   }
   if (event.kind !== "changed") return true;
-  const body = renderEvent(event, url, undefined, "telegram").split("\n").slice(3, -3).join("").trim();
+  const body = renderEvent(event, url).split("\n").slice(3, -3).join("").trim();
   return body.length > 0;
 }

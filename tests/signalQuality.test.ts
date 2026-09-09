@@ -99,7 +99,6 @@ test("signal quality counts persisted role mentions without another schema table
     ]),
     [destination],
     "2026-09-08T00:10:00.000Z",
-    undefined,
     { OpenAI: "role-openai" },
   );
 

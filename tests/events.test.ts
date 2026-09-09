@@ -166,14 +166,9 @@ test("documentation diffs normalize Markdown and suppress boilerplate-only chang
   expect(eventEmbed(event, "https://developers.openai.com/codex/")).toMatchObject({
     author: { name: "DOCUMENTATION · OPENAI" },
   });
+  expect(JSON.stringify(eventEmbed(event, "https://developers.openai.com/codex/"))).not.toContain("Full report");
   expect(
-    renderEvent(
-      event,
-      "https://developers.openai.com/codex/",
-      undefined,
-      "telegram",
-      "The docs add remote worktree support.",
-    ),
+    renderEvent(event, "https://developers.openai.com/codex/", "telegram", "The docs add remote worktree support."),
   ).toContain("AI summary: The docs add remote worktree support.");
 
   const boilerplateOnly = { ...event, after_json: JSON.stringify({ name: "Example", strings: ["Open in new tab"] }) };
@@ -246,8 +241,8 @@ test("timestamps let each platform speak its reader's clock", () => {
     detected_at: "2026-09-08T14:06:00.000Z",
   };
   // Discord renders this in the viewer's own timezone; a fixed zone cannot.
-  expect(renderEvent(event, "https://example.com", undefined, "discord")).toContain("<t:1788876360:f>");
-  expect(renderEvent(event, "https://example.com", undefined, "telegram")).toContain("08 Sep 14:06 UTC");
+  expect(renderEvent(event, "https://example.com", "discord")).toContain("<t:1788876360:f>");
+  expect(renderEvent(event, "https://example.com", "telegram")).toContain("08 Sep 14:06 UTC");
 });
 
 test("notifications expose source confidence", () => {
@@ -287,11 +282,11 @@ test("Discord labels an AI summary before the raw evidence", () => {
   const embed = eventEmbed(
     event,
     "https://github.com/openai/codex/commit/commit-1",
-    undefined,
     "Conversation history stores the originating model.",
   ) as { description: string };
   expect(embed.description).toStartWith("AI summary: Conversation history stores the originating model.");
-  expect(embed.description).toContain("src/history.rs (+4/−1)");
+  expect(embed.description).toContain("Changes: 1 file · +4/−1 lines");
+  expect(embed.description).not.toContain("model_info");
 });
 
 test("a rank change reads as a movement, not as two numbers", async () => {
@@ -343,10 +338,10 @@ test("a new model pings the role of its vendor and nothing else", async () => {
     raw: [],
     records: [{ id: "openai/gpt-6", name: "GPT-6", maker: "OpenAI" }],
   };
-  saveCollection(db, collection, [destination], "2026-09-08T10:00:00.000Z", undefined, roles);
+  saveCollection(db, collection, [destination], "2026-09-08T10:00:00.000Z", roles);
   collection.records.push({ id: "openai/gpt-6-mini", name: "GPT-6 mini", maker: "OpenAI" });
-  saveCollection(db, collection, [destination], "2026-09-08T10:05:00.000Z", undefined, roles);
-  prepareDeliveries(db, Date.parse("2026-09-08T10:05:00.000Z"), undefined, roles);
+  saveCollection(db, collection, [destination], "2026-09-08T10:05:00.000Z", roles);
+  prepareDeliveries(db, Date.parse("2026-09-08T10:05:00.000Z"), roles);
   const body = db.query<{ body: string }, []>("SELECT body FROM deliveries ORDER BY id DESC LIMIT 1").get();
   const payload = JSON.parse(body?.body ?? "{}") as {
     content: string;
@@ -364,10 +359,10 @@ test("a capability edit travels without a ping", async () => {
   const roles = { OpenAI: "111" };
   const records = [{ id: "openai/gpt-6", name: "GPT-6", maker: "OpenAI", selectable: true }];
   const collection = { source: "openrouter", stream: "api-models", url: "https://e.test", raw: [], records };
-  saveCollection(db, collection, [destination], "2026-09-08T10:00:00.000Z", undefined, roles);
+  saveCollection(db, collection, [destination], "2026-09-08T10:00:00.000Z", roles);
   records[0] = { id: "openai/gpt-6", name: "GPT-6", maker: "OpenAI", selectable: false };
-  saveCollection(db, collection, [destination], "2026-09-08T10:05:00.000Z", undefined, roles);
-  prepareDeliveries(db, Date.parse("2026-09-08T10:05:00.000Z"), undefined, roles);
+  saveCollection(db, collection, [destination], "2026-09-08T10:05:00.000Z", roles);
+  prepareDeliveries(db, Date.parse("2026-09-08T10:05:00.000Z"), roles);
   const body = db.query<{ body: string }, []>("SELECT body FROM deliveries ORDER BY id DESC LIMIT 1").get();
   const payload = JSON.parse(body?.body ?? "{}") as { content: string; allowed_mentions?: unknown };
   expect(payload.content).not.toContain("<@&");
@@ -496,10 +491,10 @@ test("removed models use before evidence for vendor role mentions", () => {
   const other = { id: "other/model", name: "Other" };
   const records = [{ id: "openai/gpt-6", name: "GPT-6", maker: "OpenAI" }, other];
   const collection = { source: "openrouter", stream: "openrouter", url: "https://openrouter.ai", raw: [], records };
-  saveCollection(local, collection, [destination], "2026-09-08T10:00:00.000Z", undefined, { OpenAI: "111" });
+  saveCollection(local, collection, [destination], "2026-09-08T10:00:00.000Z", { OpenAI: "111" });
   collection.records = [other];
-  saveCollection(local, collection, [destination], "2026-09-08T10:05:00.000Z", undefined, { OpenAI: "111" });
-  saveCollection(local, collection, [destination], "2026-09-08T10:10:00.000Z", undefined, { OpenAI: "111" });
+  saveCollection(local, collection, [destination], "2026-09-08T10:05:00.000Z", { OpenAI: "111" });
+  saveCollection(local, collection, [destination], "2026-09-08T10:10:00.000Z", { OpenAI: "111" });
   const event = local.query("SELECT * FROM events WHERE kind='removed'").get() as Event;
   expect(hasNotificationContent(event, "https://openrouter.ai")).toBe(true);
   const body = local.query<{ body: string }, []>("SELECT body FROM deliveries").get()?.body ?? "";

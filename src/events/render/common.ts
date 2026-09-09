@@ -69,6 +69,17 @@ export function meaningfulWebString(value: string): boolean {
   );
 }
 
+/** Convert retained GitHub patch evidence into the only diff information readers need in a feed. */
+export function githubChangeStats(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const files = [...value.matchAll(/^(.+?) \(\+(\d+)\/−(\d+)\)$/gm)];
+  if (!files.length) return null;
+  const additions = files.reduce((total, match) => total + Number(match[2]), 0);
+  const deletions = files.reduce((total, match) => total + Number(match[3]), 0);
+  const fileCount = files.length;
+  return `Changes: ${fileCount} file${fileCount === 1 ? "" : "s"} · +${additions}/−${deletions} lines`;
+}
+
 export function webStringChanges(before: unknown, after: unknown) {
   const strings = (value: unknown) =>
     new Set(

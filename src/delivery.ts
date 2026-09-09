@@ -23,7 +23,7 @@ export async function deliverPending(db: Database, config: AppConfig, request: F
   // Summaries are written before the message is built; a failure here leaves the message unchanged.
   await fillSummaries(db, config, request);
   db.transaction(() => {
-    prepareDeliveries(db, Date.now(), config.REPORT_BASE_URL, config.vendorRoles);
+    prepareDeliveries(db, Date.now(), config.vendorRoles);
   })();
   // One sequential sender respects channel order; each claim is conditional even if another process races it.
   for (let n = 0; n < 20; n++) {

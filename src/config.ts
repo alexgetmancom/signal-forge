@@ -43,7 +43,6 @@ const envSchema = z.object({
   OPENAI_API_KEY: optionalSecret,
   ANTHROPIC_API_KEY: optionalSecret,
   GEMINI_API_KEY: optionalSecret,
-  REPORT_BASE_URL: z.preprocess((v) => (v === "" ? undefined : v), z.url().optional()),
 });
 export const settingsSchema = z
   .object({

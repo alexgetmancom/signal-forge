@@ -36,8 +36,8 @@ current `main` branch with no known actionable issues.
 - Multipart delivery ordering, HTTP caching, source backoff, health boards, outage alerts, role
   mentions, benchmark metadata, codename resolution and signal-quality reporting are implemented.
 - Optional DeepSeek summaries are generated for large, publishable diffs after deterministic noise
-  filtering when `DEEPSEEK_API_KEY` is configured; Discord and Telegram keep the title and raw
-  evidence alongside the summary.
+  filtering when `DEEPSEEK_API_KEY` is configured; Discord and Telegram show the title, short
+  summary and compact evidence while raw patch details remain internal.
 - Documentation diffs normalize Markdown bullets and suppress changes with no meaningful
   user-facing strings; Codex documentation is labelled as documentation rather than interface text.
 - Backups use a separate memory budget and verify the compressed database with SQLite integrity and

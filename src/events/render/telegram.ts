@@ -8,6 +8,7 @@ import {
   collapseDetails,
   describe,
   fieldLabels,
+  githubChangeStats,
   NOISE,
   prices,
   rankMove,
@@ -18,7 +19,6 @@ import {
 export function renderEvent(
   event: Event,
   url: string,
-  reportBaseUrl?: string,
   platform: Destination["platform"] = "telegram",
   summary?: string,
 ): string {
@@ -35,12 +35,16 @@ export function renderEvent(
       meaningfulRemoved: usefulRemoved,
     } = webStringChanges(before.strings, after.strings);
     lines.push(
-      `Meaningful strings: +${usefulAdded.length}/−${usefulRemoved.length}; total changed: +${added.length}/−${removed.length}`,
+      `Changes: +${usefulAdded.length}/−${usefulRemoved.length} meaningful; ${added.length + removed.length} total`,
     );
+    const shownAdded = usefulAdded.slice(0, 3);
+    const shownRemoved = usefulRemoved.slice(0, 2);
     lines.push(
-      ...usefulAdded.slice(0, 12).map((value) => `+ ${value.slice(0, 180)}`),
-      ...usefulRemoved.slice(0, 3).map((value) => `− ${value.slice(0, 180)}`),
+      ...shownAdded.map((value) => `+ ${value.slice(0, 180)}`),
+      ...shownRemoved.map((value) => `− ${value.slice(0, 180)}`),
     );
+    const hidden = usefulAdded.length - shownAdded.length + (usefulRemoved.length - shownRemoved.length);
+    if (hidden > 0) lines.push(`…and ${hidden} more material changes not shown`);
     if (!usefulAdded.length && !usefulRemoved.length) lines.push("No material user-facing text changed.");
     lines.push("A public text change is not yet confirmation that a feature shipped.");
   } else if (event.stream === "arena" && before && after && before.name !== after.name) {
@@ -89,7 +93,10 @@ export function renderEvent(
     else if (event.source.endsWith(":commits")) lines.push("Repository change; not a release yet");
     else if (event.source.endsWith(":releases")) lines.push("Published release");
     if (record?.author) lines.push(`Author: ${describe(record.author)} (${describe(record.association)})`);
-    lines.push(describe(record?.summary));
+    const stats =
+      event.source.endsWith(":commits") || event.source.endsWith(":pulls") ? githubChangeStats(record?.summary) : null;
+    if (stats) lines.push(stats);
+    else if (record?.summary) lines.push(describe(record.summary));
   } else if (before && after) {
     for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
       if (NOISE.has(key) || canonical(before[key]) === canonical(after[key])) continue;
@@ -145,8 +152,6 @@ export function renderEvent(
   const stamp = Math.floor(Date.parse(event.detected_at) / 1000);
   const time = platform === "discord" ? `<t:${stamp}:f>` : utcStamp(event.detected_at);
   lines.push("", link);
-  if (reportBaseUrl && event.stream === "web")
-    lines.push(`Full report: ${reportBaseUrl.replace(/\/$/, "")}/reports/${event.id}`);
   const evidenceType = event.evidence_type ?? evidenceTypeFor(event.source, event.stream);
   lines.push(`Signal Forge · ${evidenceLabel(evidenceType)} · ${event.confidence ?? "observed"} · ${time}`);
   return lines.join("\n");

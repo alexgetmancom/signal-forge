@@ -9,12 +9,7 @@ import { renderEvent } from "./render/telegram.js";
 import type { Event, RecordData } from "./types.js";
 
 /** Turns sealed observation batches into transport payloads without changing event evidence. */
-export function prepareDeliveries(
-  db: Database,
-  now = Date.now(),
-  reportBaseUrl?: string,
-  vendorRoles: Record<string, string> = {},
-): void {
+export function prepareDeliveries(db: Database, now = Date.now(), vendorRoles: Record<string, string> = {}): void {
   const batches = db
     .query<{ id: number; digest: number; source: string }, [number]>(
       "SELECT id,digest,source FROM batches WHERE sealed=0 AND ready_at<=? ORDER BY id",
@@ -54,7 +49,7 @@ export function prepareDeliveries(
           : "";
       const text = speaking
         .map((event) => {
-          const rendered = renderEvent(event, event.url, reportBaseUrl, destination.platform, summaries.get(event.id));
+          const rendered = renderEvent(event, event.url, destination.platform, summaries.get(event.id));
           const lines = rendered.split("\n");
           const footer = lines.slice(-2).join("\n");
           const content = lines.slice(1, -2).join("\n").trim();
@@ -89,7 +84,7 @@ export function prepareDeliveries(
               ),
             ];
         const mentions = roles.map((role) => `<@&${role}>`).join(" ");
-        const embeds = speaking.map((event) => eventEmbed(event, event.url, reportBaseUrl, summaries.get(event.id)));
+        const embeds = speaking.map((event) => eventEmbed(event, event.url, summaries.get(event.id)));
         for (let index = 0; index * 10 < embeds.length; index += 1) {
           const page = embeds.slice(index * 10, index * 10 + 10);
           const content = index === 0 ? [header.trim(), mentions].filter(Boolean).join("\n") : "";

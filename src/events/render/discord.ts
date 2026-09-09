@@ -24,16 +24,11 @@ function eyebrow(event: Event): string {
   return EYEBROWS[event.stream] ?? "UPDATE";
 }
 
-export function eventEmbed(
-  event: Event,
-  url: string,
-  reportBaseUrl?: string,
-  summary?: string,
-): Record<string, unknown> {
+export function eventEmbed(event: Event, url: string, summary?: string): Record<string, unknown> {
   const before = event.before_json ? (JSON.parse(event.before_json) as RecordData) : null;
   const after = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
   const record = after ?? before;
-  const rendered = renderEvent(event, url, undefined, "telegram").split("\n");
+  const rendered = renderEvent(event, url).split("\n");
   const body = rendered.slice(2, -2).join("\n").trim();
   const vendor = vendorOf(event, record);
   const evidence = body
@@ -57,10 +52,6 @@ export function eventEmbed(
     description,
   };
   if (link) embed.url = link;
-  if (reportBaseUrl && event.stream === "web")
-    embed.fields = [
-      { name: "Full report", value: `${reportBaseUrl.replace(/\/$/, "")}/reports/${event.id}`, inline: false },
-    ];
   const evidenceType = event.evidence_type ?? evidenceTypeFor(event.source, event.stream);
   embed.footer = { text: `Evidence: ${evidenceLabel(evidenceType)} · Confidence: ${event.confidence ?? "observed"}` };
   return embed;
