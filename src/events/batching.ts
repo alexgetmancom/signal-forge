@@ -54,7 +54,7 @@ export function prepareDeliveries(
           : "";
       const text = speaking
         .map((event) => {
-          const rendered = renderEvent(event, event.url, reportBaseUrl, destination.platform);
+          const rendered = renderEvent(event, event.url, reportBaseUrl, destination.platform, summaries.get(event.id));
           const lines = rendered.split("\n");
           const footer = lines.slice(-2).join("\n");
           const content = lines.slice(1, -2).join("\n").trim();

@@ -20,7 +20,7 @@ import { openDatabase } from "../src/storage/database.js";
 const db = openDatabase(":memory:");
 afterEach(() =>
   db.exec(
-    "DELETE FROM deliveries; DELETE FROM batches; DELETE FROM events; DELETE FROM change_candidates; DELETE FROM records; DELETE FROM snapshots; DELETE FROM sources;",
+    "DELETE FROM deliveries; DELETE FROM batches; DELETE FROM summaries; DELETE FROM events; DELETE FROM change_candidates; DELETE FROM records; DELETE FROM snapshots; DELETE FROM sources;",
   ),
 );
 const targets: Destination[] = [
@@ -144,6 +144,40 @@ test("web copy hides routine strings but keeps product signals", async () => {
   const { meaningfulWebString } = await import("../src/events.js");
   expect(meaningfulWebString("Open in new tab")).toBe(false);
   expect(meaningfulWebString("Claude Code can now open a remote worktree")).toBe(true);
+});
+
+test("documentation diffs normalize Markdown and suppress boilerplate-only changes", () => {
+  const event = {
+    id: 10,
+    source: "codex-docs",
+    stream: "web",
+    entity_id: "https://learn.chatgpt.com/docs/example.md",
+    kind: "changed" as const,
+    before_json: JSON.stringify({ name: "Example", strings: ["Open in new tab"] }),
+    after_json: JSON.stringify({
+      name: "Example",
+      strings: ["Open in new tab", "- Claude Code can now open a remote worktree"],
+    }),
+    detected_at: "2026-09-08T14:06:00.000Z",
+  };
+  const text = renderEvent(event, "https://developers.openai.com/codex/");
+  expect(text).toContain("+ Claude Code can now open a remote worktree");
+  expect(text).not.toContain("+ - Claude Code");
+  expect(eventEmbed(event, "https://developers.openai.com/codex/")).toMatchObject({
+    author: { name: "DOCUMENTATION · OPENAI" },
+  });
+  expect(
+    renderEvent(
+      event,
+      "https://developers.openai.com/codex/",
+      undefined,
+      "telegram",
+      "The docs add remote worktree support.",
+    ),
+  ).toContain("AI summary: The docs add remote worktree support.");
+
+  const boilerplateOnly = { ...event, after_json: JSON.stringify({ name: "Example", strings: ["Open in new tab"] }) };
+  expect(hasNotificationContent(boilerplateOnly, "https://developers.openai.com/codex/")).toBe(false);
 });
 
 test("multiple changes form one message and hourly digest survives until due", async () => {

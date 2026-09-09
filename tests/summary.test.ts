@@ -20,6 +20,9 @@ test("model output cannot carry handles or links into a message", () => {
 });
 test("an unclear diff produces no sentence rather than a guess", async () => {
   expect(await summarize("noise", config, reply("UNCLEAR"))).toBeNull();
+  expect(await summarize("noise", config, reply("UNC"))).toBeNull();
+  expect(await summarize("noise", config, reply("UNCLE"))).toBeNull();
+  expect(await summarize("noise", config, reply("Changed."))).toBeNull();
   expect(await summarize("noise", config, reply("  Renamed two fields.  "))).toBe("Renamed two fields.");
   // Without a key the feature is simply off.
   expect(await summarize("noise", { ...config, DEEPSEEK_API_KEY: undefined }, reply("x"))).toBeNull();

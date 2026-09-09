@@ -1,3 +1,4 @@
+import { webStringChanges } from "./render/common.js";
 import { renderEvent } from "./render/telegram.js";
 import type { Event } from "./types.js";
 
@@ -24,6 +25,14 @@ function worthLeaderboardNotification(event: Event): boolean {
 /** An observation can be real evidence but still contain no subscriber-facing change. */
 export function hasNotificationContent(event: Event, url: string): boolean {
   if (!worthLeaderboardNotification(event)) return false;
+  if (event.kind === "changed" && event.stream === "web") {
+    const before = event.before_json ? (JSON.parse(event.before_json) as Record<string, unknown>) : null;
+    const after = event.after_json ? (JSON.parse(event.after_json) as Record<string, unknown>) : null;
+    if (Array.isArray(before?.strings) && Array.isArray(after?.strings)) {
+      const { meaningfulAdded, meaningfulRemoved } = webStringChanges(before.strings, after.strings);
+      return meaningfulAdded.length > 0 || meaningfulRemoved.length > 0;
+    }
+  }
   if (event.kind !== "changed") return true;
   const body = renderEvent(event, url, undefined, "telegram").split("\n").slice(3, -3).join("").trim();
   return body.length > 0;

@@ -51,11 +51,42 @@ export function utcStamp(iso: string): string {
   return `${pad(at.getUTCDate())} ${MONTHS[at.getUTCMonth()]} ${pad(at.getUTCHours())}:${pad(at.getUTCMinutes())} UTC`;
 }
 
+/** Turn Markdown-shaped source paragraphs into readable notification evidence. */
+export function normalizeWebString(value: string): string {
+  return value
+    .replace(/^\s*(?:[-+*]|\d+[.)])\s+/, "")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export function meaningfulWebString(value: string): boolean {
-  if (value.length < 18 || value.length > 500 || /^[-+\d\s.,:;/()]+$/.test(value)) return false;
+  const normalized = normalizeWebString(value);
+  if (normalized.length < 18 || normalized.length > 500 || /^[-+\d\s.,:;/()]+$/.test(normalized)) return false;
   return /\b(Claude|model|agent|Cowork|Code|browser|connector|plugin|skill|MCP|API|usage|context|remote|project|worktree|GitHub|Slack|memory|plan|tool|SSH|Bedrock|security|permission|approval)\b/i.test(
-    value,
+    normalized,
   );
+}
+
+export function webStringChanges(before: unknown, after: unknown) {
+  const strings = (value: unknown) =>
+    new Set(
+      (Array.isArray(value) ? value : [])
+        .filter((item): item is string => typeof item === "string")
+        .map(normalizeWebString)
+        .filter(Boolean),
+    );
+  const previous = strings(before);
+  const current = strings(after);
+  const added = [...current].filter((value) => !previous.has(value));
+  const removed = [...previous].filter((value) => !current.has(value));
+  return {
+    added,
+    removed,
+    meaningfulAdded: added.filter(meaningfulWebString),
+    meaningfulRemoved: removed.filter(meaningfulWebString),
+  };
 }
 
 /** A small catalogue price drift is evidence, but not subscriber-facing news. */

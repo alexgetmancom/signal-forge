@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import type { AppConfig } from "./config.js";
+import { hasNotificationContent } from "./events/notification.js";
 import { MAX_DETAIL_LINES } from "./events/render/common.js";
 import { renderEvent } from "./events/render/telegram.js";
 import type { Event } from "./events/types.js";
@@ -42,6 +43,7 @@ type SummaryContext = {
  */
 export function needsSummary(event: Event, url: string): boolean {
   if (event.kind === "removed") return false;
+  if (!hasNotificationContent(event, url)) return false;
   const material = (event.before_json?.length ?? 0) + (event.after_json?.length ?? 0);
   if (material > 1_200) return true;
   const body = renderEvent(event, url).split("\n").slice(3, -3);
@@ -122,7 +124,8 @@ export async function summarize(
   const content = body.choices?.[0]?.message?.content;
   if (typeof content !== "string") return null;
   const sentence = sanitize(content);
-  return !sentence || sentence.toUpperCase().startsWith("UNCLEAR") ? null : sentence;
+  const wordCount = sentence ? sentence.split(/\s+/).length : 0;
+  return !sentence || /^UNC/i.test(sentence) || wordCount < 3 || wordCount > 25 ? null : sentence;
 }
 
 /**

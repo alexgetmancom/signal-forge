@@ -8,11 +8,11 @@ import {
   collapseDetails,
   describe,
   fieldLabels,
-  meaningfulWebString,
   NOISE,
   prices,
   rankMove,
   utcStamp,
+  webStringChanges,
 } from "./common.js";
 
 export function renderEvent(
@@ -20,6 +20,7 @@ export function renderEvent(
   url: string,
   reportBaseUrl?: string,
   platform: Destination["platform"] = "telegram",
+  summary?: string,
 ): string {
   const before = event.before_json ? (JSON.parse(event.before_json) as RecordData) : null;
   const after = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
@@ -27,12 +28,12 @@ export function renderEvent(
   const labels = { new: "🆕 New", changed: "✏️ Changed", removed: "🗑️ Removed" };
   const lines = [`${labels[event.kind]} · ${sourceLabel(event.source)}`, String(record?.name ?? event.entity_id), ""];
   if (event.stream === "web" && before && after && Array.isArray(before.strings) && Array.isArray(after.strings)) {
-    const previous = new Set(before.strings as string[]),
-      current = new Set(after.strings as string[]);
-    const added = [...current].filter((value) => !previous.has(value)),
-      removed = [...previous].filter((value) => !current.has(value));
-    const usefulAdded = added.filter(meaningfulWebString);
-    const usefulRemoved = removed.filter(meaningfulWebString);
+    const {
+      added,
+      removed,
+      meaningfulAdded: usefulAdded,
+      meaningfulRemoved: usefulRemoved,
+    } = webStringChanges(before.strings, after.strings);
     lines.push(
       `Meaningful strings: +${usefulAdded.length}/−${usefulRemoved.length}; total changed: +${added.length}/−${removed.length}`,
     );
@@ -40,8 +41,7 @@ export function renderEvent(
       ...usefulAdded.slice(0, 12).map((value) => `+ ${value.slice(0, 180)}`),
       ...usefulRemoved.slice(0, 3).map((value) => `− ${value.slice(0, 180)}`),
     );
-    if (!usefulAdded.length && !usefulRemoved.length)
-      lines.push("Only boilerplate or short strings; the report has the details.");
+    if (!usefulAdded.length && !usefulRemoved.length) lines.push("No material user-facing text changed.");
     lines.push("A public text change is not yet confirmation that a feature shipped.");
   } else if (event.stream === "arena" && before && after && before.name !== after.name) {
     lines.push(`${describe(before.name)} → ${describe(after.name)}`);
@@ -135,6 +135,7 @@ export function renderEvent(
     }
   }
   lines.push(...collapseDetails(lines.splice(3)));
+  if (summary) lines.splice(3, 0, `AI summary: ${summary}`);
   const link =
     typeof record?.url === "string"
       ? record.url

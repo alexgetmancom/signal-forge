@@ -19,6 +19,11 @@ const EYEBROWS: Record<string, string> = {
 
 const KIND_COLORS: Record<Event["kind"], number> = { new: 0x2ecc71, changed: 0xf1c40f, removed: 0xe74c3c };
 
+function eyebrow(event: Event): string {
+  if (event.source === "codex-docs") return "DOCUMENTATION";
+  return EYEBROWS[event.stream] ?? "UPDATE";
+}
+
 export function eventEmbed(
   event: Event,
   url: string,
@@ -45,9 +50,7 @@ export function eventEmbed(
 
   const embed: Record<string, unknown> = {
     author: {
-      name: [EYEBROWS[event.stream] ?? "UPDATE", vendor === "Unknown" ? null : vendor.toUpperCase()]
-        .filter(Boolean)
-        .join(" · "),
+      name: [eyebrow(event), vendor === "Unknown" ? null : vendor.toUpperCase()].filter(Boolean).join(" · "),
     },
     title: String(record?.name ?? event.entity_id).slice(0, 250),
     color: KIND_COLORS[event.kind],
