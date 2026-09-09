@@ -34,6 +34,12 @@ test("source registry has unique IDs, valid streams, labels and consistent pacin
       enabled: true,
     });
   }
+  for (const id of ["google-ai-feed", "microsoft-ai-feed", "codex-skills", "deepseek-news", "aider-polyglot"]) {
+    expect(definitions.find((definition) => definition.id === id)).toBeUndefined();
+  }
+  expect(definitions.some((definition) => definition.id === "openai-developer-feed")).toBe(false);
+  expect(definitions.some((definition) => definition.id === "github:deepseek-ai/DeepSeek-V3:releases")).toBe(false);
+  expect(definitions.some((definition) => definition.id === "github:deepseek-ai/DeepSeek-R1:releases")).toBe(false);
 
   const paceGroups = new Map<string, number>();
   for (const definition of definitions) {

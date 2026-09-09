@@ -79,6 +79,11 @@ test("signal quality reports collection outcomes, delivery modes and suppressed 
     suppressedEvents: 1,
     sourceFailureRate: 0.2,
     averageEventsPerCollection: 0.75,
+    storyCount: 2,
+    uniqueStoryCount: 2,
+    corroboratedStoryCount: 0,
+    duplicateRate: 0,
+    freshnessHours: 22,
   });
   db.close();
 });
@@ -106,5 +111,46 @@ test("signal quality counts persisted role mentions without another schema table
     (entry) => entry.id === "openrouter",
   );
   expect(source?.rolePings).toBe(1);
+  db.close();
+});
+
+test("signal quality attributes a shared story digest to every contributing source", () => {
+  const db = openDatabase(":memory:");
+  const destinations: Destination[] = [
+    { id: "dc", platform: "discord", channelId: "123", streams: ["openrouter", "api-models"] },
+  ];
+  const router: Collection = {
+    source: "openrouter",
+    stream: "openrouter",
+    url: "https://openrouter.ai/models/gpt-5",
+    raw: [],
+    records: [{ id: "gpt-5", name: "GPT-5", maker: "OpenAI", pricing: { prompt: "1" } }],
+  };
+  const api: Collection = {
+    source: "openai",
+    stream: "api-models",
+    url: "https://api.openai.com/models/gpt-5",
+    raw: [],
+    records: [{ id: "gpt-5", name: "GPT-5", maker: "OpenAI", context: 128000 }],
+  };
+  saveCollection(db, router, destinations, "2026-09-08T00:00:00Z");
+  saveCollection(db, api, destinations, "2026-09-08T00:05:00Z");
+  router.records = [{ id: "gpt-5", name: "GPT-5", maker: "OpenAI", pricing: { prompt: "2" } }];
+  api.records = [{ id: "gpt-5", name: "GPT-5", maker: "OpenAI", context: 256000 }];
+  saveCollection(db, router, destinations, "2026-09-08T01:00:00Z");
+  saveCollection(db, api, destinations, "2026-09-08T01:05:00Z");
+  prepareDeliveries(db, Date.parse("2026-09-08T02:00:00Z"));
+
+  const report = signalQuality(db, { ...config, OPENAI_API_KEY: "test-key" }, 7, Date.parse("2026-09-08T02:00:00Z"));
+  for (const id of ["openrouter", "openai"]) {
+    expect(report.sources.find((source) => source.id === id)).toMatchObject({
+      digestDeliveries: 1,
+      storyCount: 1,
+      uniqueStoryCount: 0,
+      corroboratedStoryCount: 1,
+      duplicateRate: 1,
+    });
+  }
+  expect(db.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM deliveries").get()).toEqual({ count: 1 });
   db.close();
 });

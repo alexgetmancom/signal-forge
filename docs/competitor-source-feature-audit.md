@@ -834,13 +834,16 @@ Add official provider collectors and structured lifecycle records.
 
 #### P1.8 Official developer-tool feeds
 
-Add Codex, Claude Code, OpenAI Skills, SDK, Google, Microsoft, NVIDIA, and Hugging Face official feeds in direct source modules.
+Keep only high-signal official developer-tool feeds in direct source modules: Claude Code,
+Anthropic SDK, Google DeepMind, NVIDIA and Hugging Face. General Google AI, Microsoft and static
+Codex Skills pages were removed after the freshness and signal audit; the stale OpenAI developer
+RSS was removed in favor of existing official release-note and news collectors.
 
 ### P2: independent evidence and discovery
 
 #### P2.1 One benchmark lane
 
-Start with Artificial Analysis changelog/model data or Aider Polyglot. Add no second benchmark until the first has stable fixtures and demonstrable signal.
+Start with a current Artificial Analysis or equivalent public benchmark surface. Add no benchmark until it has stable fixtures and demonstrable signal; add no second lane afterward without unique contribution.
 
 #### P2.2 Hugging Face metadata
 
@@ -896,18 +899,14 @@ Implement:
 
 All external responses must use Zod validation or strict source-specific parsing. All changes remain inside the existing collection/event transaction.
 
-### Stage 4: add official product and vendor feeds
+### Stage 4: keep high-signal official product and vendor feeds
 
-Add:
+Keep:
 
 - Google DeepMind;
-- Google AI;
-- OpenAI Skills;
-- Codex changelog;
 - Claude Code changelog/releases;
 - Anthropic SDKs;
 - Hugging Face Blog;
-- Microsoft AI;
 - NVIDIA Generative AI.
 
 Prefer RSS/Atom/official JSON. Use HTML only where the page is the official source and the parser can fail closed.
@@ -971,7 +970,7 @@ The work is complete only when all of the following are true:
 - no Reddit, X/Twitter, paid scraper, or private inbox integration was added;
 - no second persistence system exists;
 - no public listener or public deployment path was added;
-- DeepSeek API, website, GitHub, npm, and Hugging Face signals correlate into stories;
+- DeepSeek API, selected active GitHub repositories, npm, and Hugging Face signals correlate into stories;
 - deprecation dates, replacement models, regions, and provider context are preserved;
 - a failed or suspicious collection cannot create mass removals;
 - vote-only Arena changes do not create subscriber notifications;
@@ -991,12 +990,15 @@ The selected direct implementation is now in the working tree:
 
 1. harden normalized records and collection continuity;
 2. add source authority and independent-support fields;
-3. implement the DeepSeek official pack;
+3. implement the DeepSeek API, active-repository, npm, and Hugging Face pack;
 4. expand structured deprecations;
-5. add Codex, Claude Code, Google, Microsoft, NVIDIA, and Hugging Face official feeds;
+5. keep only the high-signal Claude Code, Anthropic SDK, Google DeepMind, NVIDIA, and Hugging Face feeds;
 6. improve Arena noise filtering;
-7. add one benchmark lane only after the source-quality foundation is in place.
+7. defer a benchmark lane until a current source survives freshness and contribution checks.
 
 That sequence improves the product's actual advantage: early, public, evidence-backed signals with enough provenance to know what is fact, what is merely observed, and what still needs confirmation.
 
-The remaining follow-up is measurement, not another source expansion: observe source freshness and unique contribution through `signal-quality`, then decide whether story-aware cross-source digest grouping earns its added delivery complexity. Those two items are intentionally not described as complete here.
+The remaining follow-up is measurement, not another source expansion: observe source freshness,
+unique contribution and duplicate-story rate through `signal-quality`. Story-aware cross-source
+digest grouping is implemented and covered by replay tests; the benchmark lane remains deliberately
+deferred until a current public source passes freshness and contribution checks.

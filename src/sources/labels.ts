@@ -5,6 +5,7 @@ const STATIC_LABELS: Record<string, string> = {
   gemini: "Gemini API",
   arena: "Arena",
   "arena-leaderboards": "Arena · leaderboards",
+  "story-digest": "Signal Forge · story digest",
   "openai-news": "OpenAI · news",
   "openai-chatgpt-release-notes": "OpenAI · ChatGPT release notes",
   "anthropic-news": "Anthropic · news",

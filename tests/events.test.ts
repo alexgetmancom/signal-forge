@@ -216,6 +216,58 @@ test("multiple changes form one message and hourly digest survives until due", a
   expect(db.query("SELECT COUNT(*) AS n FROM deliveries").get()).toEqual({ n: 6 });
 });
 
+test("one story becomes one cross-source digest with every evidence link", () => {
+  const local = openDatabase(":memory:");
+  const destinations: Destination[] = [
+    { id: "tg", platform: "telegram", chatId: "-100123", streams: ["openrouter", "api-models"] },
+    { id: "dc", platform: "discord", channelId: "123", streams: ["openrouter", "api-models"] },
+  ];
+  const router: Collection = {
+    source: "openrouter",
+    stream: "openrouter",
+    url: "https://openrouter.ai/models/gpt-5",
+    raw: [],
+    records: [{ id: "gpt-5", name: "GPT-5", maker: "OpenAI", pricing: { prompt: "1" } }],
+  };
+  const api: Collection = {
+    source: "openai",
+    stream: "api-models",
+    url: "https://api.openai.com/models/gpt-5",
+    raw: [],
+    records: [{ id: "gpt-5", name: "GPT-5", maker: "OpenAI", context: 128000 }],
+  };
+  saveCollection(local, router, destinations, "2026-09-08T09:00:00Z");
+  saveCollection(local, api, destinations, "2026-09-08T09:05:00Z");
+  router.records = [{ id: "gpt-5", name: "GPT-5", maker: "OpenAI", pricing: { prompt: "2" } }];
+  api.records = [{ id: "gpt-5", name: "GPT-5", maker: "OpenAI", context: 256000 }];
+  saveCollection(local, router, destinations, "2026-09-08T10:00:00Z");
+  saveCollection(local, api, destinations, "2026-09-08T10:05:00Z");
+
+  expect(local.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM batches WHERE digest=1").get()).toEqual({
+    count: 1,
+  });
+  prepareDeliveries(local, Date.parse("2026-09-08T11:00:00Z"));
+  expect(local.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM deliveries").get()).toEqual({ count: 2 });
+
+  const telegram = local
+    .query<{ body: string }, [string]>("SELECT body FROM deliveries WHERE destination_id=?")
+    .get("tg")?.body;
+  expect(telegram).toContain("1 story in the last hour");
+  expect(telegram).toContain("OpenRouter");
+  expect(telegram).toContain("OpenAI API");
+  expect(telegram).toContain("Evidence: https://openrouter.ai/models/gpt-5");
+  expect(telegram).toContain("Evidence: https://api.openai.com/models/gpt-5");
+
+  const discord = local
+    .query<{ body: string }, [string]>("SELECT body FROM deliveries WHERE destination_id=?")
+    .get("dc")?.body;
+  const payload = JSON.parse(discord ?? "{}") as { embeds?: { description?: string }[] };
+  expect(payload.embeds).toHaveLength(1);
+  expect(payload.embeds?.[0]?.description).toContain("https://openrouter.ai/models/gpt-5");
+  expect(payload.embeds?.[0]?.description).toContain("https://api.openai.com/models/gpt-5");
+  local.close();
+});
+
 test("each platform is paged by its own limit", () => {
   saveCollection(db, collection(["a"]), targets);
   const c = collection(["a", ...Array.from({ length: 12 }, (_, i) => `model-${i}`)]);

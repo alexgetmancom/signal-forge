@@ -117,6 +117,14 @@ function similarTitle(left: Set<string>, right: Set<string>): boolean {
   return overlap >= 3 || (overlap >= 2 && overlap / smaller >= 0.75);
 }
 
+function withinCorrelationWindow(group: StoryGroup, event: Event): boolean {
+  const groupTime = Date.parse(group.last.detected_at);
+  const eventTime = Date.parse(event.detected_at);
+  return (
+    Number.isFinite(groupTime) && Number.isFinite(eventTime) && Math.abs(eventTime - groupTime) <= CORRELATION_WINDOW_MS
+  );
+}
+
 function subjectFor(event: Event, record: RecordData | null): string {
   if (event.source.startsWith("github:")) {
     // A repository is a useful scope, not a semantic subject. Keep each commit, pull request,
@@ -165,15 +173,21 @@ function projectEvent(projection: StoryProjection, event: StoryEvent): StoryGrou
   const url = event.source.startsWith("github:") ? null : canonicalUrl(record?.url);
   const titles = event.source.startsWith("github:") ? new Set<string>() : titleTerms(record);
   const { key, subject, vendor } = baseKeyFor(event, record);
-  const identityMatch =
-    terms.map((term) => projection.aliases.get(`${normalized(vendor)}:${term}`)).find((group) => group !== undefined) ??
-    projection.current.get(key);
+  const identityMatch = terms
+    .map((term) => projection.aliases.get(`${normalized(vendor)}:${term}`))
+    .find((group) => group !== undefined && withinCorrelationWindow(group, event));
+  const currentMatch = projection.current.get(key);
   const previous =
     identityMatch ??
+    (currentMatch && withinCorrelationWindow(currentMatch, event) ? currentMatch : undefined) ??
     [...projection.groups].reverse().find((group) => {
       const lastTime = Date.parse(group.last.detected_at);
       const eventTime = Date.parse(event.detected_at);
-      if (!Number.isFinite(lastTime) || !Number.isFinite(eventTime) || eventTime - lastTime > CORRELATION_WINDOW_MS)
+      if (
+        !Number.isFinite(lastTime) ||
+        !Number.isFinite(eventTime) ||
+        Math.abs(eventTime - lastTime) > CORRELATION_WINDOW_MS
+      )
         return false;
       if (!compatibleVendor(group.vendor, vendor)) return false;
       return (url !== null && group.urls.has(url)) || similarTitle(group.titleTerms, titles);

@@ -5,6 +5,7 @@ import { splitMessage } from "./canonical.js";
 import { pingWorthy, vendorOf } from "./interpretation.js";
 import { hasNotificationContent } from "./notification.js";
 import { eventEmbed } from "./render/discord.js";
+import { renderStoryText, type StoryRenderEvent, storyEmbed } from "./render/story.js";
 import { renderEvent } from "./render/telegram.js";
 import type { Event, RecordData } from "./types.js";
 
@@ -39,16 +40,34 @@ export function prepareDeliveries(db: Database, now = Date.now(), vendorRoles: R
       db.query("UPDATE batches SET sealed=1 WHERE id=?").run(batch.id);
       continue;
     }
+    const storyIds = new Map(
+      db
+        .query<{ event_id: number; story_id: number }, [number]>(
+          "SELECT se.event_id,se.story_id FROM story_events se JOIN batch_events be ON be.event_id=se.event_id WHERE be.batch_id=?",
+        )
+        .all(batch.id)
+        .map((row) => [row.event_id, row.story_id] as const),
+    );
+    const grouped = new Map<string, StoryRenderEvent[]>();
+    for (const event of speaking) {
+      const key = storyIds.has(event.id) ? `story:${storyIds.get(event.id)}` : `event:${event.id}`;
+      const group = grouped.get(key) ?? [];
+      group.push(event);
+      grouped.set(key, group);
+    }
+    const items = [...grouped.values()];
     for (const target of targets) {
       const destination = JSON.parse(target.destination_json) as Destination;
       const source = sourceLabel(batch.source);
       const header = batch.digest
-        ? `🗞 ${source} · ${speaking.length} in the last hour\n\n`
+        ? `🗞 ${source} · ${items.length} ${items.length === 1 ? "story" : "stories"} in the last hour\n\n`
         : speaking.length > 1
           ? `📡 ${source} · ${speaking.length} updates\n\n`
           : "";
-      const text = speaking
-        .map((event) => {
+      const text = items
+        .map((group) => {
+          if (group.length > 1) return renderStoryText(group, destination.platform, summaries);
+          const event = group[0] as StoryRenderEvent;
           const rendered = renderEvent(event, event.url, destination.platform, summaries.get(event.id));
           const lines = rendered.split("\n");
           const footer = lines.slice(-2).join("\n");
@@ -84,7 +103,15 @@ export function prepareDeliveries(db: Database, now = Date.now(), vendorRoles: R
               ),
             ];
         const mentions = roles.map((role) => `<@&${role}>`).join(" ");
-        const embeds = speaking.map((event) => eventEmbed(event, event.url, summaries.get(event.id)));
+        const embeds = items.map((group) =>
+          group.length > 1
+            ? storyEmbed(group, summaries)
+            : eventEmbed(
+                group[0] as StoryRenderEvent,
+                (group[0] as StoryRenderEvent).url,
+                summaries.get((group[0] as StoryRenderEvent).id),
+              ),
+        );
         for (let index = 0; index * 10 < embeds.length; index += 1) {
           const page = embeds.slice(index * 10, index * 10 + 10);
           const content = index === 0 ? [header.trim(), mentions].filter(Boolean).join("\n") : "";

@@ -204,12 +204,13 @@ export function persistCollection(
     const targets = destinations.filter((destination) => destination.streams.some((stream) => stream === c.stream));
     if (!events.length || !targets.length) continue;
     const readyAt = digest ? (Math.floor(Date.parse(now) / 3_600_000) + 1) * 3_600_000 : Date.parse(now);
+    const batchSource = digest ? "story-digest" : c.source;
     const existing = digest
       ? db
           .query<{ id: number }, [string, number]>(
             "SELECT id FROM batches WHERE source=? AND digest=1 AND ready_at=? AND sealed=0",
           )
-          .get(c.source, readyAt)
+          .get(batchSource, readyAt)
       : null;
     const batch =
       existing ??
@@ -217,7 +218,7 @@ export function persistCollection(
         .query<{ id: number }, [string, number, number]>(
           "INSERT INTO batches(source,digest,ready_at) VALUES(?,?,?) RETURNING id",
         )
-        .get(c.source, Number(digest), readyAt);
+        .get(batchSource, Number(digest), readyAt);
     if (!batch) throw new Error("Batch insert failed");
     for (const event of events)
       db.query("INSERT INTO batch_events(batch_id,event_id,url) VALUES(?,?,?)").run(batch.id, event.id, c.url);

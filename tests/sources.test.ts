@@ -330,6 +330,44 @@ test("lifecycle parsers retain dates, replacements and regional context", () => 
     ).records[0],
   ).toMatchObject({ modelId: "veo-old", replacement: "veo-new" });
 });
+
+test("lifecycle parsers preserve active stages instead of labelling every row deprecated", () => {
+  const gemini = parseGeminiDeprecations(
+    `<h2>Gemini models</h2><table>
+      <tr><th>Model</th><th>Release date</th><th>Shutdown date</th><th>Recommended replacement</th></tr>
+      <tr><td>gemini-live</td><td>September 1, 2026</td><td>No shutdown date announced</td><td>—</td></tr>
+      <tr><td colspan="4">Preview models</td></tr>
+      <tr><td>gemini-preview</td><td>August 1, 2026</td><td>December 1, 2026</td><td>gemini-live</td></tr>
+    </table>`,
+  );
+  expect(gemini.records).toEqual([
+    expect.objectContaining({ modelId: "gemini-live", stage: "Active", deprecated: null, retirement: null }),
+    expect.objectContaining({
+      modelId: "gemini-preview",
+      stage: "Preview",
+      deprecated: null,
+      retirement: "December 1, 2026",
+      replacement: "gemini-live",
+    }),
+  ]);
+
+  const azure = parseAzureFoundryLifecycle(
+    `<table><tr><th>Model</th><th>Version</th><th>Lifecycle</th><th>Retirement date</th><th>Replacement</th></tr>
+      <tr><td>gpt-5</td><td>1</td><td>GA</td><td>—</td><td>—</td></tr>
+      <tr><td>gpt-4</td><td>1</td><td>Deprecated</td><td>2026-10-01</td><td>gpt-5</td></tr></table>`,
+  );
+  expect(azure.records).toEqual([
+    expect.objectContaining({ modelId: "gpt-5", version: "1", stage: "GA", deprecated: null, retirement: null }),
+    expect.objectContaining({ modelId: "gpt-4", version: "1", stage: "Deprecated", deprecated: null }),
+  ]);
+
+  const xai = parseXaiDeprecations(
+    `<p>Retirement is effective May 15, 2026.</p><table><tr><th>Model being retired</th><th>Redirect target after May 15</th></tr>
+      <tr><td>grok-old</td><td>grok-new</td></tr></table>`,
+  );
+  expect(xai.records[0]).toMatchObject({ stage: "Retired", retirement: "May 15, 2026", deprecated: null });
+});
+
 test("official developer feeds validate RSS and Atom and retain tool release evidence", () => {
   const rss = parseOfficialFeed(
     `<rss version="2.0"><channel><item><title>Codex skill update</title><link>https://example.test/codex</link><description>New skill</description><pubDate>Wed, 09 Sep 2026 10:00:00 GMT</pubDate></item></channel></rss>`,

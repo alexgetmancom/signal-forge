@@ -1,6 +1,6 @@
 # Roadmap
 
-Updated 2026-09-09 UTC. This is the current backlog and implementation record; historical audits
+Updated 2026-09-10 UTC. This is the current backlog and implementation record; historical audits
 are not a second source of truth.
 
 ## Current state
@@ -27,6 +27,8 @@ current `main` branch with no known actionable issues.
   requests and releases.
 - Story projection processes appended events incrementally and rebuilds at startup or after an
   out-of-order timestamp; `listStories()` performs no writes.
+- Routine digests are story-aware: one correlated story is rendered once with all retained evidence
+  links, while unrelated events remain separate.
 - Capabilities distinguish `disabled`, `missing` and `ready`, with source IDs such as `openai` and
   `gemini` rather than environment-variable names.
 - Ambiguous delivery handling is named `require_delivery_verification`; it never resends a message.
@@ -35,6 +37,8 @@ current `main` branch with no known actionable issues.
   configured absolute and relative thresholds.
 - Multipart delivery ordering, HTTP caching, source backoff, health boards, outage alerts, role
   mentions, benchmark metadata, codename resolution and signal-quality reporting are implemented.
+- Signal-quality reports include source freshness, unique-story contribution, corroboration and
+  duplicate-story rate, attributed correctly when a digest contains multiple sources.
 - Collection boundaries reject malformed normalized records and suspicious catalogue shrinkage;
   source authority, degraded health, and independent story evidence are visible to operators.
 - DeepSeek API, website, GitHub, npm and Hugging Face signals are registered alongside official
@@ -56,7 +60,7 @@ Ordered by risk and reader value.
 | Priority | Task | Definition of done |
 |---|---|---|
 | Next | Run a real restore drill. | Restore a verified archive into a stopped test instance, run `integrity_check`, start it, and compare event counts and health reports. |
-| Next | Observe signal quality for seven days. | Use `signal-quality 7` to decide whether DesignArena rank churn or another source needs batching, thresholds or a different notification policy. |
+| Next | Observe signal quality for seven days. | Use `signal-quality 7` to decide whether DesignArena rank churn, story duplication or another source needs batching, thresholds or a different notification policy. |
 | Next | Preserve outage start time. | Store `failure_started_at` separately from the latest observation so issue duration is accurate. |
 | Owner decision | Google catalogue. | Choose Vertex AI with a billed service account or accept OpenRouter as the Google model source. |
 | Owner decision | Vercel AI Gateway. | Decide whether the incomplete upstream response is worth another parser or should remain disabled. |

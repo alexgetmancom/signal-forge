@@ -23,6 +23,11 @@ export type SignalQualitySource = {
   suppressedEvents: number;
   sourceFailureRate: number;
   averageEventsPerCollection: number;
+  storyCount: number;
+  uniqueStoryCount: number;
+  corroboratedStoryCount: number;
+  duplicateRate: number;
+  freshnessHours: number | null;
 };
 
 export type SignalQualityReport = {
@@ -55,6 +60,8 @@ type DeliveryAggregate = {
   status: string;
   count: number;
 };
+
+type StoryAggregate = { source: string; story_id: number | null; event_id: number };
 
 type RenderableEvent = Event & { url: string };
 
@@ -101,16 +108,18 @@ export function signalQuality(db: Database, config: AppConfig, days = 7, now = D
   );
   const deliveries = db
     .query<DeliveryAggregate, [string]>(
-      `SELECT b.source,b.digest,d.status,COUNT(*) AS count
+      `SELECT e.source,b.digest,d.status,COUNT(DISTINCT d.id) AS count
        FROM deliveries d
        JOIN batches b ON b.id=d.batch_id
+       JOIN batch_events be ON be.batch_id=b.id
+       JOIN events e ON e.id=be.event_id
        WHERE EXISTS (
          SELECT 1
          FROM batch_events be
          JOIN events e ON e.id=be.event_id
          WHERE be.batch_id=b.id AND e.detected_at>=?
        )
-       GROUP BY b.source,b.digest,d.status`,
+       GROUP BY e.source,b.digest,d.status`,
     )
     .all(since);
   const deliveryCounts = new Map<string, { immediate: number; digest: number; failed: number; ambiguous: number }>();
@@ -125,9 +134,11 @@ export function signalQuality(db: Database, config: AppConfig, days = 7, now = D
   const rolePings = new Map<string, number>();
   const deliveryBodies = db
     .query<{ source: string; body: string }, [string]>(
-      `SELECT b.source,d.body
+      `SELECT DISTINCT e.source,d.body
        FROM deliveries d
        JOIN batches b ON b.id=d.batch_id
+       JOIN batch_events be ON be.batch_id=b.id
+       JOIN events e ON e.id=be.event_id
        WHERE EXISTS (
          SELECT 1
          FROM batch_events be
@@ -149,6 +160,34 @@ export function signalQuality(db: Database, config: AppConfig, days = 7, now = D
     }
   }
 
+  const storyRows = db
+    .query<StoryAggregate, [string]>(
+      `SELECT e.source,se.story_id,e.id AS event_id
+       FROM events e
+       LEFT JOIN story_events se ON se.event_id=e.id
+       WHERE e.detected_at>=?`,
+    )
+    .all(since);
+  const storySources = new Map<string, Set<string>>();
+  const sourceStories = new Map<string, Set<string>>();
+  for (const row of storyRows) {
+    const key = row.story_id === null ? `event:${row.event_id}` : `story:${row.story_id}`;
+    const sources = storySources.get(key) ?? new Set<string>();
+    sources.add(row.source);
+    storySources.set(key, sources);
+    const stories = sourceStories.get(row.source) ?? new Set<string>();
+    stories.add(key);
+    sourceStories.set(row.source, stories);
+  }
+  const freshness = new Map(
+    db
+      .query<{ source: string; latest: string | null }, [string]>(
+        "SELECT source,MAX(collected_at) AS latest FROM source_collection_metrics WHERE collected_at<=? AND success=1 GROUP BY source",
+      )
+      .all(new Date(now).toISOString())
+      .map((row) => [row.source, row.latest] as const),
+  );
+
   const suppressed = new Map<string, number>();
   const changedEvents = db
     .query<RenderableEvent, [string]>(
@@ -169,6 +208,10 @@ export function signalQuality(db: Database, config: AppConfig, days = 7, now = D
     const counts = deliveryCounts.get(job.id) ?? { immediate: 0, digest: 0, failed: 0, ambiguous: 0 };
     const total = row?.collections ?? 0;
     const successful = row?.successful ?? 0;
+    const storyKeys = sourceStories.get(job.id) ?? new Set<string>();
+    const uniqueStoryCount = [...storyKeys].filter((key) => (storySources.get(key)?.size ?? 0) === 1).length;
+    const corroboratedStoryCount = [...storyKeys].filter((key) => (storySources.get(key)?.size ?? 0) > 1).length;
+    const latest = freshness.get(job.id);
     return {
       id: job.id,
       label: job.label,
@@ -188,6 +231,11 @@ export function signalQuality(db: Database, config: AppConfig, days = 7, now = D
       suppressedEvents: suppressed.get(job.id) ?? 0,
       sourceFailureRate: total ? rounded((row?.failed ?? 0) / total, 3) : 0,
       averageEventsPerCollection: successful ? rounded((row?.events ?? 0) / successful) : 0,
+      storyCount: storyKeys.size,
+      uniqueStoryCount,
+      corroboratedStoryCount,
+      duplicateRate: storyKeys.size ? rounded((storyKeys.size - uniqueStoryCount) / storyKeys.size, 3) : 0,
+      freshnessHours: latest ? rounded(Math.max(0, now - Date.parse(latest)) / 3_600_000) : null,
     };
   });
   return {
