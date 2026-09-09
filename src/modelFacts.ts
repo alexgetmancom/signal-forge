@@ -3,7 +3,10 @@ import { canonical } from "./events/canonical.js";
 import { CONFIDENCE_LEVELS } from "./events/confidence.js";
 import { identityFor, type ModelIdentity, mergeIdentities, normalizeIdentity } from "./events/identity.js";
 import { vendorOf } from "./events/interpretation.js";
+import { sourceFamily } from "./events/sourceFamily.js";
 import type { Confidence, Event, EvidenceType, RecordData } from "./events/types.js";
+
+const FIRST_PARTY_API_CATALOGUE_SOURCES = new Set(["openai", "anthropic", "gemini", "deepseek-pricing"]);
 
 export type ModelFact<T = unknown> = {
   value: T;
@@ -61,6 +64,7 @@ type Candidate = {
   confidence: Confidence;
   evidenceType: EvidenceType;
   source: string;
+  sourceFamily: string;
   eventId: number;
   observedAt: string;
 };
@@ -88,6 +92,11 @@ function array(value: unknown): unknown[] | null {
   return Array.isArray(value) ? value : null;
 }
 
+function providerFor(event: Event, record: RecordData): string | null {
+  const vendor = vendorOf(event, record);
+  return vendor !== "Unknown" ? vendor : (text(record.maker) ?? text(record.owner) ?? text(record.provider));
+}
+
 function candidate(event: EventRow, canonicalId: string, field: string, value: unknown): Candidate | null {
   if (value === undefined || value === null) return null;
   if (typeof value === "string" && !value.trim()) return null;
@@ -98,6 +107,7 @@ function candidate(event: EventRow, canonicalId: string, field: string, value: u
     confidence: event.confidence,
     evidenceType: event.evidence_type,
     source: event.source,
+    sourceFamily: sourceFamily(event.source, event.stream),
     eventId: event.id,
     observedAt: event.detected_at,
   };
@@ -113,13 +123,7 @@ function extractCandidates(event: EventRow, canonicalId: string): Candidate[] {
 
   if (record) {
     add("displayName", text(record.name));
-    add(
-      "provider",
-      text(record.maker) ??
-        text(record.owner) ??
-        text(record.provider) ??
-        (vendorOf(event, record) !== "Unknown" ? vendorOf(event, record) : null),
-    );
+    add("provider", providerFor(event, record));
     add("releaseDate", text(record.created));
     add("contextWindow", number(record.context) ?? number(record.inputTokenLimit));
     const output = Array.isArray(record.output) ? null : number(record.output);
@@ -137,7 +141,7 @@ function extractCandidates(event: EventRow, canonicalId: string): Candidate[] {
   }
 
   if (event.stream === "weights") add("openWeights", event.kind !== "removed");
-  if (event.stream === "api-models") add("availableInProviderApi", event.kind !== "removed");
+  if (FIRST_PARTY_API_CATALOGUE_SOURCES.has(event.source)) add("availableInProviderApi", event.kind !== "removed");
   if (event.stream === "openrouter") add("availableOnOpenRouter", event.kind !== "removed");
   return result;
 }
@@ -199,7 +203,8 @@ function selectCandidates(candidates: Candidate[]): {
     const sameStrength =
       confidenceRank(incumbent.confidence) === confidenceRank(item.confidence) &&
       MODEL_FACT_AUTHORITY_RANK[incumbent.evidenceType] === MODEL_FACT_AUTHORITY_RANK[item.evidenceType];
-    if (sameStrength && canonical(incumbent.value) !== canonical(item.value)) {
+    const independentSources = incumbent.source !== item.source && incumbent.sourceFamily !== item.sourceFamily;
+    if (sameStrength && independentSources && canonical(incumbent.value) !== canonical(item.value)) {
       const conflict = {
         field: item.field,
         incumbentEventId: incumbent.eventId,

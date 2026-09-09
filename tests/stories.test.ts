@@ -138,7 +138,7 @@ test("stories expose independent evidence coverage without rewriting event autho
   const story = listStories(db, { vendor: "DeepSeek", limit: 10 })[0];
   expect(story).toMatchObject({
     authorities: ["third_party", "first_party"],
-    sourceFamilies: ["openrouter", "official-news"],
+    sourceFamilies: ["openrouter", "official-news:deepseek-updates"],
     evidenceCoverage: {
       eventCount: 2,
       sourceCount: 2,

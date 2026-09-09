@@ -9,6 +9,7 @@ import {
   renderLifecycleReminderText,
 } from "./events/render/lifecycle.js";
 import type { Event, RecordData } from "./events/types.js";
+import { buildSourceRegistry } from "./sources/registry.js";
 
 const REMINDER_OFFSETS = [30, 7, 1] as const;
 const DAY_MS = 24 * 3_600_000;
@@ -281,6 +282,11 @@ export function scheduleLifecycleReminders(db: Database, config: AppConfig, now 
   return db.transaction(() => {
     const destinations = config.destinations.filter((destination) => destination.streams.includes("deprecations"));
     if (!destinations.length) return 0;
+    const shadowSources = new Set(
+      buildSourceRegistry(db, config)
+        .filter((source) => source.mode === "shadow")
+        .map((source) => source.id),
+    );
     const due = db
       .query<
         {
@@ -306,6 +312,7 @@ export function scheduleLifecycleReminders(db: Database, config: AppConfig, now 
       .all(new Date(now).toISOString(), new Date(now).toISOString());
     let batches = 0;
     for (const reminder of due) {
+      if (shadowSources.has(reminder.source)) continue;
       const event = db.query<Event, [number]>("SELECT * FROM events WHERE id=?").get(reminder.event_id);
       if (!event) continue;
       const context: LifecycleReminderContext = {

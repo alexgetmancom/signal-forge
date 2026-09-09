@@ -70,13 +70,6 @@ export function prepareDeliveries(db: Database, now = Date.now(), vendorRoles: R
       db.query("UPDATE batches SET sealed=1 WHERE id=?").run(batch.id);
       continue;
     }
-    const speaking = events.filter((event) => {
-      return hasNotificationContent(event, event.url);
-    });
-    if (!speaking.length) {
-      db.query("UPDATE batches SET sealed=1 WHERE id=?").run(batch.id);
-      continue;
-    }
     const storyIds = new Map(
       db
         .query<{ event_id: number; story_id: number }, [number]>(
@@ -85,16 +78,21 @@ export function prepareDeliveries(db: Database, now = Date.now(), vendorRoles: R
         .all(batch.id)
         .map((row) => [row.event_id, row.story_id] as const),
     );
-    const grouped = new Map<string, StoryRenderEvent[]>();
-    for (const event of speaking) {
-      const key = storyIds.has(event.id) ? `story:${storyIds.get(event.id)}` : `event:${event.id}`;
-      const group = grouped.get(key) ?? [];
-      group.push(event);
-      grouped.set(key, group);
-    }
-    const items = [...grouped.values()];
     for (const target of targets) {
       const destination = JSON.parse(target.destination_json) as Destination;
+      const subscribedStreams = new Set<string>(destination.streams);
+      const speaking = events.filter(
+        (event) => subscribedStreams.has(event.stream) && hasNotificationContent(event, event.url),
+      );
+      if (!speaking.length) continue;
+      const grouped = new Map<string, StoryRenderEvent[]>();
+      for (const event of speaking) {
+        const key = storyIds.has(event.id) ? `story:${storyIds.get(event.id)}` : `event:${event.id}`;
+        const group = grouped.get(key) ?? [];
+        group.push(event);
+        grouped.set(key, group);
+      }
+      const items = [...grouped.values()];
       const source = sourceLabel(batch.source);
       const header = batch.digest
         ? `🗞 ${source} · ${items.length} ${items.length === 1 ? "story" : "stories"} in the last hour\n\n`
@@ -125,7 +123,7 @@ export function prepareDeliveries(db: Database, now = Date.now(), vendorRoles: R
           ? []
           : [
               ...new Set(
-                events
+                speaking
                   .filter(pingWorthy)
                   .map((event) => {
                     const record = event.after_json

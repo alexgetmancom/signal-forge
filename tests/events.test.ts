@@ -268,6 +268,48 @@ test("one story becomes one cross-source digest with every evidence link", () =>
   local.close();
 });
 
+test("a cross-stream digest stays scoped to each destination", () => {
+  const local = openDatabase(":memory:");
+  const destinations: Destination[] = [
+    { id: "models", platform: "discord", channelId: "123", streams: ["openrouter"] },
+    { id: "benchmarks", platform: "discord", channelId: "456", streams: ["leaderboards"] },
+  ];
+  const router: Collection = {
+    source: "openrouter",
+    stream: "openrouter",
+    url: "https://openrouter.ai/models",
+    raw: [],
+    records: [{ id: "router-model", name: "Router model", pricing: { prompt: "1" } }],
+  };
+  const leaderboard: Collection = {
+    source: "arena-leaderboards",
+    stream: "leaderboards",
+    url: "https://arena.ai/leaderboard",
+    raw: [],
+    records: [{ id: "leaderboard-model", name: "Leaderboard model", rank: 2, score: 1 }],
+  };
+  saveCollection(local, router, destinations, "2026-09-08T09:00:00Z");
+  saveCollection(local, leaderboard, destinations, "2026-09-08T09:05:00Z");
+  router.records = [{ id: "router-model", name: "Router model", pricing: { prompt: "2" } }];
+  leaderboard.records = [{ id: "leaderboard-model", name: "Leaderboard model", rank: 1, score: 2 }];
+  saveCollection(local, router, destinations, "2026-09-08T10:00:00Z");
+  saveCollection(local, leaderboard, destinations, "2026-09-08T10:05:00Z");
+
+  prepareDeliveries(local, Date.parse("2026-09-08T11:00:00Z"));
+  const rows = local
+    .query<{ destination_id: string; body: string }, []>(
+      "SELECT destination_id,body FROM deliveries ORDER BY destination_id",
+    )
+    .all();
+  expect(rows).toHaveLength(2);
+  const bodies = new Map(
+    rows.map((row) => [row.destination_id, JSON.parse(row.body) as { embeds: { title: string }[] }]),
+  );
+  expect(bodies.get("models")?.embeds.map((embed) => embed.title)).toEqual(["Router model"]);
+  expect(bodies.get("benchmarks")?.embeds.map((embed) => embed.title)).toEqual(["Leaderboard model"]);
+  local.close();
+});
+
 test("each platform is paged by its own limit", () => {
   saveCollection(db, collection(["a"]), targets);
   const c = collection(["a", ...Array.from({ length: 12 }, (_, i) => `model-${i}`)]);

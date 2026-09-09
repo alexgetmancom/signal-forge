@@ -78,6 +78,17 @@ test("a due reminder creates one lifecycle batch linked to the original evidence
   db.close();
 });
 
+test("a shadow deprecation source creates no reminder batch or delivery", () => {
+  const db = openDatabase(":memory:");
+  createDeadline(db);
+  const config = { ...configWithDestination(), sourceMode: { "anthropic-deprecations": "shadow" as const } };
+  expect(scheduleLifecycleReminders(db, config, Date.parse("2026-09-14T00:00:00.000Z"))).toBe(0);
+  expect(db.query("SELECT COUNT(*) AS count FROM batches").get()).toEqual({ count: 0 });
+  expect(db.query("SELECT COUNT(*) AS count FROM deliveries").get()).toEqual({ count: 0 });
+  expect(db.query("SELECT batch_id FROM lifecycle_reminders WHERE offset_days=30").get()).toEqual({ batch_id: null });
+  db.close();
+});
+
 test("rebuilds preserve sent reminder identity and update only future unsent dates", () => {
   const db = openDatabase(":memory:");
   createDeadline(db);

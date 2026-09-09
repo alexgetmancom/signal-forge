@@ -155,6 +155,40 @@ test("signal quality attributes a shared story digest to every contributing sour
   db.close();
 });
 
+test("signal quality counts a shared digest only for subscribed streams", () => {
+  const db = openDatabase(":memory:");
+  const destinations: Destination[] = [
+    { id: "models", platform: "discord", channelId: "123", streams: ["openrouter"] },
+    { id: "benchmarks", platform: "discord", channelId: "456", streams: ["leaderboards"] },
+  ];
+  const router: Collection = {
+    source: "openrouter",
+    stream: "openrouter",
+    url: "https://openrouter.ai/models",
+    raw: [],
+    records: [{ id: "router-model", name: "Router model", pricing: { prompt: "1" } }],
+  };
+  const leaderboard: Collection = {
+    source: "arena-leaderboards",
+    stream: "leaderboards",
+    url: "https://arena.ai/leaderboard",
+    raw: [],
+    records: [{ id: "leaderboard-model", name: "Leaderboard model", rank: 2, score: 1 }],
+  };
+  saveCollection(db, router, destinations, "2026-09-08T09:00:00Z");
+  saveCollection(db, leaderboard, destinations, "2026-09-08T09:05:00Z");
+  router.records = [{ id: "router-model", name: "Router model", pricing: { prompt: "2" } }];
+  leaderboard.records = [{ id: "leaderboard-model", name: "Leaderboard model", rank: 1, score: 2 }];
+  saveCollection(db, router, destinations, "2026-09-08T10:00:00Z");
+  saveCollection(db, leaderboard, destinations, "2026-09-08T10:05:00Z");
+  prepareDeliveries(db, Date.parse("2026-09-08T11:00:00Z"));
+
+  const report = signalQuality(db, config, 7, Date.parse("2026-09-08T12:00:00Z"));
+  expect(report.sources.find((source) => source.id === "openrouter")).toMatchObject({ digestDeliveries: 1 });
+  expect(report.sources.find((source) => source.id === "arena-leaderboards")).toMatchObject({ digestDeliveries: 1 });
+  db.close();
+});
+
 test("signal quality measures independent first signals, confirmed lead time and shadow density", () => {
   const db = openDatabase(":memory:");
   const measuredConfig = {

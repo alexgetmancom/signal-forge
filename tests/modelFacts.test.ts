@@ -96,6 +96,20 @@ test("equal-strength disagreement is retained as a conflict", () => {
   db.close();
 });
 
+test("a later value from the same source is history, not a conflict", () => {
+  const db = openDatabase(":memory:");
+  const options = { trackChanges: true };
+  introduce(db, "openai", "api-models", [model({ context: 128000 })], "2026-09-10T00:00:00Z", options);
+  introduce(db, "openai", "api-models", [model({ context: 256000 })], "2026-09-10T01:00:00Z", options);
+  expect(getModelFacts(db, "openai/gpt-6")?.facts.contextWindow).toMatchObject({
+    value: 256000,
+    source: "openai",
+    eventId: 2,
+  });
+  expect(getModelFacts(db, "openai/gpt-6")?.conflicts).toEqual([]);
+  db.close();
+});
+
 test("OpenRouter array output becomes modalities and numeric output becomes max tokens", () => {
   const db = openDatabase(":memory:");
   introduce(
@@ -109,6 +123,33 @@ test("OpenRouter array output becomes modalities and numeric output becomes max 
   const facts = getModelFacts(db, "openai/gpt-6")?.facts;
   expect(facts?.outputModalities).toMatchObject({ value: ["image", "text"], source: "openrouter" });
   expect(facts?.maxOutputTokens).toMatchObject({ value: 4096, source: "vercel-gateway" });
+  expect(facts?.availableInProviderApi).toBeUndefined();
+  db.close();
+});
+
+test("provider API availability comes only from first-party catalogues", () => {
+  const db = openDatabase(":memory:");
+  introduce(db, "vercel-gateway", "api-models", [model()], "2026-09-10T00:00:00Z");
+  expect(getModelFacts(db, "openai/gpt-6")?.facts.availableInProviderApi).toBeUndefined();
+
+  introduce(db, "openai", "api-models", [model()], "2026-09-10T01:00:00Z");
+  expect(getModelFacts(db, "openai/gpt-6")?.facts.availableInProviderApi).toMatchObject({
+    value: true,
+    source: "openai",
+  });
+  db.close();
+});
+
+test("known source vendor wins over a raw provider owner", () => {
+  const db = openDatabase(":memory:");
+  introduce(
+    db,
+    "openai",
+    "api-models",
+    [model({ owner: "internal-api-owner", maker: undefined })],
+    "2026-09-10T00:00:00Z",
+  );
+  expect(getModelFacts(db, "openai/gpt-6")?.facts.provider).toMatchObject({ value: "OpenAI", source: "openai" });
   db.close();
 });
 
