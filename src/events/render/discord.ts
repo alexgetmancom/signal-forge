@@ -35,7 +35,7 @@ export function eventEmbed(
     .split("\n")
     .filter((line) => line.toLowerCase() !== `maker: ${vendor.toLowerCase()}`)
     .join("\n");
-  const description = (summary ? `${summary}\n\n${evidence}` : evidence).slice(0, 4000);
+  const description = (summary ? `AI summary: ${summary}\n\n${evidence}` : evidence).slice(0, 4000);
   const link =
     typeof record?.url === "string"
       ? record.url

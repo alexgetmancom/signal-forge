@@ -174,6 +174,8 @@ Destinations receive future events only. The first source observation is quiet.
 API catalogue collectors are requested by default. Set `sourceEnabled` to `false` for a source that
 is intentionally disabled; a requested source without its credential is reported as `missing` and is
 not scheduled. Set `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` and `GEMINI_API_KEY` for their catalogues.
+Set `DEEPSEEK_API_KEY` to enable one-sentence summaries for large diffs; a missing key or failed
+summary call leaves the original evidence unchanged and never blocks delivery.
 Set `REPORT_BASE_URL` to the LAN origin used for full web-diff links.
 Set `GITHUB_TOKEN` to raise the GitHub request allowance from 60 to 5000 an hour. Listing requests
 are conditional, and a 304 costs no quota at all. Optional `github` entries accept

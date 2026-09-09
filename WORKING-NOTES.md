@@ -39,6 +39,8 @@ The latest production verification passed:
   configured absolute and relative thresholds.
 - Multipart delivery ordering, HTTP caching, source backoff, health boards, outage alerts, role
   mentions, benchmark metadata, codename resolution and signal-quality reporting are implemented.
+- Optional DeepSeek summaries are generated for large diffs when `DEEPSEEK_API_KEY` is configured;
+  the Discord card keeps the commit title and raw evidence alongside the summary.
 - Backups use a separate memory budget and verify the compressed database with SQLite integrity and
   event-count checks.
 

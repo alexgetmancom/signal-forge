@@ -7,8 +7,11 @@ import { fillSummaries, sanitize, summarize } from "../src/summary.js";
 const fixture = new URL("./fixtures/config.json", import.meta.url).pathname;
 const config = { ...loadConfig({ CONFIG_PATH: fixture }), DEEPSEEK_API_KEY: "key" };
 
-function reply(content: string) {
-  return async () => Response.json({ choices: [{ message: { content } }] });
+function reply(content: string, seen?: { body?: string }) {
+  return async (_url: string, init?: RequestInit) => {
+    if (seen) seen.body = String(init?.body ?? "");
+    return Response.json({ choices: [{ message: { content } }] });
+  };
 }
 
 test("model output cannot carry handles or links into a message", () => {
@@ -20,6 +23,23 @@ test("an unclear diff produces no sentence rather than a guess", async () => {
   expect(await summarize("noise", config, reply("  Renamed two fields.  "))).toBe("Renamed two fields.");
   // Without a key the feature is simply off.
   expect(await summarize("noise", { ...config, DEEPSEEK_API_KEY: undefined }, reply("x"))).toBeNull();
+});
+test("GitHub summaries receive the commit context", async () => {
+  const seen: { body?: string } = {};
+  await summarize(
+    'CURRENT:\n{"name":"Use the originating model when recording conversation history"}',
+    config,
+    reply("Conversation history now stores the originating model.", seen),
+    {
+      source: "github:openai/codex:commits",
+      stream: "github",
+      kind: "new",
+      title: "Use the originating model when recording conversation history",
+    },
+  );
+  const request = JSON.parse(seen.body ?? "{}") as { messages?: { role: string; content: string }[] };
+  expect(request.messages?.[0]?.content).toContain("For a GitHub repository change");
+  expect(request.messages?.[1]?.content).toContain("TITLE: Use the originating model");
 });
 test("a summary is attached to a long diff and skipped for a short one", async () => {
   const db = openDatabase(":memory:");

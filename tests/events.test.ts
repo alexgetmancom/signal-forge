@@ -235,6 +235,31 @@ test("notifications expose source confidence", () => {
   });
 });
 
+test("Discord labels an AI summary before the raw evidence", () => {
+  const event = {
+    id: 9,
+    source: "github:openai/codex:commits",
+    stream: "github",
+    entity_id: "commit-1",
+    kind: "new" as const,
+    before_json: null,
+    after_json: JSON.stringify({
+      id: "commit-1",
+      name: "Record the originating model",
+      summary: "src/history.rs (+4/−1)\n+model_info",
+    }),
+    detected_at: "2026-09-08T14:06:00.000Z",
+  };
+  const embed = eventEmbed(
+    event,
+    "https://github.com/openai/codex/commit/commit-1",
+    undefined,
+    "Conversation history stores the originating model.",
+  ) as { description: string };
+  expect(embed.description).toStartWith("AI summary: Conversation history stores the originating model.");
+  expect(embed.description).toContain("src/history.rs (+4/−1)");
+});
+
 test("a rank change reads as a movement, not as two numbers", async () => {
   const { rankMove } = await import("../src/events.js");
   expect(rankMove(7, 5)).toBe("Rank 5 🔼 2 (was 7)");
