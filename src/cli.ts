@@ -15,7 +15,24 @@ try {
     process.stdout.write(`${JSON.stringify(defs.event.handler(input), null, 2)}\n`);
   } else if (command === "events" || command === "deliveries")
     process.stdout.write(`${JSON.stringify(defs[command].handler({ limit: 20 }), null, 2)}\n`);
-  else throw new Error("Usage: bun src/cli.ts status|events|event <id>|deliveries|poll");
+  else if (command === "issues" || command === "capabilities")
+    process.stdout.write(`${JSON.stringify(defs[command].handler({}), null, 2)}\n`);
+  else if (command === "signal-quality") {
+    const input = defs.signal_quality.schema.parse({ days: Number(Bun.argv[3] ?? 7) });
+    process.stdout.write(`${JSON.stringify(defs.signal_quality.handler(input), null, 2)}\n`);
+  } else if (command === "stories")
+    process.stdout.write(
+      `${JSON.stringify(defs.stories.handler({ minConfidence: "observed", limit: 50 }), null, 2)}\n`,
+    );
+  else if (command === "deliveries-needing-verification")
+    process.stdout.write(`${JSON.stringify(defs.deliveries_needing_verification.handler({ limit: 20 }), null, 2)}\n`);
+  else if (command === "reconcile-delivery") {
+    const input = defs.reconcile_delivery.schema.parse({ id: Number(Bun.argv[3]) });
+    process.stdout.write(`${JSON.stringify(defs.reconcile_delivery.handler(input), null, 2)}\n`);
+  } else
+    throw new Error(
+      "Usage: bun src/cli.ts status|events|event <id>|deliveries|deliveries-needing-verification|reconcile-delivery <id>|issues|capabilities|signal-quality [days]|stories|poll",
+    );
 } finally {
   db.close();
 }

@@ -1,8 +1,8 @@
 import type { Database } from "bun:sqlite";
 import type { AppConfig } from "./config.js";
-import type { Fetch } from "./delivery.js";
+import type { Fetch } from "./http-client.js";
+import { listActionableIssues } from "./issues.js";
 import { log } from "./logger.js";
-import { sourceHealth } from "./status.js";
 
 /**
  * The status board is passive: it shows the truth to whoever opens the channel. A collector that
@@ -10,9 +10,6 @@ import { sourceHealth } from "./status.js";
  * "nothing is happening" rather than "nothing is being collected". This sends the one message the
  * board cannot: a source went down, and later, a source came back.
  */
-
-/** Alerting only on these states; `blocked` is a known restriction and `idle` is a fresh source. */
-const ALERTING = new Set(["failing", "stale"]);
 
 /**
  * A source must be down for two consecutive checks — ten minutes — before it is announced. Today's
@@ -39,10 +36,12 @@ export async function publishAlerts(
   const outcome: AlertOutcome = { down: [], recovered: [], posted: false };
   if (!config.alertChannelId || !config.DISCORD_BOT_TOKEN) return outcome;
 
-  const health = sourceHealth(db, config, now);
+  const issues = listActionableIssues(db, config, now).filter(
+    (issue) => issue.kind === "source_failed" && issue.severity !== "warning",
+  );
   const stored = db.query<{ value: string }, [string]>("SELECT value FROM app_state WHERE key=?").get("alert_down");
   const previous = new Set<string>(stored ? (JSON.parse(stored.value) as string[]) : []);
-  const failing = health.filter((entry) => ALERTING.has(entry.state)).map((entry) => entry.id);
+  const failing = issues.map((issue) => issue.id);
 
   // Count consecutive failed checks per source, so a blip has to persist to become an alert.
   const strikesRow = db
@@ -58,7 +57,7 @@ export async function publishAlerts(
   );
   const current = new Set(failing.filter((id) => (nextStrikes[id] ?? 0) >= CONFIRMATIONS));
 
-  const detail = new Map(health.map((entry) => [entry.id, entry.detail]));
+  const detail = new Map(issues.map((issue) => [issue.id, issue.message]));
   outcome.down = [...current].filter((id) => !previous.has(id));
   outcome.recovered = [...previous].filter((id) => !current.has(id));
 
@@ -90,7 +89,7 @@ export async function publishAlerts(
     title: outcome.down.length ? "Collector problem" : "Collectors recovered",
     description: lines.join("\n").slice(0, 4000),
     color: outcome.down.length ? 0xe74c3c : 0x2ecc71,
-    footer: { text: `${current.size} of ${health.length} collectors down` },
+    footer: { text: `${current.size} of ${issues.length} collectors down` },
     timestamp: new Date(now).toISOString(),
   };
   const response = await request(`https://discord.com/api/v10/channels/${config.alertChannelId}/messages`, {

@@ -25,7 +25,23 @@ test("health is public, operational state requires token, MCP lists matching sch
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
   });
   const body = (await response.json()) as { result: { tools: { name: string }[] } };
-  expect(body.result.tools.map((t: { name: string }) => t.name)).toEqual(["status", "events", "event", "deliveries"]);
+  expect(body.result.tools.map((t: { name: string }) => t.name)).toEqual([
+    "status",
+    "events",
+    "event",
+    "deliveries",
+    "deliveries_needing_verification",
+    "reconcile_delivery",
+    "signal_quality",
+    "stories",
+    "issues",
+    "capabilities",
+  ]);
+  const auth = { Authorization: `Bearer ${config.MCP_TOKEN}` };
+  expect((await app.request("/api/deliveries", { headers: auth })).status).toBe(200);
+  expect((await app.request("/api/deliveries/verification", { headers: auth })).status).toBe(200);
+  expect((await app.request("/api/signal-quality", { headers: auth })).status).toBe(200);
+  expect((await app.request("/api/stories", { headers: auth })).status).toBe(200);
   db.close();
 });
 test("duplicate destination addresses fail configuration instead of doubling notifications", () => {

@@ -54,8 +54,51 @@ export function createHttpApp(config: AppConfig, db: Database): Hono {
   app.get("/api/events/:id", (c) => {
     const id = z.coerce.number().int().positive().safeParse(c.req.param("id"));
     if (!id.success) return c.json({ error: "Invalid event ID" }, 400);
-    const event = db.query("SELECT * FROM events WHERE id=?").get(id.data);
+    const event = defs.event.handler({ id: id.data });
     return event ? c.json(event) : c.json({ error: "Not found" }, 404);
+  });
+  app.get("/api/deliveries", (c) => {
+    const limit = z.coerce.number().int().min(1).max(100).default(20).safeParse(c.req.query("limit"));
+    if (!limit.success) return c.json({ error: "Invalid limit" }, 400);
+    return c.json(defs.deliveries.handler({ limit: limit.data }));
+  });
+  app.get("/api/deliveries/verification", (c) => {
+    const limit = z.coerce.number().int().min(1).max(100).default(20).safeParse(c.req.query("limit"));
+    if (!limit.success) return c.json({ error: "Invalid limit" }, 400);
+    return c.json(defs.deliveries_needing_verification.handler({ limit: limit.data }));
+  });
+  app.post("/api/deliveries/:id/reconcile", (c) => {
+    const id = z.coerce.number().int().positive().safeParse(c.req.param("id"));
+    if (!id.success) return c.json({ error: "Invalid delivery ID" }, 400);
+    try {
+      return c.json(defs.reconcile_delivery.handler({ id: id.data }));
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : "Unable to reconcile delivery" }, 400);
+    }
+  });
+  app.get("/api/issues", (c) => c.json(defs.issues.handler({})));
+  app.get("/api/capabilities", (c) => c.json(defs.capabilities.handler({})));
+  app.get("/api/signal-quality", (c) => {
+    const days = z.coerce.number().int().min(1).max(90).default(7).safeParse(c.req.query("days"));
+    if (!days.success) return c.json({ error: "Invalid days" }, 400);
+    return c.json(defs.signal_quality.handler({ days: days.data }));
+  });
+  app.get("/api/stories", (c) => {
+    const parsed = z
+      .object({
+        since: z.string().datetime({ offset: true }).optional(),
+        minConfidence: z.enum(["observed", "supported", "confirmed", "shipped"]).default("observed"),
+        vendor: z.string().min(1).optional(),
+        limit: z.coerce.number().int().min(1).max(100).default(50),
+      })
+      .safeParse({
+        since: c.req.query("since"),
+        minConfidence: c.req.query("minConfidence"),
+        vendor: c.req.query("vendor"),
+        limit: c.req.query("limit"),
+      });
+    if (!parsed.success) return c.json({ error: "Invalid story query" }, 400);
+    return c.json(defs.stories.handler(parsed.data));
   });
   app.post("/api/mcp", async (c) => {
     const schema = z.object({
