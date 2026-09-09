@@ -26,12 +26,12 @@ try {
     );
   else if (command === "deliveries-needing-verification")
     process.stdout.write(`${JSON.stringify(defs.deliveries_needing_verification.handler({ limit: 20 }), null, 2)}\n`);
-  else if (command === "reconcile-delivery") {
-    const input = defs.reconcile_delivery.schema.parse({ id: Number(Bun.argv[3]) });
-    process.stdout.write(`${JSON.stringify(defs.reconcile_delivery.handler(input), null, 2)}\n`);
+  else if (command === "require-delivery-verification") {
+    const input = defs.require_delivery_verification.schema.parse({ id: Number(Bun.argv[3]) });
+    process.stdout.write(`${JSON.stringify(defs.require_delivery_verification.handler(input), null, 2)}\n`);
   } else
     throw new Error(
-      "Usage: bun src/cli.ts status|events|event <id>|deliveries|deliveries-needing-verification|reconcile-delivery <id>|issues|capabilities|signal-quality [days]|stories|poll",
+      "Usage: bun src/cli.ts status|events|event <id>|deliveries|deliveries-needing-verification|require-delivery-verification <id>|issues|capabilities|signal-quality [days]|stories|poll",
     );
 } finally {
   db.close();

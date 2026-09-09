@@ -55,6 +55,12 @@ test("signal quality reports collection outcomes, delivery modes and suppressed 
   ).run();
 
   const report = signalQuality(db, config, 7, Date.parse("2026-09-09T00:00:00.000Z"));
+  expect(report.coverage).toEqual({
+    requestedSince: "2026-09-02T00:00:00.000Z",
+    observedFrom: "2026-09-08T00:00:00.000Z",
+    observedUntil: "2026-09-08T02:00:00.000Z",
+    observedHours: 2,
+  });
   const source = report.sources.find((entry) => entry.id === "openrouter");
   expect(source).toMatchObject({
     collections: 5,

@@ -45,10 +45,16 @@ function unversionedBaseline(db: Database): number | null {
     deliveryColumns.has("batch_id") &&
     !deliveryColumns.has("event_id")
   ) {
-    if (!deliveryColumns.has("confirmation_source") || !deliveryColumns.has("reconcile_attempts")) return 3;
+    if (
+      (!deliveryColumns.has("confirmation_source") || !deliveryColumns.has("reconcile_attempts")) &&
+      (!deliveryColumns.has("verification_source") || !deliveryColumns.has("verification_attempts"))
+    )
+      return 3;
     if (!tableExists(db, "source_collection_metrics")) return 4;
     if (!eventColumns.has("confidence")) return 5;
-    return tableExists(db, "stories") ? 7 : 6;
+    if (!eventColumns.has("evidence_type")) return tableExists(db, "stories") ? 7 : 6;
+    const currentVerificationNames = deliveryColumns.has("verification_source");
+    return tableExists(db, "stories") ? (currentVerificationNames ? 9 : 8) : currentVerificationNames ? 8 : 7;
   }
   return null;
 }

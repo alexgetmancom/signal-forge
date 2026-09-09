@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { Destination } from "../config.js";
 import { canonical } from "./canonical.js";
-import { confidenceFor } from "./confidence.js";
+import { confidenceFor, evidenceTypeFor } from "./confidence.js";
 import { isRoutine } from "./interpretation.js";
 import type { Collection, Event } from "./types.js";
 
@@ -44,11 +44,15 @@ export function persistCollection(
   const emitted: Event[] = [];
   const emit = (id: string, kind: Event["kind"], before: string | null, after: string | null) => {
     const confidence = confidenceFor(c.source, c.stream);
+    const evidence_type = evidenceTypeFor(c.source, c.stream);
     const row = db
-      .query<{ id: number }, [string, string, string, string, string | null, string | null, string, number, string]>(
-        "INSERT INTO events(source,stream,entity_id,kind,before_json,after_json,detected_at,snapshot_id,confidence) VALUES(?,?,?,?,?,?,?,?,?) RETURNING id",
+      .query<
+        { id: number },
+        [string, string, string, string, string | null, string | null, string, number, string, string]
+      >(
+        "INSERT INTO events(source,stream,entity_id,kind,before_json,after_json,detected_at,snapshot_id,confidence,evidence_type) VALUES(?,?,?,?,?,?,?,?,?,?) RETURNING id",
       )
-      .get(c.source, c.stream, id, kind, before, after, now, snapshot, confidence);
+      .get(c.source, c.stream, id, kind, before, after, now, snapshot, confidence, evidence_type);
     if (!row) throw new Error("Event insert failed");
     emitted.push({
       id: row.id,
@@ -60,6 +64,7 @@ export function persistCollection(
       after_json: after,
       detected_at: now,
       confidence,
+      evidence_type,
     });
     count++;
   };

@@ -44,6 +44,17 @@ test("a rate-limited source waits on upstream instead of reporting a broken coll
   db.close();
 });
 
+test("bot protection is blocked upstream, not reported as a broken parser", () => {
+  const db = openDatabase(":memory:");
+  const recent = new Date(now - 60_000).toISOString();
+  seed(db, "status:anthropic", { last_error: "Source challenged by bot protection", checked_at: recent });
+  expect(sourceHealth(db, withStatus, now).find((entry) => entry.id === "status:anthropic")).toMatchObject({
+    state: "blocked",
+    detail: "upstream bot protection — waiting for a readable status response",
+  });
+  db.close();
+});
+
 test("multi-source hosts have one shared request pace", async () => {
   const { sourceJobs } = await import("../src/sources/registry.js");
   const db = openDatabase(":memory:");
@@ -107,6 +118,23 @@ test("the embed groups sources and colours by the worst state", () => {
   const embed = statusEmbed(sourceHealth(db, withStatus, now), now);
   expect(embed.color).toBe(0xe74c3c);
   expect((embed.fields as { name: string }[]).map((field) => field.name)).toContain("Catalogues");
+  db.close();
+});
+
+test("tracker status includes observation freshness, delivery state and unavailable integrations", () => {
+  const db = openDatabase(":memory:");
+  const checked = new Date(now).toISOString();
+  seed(db, "openrouter", { last_success: checked, checked_at: checked });
+  const embed = statusEmbed(
+    sourceHealth(db, withStatus, now),
+    now,
+    { pending: 2, sending: 1, sent: 7, failed: 0, ambiguous: 1, verification_required: 0 },
+    [{ id: "gemini", status: "disabled", missingCount: 0, requiredCount: 1, enabledSources: [] }],
+  );
+  const fields = embed.fields as { name: string; value: string }[];
+  expect(fields.find((field) => field.name === "Delivery")?.value).toContain("pending 2");
+  expect(fields.find((field) => field.name === "Integrations")?.value).toContain("disabled · gemini");
+  expect(fields.find((field) => field.name === "Catalogues")?.value).toContain("last success 2026-09-08 12:00 UTC");
   db.close();
 });
 

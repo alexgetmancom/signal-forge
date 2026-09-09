@@ -28,6 +28,12 @@ export type SignalQualitySource = {
 export type SignalQualityReport = {
   since: string;
   days: number;
+  coverage: {
+    requestedSince: string;
+    observedFrom: string | null;
+    observedUntil: string | null;
+    observedHours: number;
+  };
   sources: SignalQualitySource[];
 };
 
@@ -65,6 +71,15 @@ const rounded = (value: number, digits = 2): number => {
 export function signalQuality(db: Database, config: AppConfig, days = 7, now = Date.now()): SignalQualityReport {
   if (!Number.isInteger(days) || days < 1 || days > 90) throw new Error("Signal quality days must be between 1 and 90");
   const since = new Date(now - days * 24 * 3_600_000).toISOString();
+  const bounds = db
+    .query<{ observedFrom: string | null; observedUntil: string | null }, [string]>(
+      "SELECT MIN(collected_at) AS observedFrom,MAX(collected_at) AS observedUntil FROM source_collection_metrics WHERE collected_at>=?",
+    )
+    .get(since);
+  const observedHours =
+    bounds?.observedFrom && bounds.observedUntil
+      ? rounded(Math.max(0, Date.parse(bounds.observedUntil) - Date.parse(bounds.observedFrom)) / 3_600_000)
+      : 0;
   const collections = new Map(
     db
       .query<CollectionAggregate, [string]>(
@@ -137,10 +152,10 @@ export function signalQuality(db: Database, config: AppConfig, days = 7, now = D
   const suppressed = new Map<string, number>();
   const changedEvents = db
     .query<RenderableEvent, [string]>(
-      `SELECT e.id,e.source,e.stream,e.entity_id,e.kind,e.before_json,e.after_json,e.detected_at,MIN(be.url) AS url
+      `SELECT e.id,e.source,e.stream,e.entity_id,e.kind,e.before_json,e.after_json,e.detected_at,e.evidence_type,MIN(be.url) AS url
        FROM events e
        JOIN batch_events be ON be.event_id=e.id
-       WHERE e.detected_at>=? AND e.kind='changed'
+       WHERE e.detected_at>=?
        GROUP BY e.id`,
     )
     .all(since);
@@ -175,5 +190,15 @@ export function signalQuality(db: Database, config: AppConfig, days = 7, now = D
       averageEventsPerCollection: successful ? rounded((row?.events ?? 0) / successful) : 0,
     };
   });
-  return { since, days, sources };
+  return {
+    since,
+    days,
+    coverage: {
+      requestedSince: since,
+      observedFrom: bounds?.observedFrom ?? null,
+      observedUntil: bounds?.observedUntil ?? null,
+      observedHours,
+    },
+    sources,
+  };
 }

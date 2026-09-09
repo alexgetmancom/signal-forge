@@ -22,13 +22,18 @@ An observation is not presented as a fact stronger than its source. A public bun
 `observed`, an official announcement is `supported`, a first-party catalogue is `confirmed`, and a
 published release is `shipped`. Every notification keeps the event's immutable before/after evidence.
 
+The notification policy also filters price noise. A pricing change is omitted when it is at most
+$0.01 per 1M tokens and below 10% of the model's price; the observation and before/after event stay
+in SQLite. Larger changes, or a smaller absolute change that materially changes a cheap model's
+price, remain visible.
+
 Example event:
 
 ```text
 🆕 New · OpenRouter
 GPT-5
 Provider: OpenAI
-Signal Forge · 08 Sep 02:00 UTC
+Signal Forge · availability catalogue · confirmed · 08 Sep 02:00 UTC
 ```
 
 ## How it works
@@ -60,7 +65,7 @@ quiet; later changes are compared against the stored record.
 ## Architecture
 
 `src/sources/registry.ts` owns source metadata and scheduler projections. Event canonicalization,
-diffing, interpretation, rendering, batching and persistence live in separate modules. Storage does
+diffing, interpretation, identity, rendering, batching and persistence live in separate modules. Storage does
 not know about Discord or Telegram, and collectors do not know about delivery. Versioned SQL files
 in `src/storage/migrations/` are checked for strict numbering in CI.
 
@@ -75,8 +80,10 @@ bun src/cli.ts deliveries-needing-verification
 ```
 
 Operational APIs require the bearer token. Ambiguous sends are never retried blindly; inspect the
-destination, then record a reconciliation attempt. Stories expose event IDs so an agent can fetch
-full evidence and prepare a separate publication draft without a code or database dependency.
+destination, then require manual delivery verification. Stories expose event IDs so an agent can fetch
+full evidence and prepare a separate publication draft without a code or database dependency. Story
+views also expose `canonicalId`, `identityStatus` and aliases. Arena codenames remain unresolved until
+another source supplies a canonical identity.
 
 Outstanding work is in [WORKING-NOTES.md](WORKING-NOTES.md).
 
@@ -88,8 +95,9 @@ Discord. Re-enabling it is one entry in `signal-forge.json`, which is why the co
 
 ## Deployment
 
-The production instance, LAN binding, backup, restore and operator commands live in the private
-[operator runbook](docs/runbook.md).
+The production instance, backup, restore and operator commands live in the
+[operator runbook](docs/runbook.md). Deployment-specific hosts, paths and credentials stay outside
+the repository.
 
 ## Boards
 
@@ -103,9 +111,11 @@ and Anthropic's own status pages say, with their open incidents. Vendors that do
 are absent on purpose: `status.x.ai` refuses its own API, and Google publishes a different document
 for the whole cloud.
 
-**Tracker status** (`statusChannelId`) is about us: every collector with a coloured dot, grouped, edited in place every five minutes. It is
-rewritten only when something actually changed, so the channel holds a board rather than a log, and
-deleting the message by hand makes the next cycle post a fresh one.
+**Tracker status** (`statusChannelId`) is about us: every collector with a coloured dot, grouped with
+its last successful observation, edited in place every five minutes. The board also shows delivery
+queue state and unavailable integrations. It is rewritten only when something actually changed, so
+the channel holds a board rather than a log, and deleting the message by hand makes the next cycle
+post a fresh one.
 
 A blocked source is not a broken one. `gemini` answers everywhere except the addresses this project
 can reach, so it shows as restricted with its cause instead of counting against the headline — a
@@ -128,7 +138,7 @@ Set `DISCORD_BOT_TOKEN` in `.env`. Configure destinations in `signal-forge.json`
   "pollSeconds": 300,
   "destinations": [
     {
-      "id": "discord-api-models",
+      "id": "discord-model-catalog",
       "platform": "discord",
       "channelId": "000000000000000000",
       "streams": ["api-models", "openrouter", "weights"]
@@ -160,7 +170,9 @@ with one manual `POST /channels/<id>/messages` before relying on it — a destin
 written to only shows up as a failed delivery later.
 Destinations receive future events only. The first source observation is quiet.
 
-Set `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` and `GEMINI_API_KEY` to enable their catalogs.
+API catalogue collectors are requested by default. Set `sourceEnabled` to `false` for a source that
+is intentionally disabled; a requested source without its credential is reported as `missing` and is
+not scheduled. Set `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` and `GEMINI_API_KEY` for their catalogues.
 Set `REPORT_BASE_URL` to the LAN origin used for full web-diff links.
 Set `GITHUB_TOKEN` to raise the GitHub request allowance from 60 to 5000 an hour. Listing requests
 are conditional, and a 304 costs no quota at all. Optional `github` entries accept
@@ -193,7 +205,7 @@ Full event evidence remains in the database even when a message excerpt is trunc
 For HTTP/MCP access, set `MCP_TOKEN` to at least 32 random characters and use
 `Authorization: Bearer <token>` with `/api/status`, `/api/events`, `/api/events/:id` or `/api/mcp`.
 MCP operations: `status`, `events`, `event`, `deliveries`, `issues`, `capabilities`,
-`deliveries_needing_verification`, `reconcile_delivery`, `signal_quality` and `stories`.
+`deliveries_needing_verification`, `require_delivery_verification`, `signal_quality` and `stories`.
 
 ## Local development
 

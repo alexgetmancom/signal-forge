@@ -1,6 +1,8 @@
 import type { Destination } from "../../config.js";
 import { sourceLabel } from "../../sources/labels.js";
 import { canonical } from "../canonical.js";
+import { evidenceLabel, evidenceTypeFor } from "../confidence.js";
+import { identityFor } from "../identity.js";
 import type { Event, RecordData } from "../types.js";
 import {
   collapseDetails,
@@ -62,6 +64,28 @@ export function renderEvent(
         ? `Enters ${describe(after.category)} at rank ${describe(after.rank)}`
         : `Enters ${describe(after.category)}, outside the leading places`,
     );
+    for (const [key, label] of [
+      ["score", "Score"],
+      ["modelKey", "Variant"],
+      ["votes", "Votes"],
+      ["sampledAt", "Sampled"],
+    ] as const)
+      if (after[key] !== undefined) lines.push(`${label}: ${describe(after[key])}`);
+  } else if (event.stream === "leaderboards" && before && after) {
+    if (canonical(before.category) !== canonical(after.category))
+      lines.push(`Benchmark: ${describe(before.category)} → ${describe(after.category)}`);
+    if (canonical(before.rank) !== canonical(after.rank)) {
+      if (before.rank !== undefined && after.rank !== undefined) lines.push(rankMove(before.rank, after.rank));
+      else lines.push(`Rank: ${describe(before.rank)} → ${describe(after.rank)}`);
+    }
+    for (const [key, label] of [
+      ["score", "Score"],
+      ["modelKey", "Variant"],
+      ["votes", "Votes"],
+      ["sampledAt", "Sampled"],
+    ] as const)
+      if (canonical(before[key]) !== canonical(after[key]))
+        lines.push(`${label}: ${describe(before[key])} → ${describe(after[key])}`);
   } else if (event.stream === "github") {
     if (record?.stage) lines.push(describe(record.stage));
     else if (event.source.endsWith(":commits")) lines.push("Repository change; not a release yet");
@@ -104,6 +128,14 @@ export function renderEvent(
       else lines.push(`${fieldLabels[key] ?? key}: ${describe(value)}`);
     }
   }
+  if (event.stream === "arena" || event.stream === "leaderboards") {
+    const identity = identityFor(event, record);
+    if (identity.status !== "canonical") {
+      lines.push(
+        `Identity: ${identity.status}${identity.aliases.length ? ` · aliases: ${identity.aliases.join(", ")}` : ""}`,
+      );
+    }
+  }
   lines.push(...collapseDetails(lines.splice(3)));
   const link =
     typeof record?.url === "string"
@@ -116,6 +148,7 @@ export function renderEvent(
   lines.push("", link);
   if (reportBaseUrl && event.stream === "web")
     lines.push(`Full report: ${reportBaseUrl.replace(/\/$/, "")}/reports/${event.id}`);
-  lines.push(`Signal Forge · ${time}`);
+  const evidenceType = event.evidence_type ?? evidenceTypeFor(event.source, event.stream);
+  lines.push(`Signal Forge · ${evidenceLabel(evidenceType)} · ${event.confidence ?? "observed"} · ${time}`);
   return lines.join("\n");
 }

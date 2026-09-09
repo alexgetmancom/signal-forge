@@ -38,7 +38,7 @@ export function prepareDeliveries(
       )
       .all(batch.id);
     const speaking = events.filter((event) => {
-      return event.kind !== "changed" || hasNotificationContent(event, event.url);
+      return hasNotificationContent(event, event.url);
     });
     if (!speaking.length) {
       db.query("UPDATE batches SET sealed=1 WHERE id=?").run(batch.id);
@@ -76,9 +76,14 @@ export function prepareDeliveries(
               ...new Set(
                 events
                   .filter(pingWorthy)
-                  .map((event) =>
-                    vendorOf(event, event.after_json ? (JSON.parse(event.after_json) as RecordData) : null),
-                  )
+                  .map((event) => {
+                    const record = event.after_json
+                      ? (JSON.parse(event.after_json) as RecordData)
+                      : event.before_json
+                        ? (JSON.parse(event.before_json) as RecordData)
+                        : null;
+                    return vendorOf(event, record);
+                  })
                   .map((vendor) => vendorRoles[vendor])
                   .filter((role): role is string => Boolean(role)),
               ),

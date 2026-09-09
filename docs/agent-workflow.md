@@ -9,9 +9,11 @@ project imports the other, reads the other's database, or stores the other's cre
 2. Fetch each linked event by ID and inspect its before/after evidence and source URL.
 3. Treat `observed`, `supported`, `confirmed` and `shipped` as source-derived metadata, not as a
    request to infer certainty from prose.
-4. Discard or flag stories whose evidence does not support a reader-facing claim.
-5. Prepare a draft in Solo Publisher using only the selected evidence and explicit editorial context.
-6. Leave publication, scheduling and any external send behind a separate explicit approval.
+4. Inspect `identityStatus`, `canonicalId` and aliases. Treat `codename`, `alias`, `unconfirmed` and
+   `unknown` as unresolved identity, not as an official model name.
+5. Discard or flag stories whose evidence does not support a reader-facing claim.
+6. Prepare a draft in Solo Publisher using only the selected evidence and explicit editorial context.
+7. Leave publication, scheduling and any external send behind a separate explicit approval.
 
 ## Draft handoff contract
 

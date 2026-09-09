@@ -1,4 +1,6 @@
 import type { Database } from "bun:sqlite";
+import { z } from "zod";
+import { type CapabilityReportEntry, capabilityReport } from "./capabilities.js";
 import type { AppConfig } from "./config.js";
 import type { Fetch } from "./http-client.js";
 import { log } from "./logger.js";
@@ -18,6 +20,8 @@ export type SourceHealth = {
   group: string;
   state: SourceState;
   detail: string;
+  lastSuccess: string | null;
+  checkedAt: string | null;
 };
 
 /** A source is late once it has missed three of its own intervals — one slow cycle is not news. */
@@ -25,16 +29,40 @@ export function sourceHealth(db: Database, config: AppConfig, now = Date.now()):
   return sourceJobs(db, config).map((job) => {
     const row = db
       .query<
-        { last_success: string | null; last_error: string | null; checked_at: string | null; retry_at: string | null },
+        {
+          last_success: string | null;
+          last_error: string | null;
+          checked_at: string | null;
+          retry_at: string | null;
+        },
         [string]
       >("SELECT last_success,last_error,checked_at,retry_at FROM sources WHERE id=?")
       .get(job.id);
     const group = job.group;
     const restriction = job.restrictedReason;
 
-    if (!row?.checked_at) return { id: job.id, label: job.label, group, state: "idle", detail: "no observation yet" };
+    if (!row?.checked_at)
+      return {
+        id: job.id,
+        label: job.label,
+        group,
+        state: "idle",
+        detail: "no observation yet",
+        lastSuccess: row?.last_success ?? null,
+        checkedAt: row?.checked_at ?? null,
+      };
+    const base = { lastSuccess: row.last_success, checkedAt: row.checked_at };
     if (row.last_error) {
-      if (restriction) return { id: job.id, label: job.label, group, state: "blocked", detail: restriction };
+      if (restriction) return { id: job.id, label: job.label, group, state: "blocked", detail: restriction, ...base };
+      if (/bot protection|captcha|challenge/i.test(row.last_error))
+        return {
+          id: job.id,
+          label: job.label,
+          group,
+          state: "blocked",
+          detail: "upstream bot protection — waiting for a readable status response",
+          ...base,
+        };
       if (/HTTP 429$/.test(row.last_error))
         return {
           id: job.id,
@@ -42,13 +70,14 @@ export function sourceHealth(db: Database, config: AppConfig, now = Date.now()):
           group,
           state: "blocked",
           detail: row.retry_at ? `rate limited — waiting until ${row.retry_at}` : "rate limited — backing off",
+          ...base,
         };
-      return { id: job.id, label: job.label, group, state: "failing", detail: row.last_error };
+      return { id: job.id, label: job.label, group, state: "failing", detail: row.last_error, ...base };
     }
     const since = row.last_success ? now - Date.parse(row.last_success) : Number.POSITIVE_INFINITY;
     if (since > job.interval * 3000)
-      return { id: job.id, label: job.label, group, state: "stale", detail: "no fresh observation" };
-    return { id: job.id, label: job.label, group, state: "ok", detail: "" };
+      return { id: job.id, label: job.label, group, state: "stale", detail: "no fresh observation", ...base };
+    return { id: job.id, label: job.label, group, state: "ok", detail: "", ...base };
   });
 }
 
@@ -61,8 +90,47 @@ const DOTS: Record<SourceState, string> = {
 };
 
 const COLORS = { ok: 0x2ecc71, degraded: 0xf1c40f, down: 0xe74c3c };
+const discordMessage = z.object({ id: z.string().regex(/^\d+$/) });
+const DISCORD_TIMEOUT_MS = 20_000;
 
-export function statusEmbed(health: SourceHealth[], now = Date.now()): Record<string, unknown> {
+export type DeliverySummary = {
+  pending: number;
+  sending: number;
+  sent: number;
+  failed: number;
+  ambiguous: number;
+  verification_required: number;
+};
+
+function utcStamp(value: string): string {
+  const iso = new Date(value).toISOString();
+  return `${iso.slice(0, 16).replace("T", " ")} UTC`;
+}
+
+function deliverySummary(db: Database): DeliverySummary {
+  const summary: DeliverySummary = {
+    pending: 0,
+    sending: 0,
+    sent: 0,
+    failed: 0,
+    ambiguous: 0,
+    verification_required: 0,
+  };
+  const rows = db
+    .query<{ status: string; count: number }, []>("SELECT status,COUNT(*) AS count FROM deliveries GROUP BY status")
+    .all();
+  for (const row of rows) {
+    if (Object.hasOwn(summary, row.status)) summary[row.status as keyof DeliverySummary] = row.count;
+  }
+  return summary;
+}
+
+export function statusEmbed(
+  health: SourceHealth[],
+  now = Date.now(),
+  delivery?: DeliverySummary,
+  capabilities?: CapabilityReportEntry[],
+): Record<string, unknown> {
   const failing = health.filter((entry) => entry.state === "failing" || entry.state === "stale");
   const blocked = health.filter((entry) => entry.state === "blocked");
   const headline =
@@ -75,11 +143,37 @@ export function statusEmbed(health: SourceHealth[], now = Date.now()): Record<st
     name: group,
     value: health
       .filter((entry) => entry.group === group)
-      .map((entry) => `${DOTS[entry.state]} ${entry.label}${entry.detail ? ` — ${entry.detail}` : ""}`)
+      .map((entry) => {
+        const last = entry.lastSuccess ? ` · last success ${utcStamp(entry.lastSuccess)}` : "";
+        return `${DOTS[entry.state]} ${entry.label}${entry.detail ? ` — ${entry.detail}` : ""}${last}`;
+      })
       .join("\n")
       .slice(0, 1024),
     inline: false,
   }));
+
+  if (delivery)
+    fields.push({
+      name: "Delivery",
+      value: [
+        `pending ${delivery.pending}`,
+        `sending ${delivery.sending}`,
+        `sent ${delivery.sent}`,
+        `failed ${delivery.failed}`,
+        `ambiguous ${delivery.ambiguous + delivery.verification_required}`,
+      ].join(" · "),
+      inline: false,
+    });
+  const unavailable = capabilities?.filter((entry) => entry.status !== "ready") ?? [];
+  if (unavailable.length)
+    fields.push({
+      name: "Integrations",
+      value: unavailable
+        .map((entry) => `${entry.status} · ${entry.id}`)
+        .join("\n")
+        .slice(0, 1024),
+      inline: false,
+    });
 
   return {
     title: "Tracker status",
@@ -108,7 +202,7 @@ export async function publishStatus(
     config,
     "status",
     config.statusChannelId,
-    statusEmbed(sourceHealth(db, config, now), now),
+    statusEmbed(sourceHealth(db, config, now), now, deliverySummary(db), capabilityReport(db, config)),
     request,
   );
 }
@@ -140,6 +234,8 @@ async function publishBoard(
     // matches, so nothing would ever be sent again.
     const present = await request(`https://discord.com/api/v10/channels/${channelId}/messages/${messageId.value}`, {
       headers: { Authorization: `Bot ${config.DISCORD_BOT_TOKEN}` },
+      signal: AbortSignal.timeout(DISCORD_TIMEOUT_MS),
+      redirect: "error",
     });
     await present.body?.cancel();
     if (present.ok) return "unchanged";
@@ -164,7 +260,13 @@ async function publishBoard(
   };
 
   if (messageId) {
-    const edited = await request(`${base}/${messageId.value}`, { method: "PATCH", headers, body: payload });
+    const edited = await request(`${base}/${messageId.value}`, {
+      method: "PATCH",
+      headers,
+      body: payload,
+      signal: AbortSignal.timeout(DISCORD_TIMEOUT_MS),
+      redirect: "error",
+    });
     if (edited.ok) {
       remember(messageId.value);
       return "edited";
@@ -176,13 +278,23 @@ async function publishBoard(
     }
   }
 
-  const created = await request(base, { method: "POST", headers, body: payload });
+  const created = await request(base, {
+    method: "POST",
+    headers,
+    body: payload,
+    signal: AbortSignal.timeout(DISCORD_TIMEOUT_MS),
+    redirect: "error",
+  });
   if (!created.ok) {
     log("warn", "Board post rejected", { board: key, status: created.status });
     return "unchanged";
   }
-  const body = (await created.json()) as { id?: unknown };
-  if (typeof body.id === "string") remember(body.id);
+  const parsed = discordMessage.safeParse(await created.json().catch(() => null));
+  if (!parsed.success) {
+    log("warn", "Board response invalid", { board: key });
+    return "unchanged";
+  }
+  remember(parsed.data.id);
   return "created";
 }
 
@@ -255,13 +367,13 @@ export function activityEmbed(db: Database, now = Date.now()): Record<string, un
     "SELECT COUNT(*) c FROM events WHERE detected_at > ? AND kind='removed' AND stream IN ('api-models','openrouter')",
     since,
   );
-  const prices = count(
+  const modelChanges = count(
     "SELECT COUNT(*) c FROM events WHERE detected_at > ? AND kind='changed' AND stream IN ('api-models','openrouter')",
     since,
   );
   const weights = count("SELECT COUNT(*) c FROM events WHERE detected_at > ? AND stream='weights'", since);
   const news = count("SELECT COUNT(*) c FROM events WHERE detected_at > ? AND stream='news'", since);
-  const codenames = count(
+  const arenaChanges = count(
     "SELECT COUNT(*) c FROM events WHERE detected_at > ? AND stream='arena' AND kind='changed'",
     since,
   );
@@ -269,8 +381,8 @@ export function activityEmbed(db: Database, now = Date.now()): Record<string, un
   const incidents = count("SELECT COUNT(*) c FROM events WHERE detected_at > ? AND stream='incidents'", since);
 
   const lines = [
-    `**${models}** new models · **${gone}** withdrawn · **${prices}** price and limit changes`,
-    `**${weights}** open-weight releases · **${codenames}** codenames resolved`,
+    `**${models}** new models · **${gone}** withdrawn · **${modelChanges}** catalogue changes`,
+    `**${weights}** open-weight releases · **${arenaChanges}** Arena changes`,
     `**${news}** announcements · **${retirements}** retirement updates · **${incidents}** platform incidents`,
   ];
   const headline = db

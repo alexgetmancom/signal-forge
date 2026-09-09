@@ -75,6 +75,27 @@ test("restart recovers in-flight sends as ambiguous", () => {
   recoverInterruptedDeliveries(db);
   expect(db.query("SELECT status FROM deliveries").all()).toEqual([{ status: "ambiguous" }, { status: "ambiguous" }]);
 });
+test("a later multipart part waits behind an ambiguous earlier part", async () => {
+  const local = openDatabase(":memory:");
+  const destination = { id: "dc", platform: "discord" as const, channelId: "123456", streams: ["news"] };
+  local.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'test',0,1)").run();
+  const insert = local.query(
+    "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,status,updated_at) VALUES(?,?,?,?,?,?,?,?)",
+  );
+  insert.run(1, 1, destination.id, JSON.stringify(destination), "part 0", 0, "ambiguous", 0);
+  insert.run(2, 1, destination.id, JSON.stringify(destination), "part 1", 1, "pending", 0);
+  let calls = 0;
+  await deliverPending(local, config, async () => {
+    calls++;
+    return Response.json({ id: "999" });
+  });
+  expect(calls).toBe(0);
+  expect(local.query("SELECT id,status FROM deliveries ORDER BY id").all()).toEqual([
+    { id: 1, status: "ambiguous" },
+    { id: 2, status: "pending" },
+  ]);
+  local.close();
+});
 test("permanent platform rejection fails one target without blocking another", async () => {
   queue();
   await deliverPending(db, config, async (url) =>

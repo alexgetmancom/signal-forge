@@ -34,20 +34,27 @@ test("source registry has unique IDs, valid streams, labels and consistent pacin
   db.close();
 });
 
-test("conditional sources are disabled without credentials and enabled with them", () => {
+test("conditional sources distinguish intentional disablement from missing credentials", () => {
   const disabledDb = openDatabase(":memory:");
-  const disabled = buildSourceRegistry(disabledDb, config());
+  const disabledConfig = config();
+  disabledConfig.sourceEnabled.openai = false;
+  const disabled = buildSourceRegistry(disabledDb, disabledConfig);
   expect(disabled.find((definition) => definition.id === "openai")?.enabled).toBe(false);
-  expect(sourceJobs(disabledDb, config()).some((job) => job.id === "openai")).toBe(false);
+  expect(sourceJobs(disabledDb, disabledConfig).some((job) => job.id === "openai")).toBe(false);
   disabledDb.close();
 
-  const enabledDb = openDatabase(":memory:");
-  const enabledConfig = config({ OPENAI_API_KEY: "test-key" });
-  expect(buildSourceRegistry(enabledDb, enabledConfig).find((definition) => definition.id === "openai")?.enabled).toBe(
+  const missingDb = openDatabase(":memory:");
+  const missingConfig = config();
+  expect(buildSourceRegistry(missingDb, missingConfig).find((definition) => definition.id === "openai")?.enabled).toBe(
     true,
   );
-  expect(sourceJobs(enabledDb, enabledConfig).some((job) => job.id === "openai")).toBe(true);
-  enabledDb.close();
+  expect(sourceJobs(missingDb, missingConfig).some((job) => job.id === "openai")).toBe(false);
+  missingDb.close();
+
+  const readyDb = openDatabase(":memory:");
+  const readyConfig = config({ OPENAI_API_KEY: "test-key" });
+  expect(sourceJobs(readyDb, readyConfig).some((job) => job.id === "openai")).toBe(true);
+  readyDb.close();
 });
 
 test("registry rejects duplicate IDs and conflicting pacing", () => {

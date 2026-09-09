@@ -1,6 +1,7 @@
 export * from "./events/batching.js";
 export * from "./events/canonical.js";
 export * from "./events/confidence.js";
+export * from "./events/identity.js";
 export * from "./events/interpretation.js";
 export * from "./events/notification.js";
 export * from "./events/pipeline.js";

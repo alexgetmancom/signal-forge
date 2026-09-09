@@ -88,6 +88,7 @@ test("an unversioned delivery-batch database upgrades from the production baseli
   expect(db.query("SELECT id,status FROM deliveries").all()).toEqual([{ id: 42, status: "sent" }]);
   expect(db.query("SELECT event_id FROM batch_events").all()).toEqual([{ event_id: 7 }]);
   expect(db.query("SELECT confidence FROM events WHERE id=7").get()).toEqual({ confidence: "observed" });
+  expect(db.query("SELECT evidence_type FROM events WHERE id=7").get()).toEqual({ evidence_type: "official_news" });
   expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
   db.close();
 });
@@ -125,6 +126,7 @@ test("migration preserves existing delivery IDs, outcomes and event evidence", (
       { before_json: null, after_json: "{}" },
     ]);
     expect(db.query("SELECT confidence FROM events WHERE id=7").get()).toEqual({ confidence: "observed" });
+    expect(db.query("SELECT evidence_type FROM events WHERE id=7").get()).toEqual({ evidence_type: "official_news" });
     expect(db.query("SELECT event_id FROM batch_events").all()).toEqual([{ event_id: 7 }]);
     expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
     expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: CURRENT_SCHEMA_VERSION });

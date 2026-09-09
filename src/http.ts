@@ -4,6 +4,8 @@ import { bodyLimit } from "hono/body-limit";
 import { z } from "zod";
 import { bearerTokenAccepted } from "./auth.js";
 import type { AppConfig } from "./config.js";
+import { evidenceLabel } from "./events/confidence.js";
+import type { EvidenceType } from "./events/types.js";
 import { operations } from "./operations.js";
 
 export function createHttpApp(config: AppConfig, db: Database): Hono {
@@ -27,9 +29,10 @@ export function createHttpApp(config: AppConfig, db: Database): Hono {
           before_json: string | null;
           after_json: string | null;
           detected_at: string;
+          evidence_type: EvidenceType;
         },
         [number]
-      >("SELECT id,source,entity_id,kind,before_json,after_json,detected_at FROM events WHERE id=?")
+      >("SELECT id,source,entity_id,kind,before_json,after_json,detected_at,evidence_type FROM events WHERE id=?")
       .get(id.data);
     if (!event) return c.text("Report not found\n", 404);
     const escapeHtml = (value: unknown) =>
@@ -40,7 +43,7 @@ export function createHttpApp(config: AppConfig, db: Database): Hono {
         .replaceAll('"', "&quot;");
     const pretty = (value: string | null) => (value ? JSON.stringify(JSON.parse(value), null, 2) : "—");
     return c.html(
-      `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Signal Forge · #${event.id}</title><style>body{font:16px system-ui;max-width:1100px;margin:40px auto;padding:0 20px;color:#17202a}h1{margin-bottom:4px}small{color:#667085}section{margin-top:28px}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f4f6f8;padding:18px;border-radius:10px}</style></head><body><h1>${escapeHtml(event.entity_id)}</h1><small>Signal Forge · ${escapeHtml(event.source)} · ${escapeHtml(event.kind)} · ${escapeHtml(event.detected_at)} · #${event.id}</small><section><h2>Before</h2><pre>${escapeHtml(pretty(event.before_json))}</pre></section><section><h2>After</h2><pre>${escapeHtml(pretty(event.after_json))}</pre></section></body></html>`,
+      `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Signal Forge · #${event.id}</title><style>body{font:16px system-ui;max-width:1100px;margin:40px auto;padding:0 20px;color:#17202a}h1{margin-bottom:4px}small{color:#667085}section{margin-top:28px}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f4f6f8;padding:18px;border-radius:10px}</style></head><body><h1>${escapeHtml(event.entity_id)}</h1><small>Signal Forge · ${escapeHtml(event.source)} · ${escapeHtml(event.kind)} · ${escapeHtml(event.detected_at)} · ${escapeHtml(evidenceLabel(event.evidence_type))} · #${event.id}</small><section><h2>Before</h2><pre>${escapeHtml(pretty(event.before_json))}</pre></section><section><h2>After</h2><pre>${escapeHtml(pretty(event.after_json))}</pre></section></body></html>`,
     );
   });
   app.use("/api/*", bodyLimit({ maxSize: 64 * 1024 }));
@@ -67,13 +70,13 @@ export function createHttpApp(config: AppConfig, db: Database): Hono {
     if (!limit.success) return c.json({ error: "Invalid limit" }, 400);
     return c.json(defs.deliveries_needing_verification.handler({ limit: limit.data }));
   });
-  app.post("/api/deliveries/:id/reconcile", (c) => {
+  app.post("/api/deliveries/:id/verification", (c) => {
     const id = z.coerce.number().int().positive().safeParse(c.req.param("id"));
     if (!id.success) return c.json({ error: "Invalid delivery ID" }, 400);
     try {
-      return c.json(defs.reconcile_delivery.handler({ id: id.data }));
+      return c.json(defs.require_delivery_verification.handler({ id: id.data }));
     } catch (error) {
-      return c.json({ error: error instanceof Error ? error.message : "Unable to reconcile delivery" }, 400);
+      return c.json({ error: error instanceof Error ? error.message : "Unable to require delivery verification" }, 400);
     }
   });
   app.get("/api/issues", (c) => c.json(defs.issues.handler({})));

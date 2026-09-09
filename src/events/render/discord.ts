@@ -1,3 +1,4 @@
+import { evidenceLabel, evidenceTypeFor } from "../confidence.js";
 import { vendorOf } from "../interpretation.js";
 import type { Event, RecordData } from "../types.js";
 import { renderEvent } from "./telegram.js";
@@ -57,5 +58,7 @@ export function eventEmbed(
     embed.fields = [
       { name: "Full report", value: `${reportBaseUrl.replace(/\/$/, "")}/reports/${event.id}`, inline: false },
     ];
+  const evidenceType = event.evidence_type ?? evidenceTypeFor(event.source, event.stream);
+  embed.footer = { text: `Evidence: ${evidenceLabel(evidenceType)} · Confidence: ${event.confidence ?? "observed"}` };
   return embed;
 }

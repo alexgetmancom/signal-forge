@@ -1,6 +1,36 @@
-import type { Confidence, Event } from "./types.js";
+import type { Confidence, Event, EvidenceType } from "./types.js";
 
 export const CONFIDENCE_LEVELS: readonly Confidence[] = ["observed", "supported", "confirmed", "shipped"];
+
+export const EVIDENCE_TYPES: readonly EvidenceType[] = [
+  "api_catalogue",
+  "availability_catalogue",
+  "official_news",
+  "arena_roster",
+  "leaderboard",
+  "web_diff",
+  "github_activity",
+  "package_release",
+  "open_weights",
+  "status_page",
+  "deprecation",
+  "unknown",
+];
+
+const evidenceLabels: Record<EvidenceType, string> = {
+  api_catalogue: "API catalogue",
+  availability_catalogue: "availability catalogue",
+  official_news: "official news",
+  arena_roster: "Arena roster",
+  leaderboard: "leaderboard",
+  web_diff: "web diff",
+  github_activity: "GitHub activity",
+  package_release: "package release",
+  open_weights: "open weights registry",
+  status_page: "status page",
+  deprecation: "deprecation notice",
+  unknown: "unknown evidence",
+};
 
 const rank: Record<Confidence, number> = {
   observed: 0,
@@ -20,6 +50,26 @@ export function confidenceFor(source: string, stream: string): Confidence {
   if (stream === "deprecations") return "confirmed";
   if (stream === "news") return "supported";
   return "observed";
+}
+
+/** Names the kind of primary evidence behind an event; this is a source contract, not a guess. */
+export function evidenceTypeFor(source: string, stream: string): EvidenceType {
+  if (source === "openrouter" || stream === "openrouter") return "availability_catalogue";
+  if (stream === "api-models") return "api_catalogue";
+  if (stream === "news") return "official_news";
+  if (stream === "arena") return "arena_roster";
+  if (stream === "leaderboards") return "leaderboard";
+  if (stream === "web") return "web_diff";
+  if (stream === "github") return "github_activity";
+  if (stream === "packages") return "package_release";
+  if (stream === "weights") return "open_weights";
+  if (stream === "incidents") return "status_page";
+  if (stream === "deprecations") return "deprecation";
+  return "unknown";
+}
+
+export function evidenceLabel(type: EvidenceType): string {
+  return evidenceLabels[type];
 }
 
 export function strongerConfidence(left: Confidence, right: Confidence): Confidence {

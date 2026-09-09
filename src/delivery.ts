@@ -31,7 +31,7 @@ export async function deliverPending(db: Database, config: AppConfig, request: F
     const job = db
       .query<Job, [number, number]>(`UPDATE deliveries SET status='sending',attempts=attempts+1,updated_at=?
       WHERE id=(SELECT d.id FROM deliveries d WHERE d.status='pending' AND d.next_attempt<=?
-        AND NOT EXISTS(SELECT 1 FROM deliveries earlier WHERE earlier.destination_id=d.destination_id AND earlier.id<d.id AND earlier.status IN ('pending','sending'))
+        AND NOT EXISTS(SELECT 1 FROM deliveries earlier WHERE earlier.destination_id=d.destination_id AND earlier.id<d.id AND earlier.status<>'sent')
         ORDER BY d.id LIMIT 1) AND status='pending' RETURNING id,destination_json,body,attempts`)
       .get(now, now);
     if (!job) return;

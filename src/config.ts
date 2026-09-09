@@ -48,6 +48,8 @@ const envSchema = z.object({
 export const settingsSchema = z
   .object({
     pollSeconds: z.number().int().min(60).default(300),
+    /** Optional collectors are requested by default; set a source to false to disable it deliberately. */
+    sourceEnabled: z.record(z.string(), z.boolean()).default({}),
     destinations: z.array(destinationSchema).default([]),
     /** One Discord channel holding a status board that is edited in place, not a stream of posts. */
     statusChannelId: z.string().regex(/^\d+$/).optional(),

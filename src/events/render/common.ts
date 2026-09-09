@@ -20,6 +20,13 @@ export const fieldLabels: Record<string, string> = {
   association: "Repository association",
   owner: "Owner",
   category: "Category",
+  modelKey: "Variant",
+  score: "Score",
+  scoreUpper: "Score upper bound",
+  scoreLower: "Score lower bound",
+  votes: "Votes",
+  sampledAt: "Sampled",
+  license: "License",
   methods: "Methods",
   inputTokenLimit: "Input token limit",
   outputTokenLimit: "Output token limit",
@@ -51,6 +58,21 @@ export function meaningfulWebString(value: string): boolean {
   );
 }
 
+/** A small catalogue price drift is evidence, but not subscriber-facing news. */
+export const MIN_PRICE_CHANGE_PER_MILLION = 0.01;
+export const MIN_PRICE_CHANGE_RATIO = 0.1;
+
+function significantPriceChange(before: unknown, after: unknown): boolean {
+  if (before === null || before === undefined || after === null || after === undefined) return true;
+  const from = Number(before);
+  const to = Number(after);
+  if (!Number.isFinite(from) || !Number.isFinite(to) || from < 0 || to < 0) return true;
+  const delta = Number((Math.abs(from - to) * 1_000_000).toFixed(2));
+  if (delta > MIN_PRICE_CHANGE_PER_MILLION) return true;
+  const base = Math.max(Math.abs(from), Math.abs(to));
+  return base > 0 && delta / (base * 1_000_000) >= MIN_PRICE_CHANGE_RATIO;
+}
+
 export function rankMove(before: unknown, after: unknown): string {
   const from = Number(before);
   const to = Number(after);
@@ -80,6 +102,7 @@ export function prices(before: unknown, after: unknown): string[] {
   for (const key of new Set([...Object.keys(old), ...Object.keys(next)])) {
     if (canonical(old[key]) === canonical(next[key])) continue;
     if (labels[key]) {
+      if (!significantPriceChange(old[key], next[key])) continue;
       const from = money(old[key]);
       const to = money(next[key]);
       if (before && from === to) continue;

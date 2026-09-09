@@ -11,10 +11,12 @@ import { startIntervalWorker } from "./runtime/worker.js";
 import { publishActivityBoard, publishPlatformBoard, publishStatus } from "./status.js";
 import { openDatabase } from "./storage/database.js";
 import { HttpCache } from "./storage/httpCache.js";
+import { rebuildStories } from "./stories.js";
 
 const config = loadConfig();
 configureLogger(config.NODE_ENV === "production");
 const db = openDatabase(config.DATABASE_URL);
+db.transaction(() => rebuildStories(db))();
 recordRuntimeStart(db);
 recoverInterruptedDeliveries(db);
 const server = Bun.serve({ hostname: config.BIND_HOST, port: config.PORT, fetch: createHttpApp(config, db).fetch });

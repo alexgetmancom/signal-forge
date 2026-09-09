@@ -32,12 +32,20 @@ test("leaderboard keeps rank for the leading places and drops it below them", ()
     arenaSlug: "text",
     leaderboardSlug: "overall",
     entries: [
-      { modelKey: "a", modelDisplayName: "A", modelOrganization: "Maker", rank: 1 },
+      {
+        modelKey: "a",
+        modelDisplayName: "A",
+        modelOrganization: "Maker",
+        rank: 1,
+        rating: 1400.25,
+        votes: 123,
+        modelUrl: "https://example.test/model",
+      },
       { modelKey: "z", modelDisplayName: "Z", modelOrganization: "Maker", rank: 44 },
     ],
   };
   const parsed = parseLeaderboards(nextPage({ leaderboards: [board] }));
-  expect(parsed.records[0]).toMatchObject({ id: "text:overall:a", rank: 1 });
+  expect(parsed.records[0]).toMatchObject({ id: "text:overall:a", rank: 1, score: 1400.25, votes: 123, modelKey: "a" });
   // Deep in a board the order churns daily; storing it would buy events and no news.
   expect(parsed.records[1]).not.toHaveProperty("rank");
 });

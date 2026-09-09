@@ -35,6 +35,7 @@ export type SourceDefinition = {
   group: string;
   stream: Stream;
   intervalSeconds: number;
+  capabilityId?: string;
   requiredCapabilities?: readonly string[];
   pace?: { group: string; seconds: number };
   collector: () => Promise<Collection>;
@@ -55,6 +56,7 @@ export type SourceJob = SourceDefinition & {
  */
 export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefinition[] {
   const cache = new HttpCache(db);
+  const requested = (id: string): boolean => config.sourceEnabled[id] ?? true;
   const definitions: SourceDefinition[] = [
     {
       id: "openrouter",
@@ -240,9 +242,10 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       group: "Catalogues",
       stream: "api-models",
       intervalSeconds: config.pollSeconds,
+      capabilityId: "openai",
       requiredCapabilities: ["OPENAI_API_KEY"],
       collector: () => collectOpenAI(config),
-      enabled: Boolean(config.OPENAI_API_KEY),
+      enabled: requested("openai"),
     },
     {
       id: "anthropic",
@@ -251,9 +254,10 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       group: "Catalogues",
       stream: "api-models",
       intervalSeconds: config.pollSeconds,
+      capabilityId: "anthropic",
       requiredCapabilities: ["ANTHROPIC_API_KEY"],
       collector: () => collectAnthropic(config),
-      enabled: Boolean(config.ANTHROPIC_API_KEY),
+      enabled: requested("anthropic"),
     },
     {
       id: "gemini",
@@ -262,9 +266,10 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       group: "Catalogues",
       stream: "api-models",
       intervalSeconds: config.pollSeconds,
+      capabilityId: "gemini",
       requiredCapabilities: ["GEMINI_API_KEY"],
       collector: () => collectGemini(config),
-      enabled: Boolean(config.GEMINI_API_KEY),
+      enabled: requested("gemini"),
       restrictedReason: "upstream is not serving this feed to us — no data reaching the collector",
     },
   ];
@@ -329,6 +334,11 @@ export function validateSourceRegistry(definitions: readonly SourceDefinition[])
 /** Scheduler projection: all operational metadata still comes from buildSourceRegistry. */
 export function sourceJobs(db: Database, config: AppConfig): SourceJob[] {
   return buildSourceRegistry(db, config)
-    .filter((definition) => definition.enabled)
+    .filter((definition) => definition.enabled && sourceRequirementsReady(definition, config))
     .map((definition) => ({ ...definition, interval: definition.intervalSeconds, run: definition.collector }));
+}
+
+export function sourceRequirementsReady(definition: SourceDefinition, config: AppConfig): boolean {
+  const values = config as unknown as Record<string, unknown>;
+  return (definition.requiredCapabilities ?? []).every((name) => Boolean(values[name]));
 }

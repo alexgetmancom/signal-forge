@@ -2,6 +2,20 @@ export type RecordData = { id: string; name: string; [key: string]: unknown };
 
 export type Confidence = "observed" | "supported" | "confirmed" | "shipped";
 
+export type EvidenceType =
+  | "api_catalogue"
+  | "availability_catalogue"
+  | "official_news"
+  | "arena_roster"
+  | "leaderboard"
+  | "web_diff"
+  | "github_activity"
+  | "package_release"
+  | "open_weights"
+  | "status_page"
+  | "deprecation"
+  | "unknown";
+
 export type Collection = {
   source: string;
   stream: string;
@@ -24,4 +38,5 @@ export type Event = {
   after_json: string | null;
   detected_at: string;
   confidence?: Confidence;
+  evidence_type?: EvidenceType;
 };

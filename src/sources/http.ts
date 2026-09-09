@@ -40,7 +40,7 @@ async function attempt(url: string, request: Fetch, init: RequestInit): Promise<
   let last: unknown;
   for (let index = 0; ; index++) {
     try {
-      const response = await request(url, init);
+      const response = await request(url, { ...init, signal: AbortSignal.timeout(30_000) });
       // 429 is deliberately absent: it is the server saying "too many", and answering that with
       // another request three seconds later is the opposite of what it asked for. The per-source
       // backoff handles it by asking later instead.
@@ -80,7 +80,6 @@ export async function fetchText(
   for (let hop = 0; hop < 4; hop++) {
     response = await attempt(url, request, {
       headers: { "User-Agent": "SignalForge/0.1", ...conditional, ...headers },
-      signal: AbortSignal.timeout(30_000),
       redirect: "manual",
       ...(send ? { method: send.method, body: send.body } : {}),
     });

@@ -9,15 +9,21 @@ set -euo pipefail
 
 DIR=${SIGNAL_FORGE_DIR:-/opt/signal-forge}
 KEEP=${SIGNAL_FORGE_BACKUP_KEEP:-14}
+MEMORY=${SIGNAL_FORGE_BACKUP_MEMORY:-2g}
+IMAGE=${SIGNAL_FORGE_BACKUP_IMAGE:-signal-forge:latest}
 DEST="$DIR/backups"
 STAMP=$(date +%Y%m%d-%H%M%S)
+
+# VACUUM INTO and verification both materialize SQLite pages. The application limit is deliberately
+# lower; the backup job gets its own explicit budget so a large database does not die at the limit.
+RUN=(docker run --rm --network none --memory "$MEMORY" -v "$DIR/data:/app/data" -v "$DEST:/app/backups" "$IMAGE")
 
 mkdir -p "$DEST"
 cd "$DIR"
 
 # A one-off container rather than `exec`: `exec` needs the service running, so a backup taken
 # while the collector is stopped for a migration — the moment a backup matters most — did nothing.
-docker compose run --rm --no-deps -T app bun -e "
+"${RUN[@]}" bun -e "
   const { Database } = require('bun:sqlite');
   const db = new Database('/app/data/app.db', { readonly: true });
   db.exec(\"VACUUM INTO '/app/data/backup-$STAMP.db'\");
@@ -27,7 +33,7 @@ mv "$DIR/data/backup-$STAMP.db" "$DEST/app-$STAMP.db"
 gzip -f "$DEST/app-$STAMP.db"
 
 # A backup that cannot be opened is not a backup: read it back before trusting it.
-docker compose run --rm --no-deps -T app bun -e "
+"${RUN[@]}" bun -e "
   const { Database } = require('bun:sqlite');
   const { gunzipSync } = require('node:zlib');
   const { readFileSync, writeFileSync, unlinkSync } = require('node:fs');

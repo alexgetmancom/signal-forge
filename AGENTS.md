@@ -20,20 +20,19 @@ Never interpret a failed or malformed collection as an empty catalog.
 
 # Boundaries
 
-This service runs on `vm106` in `/opt/signal-forge` and nowhere else. Its blast radius stops there.
+This service is intentionally LAN-only. Never expose it to the public internet, add a public
+listener, or publish deployment credentials. Keep production hostnames, addresses, filesystem
+paths, network topology and private operator notes out of public documentation and logs.
 
-Never expose any part of it to the public internet. Reports and the API are LAN-only, bound to
-`192.168.10.106`, and that binding is not an oversight to be improved.
-
-Never touch another host. Not `tw-nl`, not `home-101`, not the Proxmox host — no Caddy or nginx
-config, no DNS, no firewall, no `authorized_keys`, no routing, no Momo, no AWG or WARP. A change
-that needs another machine is a change that needs the owner first.
+Never touch another host or change routing, DNS, firewall, SSH access or proxy configuration unless
+the owner explicitly asks for that exact change. A change that needs another machine is a change
+that needs the owner first.
 
 Never create a systemd unit, a reverse SSH tunnel, a cron entry or anything else that survives a
 reboot and that the owner did not ask for.
 
-Publishing is outbound only. Reports reach the public through Solo Publisher's `/api/mcp` over
-HTTPS with a bearer token — an outgoing request from this machine. Nothing listens for the outside,
+Publishing is outbound only. Reports reach the public through the configured publisher over HTTPS
+with a bearer token — an outgoing request from this machine. Nothing listens for the outside,
 nothing is proxied inward, no port is forwarded.
 
 Stop and ask before anything the public can reach, anything that costs money, and anything that

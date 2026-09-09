@@ -1,4 +1,9 @@
 {
   "pollSeconds": 300,
+  "sourceEnabled": {
+    "openai": true,
+    "anthropic": true,
+    "gemini": true
+  },
   "destinations": []
 }

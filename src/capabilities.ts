@@ -32,9 +32,10 @@ export function capabilityReport(db: Database, config: AppConfig): CapabilityRep
     states.set(id, state);
   };
 
-  for (const definition of buildSourceRegistry(db, config))
-    for (const capability of definition.requiredCapabilities ?? [])
-      add(capability, [capability], definition.enabled, definition.id);
+  for (const definition of buildSourceRegistry(db, config)) {
+    const required = definition.requiredCapabilities ?? [];
+    if (required.length) add(definition.capabilityId ?? definition.id, required, definition.enabled, definition.id);
+  }
 
   const telegramEnabled = config.destinations.some((destination) => destination.platform === "telegram");
   const discordEnabled = config.destinations.some((destination) => destination.platform === "discord");

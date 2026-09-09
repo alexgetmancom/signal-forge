@@ -2,8 +2,8 @@ import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import { capabilityReport } from "./capabilities.js";
 import type { AppConfig } from "./config.js";
+import { requireDeliveryVerification } from "./deliveryVerification.js";
 import { listActionableIssues } from "./issues.js";
-import { reconcileDelivery } from "./reconciliation.js";
 import { signalQuality } from "./signalQuality.js";
 import { sourceJobs } from "./sources/registry.js";
 import { listStories } from "./stories.js";
@@ -53,7 +53,9 @@ export function operations(db: Database, config: AppConfig) {
       schema: z.object({ limit: z.number().int().min(1).max(100).default(20) }),
       handler: (input: { limit: number }) =>
         db
-          .query("SELECT id,source,stream,entity_id,kind,confidence,detected_at FROM events ORDER BY id DESC LIMIT ?")
+          .query(
+            "SELECT id,source,stream,entity_id,kind,confidence,evidence_type,detected_at FROM events ORDER BY id DESC LIMIT ?",
+          )
           .all(input.limit),
     },
     event: {
@@ -67,7 +69,7 @@ export function operations(db: Database, config: AppConfig) {
       handler: (input: { limit: number }) =>
         db
           .query(
-            "SELECT id,batch_id,destination_id,status,attempts,external_id,error,confirmation_source,verified_at,reconcile_attempts,last_reconcile_error FROM deliveries ORDER BY id DESC LIMIT ?",
+            "SELECT id,batch_id,destination_id,status,attempts,external_id,error,verification_source,verified_at,verification_attempts,last_verification_error FROM deliveries ORDER BY id DESC LIMIT ?",
           )
           .all(input.limit),
     },
@@ -77,14 +79,14 @@ export function operations(db: Database, config: AppConfig) {
       handler: (input: { limit: number }) =>
         db
           .query(
-            "SELECT id,batch_id,destination_id,status,attempts,external_id,error,reconcile_attempts,last_reconcile_error FROM deliveries WHERE status IN ('ambiguous','verification_required') ORDER BY id DESC LIMIT ?",
+            "SELECT id,batch_id,destination_id,status,attempts,external_id,error,verification_attempts,last_verification_error FROM deliveries WHERE status IN ('ambiguous','verification_required') ORDER BY id DESC LIMIT ?",
           )
           .all(input.limit),
     },
-    reconcile_delivery: {
-      description: "Record a reconciliation attempt for one ambiguous delivery; this never sends a second message.",
+    require_delivery_verification: {
+      description: "Mark one ambiguous delivery for manual verification; this never sends a second message.",
       schema: z.object({ id: z.number().int().positive() }),
-      handler: (input: { id: number }) => reconcileDelivery(db, input.id),
+      handler: (input: { id: number }) => requireDeliveryVerification(db, input.id),
     },
     signal_quality: {
       description: "Source collection, event, delivery and suppression metrics for an operator-selected period.",
@@ -92,7 +94,8 @@ export function operations(db: Database, config: AppConfig) {
       handler: (input: { days: number }) => signalQuality(db, config, input.days),
     },
     stories: {
-      description: "Deterministically correlated event stories with confidence and immutable evidence IDs.",
+      description:
+        "Deterministically correlated event stories with confidence, identity state, aliases and immutable evidence IDs.",
       schema: z.object({
         since: z.string().datetime({ offset: true }).optional(),
         minConfidence: z.enum(["observed", "supported", "confirmed", "shipped"]).default("observed"),

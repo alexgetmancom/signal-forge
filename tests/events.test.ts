@@ -4,7 +4,9 @@ import {
   type Collection,
   canonical,
   collapseDetails,
+  type Event,
   eventEmbed,
+  hasNotificationContent,
   isRoutine,
   MAX_DETAIL_LINES,
   prepareDeliveries,
@@ -214,6 +216,25 @@ test("timestamps let each platform speak its reader's clock", () => {
   expect(renderEvent(event, "https://example.com", undefined, "telegram")).toContain("08 Sep 14:06 UTC");
 });
 
+test("notifications expose source confidence", () => {
+  const event = {
+    id: 8,
+    source: "openai",
+    stream: "api-models",
+    entity_id: "gpt-6",
+    kind: "new" as const,
+    before_json: null,
+    after_json: JSON.stringify({ id: "gpt-6", name: "GPT-6" }),
+    detected_at: "2026-09-08T14:06:00.000Z",
+    confidence: "confirmed" as const,
+    evidence_type: "api_catalogue" as const,
+  };
+  expect(renderEvent(event, "https://example.com")).toContain("Signal Forge · API catalogue · confirmed ·");
+  expect(eventEmbed(event, "https://example.com")).toMatchObject({
+    footer: { text: "Evidence: API catalogue · Confidence: confirmed" },
+  });
+});
+
 test("a rank change reads as a movement, not as two numbers", async () => {
   const { rankMove } = await import("../src/events.js");
   expect(rankMove(7, 5)).toBe("Rank 5 🔼 2 (was 7)");
@@ -343,6 +364,57 @@ test("entering a board is a sentence, waits for the digest, and pings nobody", (
   expect(isRoutine(event)).toBe(true);
 });
 
+test("leaderboard notifications keep top-five entries and meaningful movements only", () => {
+  const event = (kind: "new" | "changed" | "removed", before: unknown, after: unknown) =>
+    ({
+      id: 116,
+      source: "arena-leaderboards",
+      stream: "leaderboards",
+      entity_id: "website:overall:model",
+      kind,
+      before_json: before === null ? null : JSON.stringify(before),
+      after_json: after === null ? null : JSON.stringify(after),
+      detected_at: "2026-09-08T19:27:00.000Z",
+    }) as const;
+  expect(hasNotificationContent(event("new", null, { id: "m", name: "M", rank: 5 }), "https://example.test")).toBe(
+    true,
+  );
+  expect(hasNotificationContent(event("new", null, { id: "m", name: "M", rank: 6 }), "https://example.test")).toBe(
+    false,
+  );
+  expect(
+    hasNotificationContent(
+      event("changed", { id: "m", name: "M", rank: 12 }, { id: "m", name: "M", rank: 13 }),
+      "https://example.test",
+    ),
+  ).toBe(false);
+  expect(
+    hasNotificationContent(
+      event("changed", { id: "m", name: "M", rank: 12 }, { id: "m", name: "M", rank: 8 }),
+      "https://example.test",
+    ),
+  ).toBe(true);
+});
+
+test("removed models use before evidence for vendor role mentions", () => {
+  const local = openDatabase(":memory:");
+  const destination: Destination = { id: "d", platform: "discord", channelId: "1", streams: ["openrouter"] };
+  const other = { id: "other/model", name: "Other" };
+  const records = [{ id: "openai/gpt-6", name: "GPT-6", maker: "OpenAI" }, other];
+  const collection = { source: "openrouter", stream: "openrouter", url: "https://openrouter.ai", raw: [], records };
+  saveCollection(local, collection, [destination], "2026-09-08T10:00:00.000Z", undefined, { OpenAI: "111" });
+  collection.records = [other];
+  saveCollection(local, collection, [destination], "2026-09-08T10:05:00.000Z", undefined, { OpenAI: "111" });
+  saveCollection(local, collection, [destination], "2026-09-08T10:10:00.000Z", undefined, { OpenAI: "111" });
+  const event = local.query("SELECT * FROM events WHERE kind='removed'").get() as Event;
+  expect(hasNotificationContent(event, "https://openrouter.ai")).toBe(true);
+  const body = local.query<{ body: string }, []>("SELECT body FROM deliveries").get()?.body ?? "";
+  const payload = JSON.parse(body) as { content: string; allowed_mentions?: { roles?: string[] } };
+  expect(payload.content).toContain("<@&111>");
+  expect(payload.allowed_mentions?.roles).toEqual(["111"]);
+  local.close();
+});
+
 test("a price that rounds away produces no message at all", () => {
   const db = openDatabase(":memory:");
   const destination: Destination = { id: "d", platform: "discord", channelId: "1", streams: ["openrouter"] };
@@ -366,6 +438,35 @@ test("a price that rounds away produces no message at all", () => {
   expect(db.query<{ c: number }, []>("SELECT COUNT(*) c FROM deliveries").get()?.c).toBe(0);
   // The observation is still recorded; it simply is not worth a message.
   expect(db.query<{ c: number }, []>("SELECT COUNT(*) c FROM events WHERE kind='changed'").get()?.c).toBe(1);
+});
+
+test("catalogue ignores sub-cent drift but keeps meaningful cheap-model changes", () => {
+  const small = {
+    id: "deepseek/v4-pro",
+    name: "DeepSeek V4 Pro",
+    pricing: { prompt: "0.00000096", completion: "0.00000018", input_cache_read: "0.00000008" },
+  };
+  const smallAfter = {
+    ...small,
+    pricing: { prompt: "0.00000095", completion: "0.00000017", input_cache_read: "0.000000079" },
+  };
+  const makeEvent = (before: RecordData, after: RecordData): Event => ({
+    id: 1,
+    source: "openrouter",
+    stream: "openrouter",
+    entity_id: String(before.id),
+    kind: "changed",
+    before_json: JSON.stringify(before),
+    after_json: JSON.stringify(after),
+    detected_at: "2026-09-08T10:00:00.000Z",
+  });
+  const smallEvent = makeEvent(small, smallAfter);
+  expect(hasNotificationContent(smallEvent, "https://openrouter.ai")).toBe(false);
+
+  const meaningfulAfter = { ...small, pricing: { ...small.pricing, prompt: "0.00000109" } };
+  const meaningfulEvent = makeEvent(small, meaningfulAfter);
+  expect(hasNotificationContent(meaningfulEvent, "https://openrouter.ai")).toBe(true);
+  expect(renderEvent(meaningfulEvent, "https://openrouter.ai")).toContain("Input: $0.96 → $1.09 / 1M tokens");
 });
 
 test("a failing source is asked less often, and a healthy one keeps its interval", async () => {

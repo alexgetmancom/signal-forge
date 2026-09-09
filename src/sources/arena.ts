@@ -72,22 +72,51 @@ export function parseArena(html: string): Collection {
 export async function collectArena(request: Fetch = fetch): Promise<Collection> {
   return parseArena(await fetchText("https://arena.ai", {}, request));
 }
-const boards = z
-  .array(
+const leaderboardBoard = z.object({
+  arenaSlug: z.string(),
+  leaderboardSlug: z.string(),
+  voteCutoffISOString: z.string().datetime({ offset: true }).nullish(),
+  entries: z.array(
     z.object({
-      arenaSlug: z.string(),
-      leaderboardSlug: z.string(),
-      entries: z.array(
-        z.object({
-          modelKey: z.string(),
-          modelDisplayName: z.string(),
-          modelOrganization: z.string().nullable(),
-          rank: z.number(),
-        }),
-      ),
+      modelKey: z.string(),
+      modelDisplayName: z.string(),
+      modelOrganization: z.string().nullable(),
+      rank: z.number(),
+      rating: z.number().nullish(),
+      ratingUpper: z.number().nullish(),
+      ratingLower: z.number().nullish(),
+      votes: z.number().int().nonnegative().nullish(),
+      modelUrl: z.string().url().nullish(),
+      license: z.string().nullish(),
     }),
-  )
-  .min(1);
+  ),
+});
+const boards = z.array(leaderboardBoard).min(1);
+type LeaderboardBoard = z.infer<typeof leaderboardBoard>;
+
+function recordsFromBoards(data: LeaderboardBoard[]): Collection["records"] {
+  return data.flatMap((b) =>
+    b.entries.map((m) => ({
+      id: `${b.arenaSlug}:${b.leaderboardSlug}:${m.modelKey}`,
+      name: m.modelDisplayName,
+      category: `${b.arenaSlug}/${b.leaderboardSlug}`,
+      modelKey: m.modelKey,
+      ...(m.rank <= RANKED_PLACES ? { rank: m.rank } : {}),
+      ...(m.rating !== null && m.rating !== undefined ? { score: m.rating } : {}),
+      ...(m.ratingUpper !== null && m.ratingUpper !== undefined ? { scoreUpper: m.ratingUpper } : {}),
+      ...(m.ratingLower !== null && m.ratingLower !== undefined ? { scoreLower: m.ratingLower } : {}),
+      ...(m.votes !== null && m.votes !== undefined ? { votes: m.votes } : {}),
+      ...(m.modelUrl ? { url: m.modelUrl } : {}),
+      ...(m.license ? { license: m.license } : {}),
+      ...(b.voteCutoffISOString ? { sampledAt: b.voteCutoffISOString } : {}),
+      maker: m.modelOrganization,
+    })),
+  );
+}
+
+export function leaderboardRecordsFromRaw(raw: unknown): Collection["records"] {
+  return recordsFromBoards(boards.parse(raw));
+}
 /** How far down a board a movement is still worth a message. */
 const RANKED_PLACES = 20;
 
@@ -107,15 +136,7 @@ export function parseLeaderboards(html: string): Collection {
     // reports it, so storing those numbers would buy a stream of events and no news. Entering or
     // leaving the leading places still shows up, because the rank appears or disappears.
     trackChanges: true,
-    records: data.flatMap((b) =>
-      b.entries.map((m) => ({
-        id: `${b.arenaSlug}:${b.leaderboardSlug}:${m.modelKey}`,
-        name: m.modelDisplayName,
-        category: `${b.arenaSlug}/${b.leaderboardSlug}`,
-        maker: m.modelOrganization,
-        ...(m.rank <= RANKED_PLACES ? { rank: m.rank } : {}),
-      })),
-    ),
+    records: recordsFromBoards(data),
   };
 }
 export async function collectLeaderboards(request: Fetch = fetch): Promise<Collection> {

@@ -11,8 +11,15 @@ test("capabilities distinguish disabled integrations from missing credentials", 
   const db = openDatabase(":memory:");
   const config = loadConfig({ CONFIG_PATH: configPath });
   const destination: Destination = { id: "tg", platform: "telegram", chatId: "-100", streams: ["news"] };
-  const report = capabilityReport(db, { ...config, destinations: [destination] });
-  expect(report.find((entry) => entry.id === "OPENAI_API_KEY")).toMatchObject({ status: "disabled" });
+  const report = capabilityReport(db, {
+    ...config,
+    sourceEnabled: { openai: false },
+    destinations: [destination],
+  });
+  expect(report.find((entry) => entry.id === "openai")).toMatchObject({ status: "disabled" });
+  expect(capabilityReport(db, { ...config, destinations: [] }).find((entry) => entry.id === "openai")).toMatchObject({
+    status: "missing",
+  });
   expect(report.find((entry) => entry.id === "telegram")).toMatchObject({ status: "missing", missingCount: 1 });
   expect(JSON.stringify(report)).not.toContain("fake");
   db.close();

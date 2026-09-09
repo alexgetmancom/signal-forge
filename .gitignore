@@ -6,6 +6,11 @@ data/
 *.db
 *.db-shm
 *.db-wal
+.DS_Store
+Screenshots/
+dev-mode-analysis.md
+lumina-analysis.md
+ragtag-analysis.md
 
 signal-forge.json
 backups/

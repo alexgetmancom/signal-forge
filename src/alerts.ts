@@ -96,11 +96,14 @@ export async function publishAlerts(
     method: "POST",
     headers: { "content-type": "application/json", Authorization: `Bot ${config.DISCORD_BOT_TOKEN}` },
     body: JSON.stringify({ embeds: [embed], allowed_mentions: { parse: [] } }),
+    signal: AbortSignal.timeout(20_000),
+    redirect: "error",
   });
   if (!response.ok) {
     // Leaving the stored set untouched means the next cycle tries again rather than losing the
     // transition; an alert that cannot be delivered must not be silently forgotten.
     log("warn", "Alert rejected", { status: response.status });
+    await response.body?.cancel();
     return outcome;
   }
   await response.body?.cancel();

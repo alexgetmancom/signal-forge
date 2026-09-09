@@ -1,53 +1,54 @@
 # Signal Forge operator runbook
 
-This file contains deployment details for the single production instance. It is intentionally kept
-out of the public-facing README.
+This runbook describes the operational contract without naming the deployment host, address or
+filesystem layout. Those values belong in the operator's deployment environment, never in the
+repository or a public report.
 
-## Production
+## Deploy and health
 
-One instance runs on `vm106` in `/opt/signal-forge`. SQLite is in `data/app.db`.
-HTTP reports are available on the home LAN at `http://192.168.10.106:18081`; operational APIs still require the bearer token. Do not start a second production collector.
-
-Local `.env` and `signal-forge.json` are the deployment configuration. Deploy through:
+Run deployment from an authorized operator checkout:
 
 ```sh
 ./scripts/deploy.sh
-ssh vm106 'cd /opt/signal-forge && docker compose exec -T app bun dist/src/cli.js status'
-ssh vm106 'cd /opt/signal-forge && docker compose logs --tail 50 app'
-ssh vm106 'curl -fsS http://192.168.10.106:18081/readyz'
 ```
 
-Deployment runs checks, builds on VM106 and waits for container health. It preserves the server
-database. Credentials are excluded from the image. The container runs as UID 1000 and restarts
-automatically.
+The deployment script runs the full check, builds the image, applies migrations, performs the Arena
+metadata backfill while the collector is stopped, and waits for container health. It preserves the
+production database. Credentials stay in the deployment environment and never enter the image.
+
+After deployment, verify the health endpoint, readiness endpoint, application logs and:
+
+```sh
+bun dist/src/cli.js issues
+bun dist/src/cli.js signal-quality 7
+bun dist/src/cli.js deliveries-needing-verification
+```
+
+Run only one collector against a production database. Operational APIs require the configured
+bearer token.
 
 ## Backups
 
-`signal-forge-backup.timer` on VM106 runs `scripts/backup.sh` nightly at 04:20 MSK. It copies the
-database with `VACUUM INTO` — SQLite's own online copy, safe while the collector writes and complete
-without the `-wal` sidecar — gzips it into `backups/`, reads it back to check `integrity_check` and
-the event count, and keeps the last 14. A backup that fails verification fails the unit.
+The scheduled backup runs `scripts/backup.sh` with a separate memory budget. It uses SQLite's
+`VACUUM INTO`, compresses the copy, reads it back, runs `PRAGMA integrity_check`, verifies the event
+count, and retains the configured number of recent archives. A failed verification must fail the
+backup job rather than produce a trusted-looking archive.
 
-```sh
-ssh vm106 'systemctl list-timers signal-forge-backup.timer'
-ssh vm106 'sudo systemctl start signal-forge-backup.service && ls -1t /opt/signal-forge/backups | head -3'
-```
+## Restore
 
-Restore into a stopped service, never over a live database:
+Restore only while the service is stopped:
 
-```sh
-ssh vm106 'cd /opt/signal-forge && docker compose down'
-ssh vm106 'cd /opt/signal-forge && gunzip -c backups/app-<stamp>.db.gz > data/app.db && rm -f data/app.db-wal data/app.db-shm'
-ssh vm106 'cd /opt/signal-forge && docker compose up -d --wait'
-```
+1. Stop the application.
+2. Decompress the selected archive into the configured database directory.
+3. Remove stale `-wal` and `-shm` sidecars.
+4. Start the application and wait for readiness.
+5. Run `issues`, `signal-quality 7` and the delivery verification report.
+6. Run a separate integrity check and compare the restored event count with the backup log.
 
-## Delivery and health checks
+Do not restore over a live SQLite database.
 
-```sh
-ssh vm106 'cd /opt/signal-forge && docker compose exec -T app bun dist/src/cli.js issues'
-ssh vm106 'cd /opt/signal-forge && docker compose exec -T app bun dist/src/cli.js signal-quality 7'
-ssh vm106 'cd /opt/signal-forge && docker compose exec -T app bun dist/src/cli.js deliveries-needing-verification'
-```
+## Delivery
 
 Successful sends are never retried. HTTP 429 honors retry timing. An uncertain send is marked
-`ambiguous` and never automatically repeated; inspect the actual destination before reconciliation.
+`ambiguous` and never automatically repeated; inspect the actual destination before requiring manual
+verification.
