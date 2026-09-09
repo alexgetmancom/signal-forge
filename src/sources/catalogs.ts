@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
-import type { Fetch } from "../delivery.js";
-import type { Collection, RecordData } from "../events.js";
+import type { Collection, RecordData } from "../events/types.js";
+import type { Fetch } from "../http-client.js";
 import { fetchText } from "./http.js";
 
 const openRouterSchema = z.object({

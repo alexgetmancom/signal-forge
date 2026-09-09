@@ -1,11 +1,11 @@
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import { type AppConfig, destinationSchema } from "./config.js";
-import { prepareDeliveries } from "./events.js";
+import { prepareDeliveries } from "./events/batching.js";
+import type { Fetch } from "./http-client.js";
 import { log } from "./logger.js";
 import { fillSummaries } from "./summary.js";
 
-export type Fetch = (url: string, init?: RequestInit) => Promise<Response>;
 type Job = { id: number; destination_json: string; body: string; attempts: number };
 const telegramResponse = z.object({ ok: z.literal(true), result: z.object({ message_id: z.number().int() }) });
 const discordResponse = z.object({ id: z.string().regex(/^\d+$/) });
@@ -22,7 +22,9 @@ export function recoverInterruptedDeliveries(db: Database): void {
 export async function deliverPending(db: Database, config: AppConfig, request: Fetch = fetch): Promise<void> {
   // Summaries are written before the message is built; a failure here leaves the message unchanged.
   await fillSummaries(db, config, request);
-  prepareDeliveries(db, Date.now(), config.REPORT_BASE_URL, config.vendorRoles);
+  db.transaction(() => {
+    prepareDeliveries(db, Date.now(), config.REPORT_BASE_URL, config.vendorRoles);
+  })();
   // One sequential sender respects channel order; each claim is conditional even if another process races it.
   for (let n = 0; n < 20; n++) {
     const now = Date.now();

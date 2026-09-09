@@ -45,7 +45,7 @@ test("a rate-limited source waits on upstream instead of reporting a broken coll
 });
 
 test("multi-source hosts have one shared request pace", async () => {
-  const { sourceJobs } = await import("../src/poller.js");
+  const { sourceJobs } = await import("../src/sources/registry.js");
   const db = openDatabase(":memory:");
   const jobs = sourceJobs(db, config);
   for (const prefix of ["huggingface:", "modelscope:", "designarena:"]) {

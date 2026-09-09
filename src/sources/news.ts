@@ -1,7 +1,7 @@
 import { XMLParser, XMLValidator } from "fast-xml-parser";
 import { z } from "zod";
-import type { Fetch } from "../delivery.js";
-import type { Collection } from "../events.js";
+import type { Collection } from "../events/types.js";
+import type { Fetch } from "../http-client.js";
 import { fetchText } from "./http.js";
 
 const feedSchema = z.object({

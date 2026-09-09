@@ -1,5 +1,5 @@
-import type { Fetch } from "../delivery.js";
-import type { Collection } from "../events.js";
+import type { Collection } from "../events/types.js";
+import type { Fetch } from "../http-client.js";
 import type { HttpCache } from "../storage/httpCache.js";
 import { fetchText } from "./http.js";
 

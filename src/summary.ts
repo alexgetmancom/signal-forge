@@ -1,7 +1,9 @@
 import type { Database } from "bun:sqlite";
 import type { AppConfig } from "./config.js";
-import type { Fetch } from "./delivery.js";
-import { type Event, MAX_DETAIL_LINES, renderEvent } from "./events.js";
+import { MAX_DETAIL_LINES } from "./events/render/common.js";
+import { renderEvent } from "./events/render/telegram.js";
+import type { Event } from "./events/types.js";
+import type { Fetch } from "./http-client.js";
 import { log } from "./logger.js";
 
 /**

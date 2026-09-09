@@ -10,12 +10,14 @@
   "scripts": {
     "dev": "bun --watch src/index.ts",
     "start": "bun dist/src/index.js",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && bun scripts/copy-migrations.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "biome check .",
     "format": "biome check --write .",
     "test": "bun test ./tests",
-    "check": "bun run lint && bun run typecheck && bun run test && bun run build",
+    "check-architecture": "bun scripts/check-architecture.ts",
+    "check-migrations": "bun scripts/check-migrations.ts",
+    "check": "bun run lint && bun run typecheck && bun run test && bun run check-migrations && bun run check-architecture && bun run build",
     "poll": "bun src/cli.ts poll",
     "status": "bun src/cli.ts status",
     "events": "bun src/cli.ts events"

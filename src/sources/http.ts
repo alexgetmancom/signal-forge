@@ -1,4 +1,4 @@
-import type { Fetch } from "../delivery.js";
+import type { Fetch } from "../http-client.js";
 import { freshUntil, type HttpCache } from "../storage/httpCache.js";
 
 /** How long the channel is given to come back before an observation is called a failure. */

@@ -1,9 +1,9 @@
 import type { Database } from "bun:sqlite";
 import type { AppConfig } from "./config.js";
-import type { Fetch } from "./delivery.js";
+import type { Fetch } from "./http-client.js";
 import { log } from "./logger.js";
-import { sourceJobs } from "./poller.js";
 import { PLATFORMS } from "./sources/platforms.js";
+import { sourceJobs } from "./sources/registry.js";
 
 /**
  * A source can be silent for three different reasons, and a status board that calls all three
@@ -14,33 +14,11 @@ export type SourceState = "ok" | "stale" | "failing" | "blocked" | "idle";
 
 export type SourceHealth = {
   id: string;
+  label: string;
   group: string;
   state: SourceState;
   detail: string;
 };
-
-/** Upstreams that do not deliver to us. Worded neutrally: no operator location or routing details. */
-const RESTRICTED: Record<string, string> = {
-  gemini: "upstream is not serving this feed to us — no data reaching the collector",
-  "vercel-gateway": "upstream response arrives incomplete — waiting on a full feed",
-};
-
-const GROUPS: [RegExp, string][] = [
-  [/^(openrouter|openai|anthropic|gemini)$/, "Catalogues"],
-  [/^(arena|designarena:)/, "Arena"],
-  [/news$/, "Official news"],
-  [/^(claude-web|codex-docs)$/, "Web"],
-  [/^cursor-changelog$/, "Official news"],
-  [/^status:/, "Platform health"],
-  [/^github:/, "GitHub"],
-  [/^(huggingface|modelscope):/, "Open weights"],
-  [/^(npm|pypi):/, "Packages"],
-  [/^vercel-gateway$/, "Catalogues"],
-];
-
-function groupOf(id: string): string {
-  return GROUPS.find(([pattern]) => pattern.test(id))?.[1] ?? "Other";
-}
 
 /** A source is late once it has missed three of its own intervals — one slow cycle is not news. */
 export function sourceHealth(db: Database, config: AppConfig, now = Date.now()): SourceHealth[] {
@@ -51,24 +29,26 @@ export function sourceHealth(db: Database, config: AppConfig, now = Date.now()):
         [string]
       >("SELECT last_success,last_error,checked_at,retry_at FROM sources WHERE id=?")
       .get(job.id);
-    const group = groupOf(job.id);
-    const restriction = RESTRICTED[job.id];
+    const group = job.group;
+    const restriction = job.restrictedReason;
 
-    if (!row?.checked_at) return { id: job.id, group, state: "idle", detail: "no observation yet" };
+    if (!row?.checked_at) return { id: job.id, label: job.label, group, state: "idle", detail: "no observation yet" };
     if (row.last_error) {
-      if (restriction) return { id: job.id, group, state: "blocked", detail: restriction };
+      if (restriction) return { id: job.id, label: job.label, group, state: "blocked", detail: restriction };
       if (/HTTP 429$/.test(row.last_error))
         return {
           id: job.id,
+          label: job.label,
           group,
           state: "blocked",
           detail: row.retry_at ? `rate limited — waiting until ${row.retry_at}` : "rate limited — backing off",
         };
-      return { id: job.id, group, state: "failing", detail: row.last_error };
+      return { id: job.id, label: job.label, group, state: "failing", detail: row.last_error };
     }
     const since = row.last_success ? now - Date.parse(row.last_success) : Number.POSITIVE_INFINITY;
-    if (since > job.interval * 3000) return { id: job.id, group, state: "stale", detail: "no fresh observation" };
-    return { id: job.id, group, state: "ok", detail: "" };
+    if (since > job.interval * 3000)
+      return { id: job.id, label: job.label, group, state: "stale", detail: "no fresh observation" };
+    return { id: job.id, label: job.label, group, state: "ok", detail: "" };
   });
 }
 
@@ -95,7 +75,7 @@ export function statusEmbed(health: SourceHealth[], now = Date.now()): Record<st
     name: group,
     value: health
       .filter((entry) => entry.group === group)
-      .map((entry) => `${DOTS[entry.state]} ${entry.id}${entry.detail ? ` — ${entry.detail}` : ""}`)
+      .map((entry) => `${DOTS[entry.state]} ${entry.label}${entry.detail ? ` — ${entry.detail}` : ""}`)
       .join("\n")
       .slice(0, 1024),
     inline: false,

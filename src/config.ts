@@ -14,6 +14,7 @@ export const streamSchema = z.enum([
   "incidents",
   "deprecations",
 ]);
+export type Stream = z.infer<typeof streamSchema>;
 const streams = z.array(streamSchema).min(1);
 export const destinationSchema = z.discriminatedUnion("platform", [
   z.object({
