@@ -217,6 +217,21 @@ test("the platform board reads the stored observation and names the open inciden
   // A platform never read is not reported as healthy.
   expect(embed.description).toContain("**Anthropic** — not read yet");
 });
+test("the platform board uses the highest indicator severity", () => {
+  const db = openDatabase(":memory:");
+  const statuses: [string, string][] = [
+    ["status:openai", "minor"],
+    ["status:anthropic", "critical"],
+  ];
+  for (const [source, indicator] of statuses)
+    db.query("INSERT INTO snapshots(source,collected_at,raw_json) VALUES(?,?,?)").run(
+      source,
+      "2026-09-08T12:00:00.000Z",
+      JSON.stringify({ headline: indicator, indicator, incidents: [] }),
+    );
+  expect((platformEmbed(db, now) as { color: number }).color).toBe(0xe74c3c);
+  db.close();
+});
 test("an incident becomes an event, and its resolution is a change rather than a deletion", () => {
   const open = {
     status: { description: "Partial System Degradation", indicator: "major" },

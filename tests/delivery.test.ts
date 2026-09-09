@@ -58,6 +58,30 @@ test("rate limit retries only after requested delay", async () => {
   expect(row?.status).toBe("pending");
   expect(row?.next_attempt).toBeGreaterThan(Date.now() + 50000);
 });
+test("rate limit delays only deliveries on the same platform", async () => {
+  const local = openDatabase(":memory:");
+  const telegram = { id: "tg", platform: "telegram" as const, chatId: "1", streams: ["news"] };
+  const discord = { id: "dc", platform: "discord" as const, channelId: "2", streams: ["news"] };
+  local.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'test',0,1),(2,'test',0,1)").run();
+  local
+    .query(
+      "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,updated_at) VALUES(1,1,'tg',?,'tg',0,0),(2,2,'dc',?,'dc',0,0)",
+    )
+    .run(JSON.stringify(telegram), JSON.stringify(discord));
+  await deliverPending(local, config, async (url) =>
+    url.includes("telegram")
+      ? Response.json({ parameters: { retry_after: 60 } }, { status: 429 })
+      : Response.json({ id: "999" }),
+  );
+  expect(local.query("SELECT status,next_attempt FROM deliveries WHERE id=1").get()).toMatchObject({
+    status: "pending",
+  });
+  expect(local.query("SELECT status,next_attempt FROM deliveries WHERE id=2").get()).toEqual({
+    status: "pending",
+    next_attempt: 0,
+  });
+  local.close();
+});
 test("network timeout and 5xx are ambiguous, not retried", async () => {
   queue();
   await deliverPending(db, config, async () => {
@@ -93,6 +117,27 @@ test("a later multipart part waits behind an ambiguous earlier part", async () =
   expect(local.query("SELECT id,status FROM deliveries ORDER BY id").all()).toEqual([
     { id: 1, status: "ambiguous" },
     { id: 2, status: "pending" },
+  ]);
+  local.close();
+});
+test("an unresolved delivery blocks only later parts in its own batch", async () => {
+  const local = openDatabase(":memory:");
+  const destination = { id: "dc", platform: "discord" as const, channelId: "123456", streams: ["news"] };
+  local.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'test',0,1),(2,'test',0,1)").run();
+  const insert = local.query(
+    "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,status,updated_at) VALUES(?,?,?,?,?,?,?,?)",
+  );
+  insert.run(1, 1, destination.id, JSON.stringify(destination), "old", 0, "failed", 0);
+  insert.run(2, 2, destination.id, JSON.stringify(destination), "new", 0, "pending", 0);
+  let calls = 0;
+  await deliverPending(local, config, async () => {
+    calls++;
+    return Response.json({ id: "999" });
+  });
+  expect(calls).toBe(1);
+  expect(local.query("SELECT id,status FROM deliveries ORDER BY id").all()).toEqual([
+    { id: 1, status: "failed" },
+    { id: 2, status: "sent" },
   ]);
   local.close();
 });

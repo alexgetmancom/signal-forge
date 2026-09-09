@@ -8,6 +8,15 @@ export type DeliveryVerificationResult = {
   message: string;
 };
 
+export type DeliveryVerificationResolution = {
+  id: number;
+  status: "sent" | "failed";
+  attempts: number;
+  destination: string;
+  verifiedAt: string;
+  message: string;
+};
+
 const MANUAL_VERIFICATION =
   "No reliable read-back is available for this destination; verify the destination manually before deciding its outcome";
 
@@ -41,5 +50,43 @@ export function requireDeliveryVerification(db: Database, id: number, now = Date
     attempts: changed.verification_attempts,
     destination: row.destination_id,
     message: MANUAL_VERIFICATION,
+  };
+}
+
+export function resolveDeliveryVerification(
+  db: Database,
+  id: number,
+  outcome: "sent" | "failed",
+  externalId?: string,
+  now = Date.now(),
+): DeliveryVerificationResolution {
+  const verifiedAt = new Date(now).toISOString();
+  const message =
+    outcome === "sent"
+      ? "Manual verification recorded the delivery as sent"
+      : "Manual verification found no message at the destination";
+  const changed = db
+    .query<
+      { destination_id: string; attempts: number },
+      [string, string | null, string | null, string, number, number]
+    >(
+      `UPDATE deliveries
+       SET status=?,external_id=COALESCE(?,external_id),error=?,verification_source='manual',verified_at=?,last_verification_error=NULL,updated_at=?
+       WHERE id=? AND status IN ('ambiguous','verification_required')
+       RETURNING destination_id,attempts`,
+    )
+    .get(outcome, externalId ?? null, outcome === "sent" ? null : message, verifiedAt, now, id);
+  if (!changed) throw new Error(`Delivery ${id} is not awaiting manual verification`);
+  if (outcome === "failed")
+    db.query(
+      "UPDATE deliveries SET status='failed',error='Earlier message part was not confirmed',updated_at=? WHERE batch_id=(SELECT batch_id FROM deliveries WHERE id=?) AND destination_id=(SELECT destination_id FROM deliveries WHERE id=?) AND part>(SELECT part FROM deliveries WHERE id=?) AND status='pending'",
+    ).run(now, id, id, id);
+  return {
+    id,
+    status: outcome,
+    attempts: changed.attempts,
+    destination: changed.destination_id,
+    verifiedAt,
+    message,
   };
 }

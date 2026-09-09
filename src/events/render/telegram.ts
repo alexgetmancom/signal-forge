@@ -68,7 +68,6 @@ export function renderEvent(
       ["score", "Score"],
       ["modelKey", "Variant"],
       ["votes", "Votes"],
-      ["sampledAt", "Sampled"],
     ] as const)
       if (after[key] !== undefined) lines.push(`${label}: ${describe(after[key])}`);
   } else if (event.stream === "leaderboards" && before && after) {
@@ -82,7 +81,6 @@ export function renderEvent(
       ["score", "Score"],
       ["modelKey", "Variant"],
       ["votes", "Votes"],
-      ["sampledAt", "Sampled"],
     ] as const)
       if (canonical(before[key]) !== canonical(after[key]))
         lines.push(`${label}: ${describe(before[key])} → ${describe(after[key])}`);

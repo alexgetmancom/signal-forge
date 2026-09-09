@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
-import { type AppConfig, destinationSchema } from "./config.js";
+import { type AppConfig, type Destination, destinationSchema } from "./config.js";
 import { prepareDeliveries } from "./events/batching.js";
 import type { Fetch } from "./http-client.js";
 import { log } from "./logger.js";
@@ -31,16 +31,18 @@ export async function deliverPending(db: Database, config: AppConfig, request: F
     const job = db
       .query<Job, [number, number]>(`UPDATE deliveries SET status='sending',attempts=attempts+1,updated_at=?
       WHERE id=(SELECT d.id FROM deliveries d WHERE d.status='pending' AND d.next_attempt<=?
-        AND NOT EXISTS(SELECT 1 FROM deliveries earlier WHERE earlier.destination_id=d.destination_id AND earlier.id<d.id AND earlier.status<>'sent')
+        AND NOT EXISTS(SELECT 1 FROM deliveries earlier WHERE earlier.batch_id=d.batch_id AND earlier.destination_id=d.destination_id AND earlier.part<d.part AND earlier.status<>'sent')
         ORDER BY d.id LIMIT 1) AND status='pending' RETURNING id,destination_json,body,attempts`)
       .get(now, now);
     if (!job) return;
     let status = "ambiguous",
       error: string | null = null,
       externalId: string | null = null,
-      retryAt = 0;
+      retryAt = 0,
+      platform: Destination["platform"] | null = null;
     try {
       const destination = destinationSchema.parse(JSON.parse(job.destination_json));
+      platform = destination.platform;
       let url: string, headers: Record<string, string>, body: unknown;
       if (destination.platform === "telegram") {
         if (!config.TELEGRAM_BOT_TOKEN) throw new Error("Missing Telegram token");
@@ -112,7 +114,9 @@ export async function deliverPending(db: Database, config: AppConfig, request: F
       ).run(Date.now(), job.id, job.id, job.id);
     }
     if (status === "pending") {
-      db.query("UPDATE deliveries SET next_attempt=MAX(next_attempt,?) WHERE status='pending'").run(retryAt);
+      db.query(
+        "UPDATE deliveries SET next_attempt=MAX(next_attempt,?) WHERE status='pending' AND json_extract(destination_json,'$.platform')=?",
+      ).run(retryAt, platform);
       return;
     }
   }

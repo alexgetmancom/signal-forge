@@ -5,6 +5,17 @@ import { confidenceFor, evidenceTypeFor } from "./confidence.js";
 import { isRoutine } from "./interpretation.js";
 import type { Collection, Event } from "./types.js";
 
+function comparisonBody(stream: string, body: string): string {
+  if (stream !== "leaderboards") return body;
+  try {
+    const record = JSON.parse(body) as Record<string, unknown>;
+    delete record.sampledAt;
+    return canonical(record);
+  } catch {
+    return body;
+  }
+}
+
 /** Persists one validated observation and its immutable evidence in the caller's transaction. */
 export function persistCollection(
   db: Database,
@@ -70,13 +81,14 @@ export function persistCollection(
   };
   for (const record of c.records) {
     const body = canonical(record);
+    const comparableBody = comparisonBody(c.stream, body);
     const before = previous.get(record.id);
     previous.delete(record.id);
     if (initialized?.last_success && !before && !c.silentIds?.includes(record.id)) emit(record.id, "new", null, body);
     else if (
       initialized?.last_success &&
       before &&
-      before.body !== body &&
+      comparisonBody(c.stream, before.body) !== comparableBody &&
       (!c.appendOnly || c.trackChanges) &&
       !c.silentIds?.includes(record.id)
     ) {
@@ -86,13 +98,13 @@ export function persistCollection(
             "SELECT body,observations FROM change_candidates WHERE source=? AND id=?",
           )
           .get(c.source, record.id);
-        if (candidate?.body === body && candidate.observations >= 1) {
+        if (candidate?.body === comparableBody && candidate.observations >= 1) {
           emit(record.id, "changed", before.body, body);
           db.query("DELETE FROM change_candidates WHERE source=? AND id=?").run(c.source, record.id);
         } else {
           db.query(
             "INSERT INTO change_candidates(source,id,body,observations) VALUES(?,?,?,1) ON CONFLICT(source,id) DO UPDATE SET body=excluded.body,observations=1",
-          ).run(c.source, record.id, body);
+          ).run(c.source, record.id, comparableBody);
           continue;
         }
       } else emit(record.id, "changed", before.body, body);

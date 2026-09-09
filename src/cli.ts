@@ -29,9 +29,17 @@ try {
   else if (command === "require-delivery-verification") {
     const input = defs.require_delivery_verification.schema.parse({ id: Number(Bun.argv[3]) });
     process.stdout.write(`${JSON.stringify(defs.require_delivery_verification.handler(input), null, 2)}\n`);
+  } else if (command === "resolve-delivery-verification") {
+    const externalId = Bun.argv[5];
+    const input = defs.resolve_delivery_verification.schema.parse({
+      id: Number(Bun.argv[3]),
+      outcome: Bun.argv[4],
+      ...(externalId === undefined ? {} : { externalId }),
+    });
+    process.stdout.write(`${JSON.stringify(defs.resolve_delivery_verification.handler(input), null, 2)}\n`);
   } else
     throw new Error(
-      "Usage: bun src/cli.ts status|events|event <id>|deliveries|deliveries-needing-verification|require-delivery-verification <id>|issues|capabilities|signal-quality [days]|stories|poll",
+      "Usage: bun src/cli.ts status|events|event <id>|deliveries|deliveries-needing-verification|require-delivery-verification <id>|resolve-delivery-verification <id> <sent|failed> [external-id]|issues|capabilities|signal-quality [days]|stories|poll",
     );
 } finally {
   db.close();

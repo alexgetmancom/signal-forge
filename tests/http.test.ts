@@ -32,6 +32,7 @@ test("health is public, operational state requires token, MCP lists matching sch
     "deliveries",
     "deliveries_needing_verification",
     "require_delivery_verification",
+    "resolve_delivery_verification",
     "signal_quality",
     "stories",
     "issues",
@@ -40,6 +41,25 @@ test("health is public, operational state requires token, MCP lists matching sch
   const auth = { Authorization: `Bearer ${config.MCP_TOKEN}` };
   expect((await app.request("/api/deliveries", { headers: auth })).status).toBe(200);
   expect((await app.request("/api/deliveries/verification", { headers: auth })).status).toBe(200);
+  const resolutionDb = openDatabase(":memory:");
+  resolutionDb.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(7,'test',0,1)").run();
+  resolutionDb
+    .query(
+      "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,status,updated_at) VALUES(7,7,'dc',?,'body',0,'ambiguous',0)",
+    )
+    .run(JSON.stringify({ id: "dc", platform: "discord", channelId: "1", streams: ["news"] }));
+  const resolutionApp = createHttpApp(config, resolutionDb);
+  const resolution = await resolutionApp.request("/api/deliveries/7/verification/resolve", {
+    method: "POST",
+    headers: { ...auth, "content-type": "application/json" },
+    body: JSON.stringify({ outcome: "sent", externalId: "123" }),
+  });
+  expect(resolution.status).toBe(200);
+  expect(resolutionDb.query("SELECT status,external_id FROM deliveries WHERE id=7").get()).toEqual({
+    status: "sent",
+    external_id: "123",
+  });
+  resolutionDb.close();
   expect((await app.request("/api/signal-quality", { headers: auth })).status).toBe(200);
   expect((await app.request("/api/stories", { headers: auth })).status).toBe(200);
   db.close();

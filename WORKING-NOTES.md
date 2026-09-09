@@ -12,7 +12,7 @@ events and delivers only changes that pass the notification policy.
 
 The latest production verification passed:
 
-- `bun run check`: 128 tests passed, 0 failed.
+- `bun run check`: 134 tests passed, 0 failed.
 - Database schema version: 9.
 - Health and readiness checks: passing.
 - Actionable issues: none.
@@ -29,11 +29,12 @@ The latest production verification passed:
 - Arena codenames remain unresolved until another source supplies a canonical identity.
 - GitHub correlation is conservative: repository identity alone does not merge commits, pull
   requests and releases.
-- Story projection is rebuilt on event-bearing writes and at startup; `listStories()` performs no
-  writes.
+- Story projection processes appended events incrementally and rebuilds at startup or after an
+  out-of-order timestamp; `listStories()` performs no writes.
 - Capabilities distinguish `disabled`, `missing` and `ready`, with source IDs such as `openai` and
   `gemini` rather than environment-variable names.
 - Ambiguous delivery handling is named `require_delivery_verification`; it never resends a message.
+- Manual delivery verification can record a final `sent` or `failed` outcome without resending.
 - Small price changes are retained in SQLite but suppressed from Discord when they do not cross the
   configured absolute and relative thresholds.
 - Multipart delivery ordering, HTTP caching, source backoff, health boards, outage alerts, role

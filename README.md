@@ -80,7 +80,8 @@ bun src/cli.ts deliveries-needing-verification
 ```
 
 Operational APIs require the bearer token. Ambiguous sends are never retried blindly; inspect the
-destination, then require manual delivery verification. Stories expose event IDs so an agent can fetch
+destination, require manual delivery verification, then record the outcome as sent or failed. Stories
+expose event IDs so an agent can fetch
 full evidence and prepare a separate publication draft without a code or database dependency. Story
 views also expose `canonicalId`, `identityStatus` and aliases. Arena codenames remain unresolved until
 another source supplies a canonical identity.
@@ -205,7 +206,8 @@ Full event evidence remains in the database even when a message excerpt is trunc
 For HTTP/MCP access, set `MCP_TOKEN` to at least 32 random characters and use
 `Authorization: Bearer <token>` with `/api/status`, `/api/events`, `/api/events/:id` or `/api/mcp`.
 MCP operations: `status`, `events`, `event`, `deliveries`, `issues`, `capabilities`,
-`deliveries_needing_verification`, `require_delivery_verification`, `signal_quality` and `stories`.
+`deliveries_needing_verification`, `require_delivery_verification`, `resolve_delivery_verification`,
+`signal_quality` and `stories`.
 
 ## Local development
 

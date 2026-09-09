@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import type { Destination } from "../config.js";
-import { rebuildStories } from "../stories.js";
+import { rememberStoryProjection, type StoryProjection, updateStories } from "../stories.js";
 import { prepareDeliveries } from "./batching.js";
 import { persistCollection } from "./store.js";
 import type { Collection } from "./types.js";
@@ -14,7 +14,8 @@ export function saveCollection(
   reportBaseUrl?: string,
   vendorRoles: Record<string, string> = {},
 ): number {
-  return db.transaction(() => {
+  let projection: StoryProjection | null = null;
+  const count = db.transaction(() => {
     const previousEventId = Number(
       db.query<{ id: number | null }, []>("SELECT MAX(id) AS id FROM events").get()?.id ?? 0,
     );
@@ -22,8 +23,10 @@ export function saveCollection(
     const currentEventId = Number(
       db.query<{ id: number | null }, []>("SELECT MAX(id) AS id FROM events").get()?.id ?? 0,
     );
-    if (currentEventId > previousEventId) rebuildStories(db);
+    if (currentEventId > previousEventId) projection = updateStories(db);
     prepareDeliveries(db, Date.parse(now), reportBaseUrl, vendorRoles);
     return count;
   })();
+  if (projection) rememberStoryProjection(db, projection);
+  return count;
 }

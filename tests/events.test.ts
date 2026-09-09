@@ -396,6 +396,41 @@ test("leaderboard notifications keep top-five entries and meaningful movements o
   ).toBe(true);
 });
 
+test("leaderboard sample timestamps stay in evidence without creating message changes", () => {
+  const local = openDatabase(":memory:");
+  const destination: Destination = { id: "d", platform: "discord", channelId: "1", streams: ["leaderboards"] };
+  const record = (sampledAt: string, rank = 1): RecordData => ({
+    id: "overall:model",
+    name: "Model",
+    category: "overall",
+    modelKey: "model",
+    rank,
+    sampledAt,
+  });
+  const collection = {
+    source: "arena-leaderboards",
+    stream: "leaderboards",
+    url: "https://arena.ai/leaderboard",
+    raw: [],
+    appendOnly: true,
+    trackChanges: true,
+    records: [record("2026-09-08T00:00:00.000Z")],
+  };
+  saveCollection(local, collection, [destination], "2026-09-08T00:00:00.000Z");
+  collection.records = [record("2026-09-08T01:00:00.000Z")];
+  saveCollection(local, collection, [destination], "2026-09-08T01:00:00.000Z");
+  expect(local.query("SELECT COUNT(*) AS count FROM events").get()).toEqual({ count: 0 });
+  expect(local.query<{ body: string }, []>("SELECT body FROM records").get()?.body).toContain(
+    "2026-09-08T01:00:00.000Z",
+  );
+  collection.records = [record("2026-09-08T02:00:00.000Z", 2)];
+  saveCollection(local, collection, [destination], "2026-09-08T02:00:00.000Z");
+  const event = local.query<Event, []>("SELECT * FROM events").get();
+  if (!event) throw new Error("Expected a rank change event");
+  expect(renderEvent(event, "https://arena.ai/leaderboard")).not.toContain("Sampled");
+  local.close();
+});
+
 test("removed models use before evidence for vendor role mentions", () => {
   const local = openDatabase(":memory:");
   const destination: Destination = { id: "d", platform: "discord", channelId: "1", streams: ["openrouter"] };

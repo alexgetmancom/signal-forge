@@ -18,7 +18,7 @@ services:
       NODE_ENV: production
       PORT: 8080
     ports:
-      - "192.168.10.106:18081:8080"
+      - "${SIGNAL_FORGE_BIND_ADDRESS:-127.0.0.1}:18081:8080"
     volumes:
       - ./data:/app/data
       # The nightly backup verifies its own output from inside the container.

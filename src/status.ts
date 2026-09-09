@@ -305,6 +305,7 @@ const INDICATORS: Record<string, string> = {
   critical: "🔴",
   maintenance: "🔵",
 };
+const INDICATOR_RANK: Record<string, number> = { none: 0, maintenance: 1, minor: 2, major: 3, critical: 4 };
 
 /** What each platform's own status page says right now, read from the stored observation. */
 export function platformEmbed(db: Database, now = Date.now()): Record<string, unknown> {
@@ -324,7 +325,7 @@ export function platformEmbed(db: Database, now = Date.now()): Record<string, un
       incidents?: { name: string; status: string; impact: string }[];
     };
     const indicator = raw.indicator ?? "none";
-    if (indicator !== "none" && worst === "none") worst = indicator;
+    if ((INDICATOR_RANK[indicator] ?? 0) > (INDICATOR_RANK[worst] ?? 0)) worst = indicator;
     lines.push(`${INDICATORS[indicator] ?? "⚪"} **${platform.name}** — ${raw.headline ?? "unknown"}`);
     for (const incident of (raw.incidents ?? []).slice(0, 3))
       lines.push(`　└ ${incident.name} (${incident.status}, ${incident.impact})`);

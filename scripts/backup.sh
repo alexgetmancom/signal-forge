@@ -3,11 +3,12 @@
 # collector writes, it folds the WAL in, and it produces a compact file rather than a
 # snapshot that needs the -wal sidecar to be readable.
 #
-# Installed on vm106 as /opt/signal-forge/scripts/backup.sh and run by
-# signal-forge-backup.timer. Restoring is documented in README.
+# Install and schedule this script from the private deployment environment. Restoring is documented
+# in the operator runbook.
 set -euo pipefail
 
-DIR=${SIGNAL_FORGE_DIR:-/opt/signal-forge}
+: "${SIGNAL_FORGE_DIR:?Set SIGNAL_FORGE_DIR in the backup service environment}"
+DIR=$SIGNAL_FORGE_DIR
 KEEP=${SIGNAL_FORGE_BACKUP_KEEP:-14}
 MEMORY=${SIGNAL_FORGE_BACKUP_MEMORY:-2g}
 IMAGE=${SIGNAL_FORGE_BACKUP_IMAGE:-signal-forge:latest}

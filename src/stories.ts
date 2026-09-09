@@ -18,10 +18,23 @@ type StoryGroup = {
   baseKey: string;
   subject: string;
   vendor: string;
-  events: StoryEvent[];
+  firstEventId: number;
+  firstDetectedAt: string;
+  last: StoryEvent;
   identity: ModelIdentity;
   terms: Set<string>;
+  storyId?: number;
 };
+
+export type StoryProjection = {
+  groups: StoryGroup[];
+  current: Map<string, StoryGroup>;
+  aliases: Map<string, StoryGroup>;
+  lastEventId: number;
+  lastDetectedAt: string | null;
+};
+
+const projections = new WeakMap<Database, StoryProjection>();
 
 function recordFor(event: Event): RecordData | null {
   const raw = event.after_json ?? event.before_json;
@@ -60,92 +73,161 @@ function baseKeyFor(event: Event, record: RecordData | null): { key: string; sub
   return { key: `${normalized(vendor)}:${subject}`, subject, vendor };
 }
 
-function groupEvents(events: StoryEvent[]): StoryGroup[] {
-  const groups: StoryGroup[] = [];
-  const current = new Map<string, StoryGroup>();
-  const aliases = new Map<string, StoryGroup>();
-  for (const event of events) {
-    const record = recordFor(event);
-    const identity = identityFor(event, record);
-    // GitHub records carry repository scope but no model identity. Their display names are not
-    // evidence that two independent repository events describe the same subject.
-    const terms = event.source.startsWith("github:") ? [] : identityTerms(identity);
-    const { key, subject, vendor } = baseKeyFor(event, record);
-    const previous =
-      terms.map((term) => aliases.get(`${normalized(vendor)}:${term}`)).find((group) => group !== undefined) ??
-      current.get(key);
-    const last = previous?.events.at(-1);
-    if (!previous || !last || Date.parse(event.detected_at) - Date.parse(last.detected_at) > CORRELATION_WINDOW_MS) {
-      const group = { baseKey: key, subject, vendor, events: [event], identity, terms: new Set(terms) };
-      groups.push(group);
-      current.set(key, group);
-      for (const term of terms) aliases.set(`${normalized(vendor)}:${term}`, group);
-      continue;
-    }
-    previous.events.push(event);
-    previous.identity = mergeIdentities(previous.identity, identity);
-    for (const term of terms) {
-      previous.terms.add(term);
-      aliases.set(`${normalized(vendor)}:${term}`, previous);
-    }
+function cloneProjection(projection: StoryProjection): StoryProjection {
+  const groups = projection.groups.map((group) => ({
+    ...group,
+    identity: { ...group.identity, aliases: [...group.identity.aliases] },
+    terms: new Set(group.terms),
+  }));
+  const copies = new Map(projection.groups.map((group, index) => [group, groups[index] as StoryGroup]));
+  return {
+    groups,
+    current: new Map([...projection.current].map(([key, group]) => [key, copies.get(group) as StoryGroup])),
+    aliases: new Map([...projection.aliases].map(([key, group]) => [key, copies.get(group) as StoryGroup])),
+    lastEventId: projection.lastEventId,
+    lastDetectedAt: projection.lastDetectedAt,
+  };
+}
+
+function emptyProjection(): StoryProjection {
+  return { groups: [], current: new Map(), aliases: new Map(), lastEventId: 0, lastDetectedAt: null };
+}
+
+function projectEvent(projection: StoryProjection, event: StoryEvent): StoryGroup {
+  const record = recordFor(event);
+  const identity = identityFor(event, record);
+  // GitHub records carry repository scope but no model identity. Their display names are not
+  // evidence that two independent repository events describe the same subject.
+  const terms = event.source.startsWith("github:") ? [] : identityTerms(identity);
+  const { key, subject, vendor } = baseKeyFor(event, record);
+  const previous =
+    terms.map((term) => projection.aliases.get(`${normalized(vendor)}:${term}`)).find((group) => group !== undefined) ??
+    projection.current.get(key);
+  const last = previous?.last;
+  if (!previous || !last || Date.parse(event.detected_at) - Date.parse(last.detected_at) > CORRELATION_WINDOW_MS) {
+    const group = {
+      baseKey: key,
+      subject,
+      vendor,
+      firstEventId: event.id,
+      firstDetectedAt: event.detected_at,
+      last: event,
+      identity,
+      terms: new Set(terms),
+    };
+    projection.groups.push(group);
+    projection.current.set(key, group);
+    for (const term of terms) projection.aliases.set(`${normalized(vendor)}:${term}`, group);
+    return group;
   }
-  return groups;
+  previous.last = event;
+  previous.identity = mergeIdentities(previous.identity, identity);
+  for (const term of terms) {
+    previous.terms.add(term);
+    projection.aliases.set(`${normalized(vendor)}:${term}`, previous);
+  }
+  return previous;
 }
 
 function storyKey(group: StoryGroup): string {
-  return `${group.baseKey}:${group.events[0]?.id ?? "empty"}`;
+  return `${group.baseKey}:${group.firstEventId}`;
 }
 
 function storyTitle(group: StoryGroup): string {
-  const last = group.events.at(-1);
-  const record = last ? recordFor(last) : null;
+  const record = recordFor(group.last);
   return String(record?.name ?? record?.model ?? group.subject);
 }
 
-/** Rebuilds only the derived story projection; event evidence is never rewritten. The caller owns the transaction. */
-export function rebuildStories(db: Database): void {
-  const events = db
-    .query<StoryEvent, []>(
-      "SELECT id,source,stream,entity_id,kind,before_json,after_json,detected_at,confidence,evidence_type FROM events ORDER BY detected_at,id",
+function writeGroup(db: Database, group: StoryGroup): number {
+  const status = group.last.kind === "removed" ? "removed" : "active";
+  const story = db
+    .query<{ id: number }, [string, string, string, string, string, string, string, string]>(
+      `INSERT INTO stories(stable_key,title,normalized_subject,vendor,first_seen_at,updated_at,confidence,current_status)
+       VALUES(?,?,?,?,?,?,?,?)
+       ON CONFLICT(stable_key) DO UPDATE SET title=excluded.title,normalized_subject=excluded.normalized_subject,
+         vendor=excluded.vendor,first_seen_at=excluded.first_seen_at,updated_at=excluded.updated_at,
+         confidence=excluded.confidence,current_status=excluded.current_status
+       RETURNING id`,
     )
-    .all();
-  const groups = groupEvents(events);
+    .get(
+      storyKey(group),
+      storyTitle(group),
+      group.subject,
+      group.vendor,
+      group.firstDetectedAt,
+      group.last.detected_at,
+      group.last.confidence,
+      status,
+    );
+  if (!story) throw new Error(`Story ${storyKey(group)} could not be stored`);
+  group.storyId = story.id;
+  return story.id;
+}
+
+function linkEvent(db: Database, group: StoryGroup, event: StoryEvent): void {
+  if (group.storyId === undefined) throw new Error(`Story ${storyKey(group)} has no database ID`);
+  db.query("INSERT OR IGNORE INTO story_events(story_id,event_id) VALUES(?,?)").run(group.storyId, event.id);
+}
+
+function storyEvents(db: Database, afterId?: number): StoryEvent[] {
+  return db
+    .query<StoryEvent, number[] | []>(
+      `SELECT id,source,stream,entity_id,kind,before_json,after_json,detected_at,confidence,evidence_type
+       FROM events ${afterId === undefined ? "" : "WHERE id>?"} ORDER BY detected_at,id`,
+    )
+    .all(...(afterId === undefined ? [] : [afterId]));
+}
+
+function rebuildProjection(db: Database): StoryProjection {
+  const projection = emptyProjection();
+  const events = storyEvents(db);
+  const existing = db.query<{ stable_key: string }, []>("SELECT stable_key FROM stories").all();
   db.exec("DELETE FROM story_events");
-  const existing = db.query<{ id: number; stable_key: string }, []>("SELECT id,stable_key FROM stories").all();
-  const keys = new Set(groups.map(storyKey));
-  for (const row of existing) if (!keys.has(row.stable_key)) db.query("DELETE FROM stories WHERE id=?").run(row.id);
-  for (const group of groups) {
-    const first = group.events[0];
-    const last = group.events.at(-1);
-    if (!first || !last) continue;
-    // This is the confidence of the current story update. Individual evidence keeps its own
-    // confidence, so a later shipped event cannot upgrade unrelated earlier evidence.
-    const confidence = last.confidence;
-    const stableKey = storyKey(group);
-    const status = last.kind === "removed" ? "removed" : "active";
-    const story = db
-      .query<{ id: number }, [string, string, string, string, string, string, string, string]>(
-        `INSERT INTO stories(stable_key,title,normalized_subject,vendor,first_seen_at,updated_at,confidence,current_status)
-         VALUES(?,?,?,?,?,?,?,?)
-         ON CONFLICT(stable_key) DO UPDATE SET title=excluded.title,normalized_subject=excluded.normalized_subject,
-           vendor=excluded.vendor,first_seen_at=excluded.first_seen_at,updated_at=excluded.updated_at,
-           confidence=excluded.confidence,current_status=excluded.current_status
-         RETURNING id`,
-      )
-      .get(
-        stableKey,
-        storyTitle(group),
-        group.subject,
-        group.vendor,
-        first.detected_at,
-        last.detected_at,
-        confidence,
-        status,
-      );
-    if (!story) throw new Error(`Story ${stableKey} could not be stored`);
-    for (const event of group.events)
-      db.query("INSERT INTO story_events(story_id,event_id) VALUES(?,?)").run(story.id, event.id);
+  for (const event of events) {
+    const group = projectEvent(projection, event);
+    writeGroup(db, group);
+    linkEvent(db, group, event);
+    projection.lastDetectedAt = event.detected_at;
   }
+  projection.lastEventId = events.reduce((max, event) => Math.max(max, event.id), 0);
+  const keys = new Set(projection.groups.map(storyKey));
+  for (const row of existing)
+    if (!keys.has(row.stable_key)) db.query("DELETE FROM stories WHERE stable_key=?").run(row.stable_key);
+  return projection;
+}
+
+/** Rebuilds the derived story projection; event evidence is never rewritten. The caller owns the transaction. */
+export function rebuildStories(db: Database): StoryProjection {
+  return rebuildProjection(db);
+}
+
+/** Projects only events appended after the last committed projection. Out-of-order timestamps use a full rebuild. */
+export function updateStories(db: Database): StoryProjection {
+  const cached = projections.get(db);
+  if (!cached) return rebuildProjection(db);
+  const currentEventId = Number(db.query<{ id: number | null }, []>("SELECT MAX(id) AS id FROM events").get()?.id ?? 0);
+  if (currentEventId < cached.lastEventId) return rebuildProjection(db);
+  const events = storyEvents(db, cached.lastEventId);
+  if (!events.length) return cached;
+  const lastTime = cached.lastDetectedAt ? Date.parse(cached.lastDetectedAt) : null;
+  if (
+    lastTime !== null &&
+    (!Number.isFinite(lastTime) || events.some((event) => Date.parse(event.detected_at) < lastTime))
+  )
+    return rebuildProjection(db);
+  const projection = cloneProjection(cached);
+  for (const event of events) {
+    const group = projectEvent(projection, event);
+    writeGroup(db, group);
+    linkEvent(db, group, event);
+    projection.lastDetectedAt = event.detected_at;
+  }
+  projection.lastEventId = events.reduce((max, event) => Math.max(max, event.id), projection.lastEventId);
+  return projection;
+}
+
+export function rememberStoryProjection(db: Database, projection: StoryProjection): void {
+  projections.set(db, projection);
 }
 
 export type StoryView = {
@@ -185,6 +267,7 @@ export type StoryQuery = {
 /** Returns a compact agent-facing story view with event IDs that lead back to immutable evidence. */
 export function listStories(db: Database, query: StoryQuery = {}): StoryView[] {
   const minRank = CONFIDENCE_LEVELS.indexOf(query.minConfidence ?? "observed");
+  const since = query.since ? Date.parse(query.since) : null;
   const rows = db
     .query<
       {
@@ -203,7 +286,7 @@ export function listStories(db: Database, query: StoryQuery = {}): StoryView[] {
     )
     .all()
     .filter((row) => CONFIDENCE_LEVELS.indexOf(row.confidence) >= minRank)
-    .filter((row) => !query.since || row.updated_at >= query.since)
+    .filter((row) => since === null || Date.parse(row.updated_at) >= since)
     .filter((row) => !query.vendor || row.vendor.toLowerCase() === query.vendor.toLowerCase())
     .slice(0, query.limit ?? 50);
   return rows.map((row) => {

@@ -1,7 +1,7 @@
 import { canonical } from "../canonical.js";
 
 /** Observation metadata that is useful in evidence but not useful in a notification. */
-export const NOISE = new Set(["head", "updated", "published", "created", "started", "url", "detected"]);
+export const NOISE = new Set(["head", "updated", "published", "created", "started", "url", "detected", "sampledAt"]);
 
 export const fieldLabels: Record<string, string> = {
   name: "Name",

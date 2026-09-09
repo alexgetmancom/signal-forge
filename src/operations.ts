@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import { capabilityReport } from "./capabilities.js";
 import type { AppConfig } from "./config.js";
-import { requireDeliveryVerification } from "./deliveryVerification.js";
+import { requireDeliveryVerification, resolveDeliveryVerification } from "./deliveryVerification.js";
 import { listActionableIssues } from "./issues.js";
 import { signalQuality } from "./signalQuality.js";
 import { sourceJobs } from "./sources/registry.js";
@@ -87,6 +87,16 @@ export function operations(db: Database, config: AppConfig) {
       description: "Mark one ambiguous delivery for manual verification; this never sends a second message.",
       schema: z.object({ id: z.number().int().positive() }),
       handler: (input: { id: number }) => requireDeliveryVerification(db, input.id),
+    },
+    resolve_delivery_verification: {
+      description: "Record the result of manual delivery verification without sending a second message.",
+      schema: z.object({
+        id: z.number().int().positive(),
+        outcome: z.enum(["sent", "failed"]),
+        externalId: z.string().min(1).optional(),
+      }),
+      handler: (input: { id: number; outcome: "sent" | "failed"; externalId?: string | undefined }) =>
+        resolveDeliveryVerification(db, input.id, input.outcome, input.externalId),
     },
     signal_quality: {
       description: "Source collection, event, delivery and suppression metrics for an operator-selected period.",
