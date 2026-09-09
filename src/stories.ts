@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { authorityForSource, CONFIDENCE_LEVELS, sourceFamily } from "./events/confidence.js";
+import { authorityForSource, CONFIDENCE_LEVELS } from "./events/confidence.js";
 import {
   identityFor,
   identityTerms,
@@ -8,6 +8,7 @@ import {
   normalizeIdentity,
 } from "./events/identity.js";
 import { vendorOf } from "./events/interpretation.js";
+import { sourceFamily } from "./events/sourceFamily.js";
 import type { Confidence, Event, EvidenceType, RecordData, SourceAuthority } from "./events/types.js";
 
 const CORRELATION_WINDOW_MS = 30 * 24 * 3_600_000;
@@ -169,9 +170,10 @@ function projectEvent(projection: StoryProjection, event: StoryEvent): StoryGrou
   const identity = identityFor(event, record);
   // GitHub records carry repository scope but no model identity. Their display names are not
   // evidence that two independent repository events describe the same subject.
-  const terms = event.source.startsWith("github:") ? [] : identityTerms(identity);
-  const url = event.source.startsWith("github:") ? null : canonicalUrl(record?.url);
-  const titles = event.source.startsWith("github:") ? new Set<string>() : titleTerms(record);
+  const repositoryEvent = event.source.startsWith("github:") && !event.source.startsWith("discovery:github-");
+  const terms = repositoryEvent ? [] : identityTerms(identity);
+  const url = repositoryEvent ? null : canonicalUrl(record?.url);
+  const titles = repositoryEvent ? new Set<string>() : titleTerms(record);
   const { key, subject, vendor } = baseKeyFor(event, record);
   const identityMatch = terms
     .map((term) => projection.aliases.get(`${normalized(vendor)}:${term}`))

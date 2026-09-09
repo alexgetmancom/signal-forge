@@ -9,5 +9,6 @@ export * from "./events/render/common.js";
 export * from "./events/render/discord.js";
 export * from "./events/render/story.js";
 export * from "./events/render/telegram.js";
+export * from "./events/sourceFamily.js";
 export * from "./events/types.js";
 export * from "./events/web.js";

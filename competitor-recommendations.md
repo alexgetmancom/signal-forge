@@ -31,3 +31,24 @@ Observation date: 2026-09-09 UTC. These recommendations are based on the inspect
 Keep the direct path: one normalized event, one SQLite transaction for snapshot/event/delivery state, and one delivery outcome. Do not add compatibility shims, duplicate writes, speculative abstraction layers, or silent fallback paths. Validate external responses with Zod, keep environment access in `config.ts`, use UTC timestamps, and treat an uncertain external delivery outcome as ambiguous rather than automatically retrying it.
 
 The practical priority is provenance plus lifecycle diffs. Those two changes would capture most of the value visible in RAGtag and Lumina while fitting the existing Signal Forge shape. Source expansion should follow only after the event envelope and failure semantics are reliable.
+
+## Implemented intelligence layer
+
+The current implementation keeps those recommendations on the existing evidence path:
+
+* GitHub and Hugging Face discovery use shadow sources, so they can be measured before their
+  observations reach subscribers. Shadow sources still collect snapshots, events, stories and
+  metrics; only delivery work is suppressed.
+* Attention scores are deterministic triage values. Confidence remains source-derived and is never
+  changed by attention or an LLM classifier.
+* Model Facts is a projection, not another source of truth. Each field carries its source, event ID,
+  evidence type, confidence and observed timestamp.
+* Source-quality reporting measures first-source wins and independent confirmation by source family,
+  including lead time and signal density.
+* Hypotheses are deterministic story interpretations linked to real events. They never become
+  evidence or subscriber deliveries.
+* Lifecycle reminders are idempotent delivery work derived from the original deprecation event.
+  Rebuilding projections cannot create a second reminder batch.
+
+LLM relevance verification remains deferred until deterministic discovery has produced at least
+seven days of quality measurements.

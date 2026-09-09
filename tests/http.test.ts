@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { loadConfig, settingsSchema } from "../src/config.js";
+import { type Collection, saveCollection } from "../src/events.js";
 import { createHttpApp } from "../src/http.js";
 import { openDatabase } from "../src/storage/database.js";
 
@@ -35,6 +36,11 @@ test("health is public, operational state requires token, MCP lists matching sch
     "resolve_delivery_verification",
     "signal_quality",
     "stories",
+    "models",
+    "model",
+    "hypotheses",
+    "hypothesis",
+    "lifecycle_deadlines",
     "issues",
     "capabilities",
   ]);
@@ -73,4 +79,35 @@ test("duplicate destination addresses fail configuration instead of doubling not
       ],
     }),
   ).toThrow("once");
+});
+
+test("model, hypothesis and deadline HTTP routes use the authenticated operations", async () => {
+  const db = openDatabase(":memory:");
+  const config = loadConfig({
+    CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname,
+    MCP_TOKEN: "x".repeat(32),
+  });
+  const auth = { Authorization: `Bearer ${config.MCP_TOKEN}` };
+  const collect = (source: string, stream: Collection["stream"], records: Collection["records"]): Collection => ({
+    source,
+    stream,
+    url: `https://example.test/${source}`,
+    raw: records,
+    appendOnly: true,
+    records,
+  });
+  saveCollection(db, collect("openrouter", "openrouter", []), [], "2026-09-10T00:00:00Z");
+  saveCollection(
+    db,
+    collect("openrouter", "openrouter", [{ id: "openai/gpt-6", name: "GPT-6", maker: "OpenAI" }]),
+    [],
+    "2026-09-10T00:01:00Z",
+  );
+  const app = createHttpApp(config, db);
+  expect((await app.request("/api/models", { headers: auth })).status).toBe(200);
+  expect((await app.request("/api/models/openai/gpt-6", { headers: auth })).status).toBe(200);
+  expect((await app.request("/api/models/missing", { headers: auth })).status).toBe(404);
+  expect((await app.request("/api/hypotheses?limit=10", { headers: auth })).status).toBe(200);
+  expect((await app.request("/api/deadlines?days=30", { headers: auth })).status).toBe(200);
+  db.close();
 });

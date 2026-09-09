@@ -179,6 +179,14 @@ test("tracker status lists every registered source, including disabled and missi
   db.close();
 });
 
+test("source status exposes shadow mode without changing collector health", () => {
+  const db = openDatabase(":memory:");
+  const config = { ...withStatus, sourceMode: { ...withStatus.sourceMode, openrouter: "shadow" as const } };
+  const entry = sourceHealth(db, config, now).find((source) => source.id === "openrouter");
+  expect(entry).toMatchObject({ mode: "shadow", state: "idle" });
+  db.close();
+});
+
 test("an outage is announced once, and so is the recovery", async () => {
   const db = openDatabase(":memory:");
   const config = {

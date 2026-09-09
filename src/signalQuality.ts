@@ -1,12 +1,15 @@
 import type { Database } from "bun:sqlite";
-import type { AppConfig } from "./config.js";
+import type { AppConfig, SourceMode } from "./config.js";
+import { CONFIDENCE_LEVELS } from "./events/confidence.js";
 import { hasNotificationContent } from "./events/notification.js";
+import { sourceFamily } from "./events/sourceFamily.js";
 import type { Event } from "./events/types.js";
 import { sourceJobs } from "./sources/registry.js";
 
 export type SignalQualitySource = {
   id: string;
   label: string;
+  mode: SourceMode;
   collections: number;
   successfulCollections: number;
   failedCollections: number;
@@ -28,6 +31,11 @@ export type SignalQualitySource = {
   corroboratedStoryCount: number;
   duplicateRate: number;
   freshnessHours: number | null;
+  signalDensity: number;
+  firstSourceWins: number;
+  laterConfirmed: number;
+  confirmationRate: number;
+  medianLeadTimeSeconds: number | null;
 };
 
 export type SignalQualityReport = {
@@ -64,11 +72,21 @@ type DeliveryAggregate = {
 type StoryAggregate = { source: string; story_id: number | null; event_id: number };
 
 type RenderableEvent = Event & { url: string };
+type LeadTime = { source: string; leadTimeSeconds: number };
 
 const rounded = (value: number, digits = 2): number => {
   const factor = 10 ** digits;
   return Math.round(value * factor) / factor;
 };
+
+function median(values: number[]): number | null {
+  if (!values.length) return null;
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2
+    ? (sorted[middle] ?? null)
+    : Math.round(((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2);
+}
 
 /**
  * Summarizes observable signal value for an operator-selected period. Delivery counts are rows
@@ -188,6 +206,43 @@ export function signalQuality(db: Database, config: AppConfig, days = 7, now = D
       .map((row) => [row.source, row.latest] as const),
   );
 
+  const firstSourceWins = new Map<string, number>();
+  const laterConfirmed = new Map<string, number>();
+  const leadTimes: LeadTime[] = [];
+  const firstSeenStories = db
+    .query<{ id: number }, [string, string]>(
+      "SELECT id FROM stories WHERE first_seen_at>=? AND first_seen_at<=? ORDER BY first_seen_at,id",
+    )
+    .all(since, new Date(now).toISOString());
+  for (const story of firstSeenStories) {
+    const events = db
+      .query<Event & { confidence: NonNullable<Event["confidence"]> }, [number]>(
+        `SELECT e.id,e.source,e.stream,e.entity_id,e.kind,e.before_json,e.after_json,e.detected_at,
+                e.confidence,e.evidence_type,e.authority
+         FROM story_events se JOIN events e ON e.id=se.event_id
+         WHERE se.story_id=? ORDER BY e.detected_at,e.id`,
+      )
+      .all(story.id);
+    const first = events[0];
+    if (!first) continue;
+    firstSourceWins.set(first.source, (firstSourceWins.get(first.source) ?? 0) + 1);
+    const firstFamily = sourceFamily(first.source, first.stream);
+    const confirming = events
+      .slice(1)
+      .find(
+        (event) =>
+          CONFIDENCE_LEVELS.indexOf(event.confidence) >= CONFIDENCE_LEVELS.indexOf("confirmed") &&
+          sourceFamily(event.source, event.stream) !== firstFamily,
+      );
+    if (!confirming) continue;
+    const firstAt = Date.parse(first.detected_at);
+    const confirmingAt = Date.parse(confirming.detected_at);
+    if (!Number.isFinite(firstAt) || !Number.isFinite(confirmingAt)) continue;
+    const leadTimeSeconds = Math.max(0, Math.floor((confirmingAt - firstAt) / 1000));
+    laterConfirmed.set(first.source, (laterConfirmed.get(first.source) ?? 0) + 1);
+    leadTimes.push({ source: first.source, leadTimeSeconds });
+  }
+
   const suppressed = new Map<string, number>();
   const changedEvents = db
     .query<RenderableEvent, [string]>(
@@ -215,6 +270,7 @@ export function signalQuality(db: Database, config: AppConfig, days = 7, now = D
     return {
       id: job.id,
       label: job.label,
+      mode: job.mode,
       collections: total,
       successfulCollections: successful,
       failedCollections: row?.failed ?? 0,
@@ -236,6 +292,15 @@ export function signalQuality(db: Database, config: AppConfig, days = 7, now = D
       corroboratedStoryCount,
       duplicateRate: storyKeys.size ? rounded((storyKeys.size - uniqueStoryCount) / storyKeys.size, 3) : 0,
       freshnessHours: latest ? rounded(Math.max(0, now - Date.parse(latest)) / 3_600_000) : null,
+      signalDensity: row?.records ? rounded((row.events ?? 0) / row.records, 3) : 0,
+      firstSourceWins: firstSourceWins.get(job.id) ?? 0,
+      laterConfirmed: laterConfirmed.get(job.id) ?? 0,
+      confirmationRate: firstSourceWins.get(job.id)
+        ? rounded((laterConfirmed.get(job.id) ?? 0) / (firstSourceWins.get(job.id) ?? 1), 3)
+        : 0,
+      medianLeadTimeSeconds: median(
+        leadTimes.filter((leadTime) => leadTime.source === job.id).map((leadTime) => leadTime.leadTimeSeconds),
+      ),
     };
   });
   return {

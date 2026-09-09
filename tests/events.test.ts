@@ -20,7 +20,7 @@ import { openDatabase } from "../src/storage/database.js";
 const db = openDatabase(":memory:");
 afterEach(() =>
   db.exec(
-    "DELETE FROM deliveries; DELETE FROM batches; DELETE FROM summaries; DELETE FROM events; DELETE FROM change_candidates; DELETE FROM records; DELETE FROM snapshots; DELETE FROM sources;",
+    "DELETE FROM deliveries; DELETE FROM lifecycle_reminders; DELETE FROM hypothesis_events; DELETE FROM model_fact_conflicts; DELETE FROM model_fact_fields; DELETE FROM model_facts; DELETE FROM hypotheses; DELETE FROM lifecycle_deadlines; DELETE FROM batch_targets; DELETE FROM batch_events; DELETE FROM batches; DELETE FROM summaries; DELETE FROM events; DELETE FROM change_candidates; DELETE FROM records; DELETE FROM snapshots; DELETE FROM sources;",
   ),
 );
 const targets: Destination[] = [

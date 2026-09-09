@@ -25,11 +25,37 @@ After deployment, verify the health endpoint, readiness endpoint, application lo
 ```sh
 bun dist/src/cli.js issues
 bun dist/src/cli.js signal-quality 7
+bun dist/src/cli.js models
+bun dist/src/cli.js hypotheses
+bun dist/src/cli.js deadlines
 bun dist/src/cli.js deliveries-needing-verification
 ```
 
 Run only one collector against a production database. Operational APIs require the configured
 bearer token.
+
+### Shadow sources
+
+`sourceEnabled` decides whether a collector runs. A running source with `sourceMode` set to
+`shadow` persists snapshots and immutable events and participates in stories, projections and
+metrics, but cannot create subscriber delivery work. GitHub and Hugging Face discovery are shadow
+by default. Promote a source by editing the operator-owned JSON configuration:
+
+```json
+{
+  "sourceMode": {
+    "discovery:github-ai": "active"
+  }
+}
+```
+
+Do not edit configuration through the CLI. Verify the resulting source mode in `status` before
+enabling a discovery source for subscribers.
+
+The intelligence projections are derived from immutable evidence: Model Facts retain event
+provenance, hypotheses are interpretations rather than evidence, and lifecycle reminders are
+derived delivery work rather than synthetic events. Attention scores are triage values and never
+change confidence, which remains source-derived.
 
 ## Backups
 
@@ -49,6 +75,7 @@ Restore only while the service is stopped:
 4. Start the application and wait for readiness.
 5. Run `issues`, `signal-quality 7` and the delivery verification report.
 6. Run a separate integrity check and compare the restored event count with the backup log.
+7. Run `models`, `hypotheses` and `deadlines` to confirm the derived views rebuild consistently.
 
 Do not restore over a live SQLite database.
 

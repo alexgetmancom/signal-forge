@@ -53,6 +53,16 @@ function unversionedBaseline(db: Database): number | null {
     if (!tableExists(db, "source_collection_metrics")) return 4;
     if (!eventColumns.has("confidence")) return 5;
     if (!eventColumns.has("evidence_type")) return tableExists(db, "stories") ? 7 : 6;
+    const batchColumns = columns(db, "batches");
+    if (
+      eventColumns.has("authority") &&
+      batchColumns.has("kind") &&
+      batchColumns.has("context_json") &&
+      tableExists(db, "model_facts") &&
+      tableExists(db, "hypotheses") &&
+      tableExists(db, "lifecycle_deadlines")
+    )
+      return CURRENT_SCHEMA_VERSION;
     const currentVerificationNames = deliveryColumns.has("verification_source");
     const baseline = tableExists(db, "stories") ? (currentVerificationNames ? 9 : 8) : currentVerificationNames ? 8 : 7;
     return eventColumns.has("authority") ? 10 : baseline;

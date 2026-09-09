@@ -15,6 +15,8 @@ export const streamSchema = z.enum([
   "deprecations",
 ]);
 export type Stream = z.infer<typeof streamSchema>;
+export const sourceModeSchema = z.enum(["active", "shadow"]);
+export type SourceMode = z.infer<typeof sourceModeSchema>;
 const streams = z.array(streamSchema).min(1);
 export const destinationSchema = z.discriminatedUnion("platform", [
   z.object({
@@ -49,6 +51,8 @@ export const settingsSchema = z
     pollSeconds: z.number().int().min(60).default(300),
     /** Optional collectors are requested by default; set a source to false to disable it deliberately. */
     sourceEnabled: z.record(z.string(), z.boolean()).default({}),
+    /** A running source may collect evidence without creating subscriber delivery work. */
+    sourceMode: z.record(z.string(), sourceModeSchema).default({}),
     destinations: z.array(destinationSchema).default([]),
     /** One Discord channel holding a status board that is edited in place, not a stream of posts. */
     statusChannelId: z.string().regex(/^\d+$/).optional(),

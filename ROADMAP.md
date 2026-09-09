@@ -52,6 +52,18 @@ current `main` branch with no known actionable issues.
   user-facing strings; Codex documentation is labelled as documentation rather than interface text.
 - Backups use a separate memory budget and verify the compressed database with SQLite integrity and
   event-count checks.
+- Source shadow mode separates collector execution from subscriber delivery. Shadow sources still
+  persist snapshots, events, stories and source-quality metrics.
+- Deterministic GitHub and Hugging Face discovery collect recent candidates in shadow mode, with
+  attention scores that remain separate from source-derived confidence.
+- Model Facts preserves structured canonical-model fields with exact event provenance and
+  deterministic precedence and conflict records.
+- Source-quality reports include signal density, first-source wins, independent confirmation rate
+  and median lead time by source family.
+- Hypotheses derive emerging and strengthening interpretations from independent story evidence;
+  confirmations resolve them without creating synthetic events.
+- Lifecycle deadlines and idempotent 30-, 7- and 1-day reminders derive delivery work from
+  structured lifecycle evidence.
 
 ## Next work
 
@@ -60,7 +72,7 @@ Ordered by risk and reader value.
 | Priority | Task | Definition of done |
 |---|---|---|
 | Next | Run a real restore drill. | Restore a verified archive into a stopped test instance, run `integrity_check`, start it, and compare event counts and health reports. |
-| Next | Observe signal quality for seven days. | Use `signal-quality 7` to decide whether DesignArena rank churn, story duplication or another source needs batching, thresholds or a different notification policy. |
+| Next | Observe signal quality for seven days. | Use `signal-quality 7` to decide whether discovery noise, DesignArena rank churn, story duplication or another source needs batching, thresholds or a different notification policy. |
 | Next | Preserve outage start time. | Store `failure_started_at` separately from the latest observation so issue duration is accurate. |
 | Owner decision | Google catalogue. | Choose Vertex AI with a billed service account or accept OpenRouter as the Google model source. |
 | Owner decision | Vercel AI Gateway. | Decide whether the incomplete upstream response is worth another parser or should remain disabled. |
@@ -77,6 +89,8 @@ Ordered by risk and reader value.
 - Mobile app releases, individual PR authors, additional status providers and a public report site
   remain optional expansions.
 - A dedicated removals role remains deferred even though removal evidence is retained.
+- LLM relevance verification is intentionally deferred until at least seven days of deterministic
+  discovery density, confirmation rate, first-source wins and lead-time measurements exist.
 
 ## Source coverage
 
@@ -92,6 +106,8 @@ The current registry covers:
   releases; and Google DeepMind, NVIDIA and Hugging Face developer feeds.
 - OpenAI, Anthropic, Google, AWS, Azure, Groq, Cohere and xAI lifecycle/deprecation sources.
 - Arena leaderboard observations, with selected DeepSeek npm channels.
+- GitHub discovery for artificial-intelligence, LLM, agent and MCP repositories, plus recent global
+  Hugging Face model discovery; both default to shadow mode.
 
 A failed or malformed collection is never treated as an empty catalogue. External responses are
 validated before they can change stored state.

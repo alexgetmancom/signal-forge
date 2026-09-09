@@ -1,5 +1,8 @@
 import type { Database } from "bun:sqlite";
 import type { Destination } from "../config.js";
+import { rebuildHypotheses } from "../hypotheses.js";
+import { rebuildLifecycleDeadlines } from "../lifecycle.js";
+import { rebuildModelFacts } from "../modelFacts.js";
 import { rememberStoryProjection, type StoryProjection, updateStories } from "../stories.js";
 import { prepareDeliveries } from "./batching.js";
 import { persistCollection } from "./store.js";
@@ -22,7 +25,12 @@ export function saveCollection(
     const currentEventId = Number(
       db.query<{ id: number | null }, []>("SELECT MAX(id) AS id FROM events").get()?.id ?? 0,
     );
-    if (currentEventId > previousEventId) projection = updateStories(db);
+    if (currentEventId > previousEventId) {
+      projection = updateStories(db);
+      rebuildModelFacts(db);
+      rebuildHypotheses(db, Date.parse(now));
+      rebuildLifecycleDeadlines(db, Date.parse(now));
+    }
     prepareDeliveries(db, Date.parse(now), vendorRoles);
     return count;
   })();

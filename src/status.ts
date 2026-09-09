@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import { type CapabilityReportEntry, capabilityReport } from "./capabilities.js";
-import type { AppConfig } from "./config.js";
+import type { AppConfig, SourceMode } from "./config.js";
 import { COLLECTION_DEGRADED_PREFIX } from "./events/store.js";
 import type { SourceAuthority } from "./events/types.js";
 import type { Fetch } from "./http-client.js";
@@ -21,6 +21,7 @@ export type SourceHealth = {
   label: string;
   group: string;
   authority: SourceAuthority;
+  mode: SourceMode;
   state: SourceState;
   detail: string;
   lastSuccess: string | null;
@@ -31,13 +32,17 @@ export type SourceHealth = {
 export function sourceHealth(db: Database, config: AppConfig, now = Date.now()): SourceHealth[] {
   const values = config as unknown as Record<string, unknown>;
   return buildSourceRegistry(db, config).map((source) => {
+    const sourceBase = {
+      id: source.id,
+      label: source.label,
+      group: source.group,
+      authority: source.authority,
+      mode: source.mode,
+    };
     const missing = (source.requiredCapabilities ?? []).filter((name) => !values[name]);
     if (!source.enabled)
       return {
-        id: source.id,
-        label: source.label,
-        group: source.group,
-        authority: source.authority,
+        ...sourceBase,
         state: "disabled",
         detail: "disabled by configuration",
         lastSuccess: null,
@@ -45,10 +50,7 @@ export function sourceHealth(db: Database, config: AppConfig, now = Date.now()):
       } satisfies SourceHealth;
     if (missing.length)
       return {
-        id: source.id,
-        label: source.label,
-        group: source.group,
-        authority: source.authority,
+        ...sourceBase,
         state: "missing",
         detail: `missing ${missing.join(", ")}`,
         lastSuccess: null,
@@ -71,79 +73,65 @@ export function sourceHealth(db: Database, config: AppConfig, now = Date.now()):
 
     if (!row?.checked_at)
       return {
-        id: source.id,
-        label: source.label,
+        ...sourceBase,
         group,
-        authority: source.authority,
         state: "idle",
         detail: "no observation yet",
         lastSuccess: row?.last_success ?? null,
         checkedAt: row?.checked_at ?? null,
       };
-    const base = { lastSuccess: row.last_success, checkedAt: row.checked_at };
+    const observationBase = { lastSuccess: row.last_success, checkedAt: row.checked_at };
     if (row.last_error) {
       if (row.last_error.startsWith(COLLECTION_DEGRADED_PREFIX))
         return {
-          id: source.id,
-          label: source.label,
+          ...sourceBase,
+          ...observationBase,
           group,
-          authority: source.authority,
           state: "degraded",
           detail: row.last_error,
-          ...base,
         };
       if (restriction)
         return {
-          id: source.id,
-          label: source.label,
+          ...sourceBase,
+          ...observationBase,
           group,
-          authority: source.authority,
           state: "blocked",
           detail: restriction,
-          ...base,
         };
       if (/bot protection|captcha|challenge/i.test(row.last_error))
         return {
-          id: source.id,
-          label: source.label,
+          ...sourceBase,
+          ...observationBase,
           group,
-          authority: source.authority,
           state: "blocked",
           detail: "upstream bot protection — waiting for a readable status response",
-          ...base,
         };
       if (/HTTP 429$/.test(row.last_error))
         return {
-          id: source.id,
-          label: source.label,
+          ...sourceBase,
+          ...observationBase,
           group,
-          authority: source.authority,
           state: "blocked",
           detail: row.retry_at ? `rate limited — waiting until ${row.retry_at}` : "rate limited — backing off",
-          ...base,
         };
       return {
-        id: source.id,
-        label: source.label,
+        ...sourceBase,
+        ...observationBase,
         group,
-        authority: source.authority,
         state: "failing",
         detail: row.last_error,
-        ...base,
       };
     }
     const since = row.last_success ? now - Date.parse(row.last_success) : Number.POSITIVE_INFINITY;
     if (since > source.intervalSeconds * 3000)
       return {
-        id: source.id,
-        label: source.label,
+        ...sourceBase,
+        ...observationBase,
         group,
-        authority: source.authority,
         state: "stale",
         detail: "no fresh observation",
-        ...base,
       };
-    return { id: source.id, label: source.label, group, authority: source.authority, state: "ok", detail: "", ...base };
+    return { ...sourceBase, ...observationBase, group, state: "ok", detail: "" };
   });
 }
 

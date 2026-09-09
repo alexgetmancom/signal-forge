@@ -55,8 +55,29 @@ test("source registry has unique IDs, valid streams, labels and consistent pacin
     new Map([
       ["huggingface.co", 60],
       ["designarena.ai", 60],
+      ["github-search", 60],
     ]),
   );
+  db.close();
+});
+
+test("existing sources stay active while discovery sources start in shadow mode", () => {
+  const db = openDatabase(":memory:");
+  const defaults = buildSourceRegistry(db, config());
+  expect(defaults.find((definition) => definition.id === "openrouter")).toMatchObject({ mode: "active" });
+  expect(
+    defaults
+      .filter((definition) => definition.id.startsWith("discovery:github-"))
+      .every((definition) => definition.mode === "shadow"),
+  ).toBe(true);
+  expect(defaults.find((definition) => definition.id === "discovery:huggingface-recent")?.mode).toBe("shadow");
+
+  const overridden = buildSourceRegistry(db, {
+    ...config(),
+    sourceMode: { openrouter: "shadow", "discovery:github-ai": "active" },
+  });
+  expect(overridden.find((definition) => definition.id === "openrouter")?.mode).toBe("shadow");
+  expect(overridden.find((definition) => definition.id === "discovery:github-ai")?.mode).toBe("active");
   db.close();
 });
 
@@ -99,6 +120,7 @@ test("registry rejects duplicate IDs and conflicting pacing", () => {
       records: [],
     }),
     enabled: true,
+    mode: "active" as const,
   };
   expect(() => validateSourceRegistry([definition, { ...definition }])).toThrow("Duplicate source ID");
   expect(() =>
@@ -107,6 +129,7 @@ test("registry rejects duplicate IDs and conflicting pacing", () => {
       { ...definition, id: "other", pace: { group: "host", seconds: 60 } },
     ]),
   ).toThrow("conflicting intervals");
+  expect(() => validateSourceRegistry([{ ...definition, mode: "invalid" as "active" }])).toThrow("invalid mode");
 });
 
 test("source labels cover generated families", () => {

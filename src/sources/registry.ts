@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import type { AppConfig, Stream } from "../config.js";
+import type { AppConfig, SourceMode, Stream } from "../config.js";
 import { SOURCE_AUTHORITIES } from "../events/confidence.js";
 import type { Collection, SourceAuthority } from "../events/types.js";
 import { HttpCache } from "../storage/httpCache.js";
@@ -10,6 +10,7 @@ import { collectCodexDocs } from "./codex.js";
 import { collectCursorChangelog, collectDesignArena, DESIGNARENA_CATEGORIES } from "./community.js";
 import { collectDeepSeekPricing, collectDeepSeekUpdates } from "./deepseek.js";
 import { collectAnthropicDeprecations, collectOpenAIDeprecations } from "./deprecations.js";
+import { collectGithubDiscovery, collectHuggingFaceDiscovery, GITHUB_DISCOVERY_QUERIES } from "./discovery.js";
 import {
   collectAnthropicSdkReleases,
   collectClaudeCodeChangelog,
@@ -60,6 +61,7 @@ export type SourceDefinition = {
   pace?: { group: string; seconds: number };
   collector: () => Promise<Collection>;
   enabled: boolean;
+  mode: SourceMode;
   restrictedReason?: string;
 };
 
@@ -77,7 +79,7 @@ export type SourceJob = SourceDefinition & {
 export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefinition[] {
   const cache = new HttpCache(db);
   const requested = (id: string): boolean => config.sourceEnabled[id] ?? true;
-  const definitions: SourceDefinition[] = [
+  const definitions: Omit<SourceDefinition, "mode">[] = [
     {
       id: "openrouter",
       label: sourceLabel("openrouter"),
@@ -86,7 +88,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       stream: "openrouter",
       intervalSeconds: config.pollSeconds,
       collector: () => collectOpenRouter(),
-      enabled: true,
+      enabled: requested("openrouter"),
     },
     {
       id: "openai-news",
@@ -97,7 +99,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       stream: "news",
       intervalSeconds: 900,
       collector: () => collectOpenAINews(),
-      enabled: true,
+      enabled: requested("openai-news"),
     },
     {
       id: "openai-chatgpt-release-notes",
@@ -108,7 +110,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       stream: "news",
       intervalSeconds: 900,
       collector: () => collectOpenAIChatGPTReleaseNotes(fetch, cache),
-      enabled: true,
+      enabled: requested("openai-chatgpt-release-notes"),
     },
     {
       id: "anthropic-news",
@@ -119,7 +121,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       stream: "news",
       intervalSeconds: 900,
       collector: () => collectAnthropicNews(),
-      enabled: true,
+      enabled: requested("anthropic-news"),
     },
     {
       id: "gemini-api-changelog",
@@ -130,7 +132,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       stream: "news",
       intervalSeconds: 1800,
       collector: () => collectGeminiApiChangelog(fetch, cache),
-      enabled: true,
+      enabled: requested("gemini-api-changelog"),
     },
     {
       id: "xai-release-notes",
@@ -141,7 +143,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       stream: "news",
       intervalSeconds: 1800,
       collector: () => collectXaiReleaseNotes(fetch, cache),
-      enabled: true,
+      enabled: requested("xai-release-notes"),
     },
     {
       id: "mistral-release-notes",
@@ -152,7 +154,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       stream: "news",
       intervalSeconds: 3600,
       collector: () => collectMistralReleaseNotes(fetch, cache),
-      enabled: true,
+      enabled: requested("mistral-release-notes"),
     },
     {
       id: "groq-changelog",
@@ -163,7 +165,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       stream: "news",
       intervalSeconds: 1800,
       collector: () => collectGroqChangelog(fetch, cache),
-      enabled: true,
+      enabled: requested("groq-changelog"),
     },
     {
       id: "deepseek-updates",
@@ -174,7 +176,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       stream: "news",
       intervalSeconds: 3600,
       collector: () => collectDeepSeekUpdates(fetch, cache),
-      enabled: true,
+      enabled: requested("deepseek-updates"),
     },
     {
       id: "deepseek-pricing",
@@ -185,7 +187,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       stream: "api-models",
       intervalSeconds: 1800,
       collector: () => collectDeepSeekPricing(fetch, cache),
-      enabled: true,
+      enabled: requested("deepseek-pricing"),
     },
     {
       id: "claude-code-changelog",
@@ -196,7 +198,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       stream: "news",
       intervalSeconds: 1800,
       collector: () => collectClaudeCodeChangelog(fetch, cache),
-      enabled: true,
+      enabled: requested("claude-code-changelog"),
     },
     {
       id: "anthropic-sdk-releases",
@@ -207,7 +209,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       stream: "news",
       intervalSeconds: 1800,
       collector: () => collectAnthropicSdkReleases(fetch, cache),
-      enabled: true,
+      enabled: requested("anthropic-sdk-releases"),
     },
     {
       id: "google-deepmind-feed",
@@ -218,7 +220,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       stream: "news",
       intervalSeconds: 1800,
       collector: () => collectGoogleDeepmindFeed(fetch, cache),
-      enabled: true,
+      enabled: requested("google-deepmind-feed"),
     },
     {
       id: "nvidia-ai-feed",
@@ -229,7 +231,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       stream: "news",
       intervalSeconds: 1800,
       collector: () => collectNvidiaAiFeed(fetch, cache),
-      enabled: true,
+      enabled: requested("nvidia-ai-feed"),
     },
     {
       id: "huggingface-blog-feed",
@@ -240,7 +242,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       stream: "news",
       intervalSeconds: 1800,
       collector: () => collectHuggingFaceBlogFeed(fetch, cache),
-      enabled: true,
+      enabled: requested("huggingface-blog-feed"),
     },
     {
       id: "vercel-gateway",
@@ -250,7 +252,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       stream: "api-models",
       intervalSeconds: config.pollSeconds,
       collector: () => collectVercelGateway(),
-      enabled: true,
+      enabled: requested("vercel-gateway"),
       restrictedReason: "upstream response arrives incomplete — waiting on a full feed",
     },
     {
@@ -261,7 +263,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       stream: "arena",
       intervalSeconds: config.pollSeconds,
       collector: () => collectArena(),
-      enabled: true,
+      enabled: requested("arena"),
     },
     {
       id: "arena-leaderboards",
@@ -271,7 +273,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       stream: "leaderboards",
       intervalSeconds: 1800,
       collector: () => collectLeaderboards(),
-      enabled: true,
+      enabled: requested("arena-leaderboards"),
     },
     {
       id: "codex-docs",
@@ -282,7 +284,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       stream: "web",
       intervalSeconds: 3600,
       collector: () => collectCodexDocs(fetch, cache),
-      enabled: true,
+      enabled: requested("codex-docs"),
     },
     {
       id: "claude-web",
@@ -293,10 +295,10 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       stream: "web",
       intervalSeconds: 3600,
       collector: () => collectClaude(fetch, cache),
-      enabled: true,
+      enabled: requested("claude-web"),
     },
     ...HF_AUTHORS.map(
-      (author, index): SourceDefinition => ({
+      (author, index): Omit<SourceDefinition, "mode"> => ({
         id: `huggingface:${author}`,
         label: sourceLabel(`huggingface:${author}`),
         authority: "vendor_owned",
@@ -305,11 +307,11 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
         intervalSeconds: 1800 + index * 90,
         pace: { group: "huggingface.co", seconds: 60 },
         collector: () => collectHuggingFace(author, config.HF_TOKEN, fetch, cache),
-        enabled: true,
+        enabled: requested(`huggingface:${author}`),
       }),
     ),
     ...DESIGNARENA_CATEGORIES.map(
-      (category, index): SourceDefinition => ({
+      (category, index): Omit<SourceDefinition, "mode"> => ({
         id: `designarena:${category}`,
         label: sourceLabel(`designarena:${category}`),
         authority: "third_party",
@@ -318,7 +320,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
         intervalSeconds: 3600 + index * 120,
         pace: { group: "designarena.ai", seconds: 60 },
         collector: () => collectDesignArena(category),
-        enabled: true,
+        enabled: requested(`designarena:${category}`),
       }),
     ),
     {
@@ -330,7 +332,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       stream: "news",
       intervalSeconds: 1800,
       collector: () => collectCursorChangelog(),
-      enabled: true,
+      enabled: requested("cursor-changelog"),
     },
     {
       id: "openai-deprecations",
@@ -341,7 +343,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       stream: "deprecations",
       intervalSeconds: 3600,
       collector: () => collectOpenAIDeprecations(),
-      enabled: true,
+      enabled: requested("openai-deprecations"),
     },
     {
       id: "anthropic-deprecations",
@@ -352,7 +354,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       stream: "deprecations",
       intervalSeconds: 3600,
       collector: () => collectAnthropicDeprecations(),
-      enabled: true,
+      enabled: requested("anthropic-deprecations"),
     },
     {
       id: "gemini-deprecations",
@@ -363,7 +365,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       stream: "deprecations",
       intervalSeconds: 3600,
       collector: () => collectGeminiDeprecations(),
-      enabled: true,
+      enabled: requested("gemini-deprecations"),
     },
     {
       id: "vertex-deprecations",
@@ -374,7 +376,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       stream: "deprecations",
       intervalSeconds: 3600,
       collector: () => collectVertexDeprecations(),
-      enabled: true,
+      enabled: requested("vertex-deprecations"),
     },
     {
       id: "aws-bedrock-lifecycle",
@@ -385,7 +387,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       stream: "deprecations",
       intervalSeconds: 3600,
       collector: () => collectAwsBedrockLifecycle(),
-      enabled: true,
+      enabled: requested("aws-bedrock-lifecycle"),
     },
     {
       id: "azure-foundry-lifecycle",
@@ -396,7 +398,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       stream: "deprecations",
       intervalSeconds: 3600,
       collector: () => collectAzureFoundryLifecycle(),
-      enabled: true,
+      enabled: requested("azure-foundry-lifecycle"),
     },
     {
       id: "groq-deprecations",
@@ -407,7 +409,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       stream: "deprecations",
       intervalSeconds: 3600,
       collector: () => collectGroqDeprecations(),
-      enabled: true,
+      enabled: requested("groq-deprecations"),
     },
     {
       id: "cohere-deprecations",
@@ -418,7 +420,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       stream: "deprecations",
       intervalSeconds: 3600,
       collector: () => collectCohereDeprecations(),
-      enabled: true,
+      enabled: requested("cohere-deprecations"),
     },
     {
       id: "xai-deprecations",
@@ -429,10 +431,10 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       stream: "deprecations",
       intervalSeconds: 3600,
       collector: () => collectXaiDeprecations(),
-      enabled: true,
+      enabled: requested("xai-deprecations"),
     },
     ...PLATFORMS.map(
-      (platform): SourceDefinition => ({
+      (platform): Omit<SourceDefinition, "mode"> => ({
         id: `status:${platform.id}`,
         label: sourceLabel(`status:${platform.id}`),
         authority: "first_party",
@@ -441,11 +443,11 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
         stream: "incidents",
         intervalSeconds: platform.interval,
         collector: () => collectPlatformStatus(platform),
-        enabled: true,
+        enabled: requested(`status:${platform.id}`),
       }),
     ),
     ...NPM_PACKAGES.map(
-      (name, index): SourceDefinition => ({
+      (name, index): Omit<SourceDefinition, "mode"> => ({
         id: `npm:${name}`,
         label: sourceLabel(`npm:${name}`),
         authority: "vendor_owned",
@@ -453,11 +455,11 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
         stream: "packages",
         intervalSeconds: 900 + index * 45,
         collector: () => collectNpm(name, fetch, cache),
-        enabled: true,
+        enabled: requested(`npm:${name}`),
       }),
     ),
     ...PYPI_PACKAGES.map(
-      (name, index): SourceDefinition => ({
+      (name, index): Omit<SourceDefinition, "mode"> => ({
         id: `pypi:${name}`,
         label: sourceLabel(`pypi:${name}`),
         authority: "vendor_owned",
@@ -465,7 +467,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
         stream: "packages",
         intervalSeconds: 900 + index * 45,
         collector: () => collectPypi(name, fetch, cache),
-        enabled: true,
+        enabled: requested(`pypi:${name}`),
       }),
     ),
     {
@@ -521,7 +523,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
         stream: "github",
         intervalSeconds: 1800,
         collector: () => collectGithubPulls(db, config, watch, fetch, cache),
-        enabled: true,
+        enabled: requested(`github:${watch.repo}:pulls`),
       },
       {
         id: `github:${watch.repo}:commits`,
@@ -531,7 +533,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
         stream: "github",
         intervalSeconds: 1800,
         collector: () => collectGithubCommits(db, config, watch, fetch, cache),
-        enabled: true,
+        enabled: requested(`github:${watch.repo}:commits`),
       },
       {
         id: `github:${watch.repo}:releases`,
@@ -541,13 +543,49 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
         stream: "github",
         intervalSeconds: 1800,
         collector: () => collectGithubReleases(db, config, watch, fetch, cache),
-        enabled: true,
+        enabled: requested(`github:${watch.repo}:releases`),
       },
     );
   }
 
-  validateSourceRegistry(definitions);
-  return definitions;
+  for (const query of GITHUB_DISCOVERY_QUERIES) {
+    definitions.push({
+      id: `discovery:github-${query.id}`,
+      label: sourceLabel(`discovery:github-${query.id}`),
+      authority: "third_party",
+      group: "Discovery",
+      stream: "github",
+      intervalSeconds: 3600,
+      requiredCapabilities: ["GITHUB_TOKEN"],
+      pace: { group: "github-search", seconds: 60 },
+      collector: () => collectGithubDiscovery(config, query, fetch, new Date(), cache),
+      enabled: requested(`discovery:github-${query.id}`),
+    });
+  }
+  definitions.push({
+    id: "discovery:huggingface-recent",
+    label: sourceLabel("discovery:huggingface-recent"),
+    authority: "third_party",
+    group: "Discovery",
+    stream: "weights",
+    intervalSeconds: 1800,
+    pace: { group: "huggingface.co", seconds: 60 },
+    collector: () => collectHuggingFaceDiscovery(config, fetch, cache, new Date()),
+    enabled: requested("discovery:huggingface-recent"),
+  });
+
+  const shadowByDefault = new Set<string>([
+    ...GITHUB_DISCOVERY_QUERIES.map((query) => `discovery:github-${query.id}`),
+    "discovery:huggingface-recent",
+  ]);
+  const resolved = definitions.map(
+    (definition): SourceDefinition => ({
+      ...definition,
+      mode: config.sourceMode[definition.id] ?? (shadowByDefault.has(definition.id) ? "shadow" : "active"),
+    }),
+  );
+  validateSourceRegistry(resolved);
+  return resolved;
 }
 
 export function validateSourceRegistry(definitions: readonly SourceDefinition[]): void {
@@ -560,6 +598,8 @@ export function validateSourceRegistry(definitions: readonly SourceDefinition[])
     if (!definition.group.trim()) throw new Error(`Source ${definition.id} has no group`);
     if (!SOURCE_AUTHORITIES.includes(definition.authority))
       throw new Error(`Source ${definition.id} has invalid authority`);
+    if (definition.mode !== "active" && definition.mode !== "shadow")
+      throw new Error(`Source ${definition.id} has invalid mode`);
     if (!Number.isInteger(definition.intervalSeconds) || definition.intervalSeconds <= 0)
       throw new Error(`Source ${definition.id} has an invalid interval`);
     if (definition.pace) {

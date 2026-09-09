@@ -121,6 +121,51 @@ export function createHttpApp(config: AppConfig, db: Database): Hono {
     if (!parsed.success) return c.json({ error: "Invalid story query" }, 400);
     return c.json(defs.stories.handler(parsed.data));
   });
+  app.get("/api/models", (c) => {
+    const limit = z.coerce.number().int().min(1).max(100).default(50).safeParse(c.req.query("limit"));
+    if (!limit.success) return c.json({ error: "Invalid limit" }, 400);
+    return c.json(defs.models.handler({ limit: limit.data }));
+  });
+  app.get("/api/models/*", (c) => {
+    const prefix = "/api/models/";
+    const raw = c.req.path.startsWith(prefix) ? c.req.path.slice(prefix.length) : "";
+    let canonicalId: string;
+    try {
+      canonicalId = decodeURIComponent(raw);
+    } catch {
+      return c.json({ error: "Invalid model ID" }, 400);
+    }
+    const parsed = defs.model.schema.safeParse({ canonicalId });
+    if (!parsed.success) return c.json({ error: "Invalid model ID" }, 400);
+    const model = defs.model.handler(parsed.data);
+    return model ? c.json(model) : c.json({ error: "Not found" }, 404);
+  });
+  app.get("/api/hypotheses", (c) => {
+    const status = c.req.query("status");
+    const parsed = defs.hypotheses.schema.safeParse({
+      ...(status === undefined ? {} : { status }),
+      ...(c.req.query("limit") === undefined ? {} : { limit: Number(c.req.query("limit")) }),
+    });
+    if (!parsed.success) return c.json({ error: "Invalid hypothesis query" }, 400);
+    return c.json(
+      defs.hypotheses.handler(
+        parsed.data.status === undefined
+          ? { limit: parsed.data.limit }
+          : { status: parsed.data.status, limit: parsed.data.limit },
+      ),
+    );
+  });
+  app.get("/api/hypotheses/:id", (c) => {
+    const id = z.coerce.number().int().positive().safeParse(c.req.param("id"));
+    if (!id.success) return c.json({ error: "Invalid hypothesis ID" }, 400);
+    const hypothesis = defs.hypothesis.handler({ id: id.data });
+    return hypothesis ? c.json(hypothesis) : c.json({ error: "Not found" }, 404);
+  });
+  app.get("/api/deadlines", (c) => {
+    const days = z.coerce.number().int().min(1).max(365).default(30).safeParse(c.req.query("days"));
+    if (!days.success) return c.json({ error: "Invalid days" }, 400);
+    return c.json(defs.lifecycle_deadlines.handler({ days: days.data }));
+  });
   app.post("/api/mcp", async (c) => {
     const schema = z.object({
       jsonrpc: z.literal("2.0"),

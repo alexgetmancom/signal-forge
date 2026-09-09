@@ -5,6 +5,11 @@ import { splitMessage } from "./canonical.js";
 import { pingWorthy, vendorOf } from "./interpretation.js";
 import { hasNotificationContent } from "./notification.js";
 import { eventEmbed } from "./render/discord.js";
+import {
+  parseLifecycleReminderContext,
+  renderLifecycleReminderEmbed,
+  renderLifecycleReminderText,
+} from "./render/lifecycle.js";
 import { renderStoryText, type StoryRenderEvent, storyEmbed } from "./render/story.js";
 import { renderEvent } from "./render/telegram.js";
 import type { Event, RecordData } from "./types.js";
@@ -12,9 +17,10 @@ import type { Event, RecordData } from "./types.js";
 /** Turns sealed observation batches into transport payloads without changing event evidence. */
 export function prepareDeliveries(db: Database, now = Date.now(), vendorRoles: Record<string, string> = {}): void {
   const batches = db
-    .query<{ id: number; digest: number; source: string }, [number]>(
-      "SELECT id,digest,source FROM batches WHERE sealed=0 AND ready_at<=? ORDER BY id",
-    )
+    .query<
+      { id: number; digest: number; source: string; kind: "event" | "lifecycle_reminder"; context_json: string | null },
+      [number]
+    >("SELECT id,digest,source,kind,context_json FROM batches WHERE sealed=0 AND ready_at<=? ORDER BY id")
     .all(now);
   for (const batch of batches) {
     const events = db
@@ -33,6 +39,37 @@ export function prepareDeliveries(db: Database, now = Date.now(), vendorRoles: R
         "SELECT destination_id,destination_json FROM batch_targets WHERE batch_id=? ORDER BY rowid",
       )
       .all(batch.id);
+    if (batch.kind === "lifecycle_reminder") {
+      const event = events[0];
+      if (!event || !batch.context_json) {
+        db.query("UPDATE batches SET sealed=1 WHERE id=?").run(batch.id);
+        continue;
+      }
+      const context = parseLifecycleReminderContext(JSON.parse(batch.context_json));
+      for (const target of targets) {
+        const destination = JSON.parse(target.destination_json) as Destination;
+        if (destination.platform === "discord") {
+          db.query(
+            "INSERT INTO deliveries(batch_id,destination_id,destination_json,body,part,updated_at) VALUES(?,?,?,?,?,?)",
+          ).run(
+            batch.id,
+            target.destination_id,
+            target.destination_json,
+            JSON.stringify({ content: "", embeds: [renderLifecycleReminderEmbed(context, event)] }),
+            0,
+            now,
+          );
+        } else {
+          splitMessage(renderLifecycleReminderText(context, event), 3900).forEach((body, part) => {
+            db.query(
+              "INSERT INTO deliveries(batch_id,destination_id,destination_json,body,part,updated_at) VALUES(?,?,?,?,?,?)",
+            ).run(batch.id, target.destination_id, target.destination_json, body, part, now);
+          });
+        }
+      }
+      db.query("UPDATE batches SET sealed=1 WHERE id=?").run(batch.id);
+      continue;
+    }
     const speaking = events.filter((event) => {
       return hasNotificationContent(event, event.url);
     });

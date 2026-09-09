@@ -154,3 +154,57 @@ test("signal quality attributes a shared story digest to every contributing sour
   expect(db.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM deliveries").get()).toEqual({ count: 1 });
   db.close();
 });
+
+test("signal quality measures independent first signals, confirmed lead time and shadow density", () => {
+  const db = openDatabase(":memory:");
+  const measuredConfig = {
+    ...config,
+    OPENAI_API_KEY: "test-openai-key",
+    GITHUB_TOKEN: "test-github-token",
+  };
+  const modelOne = { id: "openai/model-one", name: "Model One", maker: "OpenAI" };
+  const modelTwo = { id: "openai/model-two", name: "Model Two", maker: "OpenAI" };
+  const make = (source: string, stream: Collection["stream"], records: Collection["records"]): Collection => ({
+    source,
+    stream,
+    url: `https://example.test/${source}`,
+    raw: records,
+    appendOnly: true,
+    records,
+  });
+  saveCollection(db, make("openrouter", "openrouter", []), [], "2026-09-10T08:59:00Z");
+  saveCollection(db, make("openrouter", "openrouter", [modelOne]), [], "2026-09-10T09:00:00Z");
+  saveCollection(db, make("discovery:github-ai", "github", []), [], "2026-09-10T09:29:00Z");
+  saveCollection(
+    db,
+    make("discovery:github-ai", "github", [{ id: "openai/model-one", name: "openai/model-one", owner: "openai" }]),
+    [],
+    "2026-09-10T09:30:00Z",
+  );
+  saveCollection(db, make("openai-news", "news", []), [], "2026-09-10T09:44:00Z");
+  saveCollection(
+    db,
+    make("openai-news", "news", [{ id: "model-one-news", name: "Model One", maker: "OpenAI" }]),
+    [],
+    "2026-09-10T09:45:00Z",
+  );
+  saveCollection(db, make("openai", "api-models", []), [], "2026-09-10T09:59:00Z");
+  saveCollection(db, make("openai", "api-models", [modelOne]), [], "2026-09-10T10:00:00Z");
+  saveCollection(db, make("openrouter", "openrouter", [modelOne, modelTwo]), [], "2026-09-10T11:00:00Z");
+  saveCollection(db, make("openai", "api-models", [modelOne, modelTwo]), [], "2026-09-10T12:30:00Z");
+
+  const report = signalQuality(db, measuredConfig, 7, Date.parse("2026-09-10T13:00:00Z"));
+  const openrouter = report.sources.find((source) => source.id === "openrouter");
+  expect(openrouter).toMatchObject({
+    eventsCreated: 2,
+    recordsProcessed: 3,
+    signalDensity: 0.667,
+    firstSourceWins: 2,
+    laterConfirmed: 2,
+    confirmationRate: 1,
+    medianLeadTimeSeconds: 4500,
+  });
+  const discovery = report.sources.find((source) => source.id === "discovery:github-ai");
+  expect(discovery).toMatchObject({ mode: "shadow", eventsCreated: 1, signalDensity: 1 });
+  db.close();
+});

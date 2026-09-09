@@ -3,7 +3,10 @@ import { z } from "zod";
 import { capabilityReport } from "./capabilities.js";
 import type { AppConfig } from "./config.js";
 import { requireDeliveryVerification, resolveDeliveryVerification } from "./deliveryVerification.js";
+import { getHypothesis, listHypotheses } from "./hypotheses.js";
 import { listActionableIssues } from "./issues.js";
+import { listLifecycleDeadlines } from "./lifecycle.js";
+import { getModelFacts, listModelFacts } from "./modelFacts.js";
 import { signalQuality } from "./signalQuality.js";
 import { sourceJobs } from "./sources/registry.js";
 import { listStories } from "./stories.js";
@@ -22,6 +25,7 @@ export function operations(db: Database, config: AppConfig) {
             group: job.group,
             stream: job.stream,
             authority: job.authority,
+            mode: job.mode,
             intervalSeconds: job.interval,
             requiredCapabilities: job.requiredCapabilities ?? [],
             ...(db
@@ -119,6 +123,35 @@ export function operations(db: Database, config: AppConfig) {
         vendor?: string | undefined;
         limit: number;
       }) => listStories(db, input),
+    },
+    models: {
+      description: "Current structured model facts with event provenance.",
+      schema: z.object({ limit: z.number().int().min(1).max(100).default(50) }),
+      handler: (input: { limit: number }) => listModelFacts(db, input),
+    },
+    model: {
+      description: "Structured facts and conflicts for one canonical model ID.",
+      schema: z.object({ canonicalId: z.string().min(1) }),
+      handler: (input: { canonicalId: string }) => getModelFacts(db, input.canonicalId),
+    },
+    hypotheses: {
+      description: "Deterministic hypotheses derived from independent story evidence.",
+      schema: z.object({
+        status: z.enum(["emerging", "strengthening", "confirmed", "stale"]).optional(),
+        limit: z.number().int().min(1).max(100).default(50),
+      }),
+      handler: (input: { status?: "emerging" | "strengthening" | "confirmed" | "stale"; limit: number }) =>
+        listHypotheses(db, input),
+    },
+    hypothesis: {
+      description: "One hypothesis and its supporting or resolving event evidence.",
+      schema: z.object({ id: z.number().int().positive() }),
+      handler: (input: { id: number }) => getHypothesis(db, input.id),
+    },
+    lifecycle_deadlines: {
+      description: "Upcoming lifecycle deadlines and their reminder state.",
+      schema: z.object({ days: z.number().int().min(1).max(365).default(30) }),
+      handler: (input: { days: number }) => listLifecycleDeadlines(db, input.days),
     },
     issues: {
       description: "Current source, delivery, worker, restart and capability problems requiring operator attention.",

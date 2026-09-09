@@ -16,7 +16,7 @@ const destinations: Destination[] = [
 ];
 afterEach(() =>
   db.exec(
-    "DELETE FROM deliveries; DELETE FROM batches; DELETE FROM events; DELETE FROM records; DELETE FROM snapshots; DELETE FROM sources;",
+    "DELETE FROM deliveries; DELETE FROM lifecycle_reminders; DELETE FROM hypothesis_events; DELETE FROM model_fact_conflicts; DELETE FROM model_fact_fields; DELETE FROM model_facts; DELETE FROM hypotheses; DELETE FROM lifecycle_deadlines; DELETE FROM batch_targets; DELETE FROM batch_events; DELETE FROM batches; DELETE FROM events; DELETE FROM records; DELETE FROM snapshots; DELETE FROM sources;",
   ),
 );
 function queue() {

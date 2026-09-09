@@ -21,6 +21,9 @@ Built with Bun, TypeScript, and SQLite.
 * Platform incidents and service status
 * Model deprecations and lifecycle changes
 
+GitHub and Hugging Face discovery run in shadow mode by default. They collect snapshots, events,
+stories and metrics but never create subscriber delivery work until explicitly promoted.
+
 ## Why Signal Forge exists
 
 AI products often change before there is a conventional announcement.
@@ -39,6 +42,25 @@ Confidence is derived from the evidence:
 * `shipped`: published as a release
 
 An observation never becomes a stronger claim than its source supports.
+
+## Intelligence layer
+
+Signal Forge has a deterministic intelligence layer on top of immutable events:
+
+* GitHub and Hugging Face discovery collectors find recent candidates without creating a second
+  stream of evidence. GitHub discovery uses the existing `github` stream and Hugging Face discovery
+  uses `weights`.
+* Discovery sources calculate an attention score from recency, popularity and technical relevance.
+  Attention is a triage measure, not confidence, and never changes source-derived confidence.
+* Model Facts is a reproducible projection of the best known structured fields for a canonical model.
+  Every fact retains its source, event ID, evidence type, confidence and observation time.
+* Source-quality reports measure signal density, first-source wins, independent confirmation rate and
+  median lead time. GitHub discovery queries share one source family, so four queries do not count as
+  four independent confirmations.
+* Hypotheses are deterministic interpretations of story timelines. They point to real supporting
+  events but are never evidence themselves.
+* Lifecycle deadlines and reminders are derived delivery work from deprecation evidence. They do
+  not create synthetic evidence events and are idempotent across projection rebuilds.
 
 ## Example
 
@@ -110,8 +132,10 @@ The current source registry covers:
 * OpenRouter and optional first-party catalogs for OpenAI, Anthropic, and Gemini, plus the Vercel AI Gateway feed
 * Arena appearances, leaderboards, and DesignArena categories
 * Hugging Face open-weight repositories
+* Recent global Hugging Face model discovery
 * npm and PyPI packages
 * GitHub commits, pull requests, and releases for selected repositories
+* Recent GitHub discovery for artificial-intelligence, LLM, agent, and MCP repositories
 * Official OpenAI Help Center and news, Anthropic Platform, Gemini API, xAI, Mistral, Groq, DeepSeek, Google DeepMind, NVIDIA, and Hugging Face release surfaces, plus Codex documentation and Claude Code/Anthropic SDK releases
 * Provider lifecycle and deprecation pages for OpenAI, Anthropic, Google, AWS, Azure, Groq, Cohere, and xAI
 
@@ -129,11 +153,28 @@ Copy `.env.example` to `.env` and set only the credentials required by the sourc
     "anthropic": true,
     "gemini": true
   },
+  "sourceMode": {},
   "destinations": []
 }
 ```
 
 API catalog collectors are requested by default. Set `sourceEnabled` to `false` for a source that is intentionally disabled; a requested source without its credential is reported as `missing` and is not scheduled.
+
+`sourceEnabled` controls whether a collector runs. `sourceMode` controls delivery for a running
+collector: `active` may create subscriber deliveries, while `shadow` still stores snapshots and
+events and participates in stories and metrics but creates no subscriber deliveries. Discovery
+sources default to `shadow`. Promote a source by editing the operator-owned configuration, for
+example:
+
+```json
+{
+  "sourceMode": {
+    "discovery:github-ai": "active"
+  }
+}
+```
+
+There is no CLI command that edits configuration files.
 
 Set `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and `GEMINI_API_KEY` for their catalogs. Set `DEEPSEEK_API_KEY` to enable one-sentence summaries for large, publishable diffs after deterministic noise filtering; a missing key or failed summary call leaves the original evidence unchanged and never blocks delivery. Discord and Telegram keep the title and compact source evidence alongside the optional summary.
 
@@ -158,6 +199,9 @@ bun src/cli.ts status
 bun src/cli.ts issues
 bun src/cli.ts signal-quality 7
 bun src/cli.ts stories
+bun src/cli.ts models
+bun src/cli.ts hypotheses
+bun src/cli.ts deadlines
 bun src/cli.ts deliveries-needing-verification
 ```
 
@@ -199,9 +243,9 @@ Full event evidence remains in SQLite even when a message excerpt is truncated.
 
 ## HTTP / MCP API
 
-For HTTP/MCP access, set `MCP_TOKEN` to at least 32 random characters and use `Authorization: Bearer <token>` with `/api/status`, `/api/events`, `/api/events/:id`, or `/api/mcp`.
+For HTTP/MCP access, set `MCP_TOKEN` to at least 32 random characters and use `Authorization: Bearer <token>` with `/api/status`, `/api/events`, `/api/events/:id`, `/api/models`, `/api/models/*`, `/api/hypotheses`, `/api/hypotheses/:id`, `/api/deadlines`, or `/api/mcp`.
 
-MCP operations: `status`, `events`, `event`, `deliveries`, `issues`, `capabilities`, `deliveries_needing_verification`, `require_delivery_verification`, `resolve_delivery_verification`, `signal_quality`, and `stories`.
+MCP operations: `status`, `events`, `event`, `deliveries`, `issues`, `capabilities`, `deliveries_needing_verification`, `require_delivery_verification`, `resolve_delivery_verification`, `signal_quality`, `stories`, `models`, `model`, `hypotheses`, `hypothesis`, and `lifecycle_deadlines`.
 
 ## Development
 

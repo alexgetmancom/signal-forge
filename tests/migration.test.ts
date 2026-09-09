@@ -54,10 +54,27 @@ test("fresh databases use every migration and finish with a valid current schema
   expect(
     db
       .query(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('source_collection_metrics','stories','story_events') ORDER BY name",
+        "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('source_collection_metrics','stories','story_events','model_facts','model_fact_fields','model_fact_conflicts','hypotheses','hypothesis_events','lifecycle_deadlines','lifecycle_reminders') ORDER BY name",
       )
       .all(),
-  ).toEqual([{ name: "source_collection_metrics" }, { name: "stories" }, { name: "story_events" }]);
+  ).toEqual([
+    { name: "hypotheses" },
+    { name: "hypothesis_events" },
+    { name: "lifecycle_deadlines" },
+    { name: "lifecycle_reminders" },
+    { name: "model_fact_conflicts" },
+    { name: "model_fact_fields" },
+    { name: "model_facts" },
+    { name: "source_collection_metrics" },
+    { name: "stories" },
+    { name: "story_events" },
+  ]);
+  expect(
+    db
+      .query<{ name: string }, []>("PRAGMA table_info(batches)")
+      .all()
+      .map((column) => column.name),
+  ).toEqual(["id", "source", "digest", "ready_at", "sealed", "kind", "context_json"]);
   expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
   db.close();
 });
@@ -69,6 +86,26 @@ test("an unversioned current database is adopted without rewriting its data", ()
   runMigrations(db);
   expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: CURRENT_SCHEMA_VERSION });
   expect(db.query("SELECT value FROM app_state WHERE key='marker'").get()).toEqual({ value: "kept" });
+  db.close();
+});
+
+test("schema 9 upgrades to the current projection schema", () => {
+  const db = new Database(":memory:");
+  const migrations = readMigrations();
+  for (const migration of migrations.slice(0, 9)) db.exec(migration.sql);
+  db.exec("PRAGMA user_version=9");
+  runMigrations(db);
+  expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: CURRENT_SCHEMA_VERSION });
+  expect(db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='model_facts'").get()).toEqual({
+    name: "model_facts",
+  });
+  expect(db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='hypotheses'").get()).toEqual({
+    name: "hypotheses",
+  });
+  expect(db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='lifecycle_deadlines'").get()).toEqual({
+    name: "lifecycle_deadlines",
+  });
+  expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
   db.close();
 });
 

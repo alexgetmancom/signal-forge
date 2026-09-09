@@ -57,6 +57,17 @@ export function identityFor(event: Event, record: RecordData | null): ModelIdent
     };
   }
 
+  if (event.source.startsWith("discovery:github-")) {
+    const repositoryId = id ?? event.entity_id;
+    const repository = repositoryId.split("/").at(-1) ?? repositoryId;
+    return {
+      canonicalId: null,
+      displayName: name,
+      aliases: unique([repository, name, repositoryId]),
+      status: "unconfirmed",
+    };
+  }
+
   if (event.stream === "arena") {
     return {
       canonicalId: null,

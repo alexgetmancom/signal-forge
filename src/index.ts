@@ -2,7 +2,10 @@ import { publishAlerts } from "./alerts.js";
 import { loadConfig } from "./config.js";
 import { deliverPending, recoverInterruptedDeliveries } from "./delivery.js";
 import { createHttpApp } from "./http.js";
+import { rebuildHypotheses } from "./hypotheses.js";
+import { rebuildLifecycleDeadlines, scheduleLifecycleReminders } from "./lifecycle.js";
 import { configureLogger, log } from "./logger.js";
+import { rebuildModelFacts } from "./modelFacts.js";
 import { pollSources } from "./poller.js";
 import { logMemoryUsage, recordRuntimeStart, recordRuntimeStop } from "./runtime/observability.js";
 import { stopServerGracefully } from "./runtime/shutdown.js";
@@ -16,12 +19,23 @@ import { rebuildStories, rememberStoryProjection } from "./stories.js";
 const config = loadConfig();
 configureLogger(config.NODE_ENV === "production");
 const db = openDatabase(config.DATABASE_URL);
-const storyProjection = db.transaction(() => rebuildStories(db))();
+const storyProjection = db.transaction(() => {
+  const projection = rebuildStories(db);
+  rebuildModelFacts(db);
+  rebuildHypotheses(db);
+  rebuildLifecycleDeadlines(db);
+  return projection;
+})();
 rememberStoryProjection(db, storyProjection);
 recordRuntimeStart(db);
 recoverInterruptedDeliveries(db);
 const server = Bun.serve({ hostname: config.BIND_HOST, port: config.PORT, fetch: createHttpApp(config, db).fetch });
 const supervisor = new RuntimeSupervisor();
+supervisor.register(
+  startIntervalWorker(db, "lifecycle", 300_000, () => {
+    scheduleLifecycleReminders(db, config);
+  }),
+);
 supervisor.register(startIntervalWorker(db, "delivery", 1500, () => deliverPending(db, config)));
 supervisor.register(startIntervalWorker(db, "sources", 30_000, () => pollSources(db, config)));
 supervisor.register(

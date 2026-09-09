@@ -24,6 +24,18 @@ try {
     process.stdout.write(
       `${JSON.stringify(defs.stories.handler({ minConfidence: "observed", limit: 50 }), null, 2)}\n`,
     );
+  else if (command === "models")
+    process.stdout.write(`${JSON.stringify(defs.models.handler({ limit: 50 }), null, 2)}\n`);
+  else if (command === "model") {
+    const input = defs.model.schema.parse({ canonicalId: Bun.argv.slice(3).join("/") });
+    process.stdout.write(`${JSON.stringify(defs.model.handler(input), null, 2)}\n`);
+  } else if (command === "hypotheses")
+    process.stdout.write(`${JSON.stringify(defs.hypotheses.handler({ limit: 50 }), null, 2)}\n`);
+  else if (command === "hypothesis") {
+    const input = defs.hypothesis.schema.parse({ id: Number(Bun.argv[3]) });
+    process.stdout.write(`${JSON.stringify(defs.hypothesis.handler(input), null, 2)}\n`);
+  } else if (command === "deadlines")
+    process.stdout.write(`${JSON.stringify(defs.lifecycle_deadlines.handler({ days: 30 }), null, 2)}\n`);
   else if (command === "deliveries-needing-verification")
     process.stdout.write(`${JSON.stringify(defs.deliveries_needing_verification.handler({ limit: 20 }), null, 2)}\n`);
   else if (command === "require-delivery-verification") {
@@ -39,7 +51,7 @@ try {
     process.stdout.write(`${JSON.stringify(defs.resolve_delivery_verification.handler(input), null, 2)}\n`);
   } else
     throw new Error(
-      "Usage: bun src/cli.ts status|events|event <id>|deliveries|deliveries-needing-verification|require-delivery-verification <id>|resolve-delivery-verification <id> <sent|failed> [external-id]|issues|capabilities|signal-quality [days]|stories|poll",
+      "Usage: bun src/cli.ts status|events|event <id>|deliveries|deliveries-needing-verification|require-delivery-verification <id>|resolve-delivery-verification <id> <sent|failed> [external-id]|issues|capabilities|signal-quality [days]|stories|models|model <canonical-id>|hypotheses|hypothesis <id>|deadlines|poll",
     );
 } finally {
   db.close();

@@ -20,7 +20,7 @@ const VENDORS: [RegExp, string][] = [
 
 /** The vendor an event is about, for role pings and presentation labels. */
 export function vendorOf(event: Event, record: RecordData | null): string {
-  const haystack = [record?.maker, record?.provider, event.entity_id, event.source]
+  const haystack = [record?.maker, record?.provider, record?.owner, event.entity_id, event.source]
     .filter((value) => typeof value === "string")
     .join(" ");
   return VENDORS.find(([pattern]) => pattern.test(haystack))?.[1] ?? "Unknown";
