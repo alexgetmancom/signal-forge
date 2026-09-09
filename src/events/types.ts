@@ -2,6 +2,8 @@ export type RecordData = { id: string; name: string; [key: string]: unknown };
 
 export type Confidence = "observed" | "supported" | "confirmed" | "shipped";
 
+export type SourceAuthority = "first_party" | "vendor_owned" | "third_party";
+
 export type EvidenceType =
   | "api_catalogue"
   | "availability_catalogue"
@@ -26,6 +28,7 @@ export type Collection = {
   silentIds?: string[];
   trackChanges?: boolean;
   confirmChanges?: boolean;
+  authority?: SourceAuthority;
 };
 
 export type Event = {
@@ -39,4 +42,5 @@ export type Event = {
   detected_at: string;
   confidence?: Confidence;
   evidence_type?: EvidenceType;
+  authority?: SourceAuthority;
 };

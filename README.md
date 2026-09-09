@@ -112,8 +112,8 @@ The current source registry covers:
 * Hugging Face and ModelScope open-weight repositories
 * npm and PyPI packages
 * GitHub commits, pull requests, and releases for selected repositories
-* Official OpenAI and Anthropic news, the Cursor changelog, Codex documentation, and Claude web strings
-* OpenAI and Anthropic platform health and lifecycle/deprecation sources
+* Official OpenAI Help Center and news, Anthropic Platform, Gemini API, xAI, Mistral, Groq, DeepSeek, Google DeepMind, NVIDIA, and Hugging Face release surfaces, plus Codex documentation and Claude Code/Anthropic SDK releases
+* Provider lifecycle and deprecation pages for OpenAI, Anthropic, Google, AWS, Azure, Groq, Cohere, and xAI
 
 Provider credentials and upstream availability determine which optional sources can run. A failed or malformed collection is never treated as an empty catalog; external responses are validated before they can change stored state.
 

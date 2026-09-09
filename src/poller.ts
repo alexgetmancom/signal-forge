@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { AppConfig } from "./config.js";
 import { saveCollection } from "./events/pipeline.js";
+import { CollectionDegradedError } from "./events/store.js";
 import { log } from "./logger.js";
 import { SourceHttpError } from "./sources/http.js";
 import { sourceJobs } from "./sources/registry.js";
@@ -42,7 +43,7 @@ export async function pollSources(db: Database, config: AppConfig, force = false
     if (!force && !due(last?.checked_at ?? null, job.interval, last?.failures ?? 0, now)) continue;
     if (job.pace && now - (pacedAt.get(job.pace.group) ?? 0) < job.pace.seconds * 1000) continue;
     try {
-      const collection = await job.run();
+      const collection = { ...(await job.run()), authority: job.authority };
       const checkedAt = new Date().toISOString();
       const events = saveCollection(db, collection, config.destinations, checkedAt, config.vendorRoles);
       db.query("UPDATE sources SET failures=0,retry_at=NULL WHERE id=?").run(job.id);
@@ -51,12 +52,14 @@ export async function pollSources(db: Database, config: AppConfig, force = false
     } catch (error) {
       // Source errors may contain credentials or an entire invalid response. Keep a safe operational category.
       const message =
-        error instanceof Error &&
-        /^(Source |Public page |GitHub |Anthropic |Gemini |Invalid RSS|.*: empty collection|.*: duplicate record)/.test(
-          error.message,
-        )
+        error instanceof CollectionDegradedError
           ? error.message
-          : "Collection failed: network or schema validation error";
+          : error instanceof Error &&
+              /^(Source |Public page |GitHub |Anthropic |Gemini |Invalid RSS|.*: empty collection|.*: duplicate record|.*: invalid normalized record)/.test(
+                error.message,
+              )
+            ? error.message
+            : "Collection failed: network or schema validation error";
       const checkedAt = new Date().toISOString();
       const retryAt = error instanceof SourceHttpError ? error.retryAt : null;
       db.transaction(() => {

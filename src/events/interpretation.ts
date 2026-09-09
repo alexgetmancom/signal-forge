@@ -10,6 +10,7 @@ const VENDORS: [RegExp, string][] = [
   [/qwen|alibaba/i, "Qwen"],
   [/meta-llama|llama|^meta\//i, "Meta"],
   [/mistral/i, "Mistral"],
+  [/groq/i, "Groq"],
   [/moonshot|kimi/i, "Moonshot"],
   [/minimax/i, "MiniMax"],
   [/z-ai|zhipu|glm/i, "Z.ai"],

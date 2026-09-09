@@ -5,6 +5,7 @@ import { sourceHealth } from "./status.js";
 
 export type IssueKind =
   | "source_failed"
+  | "collection_degraded"
   | "delivery_failed"
   | "delivery_ambiguous"
   | "worker_failed"
@@ -51,22 +52,30 @@ export function listActionableIssues(db: Database, config: AppConfig, now = Date
   const health = sourceHealth(db, config, now);
   for (const entry of health) {
     const rateLimited = entry.state === "blocked" && entry.detail.startsWith("rate limited");
-    if (!(entry.state === "failing" || entry.state === "stale" || rateLimited)) continue;
+    if (!(entry.state === "failing" || entry.state === "stale" || entry.state === "degraded" || rateLimited)) continue;
     const checked = db
       .query<{ checked_at: string | null }, [string]>("SELECT checked_at FROM sources WHERE id=?")
       .get(entry.id)?.checked_at;
     issues.push({
       id: entry.id,
-      kind: "source_failed",
-      severity: rateLimited ? "warning" : "error",
+      kind: entry.state === "degraded" ? "collection_degraded" : "source_failed",
+      severity: rateLimited ? "warning" : entry.state === "degraded" ? "critical" : "error",
       entity: entry.id,
       source: entry.id,
       firstSeenAt: issueTime(checked, now),
       updatedAt: issueTime(checked, now),
-      message: `${entry.label} ${entry.state === "stale" ? "is stale" : "is not collecting successfully"}: ${entry.detail}`,
+      message: `${entry.label} ${
+        entry.state === "stale"
+          ? "is stale"
+          : entry.state === "degraded"
+            ? "returned a suspiciously smaller collection"
+            : "is not collecting successfully"
+      }: ${entry.detail}`,
       hint: rateLimited
         ? "Wait for the upstream limit to clear; do not increase polling."
-        : "Inspect the collector and its upstream response.",
+        : entry.state === "degraded"
+          ? "Inspect the upstream response before allowing this source to resume; the last known-good records were preserved."
+          : "Inspect the collector and its upstream response.",
     });
   }
 

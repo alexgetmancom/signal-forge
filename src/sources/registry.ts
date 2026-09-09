@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { AppConfig, Stream } from "../config.js";
-import type { Collection } from "../events/types.js";
+import { SOURCE_AUTHORITIES } from "../events/confidence.js";
+import type { Collection, SourceAuthority } from "../events/types.js";
 import { HttpCache } from "../storage/httpCache.js";
 import { collectArena, collectLeaderboards } from "./arena.js";
 import { collectAnthropic, collectGemini, collectOpenAI, collectOpenRouter } from "./catalogs.js";
@@ -13,9 +14,26 @@ import {
   DESIGNARENA_CATEGORIES,
   MODELSCOPE_PATHS,
 } from "./community.js";
+import { collectDeepSeekPricing, collectDeepSeekUpdates, DEEPSEEK_GITHUB_REPOS } from "./deepseek.js";
 import { collectAnthropicDeprecations, collectOpenAIDeprecations } from "./deprecations.js";
+import {
+  collectAnthropicSdkReleases,
+  collectClaudeCodeChangelog,
+  collectGoogleDeepmindFeed,
+  collectHuggingFaceBlogFeed,
+  collectNvidiaAiFeed,
+} from "./feeds.js";
 import { collectGithubCommits, collectGithubPulls, collectGithubReleases } from "./github.js";
 import { sourceLabel } from "./labels.js";
+import {
+  collectAwsBedrockLifecycle,
+  collectAzureFoundryLifecycle,
+  collectCohereDeprecations,
+  collectGeminiDeprecations,
+  collectGroqDeprecations,
+  collectVertexDeprecations,
+  collectXaiDeprecations,
+} from "./lifecycle.js";
 import { collectAnthropicNews, collectOpenAINews } from "./news.js";
 import { collectPlatformStatus, PLATFORMS } from "./platforms.js";
 import {
@@ -27,11 +45,19 @@ import {
   NPM_PACKAGES,
   PYPI_PACKAGES,
 } from "./registries.js";
+import {
+  collectGeminiApiChangelog,
+  collectGroqChangelog,
+  collectMistralReleaseNotes,
+  collectOpenAIChatGPTReleaseNotes,
+  collectXaiReleaseNotes,
+} from "./releaseNotes.js";
 
 export type SourceDefinition = {
   id: string;
   label: string;
   vendor?: string;
+  authority: SourceAuthority;
   group: string;
   stream: Stream;
   intervalSeconds: number;
@@ -61,6 +87,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
     {
       id: "openrouter",
       label: sourceLabel("openrouter"),
+      authority: "third_party",
       group: "Catalogues",
       stream: "openrouter",
       intervalSeconds: config.pollSeconds,
@@ -70,6 +97,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
     {
       id: "openai-news",
       label: sourceLabel("openai-news"),
+      authority: "first_party",
       vendor: "OpenAI",
       group: "Official news",
       stream: "news",
@@ -78,8 +106,20 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       enabled: true,
     },
     {
+      id: "openai-chatgpt-release-notes",
+      label: sourceLabel("openai-chatgpt-release-notes"),
+      authority: "first_party",
+      vendor: "OpenAI",
+      group: "Official news",
+      stream: "news",
+      intervalSeconds: 900,
+      collector: () => collectOpenAIChatGPTReleaseNotes(fetch, cache),
+      enabled: true,
+    },
+    {
       id: "anthropic-news",
       label: sourceLabel("anthropic-news"),
+      authority: "first_party",
       vendor: "Anthropic",
       group: "Official news",
       stream: "news",
@@ -88,8 +128,130 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       enabled: true,
     },
     {
+      id: "gemini-api-changelog",
+      label: sourceLabel("gemini-api-changelog"),
+      authority: "first_party",
+      vendor: "Google",
+      group: "Official news",
+      stream: "news",
+      intervalSeconds: 1800,
+      collector: () => collectGeminiApiChangelog(fetch, cache),
+      enabled: true,
+    },
+    {
+      id: "xai-release-notes",
+      label: sourceLabel("xai-release-notes"),
+      authority: "first_party",
+      vendor: "xAI",
+      group: "Official news",
+      stream: "news",
+      intervalSeconds: 1800,
+      collector: () => collectXaiReleaseNotes(fetch, cache),
+      enabled: true,
+    },
+    {
+      id: "mistral-release-notes",
+      label: sourceLabel("mistral-release-notes"),
+      authority: "first_party",
+      vendor: "Mistral",
+      group: "Official news",
+      stream: "news",
+      intervalSeconds: 3600,
+      collector: () => collectMistralReleaseNotes(fetch, cache),
+      enabled: true,
+    },
+    {
+      id: "groq-changelog",
+      label: sourceLabel("groq-changelog"),
+      authority: "first_party",
+      vendor: "Groq",
+      group: "Official news",
+      stream: "news",
+      intervalSeconds: 1800,
+      collector: () => collectGroqChangelog(fetch, cache),
+      enabled: true,
+    },
+    {
+      id: "deepseek-updates",
+      label: sourceLabel("deepseek-updates"),
+      authority: "first_party",
+      vendor: "DeepSeek",
+      group: "Official news",
+      stream: "news",
+      intervalSeconds: 3600,
+      collector: () => collectDeepSeekUpdates(fetch, cache),
+      enabled: true,
+    },
+    {
+      id: "deepseek-pricing",
+      label: sourceLabel("deepseek-pricing"),
+      authority: "first_party",
+      vendor: "DeepSeek",
+      group: "Catalogues",
+      stream: "api-models",
+      intervalSeconds: 1800,
+      collector: () => collectDeepSeekPricing(fetch, cache),
+      enabled: true,
+    },
+    {
+      id: "claude-code-changelog",
+      label: sourceLabel("claude-code-changelog"),
+      authority: "first_party",
+      vendor: "Anthropic",
+      group: "Official developer feeds",
+      stream: "news",
+      intervalSeconds: 1800,
+      collector: () => collectClaudeCodeChangelog(fetch, cache),
+      enabled: true,
+    },
+    {
+      id: "anthropic-sdk-releases",
+      label: sourceLabel("anthropic-sdk-releases"),
+      authority: "first_party",
+      vendor: "Anthropic",
+      group: "Official developer feeds",
+      stream: "news",
+      intervalSeconds: 1800,
+      collector: () => collectAnthropicSdkReleases(fetch, cache),
+      enabled: true,
+    },
+    {
+      id: "google-deepmind-feed",
+      label: sourceLabel("google-deepmind-feed"),
+      authority: "first_party",
+      vendor: "Google DeepMind",
+      group: "Official developer feeds",
+      stream: "news",
+      intervalSeconds: 1800,
+      collector: () => collectGoogleDeepmindFeed(fetch, cache),
+      enabled: true,
+    },
+    {
+      id: "nvidia-ai-feed",
+      label: sourceLabel("nvidia-ai-feed"),
+      authority: "first_party",
+      vendor: "NVIDIA",
+      group: "Official developer feeds",
+      stream: "news",
+      intervalSeconds: 1800,
+      collector: () => collectNvidiaAiFeed(fetch, cache),
+      enabled: true,
+    },
+    {
+      id: "huggingface-blog-feed",
+      label: sourceLabel("huggingface-blog-feed"),
+      authority: "vendor_owned",
+      vendor: "Hugging Face",
+      group: "Official developer feeds",
+      stream: "news",
+      intervalSeconds: 1800,
+      collector: () => collectHuggingFaceBlogFeed(fetch, cache),
+      enabled: true,
+    },
+    {
       id: "vercel-gateway",
       label: sourceLabel("vercel-gateway"),
+      authority: "vendor_owned",
       group: "Catalogues",
       stream: "api-models",
       intervalSeconds: config.pollSeconds,
@@ -100,6 +262,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
     {
       id: "arena",
       label: sourceLabel("arena"),
+      authority: "third_party",
       group: "Arena",
       stream: "arena",
       intervalSeconds: config.pollSeconds,
@@ -109,6 +272,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
     {
       id: "arena-leaderboards",
       label: sourceLabel("arena-leaderboards"),
+      authority: "third_party",
       group: "Arena",
       stream: "leaderboards",
       intervalSeconds: 1800,
@@ -118,6 +282,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
     {
       id: "codex-docs",
       label: sourceLabel("codex-docs"),
+      authority: "first_party",
       vendor: "OpenAI",
       group: "Web",
       stream: "web",
@@ -128,6 +293,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
     {
       id: "claude-web",
       label: sourceLabel("claude-web"),
+      authority: "first_party",
       vendor: "Anthropic",
       group: "Web",
       stream: "web",
@@ -139,6 +305,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       (author, index): SourceDefinition => ({
         id: `huggingface:${author}`,
         label: sourceLabel(`huggingface:${author}`),
+        authority: "vendor_owned",
         group: "Open weights",
         stream: "weights",
         intervalSeconds: 1800 + index * 90,
@@ -151,6 +318,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       (path, index): SourceDefinition => ({
         id: `modelscope:${path}`,
         label: sourceLabel(`modelscope:${path}`),
+        authority: "vendor_owned",
         group: "Open weights",
         stream: "weights",
         intervalSeconds: 1800 + index * 90,
@@ -163,6 +331,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       (category, index): SourceDefinition => ({
         id: `designarena:${category}`,
         label: sourceLabel(`designarena:${category}`),
+        authority: "third_party",
         group: "Arena",
         stream: "leaderboards",
         intervalSeconds: 3600 + index * 120,
@@ -174,6 +343,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
     {
       id: "cursor-changelog",
       label: sourceLabel("cursor-changelog"),
+      authority: "first_party",
       vendor: "Cursor",
       group: "Official news",
       stream: "news",
@@ -184,6 +354,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
     {
       id: "openai-deprecations",
       label: sourceLabel("openai-deprecations"),
+      authority: "first_party",
       vendor: "OpenAI",
       group: "Deprecations",
       stream: "deprecations",
@@ -194,6 +365,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
     {
       id: "anthropic-deprecations",
       label: sourceLabel("anthropic-deprecations"),
+      authority: "first_party",
       vendor: "Anthropic",
       group: "Deprecations",
       stream: "deprecations",
@@ -201,10 +373,88 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       collector: () => collectAnthropicDeprecations(),
       enabled: true,
     },
+    {
+      id: "gemini-deprecations",
+      label: sourceLabel("gemini-deprecations"),
+      authority: "first_party",
+      vendor: "Google",
+      group: "Deprecations",
+      stream: "deprecations",
+      intervalSeconds: 3600,
+      collector: () => collectGeminiDeprecations(),
+      enabled: true,
+    },
+    {
+      id: "vertex-deprecations",
+      label: sourceLabel("vertex-deprecations"),
+      authority: "first_party",
+      vendor: "Google",
+      group: "Deprecations",
+      stream: "deprecations",
+      intervalSeconds: 3600,
+      collector: () => collectVertexDeprecations(),
+      enabled: true,
+    },
+    {
+      id: "aws-bedrock-lifecycle",
+      label: sourceLabel("aws-bedrock-lifecycle"),
+      authority: "first_party",
+      vendor: "AWS",
+      group: "Deprecations",
+      stream: "deprecations",
+      intervalSeconds: 3600,
+      collector: () => collectAwsBedrockLifecycle(),
+      enabled: true,
+    },
+    {
+      id: "azure-foundry-lifecycle",
+      label: sourceLabel("azure-foundry-lifecycle"),
+      authority: "first_party",
+      vendor: "Microsoft",
+      group: "Deprecations",
+      stream: "deprecations",
+      intervalSeconds: 3600,
+      collector: () => collectAzureFoundryLifecycle(),
+      enabled: true,
+    },
+    {
+      id: "groq-deprecations",
+      label: sourceLabel("groq-deprecations"),
+      authority: "first_party",
+      vendor: "Groq",
+      group: "Deprecations",
+      stream: "deprecations",
+      intervalSeconds: 3600,
+      collector: () => collectGroqDeprecations(),
+      enabled: true,
+    },
+    {
+      id: "cohere-deprecations",
+      label: sourceLabel("cohere-deprecations"),
+      authority: "first_party",
+      vendor: "Cohere",
+      group: "Deprecations",
+      stream: "deprecations",
+      intervalSeconds: 3600,
+      collector: () => collectCohereDeprecations(),
+      enabled: true,
+    },
+    {
+      id: "xai-deprecations",
+      label: sourceLabel("xai-deprecations"),
+      authority: "first_party",
+      vendor: "xAI",
+      group: "Deprecations",
+      stream: "deprecations",
+      intervalSeconds: 3600,
+      collector: () => collectXaiDeprecations(),
+      enabled: true,
+    },
     ...PLATFORMS.map(
       (platform): SourceDefinition => ({
         id: `status:${platform.id}`,
         label: sourceLabel(`status:${platform.id}`),
+        authority: "first_party",
         vendor: platform.name,
         group: "Platform health",
         stream: "incidents",
@@ -217,6 +467,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       (name, index): SourceDefinition => ({
         id: `npm:${name}`,
         label: sourceLabel(`npm:${name}`),
+        authority: "vendor_owned",
         group: "Packages",
         stream: "packages",
         intervalSeconds: 900 + index * 45,
@@ -228,6 +479,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       (name, index): SourceDefinition => ({
         id: `pypi:${name}`,
         label: sourceLabel(`pypi:${name}`),
+        authority: "vendor_owned",
         group: "Packages",
         stream: "packages",
         intervalSeconds: 900 + index * 45,
@@ -238,6 +490,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
     {
       id: "openai",
       label: sourceLabel("openai"),
+      authority: "first_party",
       vendor: "OpenAI",
       group: "Catalogues",
       stream: "api-models",
@@ -250,6 +503,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
     {
       id: "anthropic",
       label: sourceLabel("anthropic"),
+      authority: "first_party",
       vendor: "Anthropic",
       group: "Catalogues",
       stream: "api-models",
@@ -262,6 +516,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
     {
       id: "gemini",
       label: sourceLabel("gemini"),
+      authority: "first_party",
       vendor: "Google",
       group: "Catalogues",
       stream: "api-models",
@@ -275,10 +530,12 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
   ];
 
   for (const watch of config.github) {
+    const authority = watch.repo.startsWith("deepseek-ai/") ? "vendor_owned" : "third_party";
     definitions.push(
       {
         id: `github:${watch.repo}:pulls`,
         label: sourceLabel(`github:${watch.repo}:pulls`),
+        authority,
         group: "GitHub",
         stream: "github",
         intervalSeconds: 1800,
@@ -288,6 +545,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       {
         id: `github:${watch.repo}:commits`,
         label: sourceLabel(`github:${watch.repo}:commits`),
+        authority,
         group: "GitHub",
         stream: "github",
         intervalSeconds: 1800,
@@ -297,6 +555,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       {
         id: `github:${watch.repo}:releases`,
         label: sourceLabel(`github:${watch.repo}:releases`),
+        authority,
         group: "GitHub",
         stream: "github",
         intervalSeconds: 1800,
@@ -304,6 +563,23 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
         enabled: true,
       },
     );
+  }
+
+  const configuredGithubRepos = new Set(config.github.map((watch) => watch.repo));
+  for (const [index, repo] of DEEPSEEK_GITHUB_REPOS.entries()) {
+    if (configuredGithubRepos.has(repo)) continue;
+    const id = `github:${repo}:releases`;
+    definitions.push({
+      id,
+      label: sourceLabel(id),
+      authority: "vendor_owned",
+      vendor: "DeepSeek",
+      group: "GitHub",
+      stream: "github",
+      intervalSeconds: 3600 + index * 120,
+      collector: () => collectGithubReleases(db, config, { repo, paths: [""] }, fetch, cache),
+      enabled: requested(id),
+    });
   }
 
   validateSourceRegistry(definitions);
@@ -318,6 +594,8 @@ export function validateSourceRegistry(definitions: readonly SourceDefinition[])
     ids.add(definition.id);
     if (!definition.label.trim()) throw new Error(`Source ${definition.id} has no label`);
     if (!definition.group.trim()) throw new Error(`Source ${definition.id} has no group`);
+    if (!SOURCE_AUTHORITIES.includes(definition.authority))
+      throw new Error(`Source ${definition.id} has invalid authority`);
     if (!Number.isInteger(definition.intervalSeconds) || definition.intervalSeconds <= 0)
       throw new Error(`Source ${definition.id} has an invalid interval`);
     if (definition.pace) {

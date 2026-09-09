@@ -47,6 +47,12 @@ test("fresh databases use every migration and finish with a valid current schema
   ).toContain("confidence");
   expect(
     db
+      .query<{ name: string }, []>("PRAGMA table_info(events)")
+      .all()
+      .map((column: { name: string }) => column.name),
+  ).toContain("authority");
+  expect(
+    db
       .query(
         "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('source_collection_metrics','stories','story_events') ORDER BY name",
       )

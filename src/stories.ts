@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { CONFIDENCE_LEVELS } from "./events/confidence.js";
+import { authorityForSource, CONFIDENCE_LEVELS, sourceFamily } from "./events/confidence.js";
 import {
   identityFor,
   identityTerms,
@@ -8,11 +8,11 @@ import {
   normalizeIdentity,
 } from "./events/identity.js";
 import { vendorOf } from "./events/interpretation.js";
-import type { Confidence, Event, EvidenceType, RecordData } from "./events/types.js";
+import type { Confidence, Event, EvidenceType, RecordData, SourceAuthority } from "./events/types.js";
 
 const CORRELATION_WINDOW_MS = 30 * 24 * 3_600_000;
 
-type StoryEvent = Event & { confidence: Confidence };
+type StoryEvent = Event & { authority: SourceAuthority; confidence: Confidence };
 type StoryEvidenceRow = StoryEvent & { url: string | null; evidence_type: EvidenceType };
 type StoryGroup = {
   baseKey: string;
@@ -23,6 +23,8 @@ type StoryGroup = {
   last: StoryEvent;
   identity: ModelIdentity;
   terms: Set<string>;
+  urls: Set<string>;
+  titleTerms: Set<string>;
   storyId?: number;
 };
 
@@ -56,6 +58,65 @@ function normalized(value: unknown): string {
     .replace(/\s+/g, " ");
 }
 
+function canonicalUrl(value: unknown): string | null {
+  if (typeof value !== "string" || !value.trim()) return null;
+  try {
+    const url = new URL(value);
+    if (!/^https?:$/.test(url.protocol)) return null;
+    for (const key of [...url.searchParams.keys()])
+      if (key.toLowerCase().startsWith("utm_") || ["fbclid", "gclid", "ref", "source"].includes(key.toLowerCase()))
+        url.searchParams.delete(key);
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+const TITLE_STOP_WORDS = new Set([
+  "a",
+  "an",
+  "and",
+  "api",
+  "available",
+  "for",
+  "from",
+  "in",
+  "launch",
+  "latest",
+  "model",
+  "new",
+  "now",
+  "official",
+  "release",
+  "released",
+  "support",
+  "the",
+  "to",
+  "update",
+  "version",
+  "with",
+]);
+
+function titleTerms(record: RecordData | null): Set<string> {
+  const title = record?.name ?? record?.title;
+  return new Set(
+    normalized(title)
+      .split(" ")
+      .filter((term) => term.length >= 2 && !TITLE_STOP_WORDS.has(term)),
+  );
+}
+
+function compatibleVendor(left: string, right: string): boolean {
+  return left === "Unknown" || right === "Unknown" || left === right;
+}
+
+function similarTitle(left: Set<string>, right: Set<string>): boolean {
+  if (left.size < 2 || right.size < 2) return false;
+  const overlap = [...left].filter((term) => right.has(term)).length;
+  const smaller = Math.min(left.size, right.size);
+  return overlap >= 3 || (overlap >= 2 && overlap / smaller >= 0.75);
+}
+
 function subjectFor(event: Event, record: RecordData | null): string {
   if (event.source.startsWith("github:")) {
     // A repository is a useful scope, not a semantic subject. Keep each commit, pull request,
@@ -78,6 +139,8 @@ function cloneProjection(projection: StoryProjection): StoryProjection {
     ...group,
     identity: { ...group.identity, aliases: [...group.identity.aliases] },
     terms: new Set(group.terms),
+    urls: new Set(group.urls),
+    titleTerms: new Set(group.titleTerms),
   }));
   const copies = new Map(projection.groups.map((group, index) => [group, groups[index] as StoryGroup]));
   return {
@@ -99,10 +162,22 @@ function projectEvent(projection: StoryProjection, event: StoryEvent): StoryGrou
   // GitHub records carry repository scope but no model identity. Their display names are not
   // evidence that two independent repository events describe the same subject.
   const terms = event.source.startsWith("github:") ? [] : identityTerms(identity);
+  const url = event.source.startsWith("github:") ? null : canonicalUrl(record?.url);
+  const titles = event.source.startsWith("github:") ? new Set<string>() : titleTerms(record);
   const { key, subject, vendor } = baseKeyFor(event, record);
-  const previous =
+  const identityMatch =
     terms.map((term) => projection.aliases.get(`${normalized(vendor)}:${term}`)).find((group) => group !== undefined) ??
     projection.current.get(key);
+  const previous =
+    identityMatch ??
+    [...projection.groups].reverse().find((group) => {
+      const lastTime = Date.parse(group.last.detected_at);
+      const eventTime = Date.parse(event.detected_at);
+      if (!Number.isFinite(lastTime) || !Number.isFinite(eventTime) || eventTime - lastTime > CORRELATION_WINDOW_MS)
+        return false;
+      if (!compatibleVendor(group.vendor, vendor)) return false;
+      return (url !== null && group.urls.has(url)) || similarTitle(group.titleTerms, titles);
+    });
   const last = previous?.last;
   if (!previous || !last || Date.parse(event.detected_at) - Date.parse(last.detected_at) > CORRELATION_WINDOW_MS) {
     const group = {
@@ -114,6 +189,8 @@ function projectEvent(projection: StoryProjection, event: StoryEvent): StoryGrou
       last: event,
       identity,
       terms: new Set(terms),
+      urls: new Set(url ? [url] : []),
+      titleTerms: new Set(titles),
     };
     projection.groups.push(group);
     projection.current.set(key, group);
@@ -122,10 +199,13 @@ function projectEvent(projection: StoryProjection, event: StoryEvent): StoryGrou
   }
   previous.last = event;
   previous.identity = mergeIdentities(previous.identity, identity);
+  projection.current.set(key, previous);
   for (const term of terms) {
     previous.terms.add(term);
     projection.aliases.set(`${normalized(vendor)}:${term}`, previous);
   }
+  if (url) previous.urls.add(url);
+  for (const term of titles) previous.titleTerms.add(term);
   return previous;
 }
 
@@ -172,7 +252,7 @@ function linkEvent(db: Database, group: StoryGroup, event: StoryEvent): void {
 function storyEvents(db: Database, afterId?: number): StoryEvent[] {
   return db
     .query<StoryEvent, number[] | []>(
-      `SELECT id,source,stream,entity_id,kind,before_json,after_json,detected_at,confidence,evidence_type
+      `SELECT id,source,stream,entity_id,kind,before_json,after_json,detected_at,confidence,evidence_type,authority
        FROM events ${afterId === undefined ? "" : "WHERE id>?"} ORDER BY detected_at,id`,
     )
     .all(...(afterId === undefined ? [] : [afterId]));
@@ -241,7 +321,17 @@ export type StoryView = {
   updatedAt: string;
   confidence: Confidence;
   currentStatus: "active" | "removed";
+  authorities: SourceAuthority[];
   sources: string[];
+  sourceFamilies: string[];
+  evidenceCoverage: {
+    eventCount: number;
+    sourceCount: number;
+    sourceFamilies: string[];
+    evidenceTypes: EvidenceType[];
+    independentSourceCount: number;
+    corroborated: boolean;
+  };
   eventIds: number[];
   evidence: {
     eventId: number;
@@ -249,6 +339,8 @@ export type StoryView = {
     kind: Event["kind"];
     confidence: Confidence;
     evidenceType: EvidenceType;
+    authority: SourceAuthority;
+    sourceFamily: string;
     canonicalId: string | null;
     identityStatus: ModelIdentity["status"];
     aliases: string[];
@@ -292,7 +384,7 @@ export function listStories(db: Database, query: StoryQuery = {}): StoryView[] {
   return rows.map((row) => {
     const evidence = db
       .query<StoryEvidenceRow, [number]>(
-        "SELECT e.id,e.source,e.stream,e.entity_id,e.kind,e.before_json,e.after_json,e.detected_at,e.confidence,e.evidence_type,MIN(be.url) AS url FROM story_events se JOIN events e ON e.id=se.event_id LEFT JOIN batch_events be ON be.event_id=e.id WHERE se.story_id=? GROUP BY e.id ORDER BY e.detected_at,e.id",
+        "SELECT e.id,e.source,e.stream,e.entity_id,e.kind,e.before_json,e.after_json,e.detected_at,e.confidence,e.evidence_type,e.authority,MIN(be.url) AS url FROM story_events se JOIN events e ON e.id=se.event_id LEFT JOIN batch_events be ON be.event_id=e.id WHERE se.story_id=? GROUP BY e.id ORDER BY e.detected_at,e.id",
       )
       .all(row.id)
       .map((event) => {
@@ -303,6 +395,8 @@ export function listStories(db: Database, query: StoryQuery = {}): StoryView[] {
           kind: event.kind,
           confidence: event.confidence,
           evidenceType: event.evidence_type,
+          authority: event.authority ?? authorityForSource(event.source),
+          sourceFamily: sourceFamily(event.source, event.stream),
           canonicalId: identity.canonicalId,
           identityStatus: identity.status,
           aliases: identity.aliases,
@@ -310,6 +404,17 @@ export function listStories(db: Database, query: StoryQuery = {}): StoryView[] {
           url: event.url,
         };
       });
+    const sources = [...new Set(evidence.map((event) => event.source))];
+    const sourceFamilies = [...new Set(evidence.map((event) => event.sourceFamily))];
+    const evidenceTypes = [...new Set(evidence.map((event) => event.evidenceType))];
+    const authorities = [...new Set(evidence.map((event) => event.authority))];
+    const independentSources = new Set(
+      evidence.map((event) =>
+        event.authority !== "third_party" && row.vendor !== "Unknown"
+          ? `${event.authority}:${row.vendor}`
+          : `family:${event.sourceFamily}`,
+      ),
+    );
     const identity = evidence.reduce<ModelIdentity>(
       (merged, event) =>
         mergeIdentities(merged, {
@@ -331,7 +436,17 @@ export function listStories(db: Database, query: StoryQuery = {}): StoryView[] {
       updatedAt: row.updated_at,
       confidence: row.confidence,
       currentStatus: row.current_status,
-      sources: [...new Set(evidence.map((event) => event.source))],
+      authorities,
+      sources,
+      sourceFamilies,
+      evidenceCoverage: {
+        eventCount: evidence.length,
+        sourceCount: sources.length,
+        sourceFamilies,
+        evidenceTypes,
+        independentSourceCount: independentSources.size,
+        corroborated: independentSources.size >= 2,
+      },
       eventIds: evidence.map((event) => event.eventId),
       evidence,
     };

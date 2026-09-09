@@ -1,19 +1,92 @@
 import type { Database } from "bun:sqlite";
+import { z } from "zod";
 import type { Destination } from "../config.js";
 import { canonical } from "./canonical.js";
-import { confidenceFor, evidenceTypeFor } from "./confidence.js";
+import { authorityForSource, confidenceFor, evidenceTypeFor } from "./confidence.js";
 import { isRoutine } from "./interpretation.js";
 import type { Collection, Event } from "./types.js";
+
+export const COLLECTION_DEGRADED_PREFIX = "Collection degraded:";
+
+export class CollectionDegradedError extends Error {
+  readonly previousCount: number;
+  readonly retainedCount: number;
+
+  constructor(source: string, previousCount: number, retainedCount: number) {
+    super(`${COLLECTION_DEGRADED_PREFIX} ${source} retained ${retainedCount} of ${previousCount} records`);
+    this.name = "CollectionDegradedError";
+    this.previousCount = previousCount;
+    this.retainedCount = retainedCount;
+  }
+}
+
+const normalizedRecord = z.object({
+  id: z.string().trim().min(1),
+  name: z.string().trim().min(1),
+});
+
+const MIN_SUSPICIOUS_SHRINK = 5;
+
+function validateRecords(source: string, records: Collection["records"]): void {
+  const ids = new Set<string>();
+  records.forEach((record, index) => {
+    const result = normalizedRecord.safeParse(record);
+    if (!result.success) throw new Error(`${source}: invalid normalized record at index ${index}`);
+    if (ids.has(record.id)) throw new Error(`${source}: duplicate record IDs`);
+    ids.add(record.id);
+  });
+}
+
+function suspiciousShrink(previousCount: number, retainedCount: number): boolean {
+  return previousCount - retainedCount >= MIN_SUSPICIOUS_SHRINK && retainedCount * 2 < previousCount;
+}
 
 function comparisonBody(stream: string, body: string): string {
   if (stream !== "leaderboards") return body;
   try {
     const record = JSON.parse(body) as Record<string, unknown>;
     delete record.sampledAt;
+    delete record.votes;
     return canonical(record);
   } catch {
     return body;
   }
+}
+
+function numeric(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function interval(record: Record<string, unknown>): { lower: number; upper: number } | null {
+  const score = numeric(record.score);
+  const lower = numeric(record.scoreLower) ?? score;
+  const upper = numeric(record.scoreUpper) ?? score;
+  return lower !== null && upper !== null ? { lower, upper } : null;
+}
+
+function leaderboardChange(before: string, after: string): boolean {
+  if (comparisonBody("leaderboards", before) === comparisonBody("leaderboards", after)) return false;
+  try {
+    const previous = JSON.parse(before) as Record<string, unknown>;
+    const current = JSON.parse(after) as Record<string, unknown>;
+    const previousWithoutScore = { ...previous };
+    const currentWithoutScore = { ...current };
+    for (const key of ["score", "scoreUpper", "scoreLower", "sampledAt", "votes"]) {
+      delete previousWithoutScore[key];
+      delete currentWithoutScore[key];
+    }
+    const previousInterval = interval(previous);
+    const currentInterval = interval(current);
+    const intervalsOverlap =
+      previousInterval !== null &&
+      currentInterval !== null &&
+      previousInterval.lower <= currentInterval.upper &&
+      currentInterval.lower <= previousInterval.upper;
+    if (intervalsOverlap && canonical(previousWithoutScore) === canonical(currentWithoutScore)) return false;
+  } catch {
+    return true;
+  }
+  return true;
 }
 
 /** Persists one validated observation and its immutable evidence in the caller's transaction. */
@@ -24,8 +97,8 @@ export function persistCollection(
   now = new Date().toISOString(),
 ): number {
   if (!c.records.length && !c.appendOnly) throw new Error(`${c.source}: empty collection rejected`);
-  if (new Set(c.records.map((record) => record.id)).size !== c.records.length)
-    throw new Error(`${c.source}: duplicate record IDs`);
+  validateRecords(c.source, c.records);
+  const authority = c.authority ?? authorityForSource(c.source);
   const initialized = db.query("SELECT last_success FROM sources WHERE id=?").get(c.source) as {
     last_success: string | null;
   } | null;
@@ -51,6 +124,8 @@ export function persistCollection(
     )
     .all(c.source);
   const previous = new Map(old.map((row) => [row.id, row]));
+  if (!c.appendOnly && initialized?.last_success && suspiciousShrink(previous.size, c.records.length))
+    throw new CollectionDegradedError(c.source, previous.size, c.records.length);
   let count = 0;
   const emitted: Event[] = [];
   const emit = (id: string, kind: Event["kind"], before: string | null, after: string | null) => {
@@ -59,11 +134,11 @@ export function persistCollection(
     const row = db
       .query<
         { id: number },
-        [string, string, string, string, string | null, string | null, string, number, string, string]
+        [string, string, string, string, string | null, string | null, string, number, string, string, string]
       >(
-        "INSERT INTO events(source,stream,entity_id,kind,before_json,after_json,detected_at,snapshot_id,confidence,evidence_type) VALUES(?,?,?,?,?,?,?,?,?,?) RETURNING id",
+        "INSERT INTO events(source,stream,entity_id,kind,before_json,after_json,detected_at,snapshot_id,confidence,evidence_type,authority) VALUES(?,?,?,?,?,?,?,?,?,?,?) RETURNING id",
       )
-      .get(c.source, c.stream, id, kind, before, after, now, snapshot, confidence, evidence_type);
+      .get(c.source, c.stream, id, kind, before, after, now, snapshot, confidence, evidence_type, authority);
     if (!row) throw new Error("Event insert failed");
     emitted.push({
       id: row.id,
@@ -76,6 +151,7 @@ export function persistCollection(
       detected_at: now,
       confidence,
       evidence_type,
+      authority,
     });
     count++;
   };
@@ -88,7 +164,9 @@ export function persistCollection(
     else if (
       initialized?.last_success &&
       before &&
-      comparisonBody(c.stream, before.body) !== comparableBody &&
+      (c.stream === "leaderboards"
+        ? leaderboardChange(before.body, body)
+        : comparisonBody(c.stream, before.body) !== comparableBody) &&
       (!c.appendOnly || c.trackChanges) &&
       !c.silentIds?.includes(record.id)
     ) {

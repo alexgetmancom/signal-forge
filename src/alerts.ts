@@ -37,7 +37,7 @@ export async function publishAlerts(
   if (!config.alertChannelId || !config.DISCORD_BOT_TOKEN) return outcome;
 
   const issues = listActionableIssues(db, config, now).filter(
-    (issue) => issue.kind === "source_failed" && issue.severity !== "warning",
+    (issue) => (issue.kind === "source_failed" || issue.kind === "collection_degraded") && issue.severity !== "warning",
   );
   const stored = db.query<{ value: string }, [string]>("SELECT value FROM app_state WHERE key=?").get("alert_down");
   const previous = new Set<string>(stored ? (JSON.parse(stored.value) as string[]) : []);

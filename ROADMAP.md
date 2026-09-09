@@ -35,6 +35,12 @@ current `main` branch with no known actionable issues.
   configured absolute and relative thresholds.
 - Multipart delivery ordering, HTTP caching, source backoff, health boards, outage alerts, role
   mentions, benchmark metadata, codename resolution and signal-quality reporting are implemented.
+- Collection boundaries reject malformed normalized records and suspicious catalogue shrinkage;
+  source authority, degraded health, and independent story evidence are visible to operators.
+- DeepSeek API, website, GitHub, npm and Hugging Face signals are registered alongside official
+  lifecycle pages for Google, AWS, Azure, Groq, Cohere and xAI.
+- Official developer feeds cover Claude Code, Anthropic SDK releases, Google DeepMind, NVIDIA and
+  Hugging Face; stale general feeds and the undated Aider benchmark were removed.
 - Optional DeepSeek summaries are generated for large, publishable diffs after deterministic noise
   filtering when `DEEPSEEK_API_KEY` is configured; Discord and Telegram show the title, short
   summary and compact evidence while raw patch details remain internal.
@@ -77,8 +83,11 @@ The current registry covers:
 - Hugging Face and ModelScope open-weight repositories.
 - Arena, Arena leaderboards and DesignArena categories.
 - npm, PyPI and GitHub activity for selected AI tools and repositories.
-- Official OpenAI and Anthropic news, Cursor changelog, Codex documentation and Claude web strings.
-- OpenAI and Anthropic platform health and lifecycle/deprecation sources.
+- Official OpenAI Help Center and news, Anthropic Platform release notes, Gemini API changelog, xAI,
+  Mistral, Groq and DeepSeek API release surfaces; Codex documentation, Claude Code and Anthropic SDK
+  releases; and Google DeepMind, NVIDIA and Hugging Face developer feeds.
+- OpenAI, Anthropic, Google, AWS, Azure, Groq, Cohere and xAI lifecycle/deprecation sources.
+- Arena leaderboard observations, with selected active DeepSeek GitHub and npm channels.
 
 A failed or malformed collection is never treated as an empty catalogue. External responses are
 validated before they can change stored state.

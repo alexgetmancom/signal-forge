@@ -62,7 +62,27 @@ test("invalid snapshots preserve known records", () => {
   saveCollection(db, collection(["a"]), []);
   expect(() => saveCollection(db, collection([]), [])).toThrow("empty");
   expect(() => saveCollection(db, collection(["a", "a"]), [])).toThrow("duplicate");
+  expect(() => saveCollection(db, { ...collection(["a"]), records: [{ id: "", name: "A" }] }, [])).toThrow(
+    "invalid normalized record",
+  );
+  expect(() => saveCollection(db, { ...collection(["a"]), records: [{ id: "a", name: "" }] }, [])).toThrow(
+    "invalid normalized record",
+  );
   expect(db.query("SELECT id FROM records").all()).toEqual([{ id: "a" }]);
+});
+
+test("a suspicious full-catalogue shrink preserves the last known-good records", () => {
+  saveCollection(db, collection(["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"]), []);
+  expect(() => saveCollection(db, collection(["a", "b", "c", "d"]), [])).toThrow("Collection degraded");
+  expect(db.query("SELECT id FROM records ORDER BY id").all()).toEqual(
+    ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"].map((id) => ({ id })),
+  );
+  expect(db.query("SELECT COUNT(*) AS count FROM events").get()).toEqual({ count: 0 });
+});
+
+test("append-only collections are exempt from shrinkage protection", () => {
+  saveCollection(db, { ...collection(["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"]), appendOnly: true }, []);
+  expect(saveCollection(db, { ...collection(["a", "b", "c", "d"]), appendOnly: true }, [])).toBe(0);
 });
 test("changed metadata preserves before and after; key order has no effect", () => {
   const c = collection(["a"]);
@@ -482,6 +502,37 @@ test("leaderboard sample timestamps stay in evidence without creating message ch
   const event = local.query<Event, []>("SELECT * FROM events").get();
   if (!event) throw new Error("Expected a rank change event");
   expect(renderEvent(event, "https://arena.ai/leaderboard")).not.toContain("Sampled");
+  local.close();
+});
+
+test("leaderboard vote-only changes and overlapping intervals do not create events", () => {
+  const local = openDatabase(":memory:");
+  const record = (votes: number, score: number, lower: number, upper: number): RecordData => ({
+    id: "overall:model",
+    name: "Model",
+    category: "overall",
+    modelKey: "model",
+    rank: 1,
+    score,
+    scoreLower: lower,
+    scoreUpper: upper,
+    votes,
+  });
+  const make = (value: RecordData): Collection => ({
+    source: "arena-leaderboards",
+    stream: "leaderboards",
+    url: "https://arena.ai/leaderboard",
+    raw: value,
+    appendOnly: true,
+    trackChanges: true,
+    records: [value],
+  });
+  saveCollection(local, make(record(10, 100, 95, 105)), []);
+  saveCollection(local, make(record(20, 100, 95, 105)), []);
+  saveCollection(local, make(record(30, 102, 97, 107)), []);
+  expect(local.query("SELECT COUNT(*) AS count FROM events").get()).toEqual({ count: 0 });
+  saveCollection(local, make(record(31, 115, 110, 115)), []);
+  expect(local.query("SELECT kind FROM events").all()).toEqual([{ kind: "changed" }]);
   local.close();
 });
 

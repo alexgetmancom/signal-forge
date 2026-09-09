@@ -2,6 +2,7 @@ import { XMLParser, XMLValidator } from "fast-xml-parser";
 import { z } from "zod";
 import type { Collection } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
+import { decodeHtml } from "./html.js";
 import { fetchText } from "./http.js";
 
 const feedSchema = z.object({
@@ -52,15 +53,6 @@ export async function collectOpenAINews(request: Fetch = fetch): Promise<Collect
 
 const anthropicItem =
   /<li><a href="(\/news\/[^"]+)"[^>]*>.*?<time[^>]*>([^<]+)<\/time>.*?<span[^>]*subject[^>]*>([^<]*)<\/span>.*?<span[^>]*title[^>]*>([^<]+)<\/span><\/a><\/li>/gs;
-
-function decodeHtml(text: string): string {
-  const named: Record<string, string> = { amp: "&", apos: "'", gt: ">", lt: "<", quot: '"' };
-  return text.replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (_match, entity: string) => {
-    if (entity.startsWith("#x")) return String.fromCodePoint(Number.parseInt(entity.slice(2), 16));
-    if (entity.startsWith("#")) return String.fromCodePoint(Number.parseInt(entity.slice(1), 10));
-    return named[entity.toLowerCase()] ?? `&${entity};`;
-  });
-}
 
 export function parseAnthropicNews(html: string): Collection {
   const records = [...html.matchAll(anthropicItem)].map((match) => {

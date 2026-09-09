@@ -18,6 +18,9 @@ const hfModels = z.array(
     pipeline_tag: z.string().nullish(),
     library_name: z.string().nullish(),
     tags: z.array(z.string()).default([]),
+    lastModified: z.string().nullish(),
+    likes: z.number().int().nonnegative().nullish(),
+    downloads: z.number().int().nonnegative().nullish(),
     private: z.boolean().default(false),
     gated: z.union([z.boolean(), z.string()]).nullish(),
   }),
@@ -58,6 +61,11 @@ export function parseHuggingFace(payload: string, author: string): Collection {
       library: model.library_name ?? null,
       access: model.gated ? "gated" : "public",
       created: model.createdAt,
+      modified: model.lastModified ?? null,
+      likes: model.likes ?? null,
+      downloads: model.downloads ?? null,
+      tags: [...model.tags].sort(),
+      pipeline: model.pipeline_tag ?? null,
     })),
   };
 }
@@ -85,6 +93,7 @@ export const NPM_PACKAGES = [
   "@anthropic-ai/claude-code",
   "@google/gemini-cli",
   "@qwen-code/qwen-code",
+  "@deepseek-ai/dsh",
 ];
 export const PYPI_PACKAGES = ["openai", "anthropic", "mistralai"];
 

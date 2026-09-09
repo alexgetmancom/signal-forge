@@ -30,9 +30,12 @@ export function createHttpApp(config: AppConfig, db: Database): Hono {
           after_json: string | null;
           detected_at: string;
           evidence_type: EvidenceType;
+          authority: string;
         },
         [number]
-      >("SELECT id,source,entity_id,kind,before_json,after_json,detected_at,evidence_type FROM events WHERE id=?")
+      >(
+        "SELECT id,source,entity_id,kind,before_json,after_json,detected_at,evidence_type,authority FROM events WHERE id=?",
+      )
       .get(id.data);
     if (!event) return c.text("Report not found\n", 404);
     const escapeHtml = (value: unknown) =>
@@ -43,7 +46,7 @@ export function createHttpApp(config: AppConfig, db: Database): Hono {
         .replaceAll('"', "&quot;");
     const pretty = (value: string | null) => (value ? JSON.stringify(JSON.parse(value), null, 2) : "—");
     return c.html(
-      `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Signal Forge · #${event.id}</title><style>body{font:16px system-ui;max-width:1100px;margin:40px auto;padding:0 20px;color:#17202a}h1{margin-bottom:4px}small{color:#667085}section{margin-top:28px}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f4f6f8;padding:18px;border-radius:10px}</style></head><body><h1>${escapeHtml(event.entity_id)}</h1><small>Signal Forge · ${escapeHtml(event.source)} · ${escapeHtml(event.kind)} · ${escapeHtml(event.detected_at)} · ${escapeHtml(evidenceLabel(event.evidence_type))} · #${event.id}</small><section><h2>Before</h2><pre>${escapeHtml(pretty(event.before_json))}</pre></section><section><h2>After</h2><pre>${escapeHtml(pretty(event.after_json))}</pre></section></body></html>`,
+      `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Signal Forge · #${event.id}</title><style>body{font:16px system-ui;max-width:1100px;margin:40px auto;padding:0 20px;color:#17202a}h1{margin-bottom:4px}small{color:#667085}section{margin-top:28px}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f4f6f8;padding:18px;border-radius:10px}</style></head><body><h1>${escapeHtml(event.entity_id)}</h1><small>Signal Forge · ${escapeHtml(event.source)} · ${escapeHtml(event.kind)} · ${escapeHtml(event.detected_at)} · ${escapeHtml(evidenceLabel(event.evidence_type))} · ${escapeHtml(event.authority)} · #${event.id}</small><section><h2>Before</h2><pre>${escapeHtml(pretty(event.before_json))}</pre></section><section><h2>After</h2><pre>${escapeHtml(pretty(event.after_json))}</pre></section></body></html>`,
     );
   });
   app.use("/api/*", bodyLimit({ maxSize: 64 * 1024 }));

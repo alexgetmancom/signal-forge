@@ -5,11 +5,30 @@ import { parseArena, parseLeaderboards } from "../src/sources/arena.js";
 import { collectAnthropic, collectOpenRouter } from "../src/sources/catalogs.js";
 import { claudeAssetImports, extractStrings } from "../src/sources/claude.js";
 import { parseCursorChangelog, parseDesignArena, parseModelScope } from "../src/sources/community.js";
+import { parseDeepSeekPricing, parseDeepSeekUpdates } from "../src/sources/deepseek.js";
 import { parseAnthropicDeprecations, parseOpenAIDeprecations } from "../src/sources/deprecations.js";
+import { parseAnthropicSdkReleases, parseClaudeCodeChangelog, parseOfficialFeed } from "../src/sources/feeds.js";
 import { collectGithubCommits, summarizeDiff } from "../src/sources/github.js";
 import { fetchText, SourceHttpError } from "../src/sources/http.js";
+import {
+  parseAwsBedrockLifecycle,
+  parseAzureFoundryLifecycle,
+  parseCohereDeprecations,
+  parseGeminiDeprecations,
+  parseGroqDeprecations,
+  parseVertexDeprecations,
+  parseXaiDeprecations,
+} from "../src/sources/lifecycle.js";
 import { parseAnthropicNews, parseOpenAINews } from "../src/sources/news.js";
-import { collectHuggingFace, parseNpm } from "../src/sources/registries.js";
+import { collectHuggingFace, parseHuggingFace, parseNpm } from "../src/sources/registries.js";
+import {
+  collectOpenAIChatGPTReleaseNotes,
+  parseGeminiApiChangelog,
+  parseGroqChangelog,
+  parseMistralReleaseNotes,
+  parseOpenAIChatGPTReleaseNotes,
+  parseXaiReleaseNotes,
+} from "../src/sources/releaseNotes.js";
 import { openDatabase } from "../src/storage/database.js";
 import { freshUntil, HttpCache } from "../src/storage/httpCache.js";
 
@@ -49,6 +68,27 @@ test("leaderboard keeps rank for the leading places and drops it below them", ()
   // Deep in a board the order churns daily; storing it would buy events and no news.
   expect(parsed.records[1]).not.toHaveProperty("rank");
 });
+test("leaderboard preserves dynamic agent metrics as a keyed object", () => {
+  const board = {
+    arenaSlug: "agent",
+    leaderboardSlug: "overall",
+    entries: [
+      {
+        modelKey: "agent-a",
+        modelDisplayName: "Agent A",
+        modelOrganization: "Maker",
+        rank: 1,
+        rating: 1400,
+        steerability: 0.8,
+        recovery: 0.7,
+        metrics: { tool_hallucination: 0.1 },
+      },
+    ],
+  };
+  expect(parseLeaderboards(nextPage({ leaderboards: [board] })).records[0]).toMatchObject({
+    metrics: { recovery: 0.7, steerability: 0.8, tool_hallucination: 0.1 },
+  });
+});
 test("RSS parses escaped titles and preserves article dates", () => {
   const c = parseOpenAINews(
     "<rss><channel><item><title>Codex &amp; tools</title><link>https://openai.com/index/codex</link><pubDate>Mon, 07 Sep 2026 10:00:00 GMT</pubDate></item></channel></rss>",
@@ -70,6 +110,247 @@ test("Anthropic newsroom parser keeps official title, category and date", () => 
     },
   ]);
   expect(() => parseAnthropicNews("<html>unavailable</html>")).toThrow("not found");
+});
+test("DeepSeek changelog parser keeps dated official updates and rejects an empty page", () => {
+  const html = `<article>
+    <h2 id="date-2026-08-21">Date: 2026-08-21<a href="#date-2026-08-21">​</a></h2>
+    <h3 id="deepseek-v4-flash-vision-exp-release">DeepSeek-V4-Flash-Vision-Exp Release<a>​</a></h3>
+    <p>Today, the new vision model is now available on the DeepSeek API platform.</p>
+    <h2 id="date-2026-08-13">Date: 2026-08-13<a>​</a></h2>
+    <h3 id="deepseek-v4-pro-update">DeepSeek-V4-Pro Update</h3>
+    <p>The GA release has been rolled out on the API.</p>
+  </article>`;
+  const parsed = parseDeepSeekUpdates(html);
+  expect(parsed).toMatchObject({ source: "deepseek-updates", stream: "news", appendOnly: true, trackChanges: true });
+  expect(parsed.records).toEqual([
+    expect.objectContaining({
+      id: "2026-08-21:deepseek-v4-flash-vision-exp-release",
+      name: "DeepSeek-V4-Flash-Vision-Exp Release",
+      url: "https://api-docs.deepseek.com/updates#deepseek-v4-flash-vision-exp-release",
+      published: "2026-08-21T00:00:00.000Z",
+      maker: "DeepSeek",
+    }),
+    expect.objectContaining({ id: "2026-08-13:deepseek-v4-pro-update", name: "DeepSeek-V4-Pro Update" }),
+  ]);
+  expect(parsed.records[0]?.summary).toContain("vision model");
+  expect(() => parseDeepSeekUpdates("<article><h2>Date: 2026-08-21</h2></article>")).toThrow();
+});
+test("DeepSeek pricing parser preserves model versions, capabilities and price windows", () => {
+  const html = `<table>
+    <tr><td colspan="3">MODEL</td><td>deepseek-v4-flash</td><td>deepseek-v4-pro</td></tr>
+    <tr><td colspan="3">MODEL VERSION</td><td>DeepSeek-V4-Flash-0731</td><td>DeepSeek-V4-Pro-0813</td></tr>
+    <tr><td colspan="3">CONTEXT LENGTH</td><td colspan="2">1M</td></tr>
+    <tr><td colspan="3">MAX OUTPUT</td><td colspan="2">MAXIMUM: 384K</td></tr>
+    <tr><td rowspan="2">FEATURES</td><td colspan="2">Tool Calls</td><td>✓</td><td>✓</td></tr>
+    <tr><td rowspan="2">PRICING</td><td>1M INPUT TOKENS<br>(CACHE HIT)</td><td>OFF-PEAK</td><td>$0.007</td><td>$0.022</td></tr>
+    <tr><td>PEAK</td><td>$0.014</td><td>$0.044</td></tr>
+    <tr><td colspan="3">Concurrency Limit</td><td>2500</td><td>500</td></tr>
+  </table>`;
+  const parsed = parseDeepSeekPricing(html);
+  expect(parsed).toMatchObject({ source: "deepseek-pricing", stream: "api-models", confirmChanges: true });
+  expect(parsed.records[0]).toMatchObject({
+    id: "deepseek-v4-flash",
+    modelVersion: "DeepSeek-V4-Flash-0731",
+    context: "1M",
+    capabilities: ["Tool Calls"],
+    pricing: { inputCacheHitOffPeak: 0.007, inputCacheHitPeak: 0.014 },
+    concurrencyLimit: 2500,
+  });
+  expect(() => parseDeepSeekPricing("<table><tr><td>MODEL</td></tr></table>")).toThrow();
+});
+test("official release-note pages keep dated entries and reject unreadable pages", async () => {
+  const openaiHtml = `<article>
+    <h1>ChatGPT — Release Notes</h1>
+    <h1><b>September 9, 2026</b></h1>
+    <h2><b>Updated models and usage limits in ChatGPT Voice</b></h2>
+    <p>Voice can now use newer reasoning models.</p>
+    <h2><b>Another ChatGPT update</b></h2>
+    <ul><li>More controls are available.</li></ul>
+    <h1>September 3, 2026</h1>
+    <h2>Introducing GPT-6 Astra</h2>
+    <p>A new model is available.</p>
+  </article>`;
+  const openai = parseOpenAIChatGPTReleaseNotes(openaiHtml);
+  expect(openai.records).toEqual([
+    expect.objectContaining({
+      id: "2026-09-09:updated-models-and-usage-limits-in-chatgpt-voice",
+      name: "Updated models and usage limits in ChatGPT Voice",
+      url: "https://help.openai.com/en/articles/6825453-chatgpt-release-notes",
+      published: "2026-09-09T00:00:00.000Z",
+    }),
+    expect.objectContaining({ id: "2026-09-09:another-chatgpt-update" }),
+    expect.objectContaining({ id: "2026-09-03:introducing-gpt-6-astra" }),
+  ]);
+  expect(openai.records[0]?.summary).toContain("newer reasoning models");
+  expect(openai.appendOnly).toBe(true);
+  await collectOpenAIChatGPTReleaseNotes(async (url) => {
+    expect(String(url)).toBe("https://help.openai.com/en/articles/6825453-chatgpt-release-notes.json");
+    return new Response(openaiHtml);
+  });
+  expect(() => parseOpenAIChatGPTReleaseNotes("<html>blocked</html>")).toThrow("article not found");
+
+  const gemini = parseGeminiApiChangelog(
+    `<main><h1>Changelog</h1>
+      <h2 id="09-03-2026" data-text="September 3, 2026">September 3, 2026</h2>
+      <p>Gemini API added a new capability.</p>
+      <h2 id="09-02-2026" data-text="September 2, 2026">September 2, 2026</h2>
+      <p>Gemini API improved reliability.</p>
+    </main>`,
+  );
+  expect(gemini.records).toEqual([
+    expect.objectContaining({
+      id: "2026-09-03",
+      name: "Gemini API changelog · 2026-09-03",
+      url: "https://ai.google.dev/gemini-api/docs/changelog#09-03-2026",
+      published: "2026-09-03T00:00:00.000Z",
+    }),
+    expect.objectContaining({ id: "2026-09-02" }),
+  ]);
+  expect(gemini.records[0]?.summary).toContain("new capability");
+
+  const xai = parseXaiReleaseNotes(
+    `<main><h1>Release notes</h1><p>Last updated: September 2, 2026</p>
+      <h2 id="september"><a>September</a></h2>
+      <div class="text-muted top-bar"><div class="relative">September 2<span aria-hidden="true"></span></div></div>
+      <div><h3 id="grok-46"><a>Grok 4.6</a></h3><p>Grok 4.6 is available in the API.</p></div>
+      <h2 id="september-2025"><a>September 2025</a></h2>
+      <div class="text-muted top-bar"><div class="relative">Sep 15<span aria-hidden="true"></span></div></div>
+      <div><h3 id="older-entry"><a>Older entry</a></h3><p>Older API update.</p></div>
+    </main>`,
+  );
+  expect(xai.records).toEqual([
+    expect.objectContaining({
+      id: "2026-09-02:grok-46",
+      name: "Grok 4.6",
+      url: "https://docs.x.ai/developers/release-notes#grok-46",
+      published: "2026-09-02T00:00:00.000Z",
+    }),
+    expect.objectContaining({ id: "2025-09-15:older-entry", published: "2025-09-15T00:00:00.000Z" }),
+  ]);
+  expect(xai.records[0]?.summary).toContain("available in the API");
+
+  const mistral = parseMistralReleaseNotes(
+    `<main><h1>Release notes</h1>
+      <time dateTime="2026-08-20">Aug 20, 2026</time><h2>API key expiration policies</h2><p>Keys now expire.</p>
+      <time dateTime="2026-07-31">Jul 31, 2026</time><h2>Workflow search</h2><p>Search is improved.</p>
+    </main>`,
+  );
+  expect(mistral.records).toEqual([
+    expect.objectContaining({
+      id: "2026-08-20:api-key-expiration-policies",
+      name: "API key expiration policies",
+      published: "2026-08-20T00:00:00.000Z",
+    }),
+    expect.objectContaining({ id: "2026-07-31:workflow-search" }),
+  ]);
+
+  const groq = parseGroqChangelog(
+    `<p>Current page data: 2026-04-18.</p>
+      <span class="text-xs sticky top-0">Apr 18</span>
+      <h3 id="new-model" class="first:mt-0 mt-12"><span>Added</span><a href="#new-model">New model</a></h3>
+      <p>A new model is available.</p>
+      <span class="text-xs sticky top-0">Dec 1, 2025</span>
+      <h3 id="old-model" class="first:mt-0 mt-12"><span>Changed</span><a href="#old-model">Old model</a></h3>
+      <ul><li>Pricing changed.</li></ul>
+      <h3 id="looking-for-older-changelogs" class="mt-8"><a>Looking for older changelogs</a></h3>`,
+  );
+  expect(groq.records).toEqual([
+    expect.objectContaining({ id: "2026-04-18:new-model", name: "New model", published: "2026-04-18T00:00:00.000Z" }),
+    expect.objectContaining({ id: "2025-12-01:old-model", name: "Old model" }),
+  ]);
+  expect(groq.records[1]?.summary).toContain("Pricing changed");
+});
+test("Hugging Face retains useful model metadata without turning it into change events", () => {
+  const parsed = parseHuggingFace(
+    JSON.stringify([
+      {
+        id: "deepseek-ai/DeepSeek-V4",
+        author: "deepseek-ai",
+        createdAt: "2026-04-24T00:00:00.000Z",
+        lastModified: "2026-08-21T00:00:00.000Z",
+        likes: 1200,
+        downloads: 340000,
+        pipeline_tag: "text-generation",
+        library_name: "transformers",
+        tags: ["deepseek", "text-generation"],
+        gated: false,
+      },
+    ]),
+    "deepseek-ai",
+  );
+  expect(parsed.records[0]).toMatchObject({
+    modified: "2026-08-21T00:00:00.000Z",
+    likes: 1200,
+    downloads: 340000,
+    tags: ["deepseek", "text-generation"],
+    pipeline: "text-generation",
+  });
+  expect(parsed.appendOnly).toBe(true);
+  expect(parsed.trackChanges).toBeUndefined();
+});
+test("lifecycle parsers retain dates, replacements and regional context", () => {
+  const gemini = parseGeminiDeprecations(
+    `<table><tr><th>Model</th><th>Release date</th><th>Shutdown date</th><th>Recommended replacement</th></tr>
+      <tr><td>gemini-2.0-flash</td><td>February 5, 2025</td><td>June 1, 2026</td><td>gemini-3.5-flash</td></tr></table>`,
+  );
+  expect(gemini.records[0]).toMatchObject({
+    modelId: "gemini-2.0-flash",
+    retirement: "June 1, 2026",
+    replacement: "gemini-3.5-flash",
+  });
+
+  const aws = parseAwsBedrockLifecycle(
+    `<table><tr><th>Model provider</th><th>Model name</th><th>Model ID</th><th>Regions</th><th>Legacy date</th><th>EOL date</th></tr>
+      <tr><td>Anthropic</td><td>Claude</td><td>anthropic.claude-v1</td><td>us-east-1, eu-west-1</td><td>April 1, 2026</td><td>October 1, 2026</td></tr></table>`,
+  );
+  expect(aws.records[0]).toMatchObject({
+    modelId: "anthropic.claude-v1",
+    region: "us-east-1, eu-west-1",
+    retirement: "October 1, 2026",
+  });
+
+  const azure = parseAzureFoundryLifecycle(
+    `<table><tr><th>Model</th><th>Version</th><th>Lifecycle</th><th>Retirement date</th><th>Replacement</th></tr>
+      <tr><td>gpt-4o</td><td>2024-05-13</td><td>Deprecated</td><td>2026-10-01</td><td>gpt-5.1</td></tr></table>`,
+  );
+  expect(azure.records[0]).toMatchObject({ stage: "Deprecated", retirement: "2026-10-01", replacement: "gpt-5.1" });
+
+  const tables = `<table><tr><th>Deprecated Model</th><th>Shutdown Date</th><th>Recommended Replacement Model ID</th></tr>
+    <tr><td>old-model</td><td>08/16/26</td><td>new-model</td></tr></table>`;
+  expect(parseGroqDeprecations(tables).records[0]).toMatchObject({ modelId: "old-model", replacement: "new-model" });
+  expect(parseCohereDeprecations(tables).records[0]).toMatchObject({ maker: "Cohere" });
+  expect(
+    parseXaiDeprecations(
+      `<table><tr><th>Model being retired</th><th>Redirect target after May 15</th></tr><tr><td>grok-3</td><td>grok-4.3</td></tr></table>`,
+    ).records[0],
+  ).toMatchObject({ modelId: "grok-3", replacement: "grok-4.3" });
+  expect(
+    parseVertexDeprecations(
+      `<table><tr><th>Discontinued endpoints</th><th>Recommended endpoint migration</th></tr><tr><td>veo-old</td><td>veo-new</td></tr></table>`,
+    ).records[0],
+  ).toMatchObject({ modelId: "veo-old", replacement: "veo-new" });
+});
+test("official developer feeds validate RSS and Atom and retain tool release evidence", () => {
+  const rss = parseOfficialFeed(
+    `<rss version="2.0"><channel><item><title>Codex skill update</title><link>https://example.test/codex</link><description>New skill</description><pubDate>Wed, 09 Sep 2026 10:00:00 GMT</pubDate></item></channel></rss>`,
+    { source: "feed-test", maker: "OpenAI", url: "https://example.test/feed.xml" },
+  );
+  expect(rss.records[0]).toMatchObject({ name: "Codex skill update", published: "2026-09-09T10:00:00.000Z" });
+  const atom = parseOfficialFeed(
+    `<feed xmlns="http://www.w3.org/2005/Atom"><entry><title>CUDA AI</title><link rel="alternate" href="https://example.test/atom"/><id>x</id><updated>2026-09-09T10:00:00Z</updated><summary>GPU model</summary></entry></feed>`,
+    { source: "atom-test", maker: "NVIDIA", url: "https://example.test/feed.atom" },
+  );
+  expect(atom.records[0]?.url).toBe("https://example.test/atom");
+  expect(() =>
+    parseOfficialFeed("<html>error</html>", { source: "feed-test", maker: "OpenAI", url: "https://example.test" }),
+  ).toThrow();
+
+  const claude = parseClaudeCodeChangelog(
+    `<Update label="2.1.267" description="September 9, 2026">* Added <code>skills</code></Update>`,
+  );
+  expect(claude.records[0]).toMatchObject({ version: "2.1.267", published: "2026-09-09T00:00:00.000Z" });
+  const sdk = parseAnthropicSdkReleases("### September 3, 2026\n\n* Added a new SDK method.");
+  expect(sdk.records[0]).toMatchObject({ maker: "Anthropic", published: "2026-09-03T00:00:00.000Z" });
 });
 test("Claude extraction decodes strings without executing source", () => {
   expect(

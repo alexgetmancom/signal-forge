@@ -103,6 +103,57 @@ test("stories correlate evidence without rewriting the original events", () => {
   db.close();
 });
 
+test("stories expose independent evidence coverage without rewriting event authority", () => {
+  const db = openDatabase(":memory:");
+  const router = collection("openrouter", "openrouter", [
+    {
+      id: "deepseek-v4-pro",
+      name: "DeepSeek V4 Pro Release",
+      maker: "DeepSeek",
+      url: "https://example.test/deepseek-v4-pro?utm_source=router",
+      pricing: { prompt: "1" },
+    },
+  ]);
+  saveCollection(db, router, [], "2026-09-08T00:00:00.000Z");
+  const routerRecord = router.records[0];
+  if (!routerRecord) throw new Error("Missing router record");
+  router.records[0] = { ...routerRecord, pricing: { prompt: "2" } };
+  saveCollection(db, router, [], "2026-09-08T00:05:00.000Z");
+
+  const official = collection("deepseek-updates", "news", [
+    {
+      id: "deepseek-v4-pro-update",
+      name: "DeepSeek V4 Pro Update",
+      url: "https://example.test/deepseek-v4-pro?utm_medium=news",
+      maker: "DeepSeek",
+      summary: "The official update is available.",
+    },
+  ]);
+  saveCollection(db, official, [], "2026-09-08T00:06:00.000Z");
+  const officialRecord = official.records[0];
+  if (!officialRecord) throw new Error("Missing official record");
+  official.records[0] = { ...officialRecord, summary: "The official update is generally available." };
+  saveCollection(db, official, [], "2026-09-08T00:07:00.000Z");
+
+  const story = listStories(db, { vendor: "DeepSeek", limit: 10 })[0];
+  expect(story).toMatchObject({
+    authorities: ["third_party", "first_party"],
+    sourceFamilies: ["openrouter", "official-news"],
+    evidenceCoverage: {
+      eventCount: 2,
+      sourceCount: 2,
+      independentSourceCount: 2,
+      corroborated: true,
+    },
+  });
+  expect(story?.evidence.map((event) => event.authority)).toEqual(["third_party", "first_party"]);
+  expect(db.query("SELECT authority FROM events ORDER BY id").all()).toEqual([
+    { authority: "third_party" },
+    { authority: "first_party" },
+  ]);
+  db.close();
+});
+
 test("story time filters compare timestamps as instants", () => {
   const db = openDatabase(":memory:");
   const source = collection("test", "api-models", [{ id: "gpt", name: "GPT", context: 1 }]);

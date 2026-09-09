@@ -77,40 +77,76 @@ const leaderboardBoard = z.object({
   leaderboardSlug: z.string(),
   voteCutoffISOString: z.string().datetime({ offset: true }).nullish(),
   entries: z.array(
-    z.object({
-      modelKey: z.string(),
-      modelDisplayName: z.string(),
-      modelOrganization: z.string().nullable(),
-      rank: z.number(),
-      rating: z.number().nullish(),
-      ratingUpper: z.number().nullish(),
-      ratingLower: z.number().nullish(),
-      votes: z.number().int().nonnegative().nullish(),
-      modelUrl: z.string().url().nullish(),
-      license: z.string().nullish(),
-    }),
+    z
+      .object({
+        modelKey: z.string(),
+        modelDisplayName: z.string(),
+        modelOrganization: z.string().nullable(),
+        rank: z.number(),
+        rating: z.number().nullish(),
+        ratingUpper: z.number().nullish(),
+        ratingLower: z.number().nullish(),
+        votes: z.number().int().nonnegative().nullish(),
+        modelUrl: z.string().url().nullish(),
+        license: z.string().nullish(),
+      })
+      .passthrough(),
   ),
 });
 const boards = z.array(leaderboardBoard).min(1);
 type LeaderboardBoard = z.infer<typeof leaderboardBoard>;
 
+const LEADERBOARD_ENTRY_FIELDS = new Set([
+  "modelKey",
+  "modelDisplayName",
+  "modelOrganization",
+  "rank",
+  "rating",
+  "ratingUpper",
+  "ratingLower",
+  "votes",
+  "modelUrl",
+  "license",
+]);
+
+function scalarMetric(value: unknown): boolean {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function dynamicMetrics(entry: Record<string, unknown>): Record<string, number> {
+  const metrics: Record<string, number> = {};
+  for (const key of ["metrics", "dimensions", "scores"]) {
+    const value = entry[key];
+    if (!value || typeof value !== "object" || Array.isArray(value)) continue;
+    for (const [metric, score] of Object.entries(value)) if (scalarMetric(score)) metrics[metric] = score;
+  }
+  for (const [key, value] of Object.entries(entry))
+    if (!LEADERBOARD_ENTRY_FIELDS.has(key) && !["metrics", "dimensions", "scores"].includes(key) && scalarMetric(value))
+      metrics[key] = value as number;
+  return Object.fromEntries(Object.entries(metrics).sort(([left], [right]) => left.localeCompare(right)));
+}
+
 function recordsFromBoards(data: LeaderboardBoard[]): Collection["records"] {
   return data.flatMap((b) =>
-    b.entries.map((m) => ({
-      id: `${b.arenaSlug}:${b.leaderboardSlug}:${m.modelKey}`,
-      name: m.modelDisplayName,
-      category: `${b.arenaSlug}/${b.leaderboardSlug}`,
-      modelKey: m.modelKey,
-      ...(m.rank <= RANKED_PLACES ? { rank: m.rank } : {}),
-      ...(m.rating !== null && m.rating !== undefined ? { score: m.rating } : {}),
-      ...(m.ratingUpper !== null && m.ratingUpper !== undefined ? { scoreUpper: m.ratingUpper } : {}),
-      ...(m.ratingLower !== null && m.ratingLower !== undefined ? { scoreLower: m.ratingLower } : {}),
-      ...(m.votes !== null && m.votes !== undefined ? { votes: m.votes } : {}),
-      ...(m.modelUrl ? { url: m.modelUrl } : {}),
-      ...(m.license ? { license: m.license } : {}),
-      ...(b.voteCutoffISOString ? { sampledAt: b.voteCutoffISOString } : {}),
-      maker: m.modelOrganization,
-    })),
+    b.entries.map((m) => {
+      const metrics = dynamicMetrics(m);
+      return {
+        id: `${b.arenaSlug}:${b.leaderboardSlug}:${m.modelKey}`,
+        name: m.modelDisplayName,
+        category: `${b.arenaSlug}/${b.leaderboardSlug}`,
+        modelKey: m.modelKey,
+        ...(m.rank <= RANKED_PLACES ? { rank: m.rank } : {}),
+        ...(m.rating !== null && m.rating !== undefined ? { score: m.rating } : {}),
+        ...(m.ratingUpper !== null && m.ratingUpper !== undefined ? { scoreUpper: m.ratingUpper } : {}),
+        ...(m.ratingLower !== null && m.ratingLower !== undefined ? { scoreLower: m.ratingLower } : {}),
+        ...(m.votes !== null && m.votes !== undefined ? { votes: m.votes } : {}),
+        ...(m.modelUrl ? { url: m.modelUrl } : {}),
+        ...(m.license ? { license: m.license } : {}),
+        ...(b.voteCutoffISOString ? { sampledAt: b.voteCutoffISOString } : {}),
+        ...(Object.keys(metrics).length ? { metrics } : {}),
+        maker: m.modelOrganization,
+      };
+    }),
   );
 }
 

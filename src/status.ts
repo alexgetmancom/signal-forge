@@ -2,22 +2,25 @@ import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import { type CapabilityReportEntry, capabilityReport } from "./capabilities.js";
 import type { AppConfig } from "./config.js";
+import { COLLECTION_DEGRADED_PREFIX } from "./events/store.js";
+import type { SourceAuthority } from "./events/types.js";
 import type { Fetch } from "./http-client.js";
 import { log } from "./logger.js";
 import { PLATFORMS } from "./sources/platforms.js";
-import { sourceJobs } from "./sources/registry.js";
+import { buildSourceRegistry } from "./sources/registry.js";
 
 /**
- * A source can be silent for three different reasons, and a status board that calls all three
- * "down" teaches readers to ignore it. Blocked is not broken: Gemini answers everywhere except the
- * addresses this project can reach, so it is reported as a restriction with its cause, not a fault.
+ * A source can be silent for several different reasons, and a status board that calls all of them
+ * "down" teaches readers to ignore it. Blocked is not broken: Gemini answers everywhere except
+ * the addresses this project can reach, so it is reported as a restriction with its cause, not a fault.
  */
-export type SourceState = "ok" | "stale" | "failing" | "blocked" | "idle";
+export type SourceState = "ok" | "stale" | "failing" | "degraded" | "blocked" | "idle" | "missing" | "disabled";
 
 export type SourceHealth = {
   id: string;
   label: string;
   group: string;
+  authority: SourceAuthority;
   state: SourceState;
   detail: string;
   lastSuccess: string | null;
@@ -26,7 +29,32 @@ export type SourceHealth = {
 
 /** A source is late once it has missed three of its own intervals — one slow cycle is not news. */
 export function sourceHealth(db: Database, config: AppConfig, now = Date.now()): SourceHealth[] {
-  return sourceJobs(db, config).map((job) => {
+  const values = config as unknown as Record<string, unknown>;
+  return buildSourceRegistry(db, config).map((source) => {
+    const missing = (source.requiredCapabilities ?? []).filter((name) => !values[name]);
+    if (!source.enabled)
+      return {
+        id: source.id,
+        label: source.label,
+        group: source.group,
+        authority: source.authority,
+        state: "disabled",
+        detail: "disabled by configuration",
+        lastSuccess: null,
+        checkedAt: null,
+      } satisfies SourceHealth;
+    if (missing.length)
+      return {
+        id: source.id,
+        label: source.label,
+        group: source.group,
+        authority: source.authority,
+        state: "missing",
+        detail: `missing ${missing.join(", ")}`,
+        lastSuccess: null,
+        checkedAt: null,
+      } satisfies SourceHealth;
+
     const row = db
       .query<
         {
@@ -37,15 +65,16 @@ export function sourceHealth(db: Database, config: AppConfig, now = Date.now()):
         },
         [string]
       >("SELECT last_success,last_error,checked_at,retry_at FROM sources WHERE id=?")
-      .get(job.id);
-    const group = job.group;
-    const restriction = job.restrictedReason;
+      .get(source.id);
+    const group = source.group;
+    const restriction = source.restrictedReason;
 
     if (!row?.checked_at)
       return {
-        id: job.id,
-        label: job.label,
+        id: source.id,
+        label: source.label,
         group,
+        authority: source.authority,
         state: "idle",
         detail: "no observation yet",
         lastSuccess: row?.last_success ?? null,
@@ -53,31 +82,68 @@ export function sourceHealth(db: Database, config: AppConfig, now = Date.now()):
       };
     const base = { lastSuccess: row.last_success, checkedAt: row.checked_at };
     if (row.last_error) {
-      if (restriction) return { id: job.id, label: job.label, group, state: "blocked", detail: restriction, ...base };
+      if (row.last_error.startsWith(COLLECTION_DEGRADED_PREFIX))
+        return {
+          id: source.id,
+          label: source.label,
+          group,
+          authority: source.authority,
+          state: "degraded",
+          detail: row.last_error,
+          ...base,
+        };
+      if (restriction)
+        return {
+          id: source.id,
+          label: source.label,
+          group,
+          authority: source.authority,
+          state: "blocked",
+          detail: restriction,
+          ...base,
+        };
       if (/bot protection|captcha|challenge/i.test(row.last_error))
         return {
-          id: job.id,
-          label: job.label,
+          id: source.id,
+          label: source.label,
           group,
+          authority: source.authority,
           state: "blocked",
           detail: "upstream bot protection — waiting for a readable status response",
           ...base,
         };
       if (/HTTP 429$/.test(row.last_error))
         return {
-          id: job.id,
-          label: job.label,
+          id: source.id,
+          label: source.label,
           group,
+          authority: source.authority,
           state: "blocked",
           detail: row.retry_at ? `rate limited — waiting until ${row.retry_at}` : "rate limited — backing off",
           ...base,
         };
-      return { id: job.id, label: job.label, group, state: "failing", detail: row.last_error, ...base };
+      return {
+        id: source.id,
+        label: source.label,
+        group,
+        authority: source.authority,
+        state: "failing",
+        detail: row.last_error,
+        ...base,
+      };
     }
     const since = row.last_success ? now - Date.parse(row.last_success) : Number.POSITIVE_INFINITY;
-    if (since > job.interval * 3000)
-      return { id: job.id, label: job.label, group, state: "stale", detail: "no fresh observation", ...base };
-    return { id: job.id, label: job.label, group, state: "ok", detail: "", ...base };
+    if (since > source.intervalSeconds * 3000)
+      return {
+        id: source.id,
+        label: source.label,
+        group,
+        authority: source.authority,
+        state: "stale",
+        detail: "no fresh observation",
+        ...base,
+      };
+    return { id: source.id, label: source.label, group, authority: source.authority, state: "ok", detail: "", ...base };
   });
 }
 
@@ -85,8 +151,11 @@ const DOTS: Record<SourceState, string> = {
   ok: "🟢",
   stale: "🟡",
   failing: "🔴",
+  degraded: "🟡",
   blocked: "🔵",
   idle: "⚪",
+  missing: "🟣",
+  disabled: "⚫",
 };
 
 const COLORS = { ok: 0x2ecc71, degraded: 0xf1c40f, down: 0xe74c3c };
@@ -131,26 +200,37 @@ export function statusEmbed(
   delivery?: DeliverySummary,
   capabilities?: CapabilityReportEntry[],
 ): Record<string, unknown> {
-  const failing = health.filter((entry) => entry.state === "failing" || entry.state === "stale");
+  const failing = health.filter(
+    (entry) => entry.state === "failing" || entry.state === "stale" || entry.state === "degraded",
+  );
   const blocked = health.filter((entry) => entry.state === "blocked");
+  const unavailable = health.filter((entry) => entry.state === "missing" || entry.state === "disabled");
   const headline =
     failing.length === 0
-      ? `${DOTS.ok} All collectors reporting`
+      ? `${DOTS.ok} ${health.length - unavailable.length} active collectors reporting`
       : `${DOTS.failing} ${failing.length} of ${health.length} collectors need attention`;
 
   const groups = [...new Set(health.map((entry) => entry.group))];
-  const fields = groups.map((group) => ({
-    name: group,
-    value: health
+  const fields: { name: string; value: string; inline: boolean }[] = [];
+  for (const group of groups) {
+    const rows = health
       .filter((entry) => entry.group === group)
       .map((entry) => {
-        const last = entry.lastSuccess ? ` · last success ${utcStamp(entry.lastSuccess)}` : "";
-        return `${DOTS[entry.state]} ${entry.label}${entry.detail ? ` — ${entry.detail}` : ""}${last}`;
-      })
-      .join("\n")
-      .slice(0, 1024),
-    inline: false,
-  }));
+        const last = entry.lastSuccess ? ` · ${utcStamp(entry.lastSuccess)}` : "";
+        return `${DOTS[entry.state]} ${entry.label} · ${entry.authority.replace("_", "-")}${entry.detail ? ` — ${entry.detail}` : ""}${last}`;
+      });
+    let page = 1;
+    let value = "";
+    for (const row of rows) {
+      const next = value ? `${value}\n${row}` : row;
+      if (value && next.length > 1024) {
+        fields.push({ name: page === 1 ? group : `${group} (${page})`, value, inline: false });
+        page += 1;
+        value = row;
+      } else value = next;
+    }
+    if (value) fields.push({ name: page === 1 ? group : `${group} (${page})`, value, inline: false });
+  }
 
   if (delivery)
     fields.push({
@@ -164,11 +244,11 @@ export function statusEmbed(
       ].join(" · "),
       inline: false,
     });
-  const unavailable = capabilities?.filter((entry) => entry.status !== "ready") ?? [];
-  if (unavailable.length)
+  const unavailableIntegrations = capabilities?.filter((entry) => entry.status !== "ready") ?? [];
+  if (unavailableIntegrations.length)
     fields.push({
       name: "Integrations",
-      value: unavailable
+      value: unavailableIntegrations
         .map((entry) => `${entry.status} · ${entry.id}`)
         .join("\n")
         .slice(0, 1024),
@@ -177,7 +257,7 @@ export function statusEmbed(
 
   return {
     title: "Tracker status",
-    description: `${headline}${blocked.length ? `\n${DOTS.blocked} ${blocked.length} waiting on upstream` : ""}`,
+    description: `${headline}${blocked.length ? `\n${DOTS.blocked} ${blocked.length} waiting on upstream` : ""}${unavailable.length ? `\n${DOTS.missing} ${unavailable.length} unavailable by configuration` : ""}`,
     color:
       failing.length === 0 ? COLORS.ok : failing.some((e) => e.state === "failing") ? COLORS.down : COLORS.degraded,
     fields,

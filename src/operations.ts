@@ -21,6 +21,7 @@ export function operations(db: Database, config: AppConfig) {
             label: job.label,
             group: job.group,
             stream: job.stream,
+            authority: job.authority,
             intervalSeconds: job.interval,
             requiredCapabilities: job.requiredCapabilities ?? [],
             ...(db
@@ -54,7 +55,7 @@ export function operations(db: Database, config: AppConfig) {
       handler: (input: { limit: number }) =>
         db
           .query(
-            "SELECT id,source,stream,entity_id,kind,confidence,evidence_type,detected_at FROM events ORDER BY id DESC LIMIT ?",
+            "SELECT id,source,stream,entity_id,kind,confidence,evidence_type,authority,detected_at FROM events ORDER BY id DESC LIMIT ?",
           )
           .all(input.limit),
     },

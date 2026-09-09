@@ -16,6 +16,24 @@ test("source registry has unique IDs, valid streams, labels and consistent pacin
   expect(new Set(definitions.map((definition) => definition.id)).size).toBe(definitions.length);
   expect(definitions.every((definition) => definition.label.trim().length > 0)).toBe(true);
   expect(definitions.every((definition) => streamSchema.safeParse(definition.stream).success)).toBe(true);
+  expect(
+    definitions.every((definition) => ["first_party", "vendor_owned", "third_party"].includes(definition.authority)),
+  ).toBe(true);
+  expect(definitions.find((definition) => definition.id === "openai")?.authority).toBe("first_party");
+  expect(definitions.find((definition) => definition.id === "openrouter")?.authority).toBe("third_party");
+  for (const id of [
+    "openai-chatgpt-release-notes",
+    "gemini-api-changelog",
+    "xai-release-notes",
+    "mistral-release-notes",
+    "groq-changelog",
+  ]) {
+    expect(definitions.find((definition) => definition.id === id)).toMatchObject({
+      authority: "first_party",
+      stream: "news",
+      enabled: true,
+    });
+  }
 
   const paceGroups = new Map<string, number>();
   for (const definition of definitions) {
@@ -63,6 +81,7 @@ test("registry rejects duplicate IDs and conflicting pacing", () => {
     label: "Source",
     group: "Group",
     stream: "news" as const,
+    authority: "third_party" as const,
     intervalSeconds: 60,
     collector: async () => ({
       source: "source",
@@ -85,5 +104,7 @@ test("registry rejects duplicate IDs and conflicting pacing", () => {
 test("source labels cover generated families", () => {
   expect(sourceLabel("huggingface:openai")).toBe("Hugging Face · openai");
   expect(sourceLabel("github:openai/codex:releases")).toBe("GitHub · openai/codex · releases");
+  expect(sourceLabel("deepseek-updates")).toBe("DeepSeek · updates");
+  expect(sourceLabel("openai-chatgpt-release-notes")).toBe("OpenAI · ChatGPT release notes");
   expect(sourceLabel("unknown-source")).toBe("unknown-source");
 });

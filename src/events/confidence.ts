@@ -1,4 +1,4 @@
-import type { Confidence, Event, EvidenceType } from "./types.js";
+import type { Confidence, Event, EvidenceType, SourceAuthority } from "./types.js";
 
 export const CONFIDENCE_LEVELS: readonly Confidence[] = ["observed", "supported", "confirmed", "shipped"];
 
@@ -16,6 +16,8 @@ export const EVIDENCE_TYPES: readonly EvidenceType[] = [
   "deprecation",
   "unknown",
 ];
+
+export const SOURCE_AUTHORITIES: readonly SourceAuthority[] = ["first_party", "vendor_owned", "third_party"];
 
 const evidenceLabels: Record<EvidenceType, string> = {
   api_catalogue: "API catalogue",
@@ -66,6 +68,71 @@ export function evidenceTypeFor(source: string, stream: string): EvidenceType {
   if (stream === "incidents") return "status_page";
   if (stream === "deprecations") return "deprecation";
   return "unknown";
+}
+
+/** Ownership of the source surface, kept separate from its health and evidence confidence. */
+export function authorityForSource(source: string): SourceAuthority {
+  if (
+    [
+      "openai",
+      "anthropic",
+      "gemini",
+      "openai-news",
+      "openai-chatgpt-release-notes",
+      "anthropic-news",
+      "gemini-api-changelog",
+      "xai-release-notes",
+      "mistral-release-notes",
+      "groq-changelog",
+      "deepseek-updates",
+      "deepseek-pricing",
+      "claude-code-changelog",
+      "anthropic-sdk-releases",
+      "google-deepmind-feed",
+      "nvidia-ai-feed",
+      "codex-docs",
+      "claude-web",
+      "cursor-changelog",
+      "openai-deprecations",
+      "anthropic-deprecations",
+      "gemini-deprecations",
+      "vertex-deprecations",
+      "aws-bedrock-lifecycle",
+      "azure-foundry-lifecycle",
+      "groq-deprecations",
+      "cohere-deprecations",
+      "xai-deprecations",
+    ].includes(source) ||
+    source.startsWith("status:") ||
+    source.startsWith("deepseek:")
+  )
+    return "first_party";
+  if (
+    source.startsWith("huggingface:") ||
+    source === "huggingface-blog-feed" ||
+    source.startsWith("modelscope:") ||
+    source.startsWith("npm:") ||
+    source.startsWith("pypi:")
+  )
+    return "vendor_owned";
+  return "third_party";
+}
+
+/** Broad source families are used for independence counts; multiple URLs in one family count once. */
+export function sourceFamily(source: string, stream: string): string {
+  if (source.startsWith("github:")) return "github";
+  if (source.startsWith("huggingface:")) return "huggingface";
+  if (source.startsWith("modelscope:")) return "modelscope";
+  if (source.startsWith("designarena:")) return "designarena";
+  if (source.startsWith("npm:")) return "npm";
+  if (source.startsWith("pypi:")) return "pypi";
+  if (source.startsWith("status:")) return "status";
+  if (source === "arena" || source === "arena-leaderboards") return "arena";
+  if (source === "openrouter") return "openrouter";
+  if (stream === "api-models") return "provider-api";
+  if (stream === "news") return "official-news";
+  if (stream === "deprecations") return "deprecations";
+  return stream;
 }
 
 export function evidenceLabel(type: EvidenceType): string {

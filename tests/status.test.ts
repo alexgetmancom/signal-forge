@@ -76,6 +76,21 @@ test("a source that missed three of its own intervals is stale, not failing", ()
   db.close();
 });
 
+test("a suspicious collection shrink is visible as degraded", () => {
+  const db = openDatabase(":memory:");
+  db.query("INSERT INTO sources(id,last_error,last_success,checked_at) VALUES('openrouter',?,?,?)").run(
+    "Collection degraded: openrouter retained 4 of 10 records",
+    "2026-09-08T11:00:00.000Z",
+    "2026-09-08T12:00:00.000Z",
+  );
+  const health = sourceHealth(db, withStatus, Date.parse("2026-09-08T12:00:00.000Z"));
+  expect(health.find((entry) => entry.id === "openrouter")).toMatchObject({
+    state: "degraded",
+    lastSuccess: "2026-09-08T11:00:00.000Z",
+  });
+  db.close();
+});
+
 test("the board posts once and edits afterwards", async () => {
   const db = openDatabase(":memory:");
   seed(db, "openrouter", { last_success: new Date(now - 1000).toISOString(), checked_at: new Date(now).toISOString() });
@@ -134,7 +149,33 @@ test("tracker status includes observation freshness, delivery state and unavaila
   const fields = embed.fields as { name: string; value: string }[];
   expect(fields.find((field) => field.name === "Delivery")?.value).toContain("pending 2");
   expect(fields.find((field) => field.name === "Integrations")?.value).toContain("disabled · gemini");
-  expect(fields.find((field) => field.name === "Catalogues")?.value).toContain("last success 2026-09-08 12:00 UTC");
+  expect(fields.find((field) => field.name === "Catalogues")?.value).toContain("2026-09-08 12:00 UTC");
+  db.close();
+});
+
+test("tracker status lists every registered source, including disabled and missing sources", () => {
+  const db = openDatabase(":memory:");
+  const config = {
+    ...withStatus,
+    sourceEnabled: { ...withStatus.sourceEnabled, openai: false },
+  };
+  const health = sourceHealth(db, config, now);
+  expect(health.find((entry) => entry.id === "openai")).toMatchObject({
+    state: "disabled",
+    detail: "disabled by configuration",
+  });
+  expect(health.find((entry) => entry.id === "anthropic")).toMatchObject({
+    state: "missing",
+    detail: "missing ANTHROPIC_API_KEY",
+  });
+
+  const fields = statusEmbed(health, now).fields as { name: string; value: string }[];
+  const sourceText = fields
+    .filter((field) => field.name !== "Delivery" && field.name !== "Integrations")
+    .map((field) => field.value)
+    .join("\n");
+  for (const entry of health) expect(sourceText).toContain(entry.label);
+  expect(fields.some((field) => field.name === "Open weights (2)")).toBe(true);
   db.close();
 });
 
