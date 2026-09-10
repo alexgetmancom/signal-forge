@@ -10,21 +10,23 @@ import { fetchText } from "./http.js";
  * These collectors watch those two places.
  */
 
-const hfModels = z.array(
-  z.object({
-    id: z.string().min(1),
-    author: z.string().nullish(),
-    createdAt: z.string().min(1),
-    pipeline_tag: z.string().nullish(),
-    library_name: z.string().nullish(),
-    tags: z.array(z.string()).default([]),
-    lastModified: z.string().nullish(),
-    likes: z.number().int().nonnegative().nullish(),
-    downloads: z.number().int().nonnegative().nullish(),
-    private: z.boolean().default(false),
-    gated: z.union([z.boolean(), z.string()]).nullish(),
-  }),
-);
+const hfModels = z
+  .array(
+    z.object({
+      id: z.string().min(1),
+      author: z.string().nullish(),
+      createdAt: z.string().min(1),
+      pipeline_tag: z.string().nullish(),
+      library_name: z.string().nullish(),
+      tags: z.array(z.string()).default([]),
+      lastModified: z.string().nullish(),
+      likes: z.number().int().nonnegative().nullish(),
+      downloads: z.number().int().nonnegative().nullish(),
+      private: z.boolean().default(false),
+      gated: z.union([z.boolean(), z.string()]).nullish(),
+    }),
+  )
+  .min(1);
 
 /** The organisations worth watching; a global feed of every new repository is not a signal. */
 export const HF_AUTHORS = [
@@ -44,6 +46,8 @@ export const HF_AUTHORS = [
 
 export function parseHuggingFace(payload: string, author: string): Collection {
   const models = hfModels.parse(JSON.parse(payload));
+  if (models.every((model) => model.private))
+    throw new Error(`Hugging Face catalogue for ${author} has no public models`);
   return {
     source: `huggingface:${author}`,
     stream: "weights",
@@ -167,17 +171,19 @@ export async function collectPypi(name: string, request: Fetch = fetch, cache?: 
 }
 
 const gatewayModels = z.object({
-  data: z.array(
-    z.object({
-      id: z.string().min(1),
-      name: z.string().nullish(),
-      owned_by: z.string().nullish(),
-      description: z.string().nullish(),
-      context_window: z.number().nullish(),
-      max_tokens: z.number().nullish(),
-      pricing: z.record(z.string(), z.unknown()).nullish(),
-    }),
-  ),
+  data: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        name: z.string().nullish(),
+        owned_by: z.string().nullish(),
+        description: z.string().nullish(),
+        context_window: z.number().nullish(),
+        max_tokens: z.number().nullish(),
+        pricing: z.record(z.string(), z.unknown()).nullish(),
+      }),
+    )
+    .min(1),
 });
 
 export function parseVercelGateway(payload: string): Collection {

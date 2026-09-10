@@ -24,6 +24,10 @@ export function createHttpApp(config: AppConfig, db: Database): Hono {
     db.query("SELECT 1").get();
     return c.text("ready\n");
   });
+  app.use("/reports/*", async (c, next) => {
+    if (!config.MCP_TOKEN || !bearerTokenAccepted(c.req.raw, config.MCP_TOKEN)) return c.text("unauthorized\n", 401);
+    return next();
+  });
   app.get("/reports/:id", (c) => {
     const id = z.coerce.number().int().positive().safeParse(c.req.param("id"));
     if (!id.success) return c.text("Invalid report ID\n", 400);

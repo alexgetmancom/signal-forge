@@ -118,12 +118,12 @@ test("early observations become a hypothesis, facts and lead-time evidence witho
     evidenceType: "api_catalogue",
     observedAt: "2026-09-10T11:31:00Z",
   });
-  expect(facts?.facts.availableOnOpenRouter).toMatchObject({
+  expect(facts?.facts["availableOnOpenRouter:openrouter"]).toMatchObject({
     value: true,
     source: "openrouter",
     eventId: openRouterEvent,
   });
-  expect(facts?.facts.availableInProviderApi).toMatchObject({
+  expect(facts?.facts["availableInProviderApi:openai"]).toMatchObject({
     value: true,
     source: "openai",
     eventId: providerApiEvent,
@@ -138,7 +138,7 @@ test("early observations become a hypothesis, facts and lead-time evidence witho
   expect(db.query("SELECT COUNT(*) AS count FROM batches WHERE source='discovery:github-ai'").get()).toEqual({
     count: 0,
   });
-  expect(db.query("SELECT COUNT(*) AS count FROM deliveries").get()).toEqual({ count: 2 });
+  expect(db.query("SELECT COUNT(*) AS count FROM deliveries").get()).toEqual({ count: 1 });
 
   const quality = signalQuality(db, config, 7, Date.parse("2026-09-10T13:00:00Z"));
   expect(quality.sources.find((source) => source.id === "arena")).toMatchObject({

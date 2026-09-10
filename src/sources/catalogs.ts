@@ -85,7 +85,10 @@ export async function collectAnthropic(config: AppConfig, request: Fetch = fetch
     const data = anthropicSchema.parse(body);
     raw.push(body);
     records.push(...data.data.map((m) => ({ id: m.id, name: m.display_name, created: m.created_at })));
-    if (!data.has_more) return { source: "anthropic", stream: "api-models", url, raw, records };
+    if (!data.has_more) {
+      if (!records.length) throw new Error("Anthropic catalogue has no models");
+      return { source: "anthropic", stream: "api-models", url, raw, records };
+    }
     if (!data.last_id || data.last_id === cursor) throw new Error("Anthropic pagination did not advance");
     cursor = data.last_id;
   }
@@ -128,7 +131,10 @@ export async function collectGemini(config: AppConfig, request: Fetch = fetch): 
         methods: [...m.supportedGenerationMethods].sort(),
       })),
     );
-    if (!data.nextPageToken) return { source: "gemini", stream: "api-models", url, raw, records };
+    if (!data.nextPageToken) {
+      if (!records.length) throw new Error("Gemini catalogue has no models");
+      return { source: "gemini", stream: "api-models", url, raw, records };
+    }
     if (data.nextPageToken === cursor) throw new Error("Gemini pagination did not advance");
     cursor = data.nextPageToken;
   }

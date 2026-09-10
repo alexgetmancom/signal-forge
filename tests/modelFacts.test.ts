@@ -133,10 +133,38 @@ test("provider API availability comes only from first-party catalogues", () => {
   expect(getModelFacts(db, "openai/gpt-6")?.facts.availableInProviderApi).toBeUndefined();
 
   introduce(db, "openai", "api-models", [model()], "2026-09-10T01:00:00Z");
-  expect(getModelFacts(db, "openai/gpt-6")?.facts.availableInProviderApi).toMatchObject({
+  expect(getModelFacts(db, "openai/gpt-6")?.facts["availableInProviderApi:openai"]).toMatchObject({
     value: true,
     source: "openai",
   });
+  db.close();
+});
+
+test("baseline records create facts without inventing an event", () => {
+  const db = openDatabase(":memory:");
+  observe(
+    db,
+    "openrouter",
+    "openrouter",
+    [model({ pricing: { prompt: "0.000001" }, access: "public" })],
+    "2026-09-10T00:00:00Z",
+  );
+  const facts = getModelFacts(db, "openai/gpt-6")?.facts;
+  expect(facts?.displayName).toMatchObject({ value: "GPT-6", eventId: null, source: "openrouter" });
+  expect(facts?.["pricing:openrouter"]).toMatchObject({ value: { prompt: "0.000001" }, eventId: null });
+  expect(facts?.["access:openrouter"]).toMatchObject({ value: "public", eventId: null });
+  expect(db.query("SELECT COUNT(*) AS count FROM events").get()).toEqual({ count: 0 });
+  db.close();
+});
+
+test("a field removed from the current catalogue does not retain stale history", () => {
+  const db = openDatabase(":memory:");
+  const first = { ...model({ context: 128000 }), id: "openai/gpt-6" };
+  const second = { ...model(), id: "openai/gpt-6" };
+  observe(db, "openrouter", "openrouter", [first], "2026-09-10T00:00:00Z", { appendOnly: false });
+  observe(db, "openrouter", "openrouter", [second], "2026-09-10T01:00:00Z", { appendOnly: false });
+  expect(getModelFacts(db, "openai/gpt-6")?.facts.contextWindow).toBeUndefined();
+  expect(getModelFacts(db, "openai/gpt-6")?.facts.displayName).toMatchObject({ value: "GPT-6", eventId: 1 });
   db.close();
 });
 
@@ -192,7 +220,7 @@ test("removing a model from OpenRouter sets availability false", () => {
   saveCollection(db, collection([model(), { id: "keep", name: "Keep" }]), [], "2026-09-10T00:00:00Z");
   saveCollection(db, collection([{ id: "keep", name: "Keep" }]), [], "2026-09-10T01:00:00Z");
   saveCollection(db, collection([{ id: "keep", name: "Keep" }]), [], "2026-09-10T02:00:00Z");
-  expect(getModelFacts(db, "openai/gpt-6")?.facts.availableOnOpenRouter).toMatchObject({
+  expect(getModelFacts(db, "openai/gpt-6")?.facts["availableOnOpenRouter:openrouter"]).toMatchObject({
     value: false,
     eventId: 1,
     source: "openrouter",

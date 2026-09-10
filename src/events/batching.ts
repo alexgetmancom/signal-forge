@@ -23,28 +23,28 @@ function repeatsDeliveredStory(
   event: Event,
   destinationId: string,
   storyId: number | undefined,
+  batchId: number,
 ): boolean {
   if (storyId === undefined || event.kind !== "new") return false;
   const candidates = db
     .query<{ source: string; stream: string; detected_at: string; confidence: string }, [number, number, string]>(
       `SELECT DISTINCT earlier.source,earlier.stream,earlier.detected_at,earlier.confidence
        FROM story_events se
-       JOIN story_events previous ON previous.story_id=se.story_id AND previous.event_id<?
+       JOIN story_events previous ON previous.story_id=se.story_id AND previous.event_id<>se.event_id
        JOIN events earlier ON earlier.id=previous.event_id
        JOIN batch_events be ON be.event_id=earlier.id
        JOIN deliveries d ON d.batch_id=be.batch_id
-       WHERE se.event_id=? AND d.destination_id=?
-         AND d.status IN ('pending','sending','sent','ambiguous')`,
+       WHERE se.event_id=? AND be.batch_id<>? AND d.destination_id=?
+         AND d.status IN ('pending','sending','sent','ambiguous','verification_required')`,
     )
-    .all(event.id, event.id, destinationId);
+    .all(event.id, batchId, destinationId);
   const detectedAt = Date.parse(event.detected_at);
   return candidates.some((candidate) => {
     const earlierAt = Date.parse(candidate.detected_at);
     return (
       Number.isFinite(earlierAt) &&
       Number.isFinite(detectedAt) &&
-      detectedAt - earlierAt >= 0 &&
-      detectedAt - earlierAt <= DUPLICATE_STORY_WINDOW_MS &&
+      Math.abs(detectedAt - earlierAt) <= DUPLICATE_STORY_WINDOW_MS &&
       sourceFamily(candidate.source, candidate.stream) !== sourceFamily(event.source, event.stream) &&
       CONFIDENCE_LEVELS.indexOf(candidate.confidence as NonNullable<Event["confidence"]>) >=
         CONFIDENCE_LEVELS.indexOf(event.confidence ?? "observed")
@@ -52,8 +52,13 @@ function repeatsDeliveredStory(
   });
 }
 
-/** Turns sealed observation batches into transport payloads without changing event evidence. */
-export function prepareDeliveries(db: Database, now = Date.now(), vendorRoles: Record<string, string> = {}): void {
+/** Builds transport payloads without changing immutable event evidence. */
+export function prepareDeliveries(
+  db: Database,
+  now = Date.now(),
+  vendorRoles: Record<string, string> = {},
+  seal = true,
+): void {
   const batches = db
     .query<
       { id: number; digest: number; source: string; kind: "event" | "lifecycle_reminder"; context_json: string | null },
@@ -61,6 +66,7 @@ export function prepareDeliveries(db: Database, now = Date.now(), vendorRoles: R
     >("SELECT id,digest,source,kind,context_json FROM batches WHERE sealed=0 AND ready_at<=? ORDER BY id")
     .all(now);
   for (const batch of batches) {
+    let hasSpeakingEvents = false;
     const events = db
       .query<Event & { url: string }, [number]>(
         "SELECT e.*,COALESCE(NULLIF(json_extract(e.after_json,'$.url'),''),NULLIF(json_extract(e.before_json,'$.url'),''),b.url) AS url FROM batch_events b JOIN events e ON e.id=b.event_id WHERE b.batch_id=? ORDER BY e.id",
@@ -88,7 +94,9 @@ export function prepareDeliveries(db: Database, now = Date.now(), vendorRoles: R
         const destination = JSON.parse(target.destination_json) as Destination;
         if (destination.platform === "discord") {
           db.query(
-            "INSERT INTO deliveries(batch_id,destination_id,destination_json,body,part,updated_at) VALUES(?,?,?,?,?,?)",
+            `INSERT INTO deliveries(batch_id,destination_id,destination_json,body,part,updated_at) VALUES(?,?,?,?,?,?)
+             ON CONFLICT(batch_id,destination_id,part) DO UPDATE SET destination_json=excluded.destination_json,body=excluded.body,updated_at=excluded.updated_at
+             WHERE deliveries.status='pending' AND deliveries.attempts=0`,
           ).run(
             batch.id,
             target.destination_id,
@@ -100,7 +108,9 @@ export function prepareDeliveries(db: Database, now = Date.now(), vendorRoles: R
         } else {
           splitMessage(renderLifecycleReminderText(context, event), 3900).forEach((body, part) => {
             db.query(
-              "INSERT INTO deliveries(batch_id,destination_id,destination_json,body,part,updated_at) VALUES(?,?,?,?,?,?)",
+              `INSERT INTO deliveries(batch_id,destination_id,destination_json,body,part,updated_at) VALUES(?,?,?,?,?,?)
+               ON CONFLICT(batch_id,destination_id,part) DO UPDATE SET destination_json=excluded.destination_json,body=excluded.body,updated_at=excluded.updated_at
+               WHERE deliveries.status='pending' AND deliveries.attempts=0`,
             ).run(batch.id, target.destination_id, target.destination_json, body, part, now);
           });
         }
@@ -123,9 +133,15 @@ export function prepareDeliveries(db: Database, now = Date.now(), vendorRoles: R
         (event) =>
           subscribedStreams.has(event.stream) &&
           hasNotificationContent(event, event.url) &&
-          !repeatsDeliveredStory(db, event, target.destination_id, storyIds.get(event.id)),
+          !repeatsDeliveredStory(db, event, target.destination_id, storyIds.get(event.id), batch.id),
       );
-      if (!speaking.length) continue;
+      if (!speaking.length) {
+        db.query(
+          "DELETE FROM deliveries WHERE batch_id=? AND destination_id=? AND status='pending' AND attempts=0",
+        ).run(batch.id, target.destination_id);
+        continue;
+      }
+      hasSpeakingEvents = true;
       const grouped = new Map<string, StoryRenderEvent[]>();
       for (const event of speaking) {
         const key = storyIds.has(event.id) ? `story:${storyIds.get(event.id)}` : `event:${event.id}`;
@@ -156,7 +172,9 @@ export function prepareDeliveries(db: Database, now = Date.now(), vendorRoles: R
       const store = (payload: string, part: number) =>
         db
           .query(
-            "INSERT INTO deliveries(batch_id,destination_id,destination_json,body,part,updated_at) VALUES(?,?,?,?,?,?)",
+            `INSERT INTO deliveries(batch_id,destination_id,destination_json,body,part,updated_at) VALUES(?,?,?,?,?,?)
+             ON CONFLICT(batch_id,destination_id,part) DO UPDATE SET destination_json=excluded.destination_json,body=excluded.body,updated_at=excluded.updated_at
+             WHERE deliveries.status='pending' AND deliveries.attempts=0`,
           )
           .run(batch.id, target.destination_id, target.destination_json, payload, part, now);
 
@@ -201,12 +219,19 @@ export function prepareDeliveries(db: Database, now = Date.now(), vendorRoles: R
             index,
           );
         }
+        db.query(
+          "DELETE FROM deliveries WHERE batch_id=? AND destination_id=? AND status='pending' AND attempts=0 AND part>=?",
+        ).run(batch.id, target.destination_id, Math.ceil(embeds.length / 10));
         continue;
       }
-      splitMessage(text, 3900 - header.length).forEach((body, part) => {
+      const parts = splitMessage(text, 3900 - header.length);
+      parts.forEach((body, part) => {
         store(header + body, part);
       });
+      db.query(
+        "DELETE FROM deliveries WHERE batch_id=? AND destination_id=? AND status='pending' AND attempts=0 AND part>=?",
+      ).run(batch.id, target.destination_id, parts.length);
     }
-    db.query("UPDATE batches SET sealed=1 WHERE id=?").run(batch.id);
+    if (seal || !hasSpeakingEvents) db.query("UPDATE batches SET sealed=1 WHERE id=?").run(batch.id);
   }
 }

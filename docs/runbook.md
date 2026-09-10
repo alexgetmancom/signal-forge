@@ -54,10 +54,10 @@ by default. Promote a source by editing the operator-owned JSON configuration:
 Do not edit configuration through the CLI. Verify the resulting source mode in `status` before
 enabling a discovery source for subscribers.
 
-The intelligence projections are derived from immutable evidence: Model Facts retain event
-provenance, hypotheses are interpretations rather than evidence, and lifecycle reminders are
-derived delivery work rather than synthetic events. Attention scores are triage values and never
-change confidence, which remains source-derived.
+The intelligence projections are derived from immutable evidence: Model Facts retain event or
+current-observation provenance, hypotheses are interpretations rather than evidence, and lifecycle
+reminders are derived delivery work rather than synthetic events. Attention scores are triage
+values and never change confidence, which remains source-derived.
 
 ## Backups
 

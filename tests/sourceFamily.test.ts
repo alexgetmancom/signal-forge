@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { sourceFamily } from "../src/events/sourceFamily.js";
+import { sourceFamily, sourceIndependenceFamily } from "../src/events/sourceFamily.js";
 
 test("source families collapse discovery queries but preserve independent surfaces", () => {
   expect(sourceFamily("discovery:github-ai", "github")).toBe("discovery:github");
@@ -15,4 +15,12 @@ test("source families collapse discovery queries but preserve independent surfac
   expect(sourceFamily("anthropic-deprecations", "deprecations")).toBe("deprecations:anthropic-deprecations");
   expect(sourceFamily("status:openai", "incidents")).toBe("status:openai");
   expect(sourceFamily("new-surface")).toBe("new-surface");
+});
+
+test("independent confirmation collapses official surfaces from one vendor", () => {
+  expect(sourceIndependenceFamily("openai", "api-models")).toBe("first-party:OpenAI");
+  expect(sourceIndependenceFamily("openai-news", "news")).toBe("first-party:OpenAI");
+  expect(sourceIndependenceFamily("status:openai", "incidents")).toBe("first-party:OpenAI");
+  expect(sourceIndependenceFamily("google-deepmind-feed", "news")).toBe("first-party:Google");
+  expect(sourceIndependenceFamily("openrouter", "openrouter")).toBe("openrouter");
 });

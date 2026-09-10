@@ -53,7 +53,8 @@ Signal Forge has a deterministic intelligence layer on top of immutable events:
 * Discovery sources calculate an attention score from recency, popularity and technical relevance.
   Attention is a triage measure, not confidence, and never changes source-derived confidence.
 * Model Facts is a reproducible projection of the best known structured fields for a canonical model.
-  Every fact retains its source, event ID, evidence type, confidence and observation time.
+  Every fact retains its source, optional event ID, evidence type, confidence and observation time;
+  source-scoped values such as pricing and availability keep their source in the field name.
 * Source-quality reports measure signal density, first-source wins, independent confirmation rate and
   median lead time. GitHub discovery queries share one source family, so four queries do not count as
   four independent confirmations.
@@ -271,7 +272,7 @@ Full event evidence remains in SQLite even when a message excerpt is truncated.
 
 ## HTTP / MCP API
 
-For HTTP/MCP access, set `MCP_TOKEN` to at least 32 random characters and use `Authorization: Bearer <token>` with `/api/status`, `/api/events`, `/api/events/:id`, `/api/models`, `/api/models/*`, `/api/hypotheses`, `/api/hypotheses/:id`, `/api/deadlines`, `/api/code-analytics`, `/api/deepseek-usage`, or `/api/mcp`.
+For HTTP/MCP access, set `MCP_TOKEN` to at least 32 random characters and use `Authorization: Bearer <token>` with `/reports/:id`, `/api/status`, `/api/events`, `/api/events/:id`, `/api/models`, `/api/models/*`, `/api/hypotheses`, `/api/hypotheses/:id`, `/api/deadlines`, `/api/code-analytics`, `/api/deepseek-usage`, or `/api/mcp`.
 
 MCP operations: `status`, `events`, `event`, `deliveries`, `issues`, `capabilities`, `deliveries_needing_verification`, `require_delivery_verification`, `resolve_delivery_verification`, `signal_quality`, `code_analytics`, `deepseek_usage`, `stories`, `models`, `model`, `hypotheses`, `hypothesis`, and `lifecycle_deadlines`.
 

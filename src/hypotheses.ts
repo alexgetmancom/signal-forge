@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { CONFIDENCE_LEVELS } from "./events/confidence.js";
-import { sourceFamily } from "./events/sourceFamily.js";
+import { sourceIndependenceFamily } from "./events/sourceFamily.js";
 import type { Confidence, Event, EvidenceType } from "./events/types.js";
 
 export type HypothesisStatus = "emerging" | "strengthening" | "confirmed" | "stale";
@@ -104,7 +104,7 @@ function hypothesisFor(
   const families = new Set<string>();
   let formed: TimelineEvent | null = null;
   for (const event of beforeConfirmation) {
-    families.add(sourceFamily(event.source, event.stream));
+    families.add(sourceIndependenceFamily(event.source, event.stream));
     if (families.size >= 2 && !formed) formed = event;
   }
   if (!formed || families.size < 2) return null;

@@ -18,3 +18,43 @@ export function sourceFamily(source: string, stream = ""): string {
   if (stream === "deprecations") return `deprecations:${source}`;
   return source;
 }
+
+const FIRST_PARTY_VENDOR_BY_SOURCE: Record<string, string> = {
+  openai: "OpenAI",
+  "openai-news": "OpenAI",
+  "openai-chatgpt-release-notes": "OpenAI",
+  "openai-deprecations": "OpenAI",
+  "status:openai": "OpenAI",
+  "codex-docs": "OpenAI",
+  anthropic: "Anthropic",
+  "anthropic-news": "Anthropic",
+  "anthropic-deprecations": "Anthropic",
+  "status:anthropic": "Anthropic",
+  "claude-code-changelog": "Anthropic",
+  "anthropic-sdk-releases": "Anthropic",
+  "claude-web": "Anthropic",
+  gemini: "Google",
+  "gemini-api-changelog": "Google",
+  "gemini-deprecations": "Google",
+  "vertex-deprecations": "Google",
+  "google-deepmind-feed": "Google",
+  "deepseek-pricing": "DeepSeek",
+  "deepseek-updates": "DeepSeek",
+  "deepseek-news": "DeepSeek",
+  "xai-release-notes": "xAI",
+  "xai-deprecations": "xAI",
+  "mistral-release-notes": "Mistral",
+  "groq-changelog": "Groq",
+  "groq-deprecations": "Groq",
+  "cohere-deprecations": "Cohere",
+  "aws-bedrock-lifecycle": "AWS",
+  "azure-foundry-lifecycle": "Microsoft",
+};
+
+/** Independent confirmation must not count two official surfaces from the same vendor twice. */
+export function sourceIndependenceFamily(source: string, stream = ""): string {
+  const vendor = FIRST_PARTY_VENDOR_BY_SOURCE[source];
+  return vendor && ["api-models", "news", "deprecations", "incidents", "web"].includes(stream)
+    ? `first-party:${vendor}`
+    : sourceFamily(source, stream);
+}

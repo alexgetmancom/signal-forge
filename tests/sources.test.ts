@@ -624,7 +624,14 @@ test("Hugging Face uses its account allowance when a token is configured", async
   const authorizations: (string | null)[] = [];
   const request = async (_url: string | URL | Request, init?: RequestInit) => {
     authorizations.push(new Headers(init?.headers).get("authorization"));
-    return Response.json([]);
+    return Response.json([
+      {
+        id: "openai/test-model",
+        author: "openai",
+        createdAt: "2026-09-10T00:00:00.000Z",
+        private: false,
+      },
+    ]);
   };
   await collectHuggingFace("openai", "test-token", request);
   expect(authorizations).toEqual(["Bearer test-token"]);

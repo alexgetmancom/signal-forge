@@ -11,14 +11,16 @@ import { fetchText } from "./http.js";
 const designArena = z.object({
   success: z.literal(true),
   category: z.string().min(1),
-  data: z.array(
-    z.object({
-      modelId: z.string().min(1),
-      elo: z.number().nullish(),
-      winRate: z.number().nullish(),
-      battles: z.number().nullish(),
-    }),
-  ),
+  data: z
+    .array(
+      z.object({
+        modelId: z.string().min(1),
+        elo: z.number().nullish(),
+        winRate: z.number().nullish(),
+        battles: z.number().nullish(),
+      }),
+    )
+    .min(1),
 });
 
 /** The categories the models arena actually serves; the site lists others that return 400. */

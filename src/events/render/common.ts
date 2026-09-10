@@ -87,17 +87,29 @@ export function webStringChanges(before: unknown, after: unknown) {
 export const MIN_PRICE_CHANGE_PER_MILLION = 1;
 export const MIN_PRICE_CHANGE_RATIO = 0.1;
 
-function pricePerMillion(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value) && value >= 0) return value;
-  if (typeof value !== "string" || !value.trim()) return null;
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed * 1_000_000 : null;
+type PriceUnit = "per-token" | "per-million";
+
+function priceUnitForSource(source?: string, value?: unknown): PriceUnit {
+  if (source === "deepseek-pricing") return "per-million";
+  // Keep the pure formatting helper useful for callers without source metadata; production
+  // event rendering always passes the source and therefore never infers units from a JS type.
+  if (!source) return typeof value === "number" ? "per-million" : "per-token";
+  return "per-token";
 }
 
-export function significantPriceChange(before: unknown, after: unknown): boolean {
+function pricePerMillion(value: unknown, unit: PriceUnit): number | null {
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0)
+    return unit === "per-million" ? value : value * 1_000_000;
+  if (typeof value !== "string" || !value.trim()) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? (unit === "per-million" ? parsed : parsed * 1_000_000) : null;
+}
+
+export function significantPriceChange(before: unknown, after: unknown, source?: string): boolean {
   if (before === null || before === undefined || after === null || after === undefined) return true;
-  const from = pricePerMillion(before);
-  const to = pricePerMillion(after);
+  const unit = priceUnitForSource(source, before);
+  const from = pricePerMillion(before, unit);
+  const to = pricePerMillion(after, unit);
   if (from === null || to === null) return true;
   const delta = Math.abs(from - to);
   const base = Math.max(Math.abs(from), Math.abs(to));
@@ -113,7 +125,7 @@ export function rankMove(before: unknown, after: unknown): string {
   return `Rank ${to} ${arrow} ${distance} (was ${from})`;
 }
 
-export function prices(before: unknown, after: unknown): string[] {
+export function prices(before: unknown, after: unknown, source?: string): string[] {
   const old = before && typeof before === "object" ? (before as Record<string, unknown>) : {};
   const next = after && typeof after === "object" ? (after as Record<string, unknown>) : {};
   const labels: Record<string, string> = {
@@ -129,7 +141,7 @@ export function prices(before: unknown, after: unknown): string[] {
     outputPeak: "Output peak",
   };
   const money = (value: unknown) => {
-    const perMillion = pricePerMillion(value);
+    const perMillion = pricePerMillion(value, priceUnitForSource(source, value));
     if (perMillion === null) return describe(value);
     const rounded = perMillion >= 1 ? perMillion.toFixed(2) : perMillion.toPrecision(2);
     return `$${Number(rounded)}`;
@@ -138,7 +150,7 @@ export function prices(before: unknown, after: unknown): string[] {
   for (const key of new Set([...Object.keys(old), ...Object.keys(next)])) {
     if (canonical(old[key]) === canonical(next[key])) continue;
     if (labels[key]) {
-      if (!significantPriceChange(old[key], next[key])) continue;
+      if (!significantPriceChange(old[key], next[key], source)) continue;
       const from = money(old[key]);
       const to = money(next[key]);
       if (before && from === to) continue;

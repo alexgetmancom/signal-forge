@@ -223,6 +223,15 @@ export async function publishStatus(
 
 export type BoardResult = "skipped" | "created" | "edited" | "unchanged";
 
+function boardNonce(key: string, comparable: string, previousMessageId: string | null): string {
+  let hash = 2_166_136_261;
+  for (const character of `${key}\u0000${comparable}`) {
+    hash ^= character.codePointAt(0) ?? 0;
+    hash = Math.imul(hash, 16_777_619) >>> 0;
+  }
+  return `sf-board-${key}-${hash.toString(36)}${previousMessageId ? `-${previousMessageId}` : ""}`;
+}
+
 /**
  * A board is one message that is edited in place, so the channel holds a state rather than a log.
  * The rendered payload is compared before sending: a board that has not changed is not an event,
@@ -260,7 +269,16 @@ async function publishBoard(
     Authorization: `Bot ${config.DISCORD_BOT_TOKEN}`,
   };
   const base = `https://discord.com/api/v10/channels/${channelId}/messages`;
-  const payload = JSON.stringify({ embeds: [embed], allowed_mentions: { parse: [] } });
+  const message = { embeds: [embed], allowed_mentions: { parse: [] } };
+  const payload = JSON.stringify(message);
+  // A timed-out create may already have reached Discord. Reusing the same nonce lets Discord
+  // return the existing message instead of creating a second board on the next cycle. A confirmed
+  // 404 includes the old message ID, so a hand-deleted board can still be recreated.
+  const createPayload = JSON.stringify({
+    ...message,
+    nonce: boardNonce(key, comparable, messageId?.value ?? null),
+    enforce_nonce: true,
+  });
 
   const remember = (id: string) => {
     db.query("INSERT INTO app_state(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(
@@ -295,7 +313,7 @@ async function publishBoard(
   const created = await request(base, {
     method: "POST",
     headers,
-    body: payload,
+    body: createPayload,
     signal: AbortSignal.timeout(DISCORD_TIMEOUT_MS),
     redirect: "error",
   });

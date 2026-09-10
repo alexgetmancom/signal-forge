@@ -112,6 +112,27 @@ test("the board posts once and edits afterwards", async () => {
   db.close();
 });
 
+test("a retried board create reuses its Discord nonce after an unknown outcome", async () => {
+  const db = openDatabase(":memory:");
+  seed(db, "openrouter", { last_success: new Date(now - 1000).toISOString(), checked_at: new Date(now).toISOString() });
+  const bodies: Record<string, unknown>[] = [];
+  let attempts = 0;
+  const request = async (_url: string, init?: RequestInit) => {
+    if (init?.method === "POST") {
+      attempts += 1;
+      bodies.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+      if (attempts === 1) throw new Error("network failed after send");
+      return Response.json({ id: "555" });
+    }
+    return Response.json({ id: "555" });
+  };
+  await expect(publishStatus(db, withStatus, request, now)).rejects.toThrow("network failed after send");
+  expect(await publishStatus(db, withStatus, request, now)).toBe("created");
+  expect(bodies[0]?.nonce).toBe(bodies[1]?.nonce);
+  expect(bodies[0]?.enforce_nonce).toBe(true);
+  db.close();
+});
+
 test("a board deleted by hand is posted again even though its content did not change", async () => {
   const db = openDatabase(":memory:");
   seed(db, "openrouter", { last_success: new Date(now - 1000).toISOString(), checked_at: new Date(now).toISOString() });

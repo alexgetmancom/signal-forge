@@ -18,6 +18,9 @@ export function saveCollection(
 ): number {
   let projection: StoryProjection | null = null;
   const count = db.transaction(() => {
+    const initialized = db
+      .query<{ last_success: string | null }, [string]>("SELECT last_success FROM sources WHERE id=?")
+      .get(collection.source)?.last_success;
     const previousEventId = Number(
       db.query<{ id: number | null }, []>("SELECT MAX(id) AS id FROM events").get()?.id ?? 0,
     );
@@ -27,11 +30,13 @@ export function saveCollection(
     );
     if (currentEventId > previousEventId) {
       projection = updateStories(db);
-      rebuildModelFacts(db);
       rebuildHypotheses(db, Date.parse(now));
       rebuildLifecycleDeadlines(db, Date.parse(now));
     }
-    prepareDeliveries(db, Date.parse(now), vendorRoles);
+    // Baseline observations have no event by design, but they still establish current Model Facts.
+    if (initialized === null || initialized === undefined || currentEventId > previousEventId) rebuildModelFacts(db);
+    // Leave event batches open until the delivery worker has filled any eligible summaries.
+    prepareDeliveries(db, Date.parse(now), vendorRoles, false);
     return count;
   })();
   if (projection) rememberStoryProjection(db, projection);

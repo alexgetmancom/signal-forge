@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import type { AppConfig, SourceMode } from "./config.js";
 import { CONFIDENCE_LEVELS } from "./events/confidence.js";
 import { hasNotificationContent } from "./events/notification.js";
-import { sourceFamily } from "./events/sourceFamily.js";
+import { sourceIndependenceFamily } from "./events/sourceFamily.js";
 import type { Event } from "./events/types.js";
 import { sourceJobs } from "./sources/registry.js";
 
@@ -228,13 +228,13 @@ export function signalQuality(db: Database, config: AppConfig, days = 7, now = D
     const first = events[0];
     if (!first) continue;
     firstSourceWins.set(first.source, (firstSourceWins.get(first.source) ?? 0) + 1);
-    const firstFamily = sourceFamily(first.source, first.stream);
+    const firstFamily = sourceIndependenceFamily(first.source, first.stream);
     const confirming = events
       .slice(1)
       .find(
         (event) =>
           CONFIDENCE_LEVELS.indexOf(event.confidence) >= CONFIDENCE_LEVELS.indexOf("confirmed") &&
-          sourceFamily(event.source, event.stream) !== firstFamily,
+          sourceIndependenceFamily(event.source, event.stream) !== firstFamily,
       );
     if (!confirming) continue;
     const firstAt = Date.parse(first.detected_at);
@@ -249,11 +249,9 @@ export function signalQuality(db: Database, config: AppConfig, days = 7, now = D
   const changedEvents = db
     .query<RenderableEvent, [string]>(
       `SELECT e.id,e.source,e.stream,e.entity_id,e.kind,e.before_json,e.after_json,e.detected_at,e.evidence_type,
-              COALESCE(NULLIF(json_extract(e.after_json,'$.url'),''),NULLIF(json_extract(e.before_json,'$.url'),''),MIN(be.url)) AS url
+              COALESCE(NULLIF(json_extract(e.after_json,'$.url'),''),NULLIF(json_extract(e.before_json,'$.url'),''),'') AS url
        FROM events e
-       JOIN batch_events be ON be.event_id=e.id
-       WHERE e.detected_at>=?
-       GROUP BY e.id`,
+       WHERE e.detected_at>=?`,
     )
     .all(since);
   for (const event of changedEvents) {

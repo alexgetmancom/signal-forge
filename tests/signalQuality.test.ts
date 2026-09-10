@@ -245,3 +245,27 @@ test("signal quality measures independent first signals, confirmed lead time and
   expect(discovery).toMatchObject({ mode: "shadow", eventsCreated: 1, signalDensity: 1 });
   db.close();
 });
+
+test("signal quality counts suppressed shadow events without delivery batches", () => {
+  const db = openDatabase(":memory:");
+  const make = (updated: string): Collection => ({
+    source: "discovery:github-ai",
+    stream: "github",
+    url: "https://github.com/search",
+    raw: [],
+    appendOnly: true,
+    trackChanges: true,
+    records: [{ id: "openai/repo", name: "openai/repo", owner: "openai", updated }],
+  });
+  saveCollection(db, make("2026-09-10T09:00:00Z"), [], "2026-09-10T09:00:00Z");
+  saveCollection(db, make("2026-09-10T10:00:00Z"), [], "2026-09-10T10:00:00Z");
+  const source = signalQuality(
+    db,
+    { ...config, GITHUB_TOKEN: "test-github-token" },
+    7,
+    Date.parse("2026-09-10T11:00:00Z"),
+  ).sources.find((entry) => entry.id === "discovery:github-ai");
+  expect(source).toMatchObject({ eventsCreated: 1, suppressedEvents: 1, immediateDeliveries: 0, digestDeliveries: 0 });
+  expect(db.query("SELECT COUNT(*) AS count FROM batch_events").get()).toEqual({ count: 0 });
+  db.close();
+});

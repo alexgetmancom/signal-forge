@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { canonical } from "./events/canonical.js";
-import { CONFIDENCE_LEVELS } from "./events/confidence.js";
+import { authorityForSource, CONFIDENCE_LEVELS, confidenceFor, evidenceTypeFor } from "./events/confidence.js";
 import { identityFor, type ModelIdentity, mergeIdentities, normalizeIdentity } from "./events/identity.js";
 import { vendorOf } from "./events/interpretation.js";
 import { sourceFamily } from "./events/sourceFamily.js";
@@ -13,7 +13,7 @@ export type ModelFact<T = unknown> = {
   confidence: Confidence;
   evidenceType: EvidenceType;
   source: string;
-  eventId: number;
+  eventId: number | null;
   observedAt: string;
 };
 
@@ -65,10 +65,11 @@ type Candidate = {
   evidenceType: EvidenceType;
   source: string;
   sourceFamily: string;
-  eventId: number;
+  eventId: number | null;
   observedAt: string;
 };
 type ModelAggregate = { canonicalId: string; firstSeenAt: string; updatedAt: string };
+type CurrentRecordRow = { source: string; id: string; body: string; stream: string; observed_at: string };
 
 function recordFor(event: Event): RecordData | null {
   const raw = event.after_json ?? event.before_json;
@@ -97,27 +98,39 @@ function providerFor(event: Event, record: RecordData): string | null {
   return vendor !== "Unknown" ? vendor : (text(record.maker) ?? text(record.owner) ?? text(record.provider));
 }
 
-function candidate(event: EventRow, canonicalId: string, field: string, value: unknown): Candidate | null {
+function factField(event: EventRow, field: string): string {
+  if (["pricing", "access", "availableInProviderApi", "availableOnOpenRouter", "openWeights"].includes(field))
+    return `${field}:${event.source}`;
+  return field;
+}
+
+function candidate(
+  event: EventRow,
+  canonicalId: string,
+  field: string,
+  value: unknown,
+  eventId: number | null = event.id,
+): Candidate | null {
   if (value === undefined || value === null) return null;
   if (typeof value === "string" && !value.trim()) return null;
   return {
     canonicalId,
-    field,
+    field: factField(event, field),
     value,
     confidence: event.confidence,
     evidenceType: event.evidence_type,
     source: event.source,
     sourceFamily: sourceFamily(event.source, event.stream),
-    eventId: event.id,
+    eventId,
     observedAt: event.detected_at,
   };
 }
 
-function extractCandidates(event: EventRow, canonicalId: string): Candidate[] {
+function extractCandidates(event: EventRow, canonicalId: string, eventId: number | null = event.id): Candidate[] {
   const record = recordFor(event);
   const result: Candidate[] = [];
   const add = (field: string, value: unknown): void => {
-    const item = candidate(event, canonicalId, field, value);
+    const item = candidate(event, canonicalId, field, value, eventId);
     if (item) result.push(item);
   };
 
@@ -160,6 +173,22 @@ function storyEvents(db: Database): StoryEventRow[] {
     .all();
 }
 
+function currentEvent(row: CurrentRecordRow): EventRow {
+  return {
+    id: 0,
+    source: row.source,
+    stream: row.stream,
+    entity_id: row.id,
+    kind: "changed",
+    before_json: null,
+    after_json: row.body,
+    detected_at: row.observed_at,
+    confidence: confidenceFor(row.source, row.stream),
+    evidence_type: evidenceTypeFor(row.source, row.stream),
+    authority: authorityForSource(row.source),
+  };
+}
+
 function emptyIdentity(): ModelIdentity {
   return { canonicalId: null, displayName: "", aliases: [], status: "unknown" };
 }
@@ -172,6 +201,8 @@ function newer(left: Candidate, right: Candidate): boolean {
   const leftTime = Date.parse(left.observedAt);
   const rightTime = Date.parse(right.observedAt);
   if (leftTime !== rightTime) return leftTime > rightTime;
+  if (left.eventId === null) return right.eventId !== null;
+  if (right.eventId === null) return false;
   return left.eventId > right.eventId;
 }
 
@@ -204,7 +235,13 @@ function selectCandidates(candidates: Candidate[]): {
       confidenceRank(incumbent.confidence) === confidenceRank(item.confidence) &&
       MODEL_FACT_AUTHORITY_RANK[incumbent.evidenceType] === MODEL_FACT_AUTHORITY_RANK[item.evidenceType];
     const independentSources = incumbent.source !== item.source && incumbent.sourceFamily !== item.sourceFamily;
-    if (sameStrength && independentSources && canonical(incumbent.value) !== canonical(item.value)) {
+    if (
+      sameStrength &&
+      independentSources &&
+      incumbent.eventId !== null &&
+      item.eventId !== null &&
+      canonical(incumbent.value) !== canonical(item.value)
+    ) {
       const conflict = {
         field: item.field,
         incumbentEventId: incumbent.eventId,
@@ -229,14 +266,14 @@ function maxInstant(left: string, right: string): string {
   return Date.parse(left) >= Date.parse(right) ? left : right;
 }
 
-/** Rebuilds Model Facts from stories and immutable events; the caller owns the transaction. */
+/** Rebuilds Model Facts from current records plus immutable event evidence; the caller owns the transaction. */
 export function rebuildModelFacts(db: Database): void {
   const rows = storyEvents(db);
   const byStory = new Map<number, StoryEventRow[]>();
   for (const row of rows) byStory.set(row.story_id, [...(byStory.get(row.story_id) ?? []), row]);
 
   const models = new Map<string, ModelAggregate>();
-  const candidates: Candidate[] = [];
+  const historicalCandidates: Candidate[] = [];
   for (const events of byStory.values()) {
     const first = events[0];
     if (!first) continue;
@@ -254,9 +291,49 @@ export function rebuildModelFacts(db: Database): void {
         }
       : { canonicalId, firstSeenAt: first.first_seen_at, updatedAt: first.updated_at };
     models.set(key, aggregate);
-    for (const event of events) candidates.push(...extractCandidates(event, aggregate.canonicalId));
+    for (const event of events) historicalCandidates.push(...extractCandidates(event, aggregate.canonicalId));
   }
 
+  const currentCandidates: Candidate[] = [];
+  const currentFieldsByModel = new Map<string, Set<string>>();
+  const currentRows = db
+    .query<CurrentRecordRow, []>("SELECT source,id,body,stream,observed_at FROM records ORDER BY source,id")
+    .all();
+  for (const row of currentRows) {
+    const event = currentEvent(row);
+    const identity = identityFor(event, recordFor(event));
+    if (!identity.canonicalId) continue;
+    const key = normalizeIdentity(identity.canonicalId);
+    const existing = models.get(key);
+    const aggregate = existing
+      ? {
+          ...existing,
+          firstSeenAt: minInstant(existing.firstSeenAt, row.observed_at),
+          updatedAt: maxInstant(existing.updatedAt, row.observed_at),
+        }
+      : { canonicalId: identity.canonicalId, firstSeenAt: row.observed_at, updatedAt: row.observed_at };
+    models.set(key, aggregate);
+    const extracted = extractCandidates(event, aggregate.canonicalId, null);
+    currentCandidates.push(...extracted);
+    const fields = currentFieldsByModel.get(key) ?? new Set<string>();
+    for (const item of extracted) fields.add(item.field);
+    currentFieldsByModel.set(key, fields);
+  }
+
+  const currentKeys = new Set(currentFieldsByModel.keys());
+  const historicalSources = new Set(
+    historicalCandidates.map((item) => `${normalizeIdentity(item.canonicalId)}\u0000${item.field}\u0000${item.source}`),
+  );
+  const candidates = [
+    ...historicalCandidates.filter(
+      (item) =>
+        !currentKeys.has(normalizeIdentity(item.canonicalId)) ||
+        currentFieldsByModel.get(normalizeIdentity(item.canonicalId))?.has(item.field),
+    ),
+    ...currentCandidates.filter(
+      (item) => !historicalSources.has(`${normalizeIdentity(item.canonicalId)}\u0000${item.field}\u0000${item.source}`),
+    ),
+  ];
   const selected = selectCandidates(candidates);
   db.exec("DELETE FROM model_fact_conflicts; DELETE FROM model_fact_fields; DELETE FROM model_facts;");
   for (const aggregate of [...models.values()].sort((left, right) =>
@@ -312,7 +389,7 @@ function view(db: Database, row: { canonical_id: string; first_seen_at: string; 
         confidence: Confidence;
         evidence_type: EvidenceType;
         source: string;
-        event_id: number;
+        event_id: number | null;
         observed_at: string;
       },
       [string]

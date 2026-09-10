@@ -11,12 +11,14 @@ test("health is public, operational state requires token, MCP lists matching sch
       MCP_TOKEN: "x".repeat(32),
     }),
     app = createHttpApp(config, db);
+  const auth = { Authorization: `Bearer ${config.MCP_TOKEN}` };
   expect((await app.request("/readyz")).status).toBe(200);
-  expect((await app.request("/reports/1")).status).toBe(404);
+  expect((await app.request("/reports/1")).status).toBe(401);
+  expect((await app.request("/reports/1", { headers: auth })).status).toBe(404);
   db.exec(`INSERT INTO snapshots(id,source,collected_at,raw_json) VALUES(1,'web','2026-09-08','{}');
     INSERT INTO events(id,source,stream,entity_id,kind,before_json,after_json,detected_at,snapshot_id)
     VALUES(1,'web','web','<script>','changed','{"strings":[]}','{"strings":["Claude Code"]}','2026-09-08',1)`);
-  const report = await app.request("/reports/1");
+  const report = await app.request("/reports/1", { headers: auth });
   expect(report.status).toBe(200);
   expect(await report.text()).toContain("&lt;script&gt;");
   expect((await app.request("/api/status")).status).toBe(401);
@@ -62,7 +64,6 @@ test("health is public, operational state requires token, MCP lists matching sch
     body: JSON.stringify([{ jsonrpc: "2.0", method: "ping" }]),
   });
   expect(notifications.status).toBe(202);
-  const auth = { Authorization: `Bearer ${config.MCP_TOKEN}` };
   expect((await app.request("/api/deliveries", { headers: auth })).status).toBe(200);
   expect((await app.request("/api/deliveries/verification", { headers: auth })).status).toBe(200);
   const resolutionDb = openDatabase(":memory:");

@@ -53,6 +53,12 @@ test("fresh databases use every migration and finish with a valid current schema
   ).toContain("authority");
   expect(
     db
+      .query<{ name: string }, []>("PRAGMA table_info(records)")
+      .all()
+      .map((column) => column.name),
+  ).toEqual(["source", "id", "body", "missing_count", "stream", "observed_at"]);
+  expect(
+    db
       .query(
         "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('alert_attempts','code_metrics','deepseek_usage','source_collection_metrics','stories','story_events','model_facts','model_fact_fields','model_fact_conflicts','hypotheses','hypothesis_events','lifecycle_deadlines','lifecycle_reminders') ORDER BY name",
       )
@@ -115,6 +121,44 @@ test("migration moves legacy summary counters into the usage ledger", () => {
     },
   ]);
   expect(db.query("SELECT value FROM app_state WHERE key='summary_calls_2026-09-08'").get()).toBeNull();
+  expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: CURRENT_SCHEMA_VERSION });
+  db.close();
+});
+
+test("current-observation migration preserves records and event provenance", () => {
+  const db = new Database(":memory:");
+  const migrations = readMigrations();
+  for (const migration of migrations.slice(0, 16)) db.exec(migration.sql);
+  db.exec(`
+    INSERT INTO sources(id,last_success) VALUES('openrouter','2026-09-10T00:00:00.000Z');
+    INSERT INTO snapshots(id,source,collected_at,raw_json)
+      VALUES(1,'openrouter','2026-09-10T00:00:00.000Z','[]');
+    INSERT INTO events(id,source,stream,entity_id,kind,after_json,detected_at,snapshot_id)
+      VALUES(7,'openrouter','openrouter','openai/gpt-6','new','{"id":"openai/gpt-6"}','2026-09-10T00:00:00.000Z',1);
+    INSERT INTO records(source,id,body) VALUES('openrouter','openai/gpt-6','{"id":"openai/gpt-6"}');
+    INSERT INTO model_facts(canonical_id,first_seen_at,updated_at)
+      VALUES('openai/gpt-6','2026-09-10T00:00:00.000Z','2026-09-10T00:00:00.000Z');
+    INSERT INTO model_fact_fields(
+      canonical_id,field,value_json,confidence,evidence_type,source,event_id,observed_at
+    ) VALUES(
+      'openai/gpt-6','displayName','"GPT-6"','observed','catalogue','openrouter',7,'2026-09-10T00:00:00.000Z'
+    ),(
+      'openai/gpt-6','availableOnOpenRouter','true','observed','catalogue','openrouter',7,'2026-09-10T00:00:00.000Z'
+    );
+  `);
+  db.exec("PRAGMA user_version=16");
+
+  runMigrations(db);
+
+  expect(db.query("SELECT stream,observed_at FROM records").get()).toEqual({
+    stream: "openrouter",
+    observed_at: "2026-09-10T00:00:00.000Z",
+  });
+  expect(db.query("SELECT field,event_id FROM model_fact_fields ORDER BY field").all()).toEqual([
+    { field: "availableOnOpenRouter:openrouter", event_id: 7 },
+    { field: "displayName", event_id: 7 },
+  ]);
+  expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
   expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: CURRENT_SCHEMA_VERSION });
   db.close();
 });

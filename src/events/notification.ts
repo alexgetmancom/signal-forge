@@ -62,7 +62,7 @@ export function hasNotificationContent(event: Event, url: string): boolean {
       ![...priceKeys].some(
         (key) =>
           canonical(oldPrices[key]) !== canonical(newPrices[key]) &&
-          significantPriceChange(oldPrices[key], newPrices[key]),
+          significantPriceChange(oldPrices[key], newPrices[key], event.source),
       )
     )
       return false;

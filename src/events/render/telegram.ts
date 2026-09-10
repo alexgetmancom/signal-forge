@@ -110,7 +110,7 @@ export function renderEvent(
     for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
       if (NOISE.has(key) || canonical(before[key]) === canonical(after[key])) continue;
       if (key === "pricing") {
-        lines.push(...prices(before[key], after[key]));
+        lines.push(...prices(before[key], after[key], event.source));
         continue;
       }
       if (["summary", "description", "message"].includes(key)) {
@@ -137,7 +137,7 @@ export function renderEvent(
   } else {
     for (const [key, value] of Object.entries(record ?? {})) {
       if (key === "id" || key === "name" || key === "prerelease" || NOISE.has(key)) continue;
-      if (key === "pricing") lines.push(...prices(null, value));
+      if (key === "pricing") lines.push(...prices(null, value, event.source));
       else if (["description", "summary", "message"].includes(key)) lines.push(describe(value));
       else lines.push(`${fieldLabels[key] ?? key}: ${describe(value)}`);
     }

@@ -303,6 +303,74 @@ test("a later source does not repost a story already queued for the same destina
   local.close();
 });
 
+test("a manually unresolved delivery suppresses a later duplicate story", () => {
+  const local = openDatabase(":memory:");
+  const destination: Destination = {
+    id: "dc",
+    platform: "discord",
+    channelId: "123",
+    streams: ["arena", "openrouter"],
+  };
+  const arena: Collection = {
+    source: "arena",
+    stream: "arena",
+    url: "https://arena.ai",
+    raw: [],
+    records: [{ id: "existing-arena", name: "Existing Arena Model" }],
+  };
+  const router: Collection = {
+    source: "openrouter",
+    stream: "openrouter",
+    url: "https://openrouter.ai",
+    raw: [],
+    records: [{ id: "existing-router", name: "Existing Router Model" }],
+  };
+  saveCollection(local, arena, [destination], "2026-09-10T08:00:00.000Z");
+  saveCollection(local, router, [destination], "2026-09-10T08:00:00.000Z");
+  arena.records.push({ id: "gpt-6", name: "GPT-6", model: "gpt-6", maker: "OpenAI" });
+  saveCollection(local, arena, [destination], "2026-09-10T08:05:00.000Z");
+  local.query("UPDATE deliveries SET status='verification_required' WHERE destination_id='dc'").run();
+  router.records.push({ id: "gpt-6", name: "GPT-6", maker: "OpenAI" });
+  saveCollection(local, router, [destination], "2026-09-10T08:10:00.000Z");
+  expect(local.query("SELECT COUNT(*) AS count FROM deliveries").get()).toEqual({ count: 1 });
+  expect(local.query("SELECT status FROM deliveries").get()).toEqual({ status: "verification_required" });
+  local.close();
+});
+
+test("an immediate source wins when a routine story batch becomes due later", () => {
+  const local = openDatabase(":memory:");
+  const destination: Destination = {
+    id: "dc",
+    platform: "discord",
+    channelId: "123",
+    streams: ["leaderboards", "openrouter"],
+  };
+  const leaderboard: Collection = {
+    source: "arena-leaderboards",
+    stream: "leaderboards",
+    url: "https://arena.ai/leaderboard",
+    raw: [],
+    records: [{ id: "gpt-6", name: "GPT-6", model: "gpt-6", maker: "OpenAI", rank: 3, score: 100 }],
+  };
+  const router: Collection = {
+    source: "openrouter",
+    stream: "openrouter",
+    url: "https://openrouter.ai",
+    raw: [],
+    records: [{ id: "other", name: "Other Model" }],
+  };
+  saveCollection(local, leaderboard, [destination], "2026-09-10T08:00:00.000Z");
+  leaderboard.records = [{ id: "gpt-6", name: "GPT-6", model: "gpt-6", maker: "OpenAI", rank: 2, score: 100 }];
+  saveCollection(local, leaderboard, [destination], "2026-09-10T08:05:00.000Z");
+  saveCollection(local, router, [destination], "2026-09-10T08:05:00.000Z");
+  router.records.push({ id: "gpt-6", name: "GPT-6", maker: "OpenAI" });
+  saveCollection(local, router, [destination], "2026-09-10T08:10:00.000Z");
+  expect(local.query("SELECT COUNT(*) AS count FROM deliveries").get()).toEqual({ count: 1 });
+  prepareDeliveries(local, Date.parse("2026-09-10T09:00:00.000Z"));
+  expect(local.query("SELECT COUNT(*) AS count FROM deliveries").get()).toEqual({ count: 1 });
+  local.close();
+});
+
 test("a cross-stream digest stays scoped to each destination", () => {
   const local = openDatabase(":memory:");
   const destinations: Destination[] = [

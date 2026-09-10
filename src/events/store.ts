@@ -221,18 +221,29 @@ export function persistCollection(
       } else emit(record.id, "changed", before.body, body);
     } else db.query("DELETE FROM change_candidates WHERE source=? AND id=?").run(c.source, record.id);
     db.query(
-      "INSERT INTO records(source,id,body) VALUES(?,?,?) ON CONFLICT(source,id) DO UPDATE SET body=excluded.body,missing_count=0",
-    ).run(c.source, record.id, body);
+      "INSERT INTO records(source,id,body,stream,observed_at) VALUES(?,?,?,?,?) ON CONFLICT(source,id) DO UPDATE SET body=excluded.body,stream=excluded.stream,observed_at=excluded.observed_at,missing_count=0",
+    ).run(c.source, record.id, body, c.stream, now);
   }
   if (!c.appendOnly || c.resolveMissing)
     for (const row of previous.values()) {
       if (c.resolveMissing) {
         if (isResolvedRecord(row.body)) {
-          db.query("UPDATE records SET missing_count=0 WHERE source=? AND id=?").run(c.source, row.id);
+          db.query("UPDATE records SET stream=?,observed_at=?,missing_count=0 WHERE source=? AND id=?").run(
+            c.stream,
+            now,
+            c.source,
+            row.id,
+          );
         } else if (row.missing_count >= 1) {
           const after = resolvedRecord(row.body);
           emit(row.id, "changed", row.body, after);
-          db.query("UPDATE records SET body=?,missing_count=0 WHERE source=? AND id=?").run(after, c.source, row.id);
+          db.query("UPDATE records SET body=?,stream=?,observed_at=?,missing_count=0 WHERE source=? AND id=?").run(
+            after,
+            c.stream,
+            now,
+            c.source,
+            row.id,
+          );
         } else {
           db.query("UPDATE records SET missing_count=missing_count+1 WHERE source=? AND id=?").run(c.source, row.id);
         }
