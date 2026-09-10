@@ -21,6 +21,7 @@ test("source registry has unique IDs, valid streams, labels and consistent pacin
   ).toBe(true);
   expect(definitions.find((definition) => definition.id === "openai")?.authority).toBe("first_party");
   expect(definitions.find((definition) => definition.id === "openrouter")?.authority).toBe("third_party");
+  expect(definitions.find((definition) => definition.id === "vercel-gateway")?.restrictedReason).toBeUndefined();
   for (const id of [
     "openai-chatgpt-release-notes",
     "gemini-api-changelog",
@@ -105,6 +106,11 @@ test("conditional sources distinguish intentional disablement from missing crede
   const readyConfig = config({ OPENAI_API_KEY: "test-key" });
   expect(sourceJobs(readyDb, readyConfig).some((job) => job.id === "openai")).toBe(true);
   readyDb.close();
+
+  const deepSeekDb = openDatabase(":memory:");
+  const deepSeekConfig = config({ DEEPSEEK_API_KEY: "test-key" });
+  expect(sourceJobs(deepSeekDb, deepSeekConfig).some((job) => job.id === "deepseek-api")).toBe(true);
+  deepSeekDb.close();
 });
 
 test("registry rejects duplicate IDs and conflicting pacing", () => {

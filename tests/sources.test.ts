@@ -6,7 +6,7 @@ import { parseArena, parseLeaderboards } from "../src/sources/arena.js";
 import { collectAnthropic, collectOpenAI, collectOpenRouter } from "../src/sources/catalogs.js";
 import { claudeAssetImports, extractStrings } from "../src/sources/claude.js";
 import { parseCursorChangelog, parseDesignArena } from "../src/sources/community.js";
-import { parseDeepSeekPricing, parseDeepSeekUpdates } from "../src/sources/deepseek.js";
+import { parseDeepSeekModels, parseDeepSeekPricing, parseDeepSeekUpdates } from "../src/sources/deepseek.js";
 import { parseAnthropicDeprecations, parseOpenAIDeprecations } from "../src/sources/deprecations.js";
 import { parseAnthropicSdkReleases, parseClaudeCodeChangelog, parseOfficialFeed } from "../src/sources/feeds.js";
 import { collectGithubCommits, summarizeDiff } from "../src/sources/github.js";
@@ -159,6 +159,23 @@ test("DeepSeek pricing parser preserves model versions, capabilities and price w
     concurrencyLimit: 2500,
   });
   expect(() => parseDeepSeekPricing("<table><tr><td>MODEL</td></tr></table>")).toThrow();
+});
+test("DeepSeek API catalog preserves the provider model identity and rejects malformed lists", () => {
+  const parsed = parseDeepSeekModels(
+    JSON.stringify({
+      object: "list",
+      data: [
+        { id: "deepseek-flash", owned_by: "deepseek" },
+        { id: "deepseek-v4-pro", owned_by: "deepseek" },
+      ],
+    }),
+  );
+  expect(parsed).toMatchObject({ source: "deepseek-api", stream: "api-models", confirmChanges: true });
+  expect(parsed.records).toEqual([
+    expect.objectContaining({ id: "deepseek-flash", maker: "DeepSeek", owner: "deepseek" }),
+    expect.objectContaining({ id: "deepseek-v4-pro", model: "deepseek-v4-pro" }),
+  ]);
+  expect(() => parseDeepSeekModels(JSON.stringify({ object: "list", data: [] }))).toThrow();
 });
 test("official release-note pages keep dated entries and reject unreadable pages", async () => {
   const openaiHtml = `<article>

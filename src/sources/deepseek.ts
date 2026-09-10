@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { AppConfig } from "../config.js";
 import type { Collection, RecordData } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
 import type { HttpCache } from "../storage/httpCache.js";
@@ -8,6 +9,12 @@ import { fetchText } from "./http.js";
 export const DEEPSEEK_UPDATES_URL = "https://api-docs.deepseek.com/updates";
 export const DEEPSEEK_PRICING_URL =
   "https://api-docs.deepseek.com/quick_start/pricing/?article_id=article_1779470751466_8";
+export const DEEPSEEK_MODELS_URL = "https://api.deepseek.com/models";
+
+const modelsSchema = z.object({
+  object: z.literal("list"),
+  data: z.array(z.object({ id: z.string().min(1), owned_by: z.string().min(1) })).min(1),
+});
 
 const entrySchema = z.object({
   date: z
@@ -196,4 +203,29 @@ export function parseDeepSeekPricing(html: string): Collection {
 
 export async function collectDeepSeekPricing(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
   return parseDeepSeekPricing(await fetchText(DEEPSEEK_PRICING_URL, {}, request, undefined, cache));
+}
+
+export function parseDeepSeekModels(payload: string): Collection {
+  const data = modelsSchema.parse(JSON.parse(payload));
+  return {
+    source: "deepseek-api",
+    stream: "api-models",
+    url: DEEPSEEK_MODELS_URL,
+    raw: payload,
+    confirmChanges: true,
+    records: data.data.map((model) => ({
+      id: model.id,
+      name: model.id,
+      maker: "DeepSeek",
+      model: model.id,
+      owner: model.owned_by,
+      url: DEEPSEEK_MODELS_URL,
+    })),
+  };
+}
+
+export async function collectDeepSeekModels(config: AppConfig, request: Fetch = fetch): Promise<Collection> {
+  return parseDeepSeekModels(
+    await fetchText(DEEPSEEK_MODELS_URL, { Authorization: `Bearer ${config.DEEPSEEK_API_KEY}` }, request),
+  );
 }

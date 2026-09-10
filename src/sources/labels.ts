@@ -15,6 +15,7 @@ const STATIC_LABELS: Record<string, string> = {
   "groq-changelog": "Groq · changelog",
   "deepseek-updates": "DeepSeek · updates",
   "deepseek-pricing": "DeepSeek · API pricing",
+  "deepseek-api": "DeepSeek API",
   "claude-code-changelog": "Claude Code · changelog",
   "anthropic-sdk-releases": "Anthropic · SDK releases",
   "google-deepmind-feed": "Google DeepMind · feed",

@@ -9,7 +9,7 @@ import { collectAnthropic, collectGemini, collectOpenAI, collectOpenRouter } fro
 import { collectClaude } from "./claude.js";
 import { collectCodexDocs } from "./codex.js";
 import { collectCursorChangelog, collectDesignArena, DESIGNARENA_CATEGORIES } from "./community.js";
-import { collectDeepSeekPricing, collectDeepSeekUpdates } from "./deepseek.js";
+import { collectDeepSeekModels, collectDeepSeekPricing, collectDeepSeekUpdates } from "./deepseek.js";
 import { collectAnthropicDeprecations, collectOpenAIDeprecations } from "./deprecations.js";
 import { collectGithubDiscovery, collectHuggingFaceDiscovery, GITHUB_DISCOVERY_QUERIES } from "./discovery.js";
 import {
@@ -191,6 +191,19 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       enabled: requested("deepseek-pricing"),
     },
     {
+      id: "deepseek-api",
+      label: sourceLabel("deepseek-api"),
+      authority: "first_party",
+      vendor: "DeepSeek",
+      group: "Catalogues",
+      stream: "api-models",
+      intervalSeconds: config.pollSeconds,
+      capabilityId: "deepseek",
+      requiredCapabilities: ["DEEPSEEK_API_KEY"],
+      collector: () => collectDeepSeekModels(config),
+      enabled: requested("deepseek-api"),
+    },
+    {
       id: "claude-code-changelog",
       label: sourceLabel("claude-code-changelog"),
       authority: "first_party",
@@ -254,7 +267,6 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       intervalSeconds: config.pollSeconds,
       collector: () => collectVercelGateway(),
       enabled: requested("vercel-gateway"),
-      restrictedReason: "upstream response arrives incomplete — waiting on a full feed",
     },
     {
       id: "arena",

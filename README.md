@@ -137,7 +137,7 @@ Some collectors require provider credentials. See the configuration section belo
 
 The current source registry covers:
 
-* OpenRouter and optional first-party catalogs for OpenAI, Anthropic, and Gemini, plus the Vercel AI Gateway feed
+* OpenRouter and optional first-party catalogs for OpenAI, Anthropic, Gemini, and DeepSeek, plus the Vercel AI Gateway feed
 * Arena appearances, leaderboards, and DesignArena categories
 * Hugging Face open-weight repositories
 * Recent global Hugging Face model discovery
@@ -184,7 +184,7 @@ example:
 
 There is no CLI command that edits configuration files.
 
-Set `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and `GEMINI_API_KEY` for their catalogs. Set `DEEPSEEK_API_KEY` to enable one-sentence summaries for large, publishable diffs after deterministic noise filtering; a missing key or failed summary call leaves the original evidence unchanged and never blocks delivery. Discord and Telegram keep the title and compact source evidence alongside the optional summary.
+Set `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `GEMINI_API_KEY`, and `DEEPSEEK_API_KEY` for their catalogs. The DeepSeek key also enables one-sentence summaries for large, publishable diffs after deterministic noise filtering; a missing key or failed summary call leaves the original evidence unchanged and never blocks delivery. Discord and Telegram keep the title and compact source evidence alongside the optional summary.
 
 Every Summary attempt is recorded with its event, source, stream, model, response status, token
 usage, cache hit/miss counts, outcome and calculated USD cost. Inspect the local ledger with

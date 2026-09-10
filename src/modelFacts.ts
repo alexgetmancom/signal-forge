@@ -6,7 +6,13 @@ import { vendorOf } from "./events/interpretation.js";
 import { sourceFamily } from "./events/sourceFamily.js";
 import type { Confidence, Event, EvidenceType, RecordData } from "./events/types.js";
 
-const FIRST_PARTY_API_CATALOGUE_SOURCES = new Set(["openai", "anthropic", "gemini", "deepseek-pricing"]);
+const FIRST_PARTY_API_CATALOGUE_SOURCES = new Set([
+  "openai",
+  "anthropic",
+  "gemini",
+  "deepseek-api",
+  "deepseek-pricing",
+]);
 
 export type ModelFact<T = unknown> = {
   value: T;
