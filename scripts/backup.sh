@@ -49,4 +49,4 @@ gzip -f "$DEST/app-$STAMP.db"
 "
 
 ls -1t "$DEST"/app-*.db.gz | tail -n "+$((KEEP + 1))" | xargs -r rm --
-echo "backup ok: $DEST/app-$STAMP.db.gz"
+echo "backup ok: $STAMP"
