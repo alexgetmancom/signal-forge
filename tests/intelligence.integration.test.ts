@@ -138,7 +138,7 @@ test("early observations become a hypothesis, facts and lead-time evidence witho
   expect(db.query("SELECT COUNT(*) AS count FROM batches WHERE source='discovery:github-ai'").get()).toEqual({
     count: 0,
   });
-  expect(db.query("SELECT COUNT(*) AS count FROM deliveries").get()).toEqual({ count: 4 });
+  expect(db.query("SELECT COUNT(*) AS count FROM deliveries").get()).toEqual({ count: 2 });
 
   const quality = signalQuality(db, config, 7, Date.parse("2026-09-10T13:00:00Z"));
   expect(quality.sources.find((source) => source.id === "arena")).toMatchObject({

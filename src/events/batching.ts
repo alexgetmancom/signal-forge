@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import type { Destination } from "../config.js";
 import { sourceLabel } from "../sources/labels.js";
 import { splitMessage } from "./canonical.js";
+import { CONFIDENCE_LEVELS } from "./confidence.js";
 import { pingWorthy, vendorOf } from "./interpretation.js";
 import { hasNotificationContent } from "./notification.js";
 import { eventEmbed } from "./render/discord.js";
@@ -12,7 +13,44 @@ import {
 } from "./render/lifecycle.js";
 import { renderStoryText, type StoryRenderEvent, storyEmbed } from "./render/story.js";
 import { renderEvent } from "./render/telegram.js";
+import { sourceFamily } from "./sourceFamily.js";
 import type { Event, RecordData } from "./types.js";
+
+const DUPLICATE_STORY_WINDOW_MS = 6 * 3_600_000;
+
+function repeatsDeliveredStory(
+  db: Database,
+  event: Event,
+  destinationId: string,
+  storyId: number | undefined,
+): boolean {
+  if (storyId === undefined || event.kind !== "new") return false;
+  const candidates = db
+    .query<{ source: string; stream: string; detected_at: string; confidence: string }, [number, number, string]>(
+      `SELECT DISTINCT earlier.source,earlier.stream,earlier.detected_at,earlier.confidence
+       FROM story_events se
+       JOIN story_events previous ON previous.story_id=se.story_id AND previous.event_id<?
+       JOIN events earlier ON earlier.id=previous.event_id
+       JOIN batch_events be ON be.event_id=earlier.id
+       JOIN deliveries d ON d.batch_id=be.batch_id
+       WHERE se.event_id=? AND d.destination_id=?
+         AND d.status IN ('pending','sending','sent','ambiguous')`,
+    )
+    .all(event.id, event.id, destinationId);
+  const detectedAt = Date.parse(event.detected_at);
+  return candidates.some((candidate) => {
+    const earlierAt = Date.parse(candidate.detected_at);
+    return (
+      Number.isFinite(earlierAt) &&
+      Number.isFinite(detectedAt) &&
+      detectedAt - earlierAt >= 0 &&
+      detectedAt - earlierAt <= DUPLICATE_STORY_WINDOW_MS &&
+      sourceFamily(candidate.source, candidate.stream) !== sourceFamily(event.source, event.stream) &&
+      CONFIDENCE_LEVELS.indexOf(candidate.confidence as NonNullable<Event["confidence"]>) >=
+        CONFIDENCE_LEVELS.indexOf(event.confidence ?? "observed")
+    );
+  });
+}
 
 /** Turns sealed observation batches into transport payloads without changing event evidence. */
 export function prepareDeliveries(db: Database, now = Date.now(), vendorRoles: Record<string, string> = {}): void {
@@ -82,7 +120,10 @@ export function prepareDeliveries(db: Database, now = Date.now(), vendorRoles: R
       const destination = JSON.parse(target.destination_json) as Destination;
       const subscribedStreams = new Set<string>(destination.streams);
       const speaking = events.filter(
-        (event) => subscribedStreams.has(event.stream) && hasNotificationContent(event, event.url),
+        (event) =>
+          subscribedStreams.has(event.stream) &&
+          hasNotificationContent(event, event.url) &&
+          !repeatsDeliveredStory(db, event, target.destination_id, storyIds.get(event.id)),
       );
       if (!speaking.length) continue;
       const grouped = new Map<string, StoryRenderEvent[]>();
@@ -95,7 +136,7 @@ export function prepareDeliveries(db: Database, now = Date.now(), vendorRoles: R
       const items = [...grouped.values()];
       const source = sourceLabel(batch.source);
       const header = batch.digest
-        ? `🗞 ${source} · ${items.length} ${items.length === 1 ? "story" : "stories"} in the last hour\n\n`
+        ? `🗞 Hourly digest · ${items.length} ${items.length === 1 ? "story" : "stories"}\n\n`
         : speaking.length > 1
           ? `📡 ${source} · ${speaking.length} updates\n\n`
           : "";

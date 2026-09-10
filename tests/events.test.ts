@@ -252,7 +252,7 @@ test("one story becomes one cross-source digest with every evidence link", () =>
   const telegram = local
     .query<{ body: string }, [string]>("SELECT body FROM deliveries WHERE destination_id=?")
     .get("tg")?.body;
-  expect(telegram).toContain("1 story in the last hour");
+  expect(telegram).toContain("Hourly digest · 1 story");
   expect(telegram).toContain("OpenRouter");
   expect(telegram).toContain("OpenAI API");
   expect(telegram).toContain("Evidence: https://openrouter.ai/models/gpt-5");
@@ -265,6 +265,41 @@ test("one story becomes one cross-source digest with every evidence link", () =>
   expect(payload.embeds).toHaveLength(1);
   expect(payload.embeds?.[0]?.description).toContain("https://openrouter.ai/models/gpt-5");
   expect(payload.embeds?.[0]?.description).toContain("https://api.openai.com/models/gpt-5");
+  expect(payload.embeds?.[0]?.description).toContain("[Open OpenRouter evidence]");
+  expect(payload.embeds?.[0]?.description).toContain("[Open OpenAI API evidence]");
+  local.close();
+});
+
+test("a later source does not repost a story already queued for the same destination", () => {
+  const local = openDatabase(":memory:");
+  const destination: Destination = {
+    id: "dc",
+    platform: "discord",
+    channelId: "123",
+    streams: ["arena", "openrouter"],
+  };
+  const arena: Collection = {
+    source: "arena",
+    stream: "arena",
+    url: "https://arena.ai",
+    raw: [],
+    records: [{ id: "existing-arena", name: "Existing Arena Model" }],
+  };
+  const router: Collection = {
+    source: "openrouter",
+    stream: "openrouter",
+    url: "https://openrouter.ai",
+    raw: [],
+    records: [{ id: "existing-router", name: "Existing Router Model" }],
+  };
+  saveCollection(local, arena, [destination], "2026-09-10T08:00:00.000Z");
+  saveCollection(local, router, [destination], "2026-09-10T08:00:00.000Z");
+  arena.records.push({ id: "gpt-6", name: "GPT-6", model: "gpt-6", maker: "OpenAI" });
+  saveCollection(local, arena, [destination], "2026-09-10T08:05:00.000Z");
+  router.records.push({ id: "gpt-6", name: "GPT-6", maker: "OpenAI" });
+  saveCollection(local, router, [destination], "2026-09-10T08:10:00.000Z");
+  expect(local.query("SELECT COUNT(*) AS count FROM deliveries").get()).toEqual({ count: 1 });
+  expect(local.query("SELECT COUNT(*) AS count FROM events WHERE entity_id='gpt-6'").get()).toEqual({ count: 2 });
   local.close();
 });
 
@@ -305,8 +340,8 @@ test("a cross-stream digest stays scoped to each destination", () => {
   const bodies = new Map(
     rows.map((row) => [row.destination_id, JSON.parse(row.body) as { embeds: { title: string }[] }]),
   );
-  expect(bodies.get("models")?.embeds.map((embed) => embed.title)).toEqual(["Router model"]);
-  expect(bodies.get("benchmarks")?.embeds.map((embed) => embed.title)).toEqual(["Leaderboard model"]);
+  expect(bodies.get("models")?.embeds.map((embed) => embed.title)).toEqual(["✏️ Changed model listing · Router model"]);
+  expect(bodies.get("benchmarks")?.embeds.map((embed) => embed.title)).toEqual(["✏️ Leaderboard movement · Leaderboard model"]);
   local.close();
 });
 
@@ -378,6 +413,33 @@ test("notifications expose source confidence", () => {
   });
 });
 
+test("Discord cards lead with the change type and expose scan-friendly metadata", () => {
+  const event = {
+    id: 12,
+    source: "openrouter",
+    stream: "openrouter",
+    entity_id: "openai/gpt-6",
+    kind: "new" as const,
+    before_json: null,
+    after_json: JSON.stringify({ id: "openai/gpt-6", name: "GPT-6", maker: "OpenAI", selectable: true }),
+    detected_at: "2026-09-08T14:06:00.000Z",
+    confidence: "confirmed" as const,
+    evidence_type: "availability_catalogue" as const,
+  };
+  const embed = eventEmbed(event, "https://openrouter.ai/models/openai/gpt-6") as {
+    title: string;
+    description: string;
+    fields: { name: string; value: string }[];
+  };
+  expect(embed.title).toBe("🆕 New model available · GPT-6");
+  expect(embed.description).toContain("**What changed**");
+  expect(embed.fields.find((field) => field.name === "Signal")?.value).toBe("Confirmed · availability catalogue");
+  expect(embed.fields.find((field) => field.name === "Detected")?.value).toContain("<t:1788876360:R>");
+  expect(embed.fields.find((field) => field.name === "Reader impact")?.value).toBe(
+    "Available to use from this catalogue.",
+  );
+});
+
 test("Discord labels an AI summary before the raw evidence", () => {
   const event = {
     id: 9,
@@ -398,7 +460,7 @@ test("Discord labels an AI summary before the raw evidence", () => {
     "https://github.com/openai/codex/commit/commit-1",
     "Conversation history stores the originating model.",
   ) as { description: string };
-  expect(embed.description).toStartWith("AI summary: Conversation history stores the originating model.");
+  expect(embed.description).toStartWith("**Summary**\nConversation history stores the originating model.");
   expect(embed.description).toContain("Changes: 1 file · +4/−1 lines");
   expect(embed.description).not.toContain("model_info");
 });
@@ -701,6 +763,69 @@ test("catalogue ignores sub-cent drift but keeps meaningful cheap-model changes"
   const meaningfulEvent = makeEvent(small, meaningfulAfter);
   expect(hasNotificationContent(meaningfulEvent, "https://openrouter.ai")).toBe(true);
   expect(renderEvent(meaningfulEvent, "https://openrouter.ai")).toContain("Input: $0.96 → $1.09 / 1M tokens");
+});
+
+test("catalogue hides a two-cent expensive-model drift but keeps a sub-cent DeepSeek halving", () => {
+  const makeEvent = (before: RecordData, after: RecordData, source = "openrouter"): Event => ({
+    id: 1,
+    source,
+    stream: source === "deepseek-pricing" ? "api-models" : "openrouter",
+    entity_id: String(before.id),
+    kind: "changed",
+    before_json: JSON.stringify(before),
+    after_json: JSON.stringify(after),
+    detected_at: "2026-09-10T08:00:00.000Z",
+  });
+  const glm = makeEvent(
+    { id: "z-ai/glm-latest", name: "Z.ai: GLM Latest", pricing: { completion: "0.00000343" } },
+    { id: "z-ai/glm-latest", name: "Z.ai: GLM Latest", pricing: { completion: "0.00000341" } },
+  );
+  expect(hasNotificationContent(glm, "https://openrouter.ai")).toBe(false);
+
+  const deepSeek = makeEvent(
+    { id: "deepseek-v4-flash", name: "DeepSeek V4 Flash", pricing: { inputCacheHitPeak: 0.014 } },
+    { id: "deepseek-v4-flash", name: "DeepSeek V4 Flash", pricing: { inputCacheHitPeak: 0.007 } },
+    "deepseek-pricing",
+  );
+  expect(hasNotificationContent(deepSeek, "https://api-docs.deepseek.com")).toBe(true);
+  expect(renderEvent(deepSeek, "https://api-docs.deepseek.com")).toContain(
+    "Cache hit peak: $0.014 → $0.007 / 1M tokens",
+  );
+});
+
+test("parameter-only catalogue churn and prerelease package channels stay out of delivery", () => {
+  const parameterEvent: Event = {
+    id: 1,
+    source: "openrouter",
+    stream: "openrouter",
+    entity_id: "model",
+    kind: "changed",
+    before_json: JSON.stringify({ id: "model", name: "Model", parameters: ["tools"] }),
+    after_json: JSON.stringify({ id: "model", name: "Model", parameters: ["tools", "temperature"] }),
+    detected_at: "2026-09-10T08:00:00.000Z",
+  };
+  expect(hasNotificationContent(parameterEvent, "https://openrouter.ai")).toBe(false);
+  expect(
+    hasNotificationContent(
+      { ...parameterEvent, stream: "packages", entity_id: "next", kind: "new", before_json: null },
+      "https://npmjs.com",
+    ),
+  ).toBe(false);
+});
+
+test("catalogue keeps material token-limit changes and hides small corrections", () => {
+  const changedContext = (from: number, to: number): Event => ({
+    id: 1,
+    source: "openrouter",
+    stream: "openrouter",
+    entity_id: "model",
+    kind: "changed",
+    before_json: JSON.stringify({ id: "model", name: "Model", context: from }),
+    after_json: JSON.stringify({ id: "model", name: "Model", context: to }),
+    detected_at: "2026-09-10T08:00:00.000Z",
+  });
+  expect(hasNotificationContent(changedContext(128_000, 131_072), "https://openrouter.ai")).toBe(false);
+  expect(hasNotificationContent(changedContext(128_000, 256_000), "https://openrouter.ai")).toBe(true);
 });
 
 test("a failing source is asked less often, and a healthy one keeps its interval", async () => {

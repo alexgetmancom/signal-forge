@@ -84,18 +84,24 @@ export function webStringChanges(before: unknown, after: unknown) {
 }
 
 /** A small catalogue price drift is evidence, but not subscriber-facing news. */
-export const MIN_PRICE_CHANGE_PER_MILLION = 0.01;
+export const MIN_PRICE_CHANGE_PER_MILLION = 1;
 export const MIN_PRICE_CHANGE_RATIO = 0.1;
 
-function significantPriceChange(before: unknown, after: unknown): boolean {
+function pricePerMillion(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) return value;
+  if (typeof value !== "string" || !value.trim()) return null;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed * 1_000_000 : null;
+}
+
+export function significantPriceChange(before: unknown, after: unknown): boolean {
   if (before === null || before === undefined || after === null || after === undefined) return true;
-  const from = Number(before);
-  const to = Number(after);
-  if (!Number.isFinite(from) || !Number.isFinite(to) || from < 0 || to < 0) return true;
-  const delta = Number((Math.abs(from - to) * 1_000_000).toFixed(2));
-  if (delta > MIN_PRICE_CHANGE_PER_MILLION) return true;
+  const from = pricePerMillion(before);
+  const to = pricePerMillion(after);
+  if (from === null || to === null) return true;
+  const delta = Math.abs(from - to);
   const base = Math.max(Math.abs(from), Math.abs(to));
-  return base > 0 && delta / (base * 1_000_000) >= MIN_PRICE_CHANGE_RATIO;
+  return delta >= MIN_PRICE_CHANGE_PER_MILLION || (base > 0 && delta / base >= MIN_PRICE_CHANGE_RATIO);
 }
 
 export function rankMove(before: unknown, after: unknown): string {
@@ -115,11 +121,16 @@ export function prices(before: unknown, after: unknown): string[] {
     completion: "Output",
     input_cache_read: "Cache read",
     input_cache_write: "Cache write",
+    inputCacheHitOffPeak: "Cache hit off-peak",
+    inputCacheHitPeak: "Cache hit peak",
+    inputCacheMissOffPeak: "Input off-peak",
+    inputCacheMissPeak: "Input peak",
+    outputOffPeak: "Output off-peak",
+    outputPeak: "Output peak",
   };
   const money = (value: unknown) => {
-    if (typeof value !== "string" || !value.trim() || !Number.isFinite(Number(value)) || Number(value) < 0)
-      return describe(value);
-    const perMillion = Number(value) * 1_000_000;
+    const perMillion = pricePerMillion(value);
+    if (perMillion === null) return describe(value);
     const rounded = perMillion >= 1 ? perMillion.toFixed(2) : perMillion.toPrecision(2);
     return `$${Number(rounded)}`;
   };

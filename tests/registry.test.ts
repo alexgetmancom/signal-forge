@@ -61,7 +61,7 @@ test("source registry has unique IDs, valid streams, labels and consistent pacin
   db.close();
 });
 
-test("existing sources stay active while discovery sources start in shadow mode", () => {
+test("reader-facing sources stay active while noisy repository activity and discovery start in shadow mode", () => {
   const db = openDatabase(":memory:");
   const defaults = buildSourceRegistry(db, config());
   expect(defaults.find((definition) => definition.id === "openrouter")).toMatchObject({ mode: "active" });
@@ -71,6 +71,9 @@ test("existing sources stay active while discovery sources start in shadow mode"
       .every((definition) => definition.mode === "shadow"),
   ).toBe(true);
   expect(defaults.find((definition) => definition.id === "discovery:huggingface-recent")?.mode).toBe("shadow");
+  expect(defaults.find((definition) => definition.id === "github:openai/codex:pulls")?.mode).toBe("shadow");
+  expect(defaults.find((definition) => definition.id === "github:openai/codex:commits")?.mode).toBe("shadow");
+  expect(defaults.find((definition) => definition.id === "github:openai/codex:releases")?.mode).toBe("active");
 
   const overridden = buildSourceRegistry(db, {
     ...config(),

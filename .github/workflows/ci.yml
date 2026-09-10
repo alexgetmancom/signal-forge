@@ -29,3 +29,19 @@ jobs:
           context: .
           push: false
           tags: signal-forge:test
+
+  deploy:
+    name: Deploy to production
+    needs: [check, docker]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, linux, x64, signal-forge-production]
+    timeout-minutes: 15
+    concurrency:
+      group: signal-forge-production
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy and verify health
+        env:
+          DEPLOY_RELEASE: ${{ github.sha }}
+        run: ./scripts/deploy.sh

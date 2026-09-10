@@ -1,7 +1,7 @@
 services:
   app:
     build: .
-    image: signal-forge:latest
+    image: ${SIGNAL_FORGE_IMAGE:-signal-forge:latest}
     restart: unless-stopped
     mem_limit: 512m
     stop_grace_period: 2m

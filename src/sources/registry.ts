@@ -575,6 +575,8 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
   });
 
   const shadowByDefault = new Set<string>([
+    "github:openai/codex:pulls",
+    "github:openai/codex:commits",
     ...GITHUB_DISCOVERY_QUERIES.map((query) => `discovery:github-${query.id}`),
     "discovery:huggingface-recent",
   ]);
