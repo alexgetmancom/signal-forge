@@ -164,13 +164,14 @@ export function parseLeaderboards(html: string): Collection {
     stream: "leaderboards",
     url: "https://arena.ai/leaderboard",
     raw,
-    appendOnly: true,
     // The rank is the only field that moves, and it was parsed but never stored, so a climb or a
     // fall was invisible. Tracking it is what makes "up two places" reportable at all.
     //
     // Only the leading places carry a rank. Below them a board reshuffles constantly and nobody
     // reports it, so storing those numbers would buy a stream of events and no news. Entering or
-    // leaving the leading places still shows up, because the rank appears or disappears.
+    // leaving the leading places still shows up, because the rank appears or disappears. The
+    // source returns a complete snapshot, so a model missing from two successful snapshots is
+    // treated as having left the board.
     trackChanges: true,
     records: recordsFromBoards(data),
   };

@@ -1,3 +1,4 @@
+import { sourceLabel } from "../../sources/labels.js";
 import { evidenceLabel, evidenceTypeFor } from "../confidence.js";
 import { vendorOf } from "../interpretation.js";
 import type { Event, RecordData } from "../types.js";
@@ -21,6 +22,7 @@ const KIND_COLORS: Record<Event["kind"], number> = { new: 0x2ecc71, changed: 0xf
 
 function eyebrow(event: Event): string {
   if (event.source === "codex-docs") return "DOCUMENTATION";
+  if (event.stream === "leaderboards") return sourceLabel(event.source).toUpperCase();
   return EYEBROWS[event.stream] ?? "UPDATE";
 }
 
@@ -37,11 +39,14 @@ export function eventEmbed(event: Event, url: string, summary?: string): Record<
     .join("\n");
   const description = (summary ? `AI summary: ${summary}\n\n${evidence}` : evidence).slice(0, 4000);
   const link =
-    typeof record?.url === "string"
-      ? record.url
-      : event.source === "openrouter"
-        ? `https://openrouter.ai/${event.entity_id}`
-        : url;
+    event.stream === "leaderboards"
+      ? url
+      : typeof record?.url === "string"
+        ? record.url
+        : event.source === "openrouter"
+          ? `https://openrouter.ai/${event.entity_id}`
+          : url;
+  const source = event.stream === "leaderboards" && link ? `**Source**\n${link}` : null;
 
   const embed: Record<string, unknown> = {
     author: {
@@ -49,7 +54,7 @@ export function eventEmbed(event: Event, url: string, summary?: string): Record<
     },
     title: String(record?.name ?? event.entity_id).slice(0, 250),
     color: KIND_COLORS[event.kind],
-    description,
+    description: source ? `${source}\n\n${description}`.slice(0, 4000) : description,
   };
   if (link) embed.url = link;
   const evidenceType = event.evidence_type ?? evidenceTypeFor(event.source, event.stream);
