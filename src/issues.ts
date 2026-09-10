@@ -8,7 +8,9 @@ export type IssueKind =
   | "collection_degraded"
   | "delivery_failed"
   | "delivery_ambiguous"
+  | "delivery_stuck"
   | "worker_failed"
+  | "worker_stale"
   | "restart_loop"
   | "capability_missing";
 export type IssueSeverity = "warning" | "error" | "critical";
@@ -31,7 +33,11 @@ type WorkerState = {
   lastStartedAt?: string;
   lastFinishedAt?: string | null;
   lastError?: string | null;
+  lastHeartbeatAt?: string;
+  heartbeatIntervalMs?: number;
 };
+
+const STUCK_DELIVERY_MS = 5 * 60 * 1000;
 
 function issueTime(value: string | null | undefined, now: number): string {
   if (value && Number.isFinite(Date.parse(value))) return value;
@@ -111,24 +117,64 @@ export function listActionableIssues(db: Database, config: AppConfig, now = Date
     });
   }
 
+  const stuckDeliveries = db
+    .query<{ id: number; destination_id: string; updated_at: number }, [number]>(
+      "SELECT id,destination_id,updated_at FROM deliveries WHERE status='sending' AND updated_at<? ORDER BY updated_at",
+    )
+    .all(now - STUCK_DELIVERY_MS);
+  for (const delivery of stuckDeliveries) {
+    const updatedAt = issueTime(new Date(delivery.updated_at).toISOString(), now);
+    issues.push({
+      id: `delivery:${delivery.id}:stuck`,
+      kind: "delivery_stuck",
+      severity: "critical",
+      entity: String(delivery.id),
+      destination: delivery.destination_id,
+      firstSeenAt: updatedAt,
+      updatedAt,
+      message: `Delivery ${delivery.id} to ${delivery.destination_id} has been sending for more than five minutes`,
+      hint: "Inspect the provider and process before deciding whether this delivery needs manual verification; do not retry it automatically.",
+    });
+  }
+
   const workerRows = db
     .query<{ key: string; value: string }, []>("SELECT key,value FROM app_state WHERE key LIKE 'worker:%'")
     .all();
   for (const row of workerRows) {
     const state = readJson<WorkerState>(row.value, {});
-    if (state.state !== "failed") continue;
     const worker = row.key.slice("worker:".length);
-    const updatedAt = issueTime(state.lastFinishedAt ?? state.lastStartedAt, now);
-    issues.push({
-      id: `worker:${worker}`,
-      kind: "worker_failed",
-      severity: "error",
-      entity: worker,
-      firstSeenAt: updatedAt,
-      updatedAt,
-      message: `Worker ${worker} failed its last cycle`,
-      hint: "Inspect the worker log and restore the failed dependency before restarting it repeatedly.",
-    });
+    if (state.state === "failed") {
+      const updatedAt = issueTime(state.lastFinishedAt ?? state.lastStartedAt, now);
+      issues.push({
+        id: `worker:${worker}`,
+        kind: "worker_failed",
+        severity: "error",
+        entity: worker,
+        firstSeenAt: updatedAt,
+        updatedAt,
+        message: `Worker ${worker} failed its last cycle`,
+        hint: "Inspect the worker log and restore the failed dependency before restarting it repeatedly.",
+      });
+    }
+    if (state.state === "running") {
+      const heartbeat = state.lastHeartbeatAt ?? state.lastStartedAt;
+      const heartbeatMs = Number(state.heartbeatIntervalMs);
+      const heartbeatAt = heartbeat ? Date.parse(heartbeat) : Number.NaN;
+      const staleAfterMs = Number.isFinite(heartbeatMs) ? Math.max(120_000, heartbeatMs * 3) : null;
+      if (staleAfterMs !== null && Number.isFinite(heartbeatAt) && now - heartbeatAt > staleAfterMs) {
+        const updatedAt = issueTime(heartbeat, now);
+        issues.push({
+          id: `worker:${worker}:stale`,
+          kind: "worker_stale",
+          severity: "critical",
+          entity: worker,
+          firstSeenAt: updatedAt,
+          updatedAt,
+          message: `Worker ${worker} has not sent a heartbeat for ${Math.round((now - heartbeatAt) / 1000)} seconds`,
+          hint: "Inspect the in-flight operation and process health; do not assume an unfinished external operation is safe to retry.",
+        });
+      }
+    }
   }
 
   const runtime = db.query<{ value: string }, []>("SELECT value FROM app_state WHERE key='runtime'").get();

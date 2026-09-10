@@ -25,6 +25,8 @@ After deployment, verify the health endpoint, readiness endpoint, application lo
 ```sh
 bun dist/src/cli.js issues
 bun dist/src/cli.js signal-quality 7
+bun dist/src/cli.js code-analytics 7
+bun dist/src/cli.js deepseek-usage 30
 bun dist/src/cli.js models
 bun dist/src/cli.js hypotheses
 bun dist/src/cli.js deadlines

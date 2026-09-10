@@ -7,6 +7,8 @@ import { getHypothesis, listHypotheses } from "./hypotheses.js";
 import { listActionableIssues } from "./issues.js";
 import { listLifecycleDeadlines } from "./lifecycle.js";
 import { getModelFacts, listModelFacts } from "./modelFacts.js";
+import { deepSeekUsage } from "./runtime/deepseekUsage.js";
+import { codeAnalytics } from "./runtime/metrics.js";
 import { signalQuality } from "./signalQuality.js";
 import { sourceJobs } from "./sources/registry.js";
 import { listStories } from "./stories.js";
@@ -107,6 +109,16 @@ export function operations(db: Database, config: AppConfig) {
       description: "Source collection, event, delivery and suppression metrics for an operator-selected period.",
       schema: z.object({ days: z.number().int().min(1).max(90).default(7) }),
       handler: (input: { days: number }) => signalQuality(db, config, input.days),
+    },
+    code_analytics: {
+      description: "Execution frequency, duration and failure analytics for instrumented runtime sections.",
+      schema: z.object({ days: z.number().int().min(1).max(90).default(7) }),
+      handler: (input: { days: number }) => codeAnalytics(db, input.days),
+    },
+    deepseek_usage: {
+      description: "DeepSeek Summary attempts, token usage, cache use, cost and code-path breakdown.",
+      schema: z.object({ days: z.number().int().min(1).max(365).default(7) }),
+      handler: (input: { days: number }) => deepSeekUsage(db, input.days),
     },
     stories: {
       description:

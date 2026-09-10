@@ -252,7 +252,7 @@ test("one story becomes one cross-source digest with every evidence link", () =>
   const telegram = local
     .query<{ body: string }, [string]>("SELECT body FROM deliveries WHERE destination_id=?")
     .get("tg")?.body;
-  expect(telegram).toContain("1 story in the last hour");
+  expect(telegram).toContain("Hourly digest · 1 story");
   expect(telegram).toContain("OpenRouter");
   expect(telegram).toContain("OpenAI API");
   expect(telegram).toContain("Evidence: https://openrouter.ai/models/gpt-5");
@@ -265,6 +265,8 @@ test("one story becomes one cross-source digest with every evidence link", () =>
   expect(payload.embeds).toHaveLength(1);
   expect(payload.embeds?.[0]?.description).toContain("https://openrouter.ai/models/gpt-5");
   expect(payload.embeds?.[0]?.description).toContain("https://api.openai.com/models/gpt-5");
+  expect(payload.embeds?.[0]?.description).toContain("[Open OpenRouter evidence]");
+  expect(payload.embeds?.[0]?.description).toContain("[Open OpenAI API evidence]");
   local.close();
 });
 
@@ -338,8 +340,12 @@ test("a cross-stream digest stays scoped to each destination", () => {
   const bodies = new Map(
     rows.map((row) => [row.destination_id, JSON.parse(row.body) as { embeds: { title: string }[] }]),
   );
-  expect(bodies.get("models")?.embeds.map((embed) => embed.title)).toEqual(["Router model"]);
-  expect(bodies.get("benchmarks")?.embeds.map((embed) => embed.title)).toEqual(["Leaderboard model"]);
+  expect(bodies.get("models")?.embeds.map((embed) => embed.title)).toEqual([
+    "✏️ Model availability updated · Router model",
+  ]);
+  expect(bodies.get("benchmarks")?.embeds.map((embed) => embed.title)).toEqual([
+    "✏️ Leaderboard movement · Leaderboard model",
+  ]);
   local.close();
 });
 
@@ -411,6 +417,33 @@ test("notifications expose source confidence", () => {
   });
 });
 
+test("Discord cards lead with the change type and expose scan-friendly metadata", () => {
+  const event = {
+    id: 12,
+    source: "openrouter",
+    stream: "openrouter",
+    entity_id: "openai/gpt-6",
+    kind: "new" as const,
+    before_json: null,
+    after_json: JSON.stringify({ id: "openai/gpt-6", name: "GPT-6", maker: "OpenAI", selectable: true }),
+    detected_at: "2026-09-08T14:06:00.000Z",
+    confidence: "confirmed" as const,
+    evidence_type: "availability_catalogue" as const,
+  };
+  const embed = eventEmbed(event, "https://openrouter.ai/models/openai/gpt-6") as {
+    title: string;
+    description: string;
+    fields: { name: string; value: string }[];
+  };
+  expect(embed.title).toBe("🆕 New model available · GPT-6");
+  expect(embed.description).toContain("**What changed**");
+  expect(embed.fields.find((field) => field.name === "Signal")?.value).toBe("Confirmed · availability catalogue");
+  expect(embed.fields.find((field) => field.name === "Detected")?.value).toContain("<t:1788876360:R>");
+  expect(embed.fields.find((field) => field.name === "Reader impact")?.value).toBe(
+    "Available to use from this catalogue.",
+  );
+});
+
 test("Discord labels an AI summary before the raw evidence", () => {
   const event = {
     id: 9,
@@ -431,7 +464,7 @@ test("Discord labels an AI summary before the raw evidence", () => {
     "https://github.com/openai/codex/commit/commit-1",
     "Conversation history stores the originating model.",
   ) as { description: string };
-  expect(embed.description).toStartWith("AI summary: Conversation history stores the originating model.");
+  expect(embed.description).toStartWith("**Summary**\nConversation history stores the originating model.");
   expect(embed.description).toContain("Changes: 1 file · +4/−1 lines");
   expect(embed.description).not.toContain("model_info");
 });
@@ -559,7 +592,7 @@ test("entering a board is a sentence, waits for the digest, and pings nobody", (
   };
   expect(embed.description).toContain("Enters text-to-image/overall at rank 1");
   // The eyebrow already says OpenAI; the body must not say it again.
-  expect(embed.author.name).toBe("LEADERBOARD · OPENAI");
+  expect(embed.author.name).toBe("ARENA · LEADERBOARDS · OPENAI");
   expect(embed.description).not.toContain("Maker:");
   // A scoreboard moving is not worth interrupting a few hundred people for.
   expect(isRoutine(event)).toBe(true);

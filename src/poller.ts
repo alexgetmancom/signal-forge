@@ -3,6 +3,7 @@ import type { AppConfig } from "./config.js";
 import { saveCollection } from "./events/pipeline.js";
 import { CollectionDegradedError } from "./events/store.js";
 import { log } from "./logger.js";
+import { measure } from "./runtime/metrics.js";
 import { SourceHttpError } from "./sources/http.js";
 import { sourceJobs } from "./sources/registry.js";
 
@@ -46,7 +47,9 @@ export async function pollSources(db: Database, config: AppConfig, force = false
       const collection = { ...(await job.run()), authority: job.authority };
       const checkedAt = new Date().toISOString();
       const destinations = job.mode === "shadow" ? [] : config.destinations;
-      const events = saveCollection(db, collection, destinations, checkedAt, config.vendorRoles);
+      const events = measure(db, `source.persist:${job.id}`, () =>
+        saveCollection(db, collection, destinations, checkedAt, config.vendorRoles),
+      );
       db.query("UPDATE sources SET failures=0,retry_at=NULL WHERE id=?").run(job.id);
       if (job.pace) pacedAt.set(job.pace.group, Date.parse(checkedAt));
       log("info", "Source collected", { source: job.id, records: collection.records.length, events });

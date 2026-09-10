@@ -42,14 +42,14 @@ test("sends to Telegram topic and Discord channel with bot auth and no mentions"
   });
   expect(db.query("SELECT status FROM deliveries").all()).toEqual([{ status: "sent" }, { status: "sent" }]);
 });
-test("rate limit retries only after requested delay", async () => {
+test("rate limits each destination lane and retries only after requested delay", async () => {
   queue();
   let calls = 0;
   await deliverPending(db, config, async () => {
     calls++;
     return Response.json({ parameters: { retry_after: 60 } }, { status: 429 });
   });
-  expect(calls).toBe(1);
+  expect(calls).toBe(2);
   const row = db
     .query<{ status: string; next_attempt: number }, []>(
       "SELECT status,next_attempt FROM deliveries ORDER BY id LIMIT 1",
@@ -58,7 +58,7 @@ test("rate limit retries only after requested delay", async () => {
   expect(row?.status).toBe("pending");
   expect(row?.next_attempt).toBeGreaterThan(Date.now() + 50000);
 });
-test("rate limit delays only deliveries on the same platform", async () => {
+test("rate limit does not block an independent destination", async () => {
   const local = openDatabase(":memory:");
   const telegram = { id: "tg", platform: "telegram" as const, chatId: "1", streams: ["news"] };
   const discord = { id: "dc", platform: "discord" as const, channelId: "2", streams: ["news"] };
@@ -77,9 +77,58 @@ test("rate limit delays only deliveries on the same platform", async () => {
     status: "pending",
   });
   expect(local.query("SELECT status,next_attempt FROM deliveries WHERE id=2").get()).toEqual({
-    status: "pending",
+    status: "sent",
     next_attempt: 0,
   });
+  local.close();
+});
+test("a rate limit does not block another destination on the same platform", async () => {
+  const local = openDatabase(":memory:");
+  const first = { id: "tg-1", platform: "telegram" as const, chatId: "1", streams: ["news"] };
+  const second = { id: "tg-2", platform: "telegram" as const, chatId: "2", streams: ["news"] };
+  local.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'test',0,1),(2,'test',0,1)").run();
+  local
+    .query(
+      "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,updated_at) VALUES(1,1,'tg-1',?,'one',0,0),(2,2,'tg-2',?,'two',0,0)",
+    )
+    .run(JSON.stringify(first), JSON.stringify(second));
+  await deliverPending(local, config, async (_url, init) => {
+    const body = JSON.parse(String(init?.body)) as { chat_id: string };
+    return body.chat_id === "1"
+      ? Response.json({ parameters: { retry_after: 60 } }, { status: 429 })
+      : Response.json({ ok: true, result: { message_id: 2 } });
+  });
+  expect(local.query("SELECT status FROM deliveries WHERE id=1").get()).toEqual({ status: "pending" });
+  expect(local.query("SELECT status FROM deliveries WHERE id=2").get()).toEqual({ status: "sent" });
+  local.close();
+});
+test("preflight delivery failures are failed without making a provider request", async () => {
+  const local = openDatabase(":memory:");
+  const telegram = { id: "tg", platform: "telegram" as const, chatId: "1", streams: ["news"] };
+  local.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'test',0,1)").run();
+  local
+    .query(
+      "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,updated_at) VALUES(1,1,'tg',?,'body',0,0),(2,1,'bad','{','body',1,0)",
+    )
+    .run(JSON.stringify(telegram));
+  let calls = 0;
+  await deliverPending(local, { ...config, TELEGRAM_BOT_TOKEN: undefined }, async () => {
+    calls += 1;
+    throw new Error("must not send");
+  });
+  expect(calls).toBe(0);
+  expect(local.query("SELECT id,status,error FROM deliveries ORDER BY id").all()).toEqual([
+    {
+      id: 1,
+      status: "failed",
+      error: "Delivery rejected before external request: invalid destination or missing credentials",
+    },
+    {
+      id: 2,
+      status: "failed",
+      error: "Delivery rejected before external request: invalid destination or missing credentials",
+    },
+  ]);
   local.close();
 });
 test("network timeout and 5xx are ambiguous, not retried", async () => {
@@ -150,6 +199,24 @@ test("permanent platform rejection fails one target without blocking another", a
     { status: "failed" },
     { status: "sent" },
   ]);
+});
+test("a Telegram application error is a failed delivery, not an ambiguous send", async () => {
+  const local = openDatabase(":memory:");
+  const telegram = { id: "tg", platform: "telegram" as const, chatId: "1", streams: ["news"] };
+  local.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'test',0,1)").run();
+  local
+    .query(
+      "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,updated_at) VALUES(1,1,'tg',?,'body',0,0)",
+    )
+    .run(JSON.stringify(telegram));
+  await deliverPending(local, config, async () =>
+    Response.json({ ok: false, error_code: 400, description: "Bad Request: chat not found" }, { status: 200 }),
+  );
+  expect(local.query("SELECT status,error FROM deliveries").get()).toEqual({
+    status: "failed",
+    error: "Telegram rejected delivery",
+  });
+  local.close();
 });
 
 test("discord sends suppress the link unfurl", async () => {

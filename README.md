@@ -71,10 +71,17 @@ Signal Forge keeps those observations separate while correlating them around the
 Example notification:
 
 ```text
-🆕 New · OpenRouter
-GPT-5
-Provider: OpenAI
-Signal Forge · availability catalogue · confirmed · 08 Sep 02:00 UTC
+🆕 New model available · GPT-5
+OpenRouter · OpenAI
+
+What changed
+Listed and selectable.
+
+Reader impact
+Available to use from this catalogue.
+
+Confirmed · availability catalogue
+Detected a few minutes ago
 ```
 
 ## Signal, not noise
@@ -178,6 +185,13 @@ There is no CLI command that edits configuration files.
 
 Set `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, and `GEMINI_API_KEY` for their catalogs. Set `DEEPSEEK_API_KEY` to enable one-sentence summaries for large, publishable diffs after deterministic noise filtering; a missing key or failed summary call leaves the original evidence unchanged and never blocks delivery. Discord and Telegram keep the title and compact source evidence alongside the optional summary.
 
+Every Summary attempt is recorded with its event, source, stream, model, response status, token
+usage, cache hit/miss counts, outcome and calculated USD cost. Inspect the local ledger with
+`bun src/cli.ts deepseek-usage 30`, `/api/deepseek-usage?days=30`, or the `deepseek_usage` MCP
+operation. The report also names the code path, selection rule and spend limits. Historical calls
+from the old counter are retained as unpriced legacy attempts because their provider token usage
+was never stored.
+
 GitHub notifications show the commit or pull-request title, a one-sentence summary when a large diff warrants it, and compact change statistics; raw patch evidence remains internal. Set `GITHUB_TOKEN` to raise the GitHub request allowance from 60 to 5,000 per hour. Optional `github` entries accept `repo` and `paths`; the default repository is `openai/codex`. Set `HF_TOKEN` to use the account's Hub API allowance instead of the anonymous allowance shared by the machine's public address.
 
 See [docs/discord.md](docs/discord.md) for Discord destination, channel, board, role, and permission configuration.
@@ -198,6 +212,8 @@ Signal Forge exposes the same operational model through CLI, HTTP, and MCP inter
 bun src/cli.ts status
 bun src/cli.ts issues
 bun src/cli.ts signal-quality 7
+bun src/cli.ts code-analytics 7
+bun src/cli.ts deepseek-usage 30
 bun src/cli.ts stories
 bun src/cli.ts models
 bun src/cli.ts hypotheses
@@ -229,6 +245,18 @@ Key safeguards include:
 
 Snapshots, events, and delivery jobs commit in one SQLite transaction. Immutable assets are not requested again, and responses without validators are not treated as cacheable.
 
+Instrumented runtime boundaries store bounded, hourly code-execution metrics for 90 days. The
+report includes call counts, failures, total and average duration, min/max, approximate p50/p95,
+last-seen timestamps, and an hourly timeline. Inspect it with `bun src/cli.ts code-analytics 7`,
+`/api/code-analytics?days=7`, or the `code_analytics` MCP operation.
+Sections are intentionally nested (for example, a source collection runs inside a worker), so
+the report's totals are recorded span-time and are not a wall-clock sum.
+
+DeepSeek Summary usage is retained in a local one-row-per-attempt ledger. It records one claim per event,
+including failed and unclear responses, and calculates cost from the provider's returned token and
+cache fields. A missing token breakdown is reported as estimated or unpriced rather than silently
+counted as zero.
+
 ## Deployment
 
 The production deployment, backup, restore, and operator procedures live in the [operator runbook](docs/runbook.md). Deployment-specific hosts, paths, and credentials stay outside the repository.
@@ -243,9 +271,9 @@ Full event evidence remains in SQLite even when a message excerpt is truncated.
 
 ## HTTP / MCP API
 
-For HTTP/MCP access, set `MCP_TOKEN` to at least 32 random characters and use `Authorization: Bearer <token>` with `/api/status`, `/api/events`, `/api/events/:id`, `/api/models`, `/api/models/*`, `/api/hypotheses`, `/api/hypotheses/:id`, `/api/deadlines`, or `/api/mcp`.
+For HTTP/MCP access, set `MCP_TOKEN` to at least 32 random characters and use `Authorization: Bearer <token>` with `/api/status`, `/api/events`, `/api/events/:id`, `/api/models`, `/api/models/*`, `/api/hypotheses`, `/api/hypotheses/:id`, `/api/deadlines`, `/api/code-analytics`, `/api/deepseek-usage`, or `/api/mcp`.
 
-MCP operations: `status`, `events`, `event`, `deliveries`, `issues`, `capabilities`, `deliveries_needing_verification`, `require_delivery_verification`, `resolve_delivery_verification`, `signal_quality`, `stories`, `models`, `model`, `hypotheses`, `hypothesis`, and `lifecycle_deadlines`.
+MCP operations: `status`, `events`, `event`, `deliveries`, `issues`, `capabilities`, `deliveries_needing_verification`, `require_delivery_verification`, `resolve_delivery_verification`, `signal_quality`, `code_analytics`, `deepseek_usage`, `stories`, `models`, `model`, `hypotheses`, `hypothesis`, and `lifecycle_deadlines`.
 
 ## Development
 

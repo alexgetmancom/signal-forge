@@ -144,7 +144,10 @@ describe("startIntervalWorker", () => {
     await worker.stop();
     expect(runs).toBe(1);
     const state = db.query<{ value: string }, [string]>("SELECT value FROM app_state WHERE key=?").get("worker:test");
-    expect(JSON.parse(state?.value ?? "{}").state).toBe("stopped");
+    expect(JSON.parse(state?.value ?? "{}")).toMatchObject({
+      state: "stopped",
+      heartbeatIntervalMs: 60_000,
+    });
     db.close();
   });
 

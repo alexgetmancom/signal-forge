@@ -60,3 +60,27 @@ test("collection shrinkage is a distinct actionable issue", () => {
   );
   db.close();
 });
+
+test("stale workers and sending deliveries are actionable without automatic retries", () => {
+  const db = openDatabase(":memory:");
+  const config = loadConfig({ CONFIG_PATH: configPath });
+  const now = Date.parse("2026-09-08T12:00:00.000Z");
+  db.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'test',0,1)").run();
+  db.query(
+    "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,status,updated_at) VALUES(8,1,'dc','{}','body',0,'sending',?)",
+  ).run(now - 6 * 60 * 1000);
+  db.query("INSERT INTO app_state(key,value) VALUES(?,?)").run(
+    "worker:status",
+    JSON.stringify({
+      state: "running",
+      lastStartedAt: new Date(now - 10 * 60 * 1000).toISOString(),
+      lastHeartbeatAt: new Date(now - 4 * 60 * 1000).toISOString(),
+      heartbeatIntervalMs: 60_000,
+    }),
+  );
+  const issues = listActionableIssues(db, config, now);
+  expect(issues).toContainEqual(expect.objectContaining({ id: "worker:status:stale", kind: "worker_stale" }));
+  expect(issues).toContainEqual(expect.objectContaining({ id: "delivery:8:stuck", kind: "delivery_stuck" }));
+  expect(db.query("SELECT status FROM deliveries WHERE id=8").get()).toEqual({ status: "sending" });
+  db.close();
+});

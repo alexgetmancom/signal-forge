@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import type { AppConfig, SourceMode, Stream } from "../config.js";
 import { SOURCE_AUTHORITIES } from "../events/confidence.js";
 import type { Collection, SourceAuthority } from "../events/types.js";
+import { measure } from "../runtime/metrics.js";
 import { HttpCache } from "../storage/httpCache.js";
 import { collectArena, collectLeaderboards } from "./arena.js";
 import { collectAnthropic, collectGemini, collectOpenAI, collectOpenRouter } from "./catalogs.js";
@@ -586,8 +587,14 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       mode: config.sourceMode[definition.id] ?? (shadowByDefault.has(definition.id) ? "shadow" : "active"),
     }),
   );
-  validateSourceRegistry(resolved);
-  return resolved;
+  const observed = resolved.map(
+    (definition): SourceDefinition => ({
+      ...definition,
+      collector: () => measure(db, `source.collect:${definition.id}`, definition.collector),
+    }),
+  );
+  validateSourceRegistry(observed);
+  return observed;
 }
 
 export function validateSourceRegistry(definitions: readonly SourceDefinition[]): void {

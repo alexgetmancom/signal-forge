@@ -1,4 +1,4 @@
-import { publishAlerts } from "./alerts.js";
+import { publishAlerts, recoverInterruptedAlerts } from "./alerts.js";
 import { loadConfig } from "./config.js";
 import { deliverPending, recoverInterruptedDeliveries } from "./delivery.js";
 import { createHttpApp } from "./http.js";
@@ -7,6 +7,7 @@ import { rebuildLifecycleDeadlines, scheduleLifecycleReminders } from "./lifecyc
 import { configureLogger, log } from "./logger.js";
 import { rebuildModelFacts } from "./modelFacts.js";
 import { pollSources } from "./poller.js";
+import { pruneCodeMetrics } from "./runtime/metrics.js";
 import { logMemoryUsage, recordRuntimeStart, recordRuntimeStop } from "./runtime/observability.js";
 import { stopServerGracefully } from "./runtime/shutdown.js";
 import { RuntimeSupervisor } from "./runtime/supervisor.js";
@@ -29,6 +30,7 @@ const storyProjection = db.transaction(() => {
 rememberStoryProjection(db, storyProjection);
 recordRuntimeStart(db);
 recoverInterruptedDeliveries(db);
+recoverInterruptedAlerts(db);
 const server = Bun.serve({ hostname: config.BIND_HOST, port: config.PORT, fetch: createHttpApp(config, db).fetch });
 const supervisor = new RuntimeSupervisor();
 supervisor.register(
@@ -42,10 +44,27 @@ supervisor.register(
   startIntervalWorker(db, "status", 300_000, async () => {
     // Order matters on a first run: the channel reads top to bottom, so what happened comes first,
     // then how the vendors are doing, then how we are doing.
-    await publishActivityBoard(db, config);
-    await publishPlatformBoard(db, config);
-    await publishStatus(db, config);
-    await publishAlerts(db, config);
+    try {
+      await publishActivityBoard(db, config);
+    } catch (error) {
+      log("error", "Activity board probe failed", { error });
+    }
+    try {
+      await publishPlatformBoard(db, config);
+    } catch (error) {
+      log("error", "Platform board probe failed", { error });
+    }
+    try {
+      await publishStatus(db, config);
+    } catch (error) {
+      log("error", "Status board probe failed", { error });
+    }
+    try {
+      await publishAlerts(db, config);
+    } catch (error) {
+      log("error", "Operational alert probe failed", { error });
+    }
+    pruneCodeMetrics(db);
     // Cached bodies for files nobody links to any more; a rebuilt bundle renames everything.
     new HttpCache(db).prune();
   }),

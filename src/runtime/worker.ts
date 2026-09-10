@@ -1,9 +1,12 @@
 import type { Database } from "bun:sqlite";
 import { log } from "../logger.js";
+import { measure } from "./metrics.js";
 
 export type WorkerHandle = {
   stop: () => Promise<void>;
 };
+
+export const WORKER_HEARTBEAT_INTERVAL_MS = 60_000;
 
 type WorkerState = {
   state: "running" | "idle" | "failed" | "stopped";
@@ -11,6 +14,8 @@ type WorkerState = {
   lastFinishedAt: string | null;
   durationMs: number | null;
   lastError: string | null;
+  lastHeartbeatAt: string;
+  heartbeatIntervalMs: number;
 };
 
 function storeState(db: Database, name: string, state: WorkerState): void {
@@ -39,34 +44,46 @@ export function startIntervalWorker(
   let timer: ReturnType<typeof setTimeout> | undefined;
   let currentRun: Promise<void> = Promise.resolve();
   let stopPromise: Promise<void> | undefined;
-  let lastStoredAt = 0;
   let lastStartedAt = new Date().toISOString();
 
   const run = async (): Promise<void> => {
     if (stopped) return;
     const started = Date.now();
     lastStartedAt = new Date(started).toISOString();
-    const recordCycle = started - lastStoredAt >= 60_000;
-    if (recordCycle) {
+    storeState(db, name, {
+      state: "running",
+      lastStartedAt,
+      lastFinishedAt: null,
+      durationMs: null,
+      lastError: null,
+      lastHeartbeatAt: lastStartedAt,
+      heartbeatIntervalMs: WORKER_HEARTBEAT_INTERVAL_MS,
+    });
+    const heartbeatTimer = setInterval(() => {
+      if (stopped) return;
+      const heartbeat = new Date().toISOString();
       storeState(db, name, {
         state: "running",
         lastStartedAt,
         lastFinishedAt: null,
         durationMs: null,
         lastError: null,
+        lastHeartbeatAt: heartbeat,
+        heartbeatIntervalMs: WORKER_HEARTBEAT_INTERVAL_MS,
       });
-      lastStoredAt = started;
-    }
+    }, WORKER_HEARTBEAT_INTERVAL_MS);
     try {
-      await task();
-      if (recordCycle)
-        storeState(db, name, {
-          state: "idle",
-          lastStartedAt,
-          lastFinishedAt: new Date().toISOString(),
-          durationMs: Date.now() - started,
-          lastError: null,
-        });
+      await measure(db, `worker:${name}`, task);
+      const finishedAt = new Date().toISOString();
+      storeState(db, name, {
+        state: "idle",
+        lastStartedAt,
+        lastFinishedAt: finishedAt,
+        durationMs: Date.now() - started,
+        lastError: null,
+        lastHeartbeatAt: finishedAt,
+        heartbeatIntervalMs: WORKER_HEARTBEAT_INTERVAL_MS,
+      });
       log("debug", "Worker cycle completed", { worker: name });
     } catch (error) {
       storeState(db, name, {
@@ -75,10 +92,12 @@ export function startIntervalWorker(
         lastFinishedAt: new Date().toISOString(),
         durationMs: Date.now() - started,
         lastError: error instanceof Error ? error.message : String(error),
+        lastHeartbeatAt: new Date().toISOString(),
+        heartbeatIntervalMs: WORKER_HEARTBEAT_INTERVAL_MS,
       });
-      lastStoredAt = Date.now();
       log("error", "Worker cycle failed", { worker: name, error });
     } finally {
+      clearInterval(heartbeatTimer);
       if (!stopped) timer = setTimeout(startCycle, intervalMs);
     }
   };
@@ -102,6 +121,8 @@ export function startIntervalWorker(
           lastFinishedAt: new Date().toISOString(),
           durationMs: null,
           lastError: null,
+          lastHeartbeatAt: new Date().toISOString(),
+          heartbeatIntervalMs: WORKER_HEARTBEAT_INTERVAL_MS,
         });
         log("info", "Worker stopped", { worker: name });
       });

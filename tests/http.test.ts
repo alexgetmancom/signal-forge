@@ -35,6 +35,8 @@ test("health is public, operational state requires token, MCP lists matching sch
     "require_delivery_verification",
     "resolve_delivery_verification",
     "signal_quality",
+    "code_analytics",
+    "deepseek_usage",
     "stories",
     "models",
     "model",
@@ -44,6 +46,22 @@ test("health is public, operational state requires token, MCP lists matching sch
     "issues",
     "capabilities",
   ]);
+  const batch = await app.request("/api/mcp", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${config.MCP_TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify([
+      { jsonrpc: "2.0", id: 1, method: "ping" },
+      { jsonrpc: "2.0", method: "tools/list" },
+    ]),
+  });
+  expect(batch.status).toBe(200);
+  expect(await batch.json()).toEqual([{ jsonrpc: "2.0", id: 1, result: {} }]);
+  const notifications = await app.request("/api/mcp", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${config.MCP_TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify([{ jsonrpc: "2.0", method: "ping" }]),
+  });
+  expect(notifications.status).toBe(202);
   const auth = { Authorization: `Bearer ${config.MCP_TOKEN}` };
   expect((await app.request("/api/deliveries", { headers: auth })).status).toBe(200);
   expect((await app.request("/api/deliveries/verification", { headers: auth })).status).toBe(200);
@@ -67,6 +85,8 @@ test("health is public, operational state requires token, MCP lists matching sch
   });
   resolutionDb.close();
   expect((await app.request("/api/signal-quality", { headers: auth })).status).toBe(200);
+  expect((await app.request("/api/code-analytics", { headers: auth })).status).toBe(200);
+  expect((await app.request("/api/deepseek-usage", { headers: auth })).status).toBe(200);
   expect((await app.request("/api/stories", { headers: auth })).status).toBe(200);
   db.close();
 });

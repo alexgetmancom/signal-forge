@@ -77,8 +77,14 @@ export function renderEvent(
   } else if (event.stream === "leaderboards" && before && after) {
     if (canonical(before.category) !== canonical(after.category))
       lines.push(`Benchmark: ${describe(before.category)} → ${describe(after.category)}`);
+    else if (after.category !== undefined || before.category !== undefined)
+      lines.push(`Benchmark: ${describe(after.category ?? before.category)}`);
     if (canonical(before.rank) !== canonical(after.rank)) {
       if (before.rank !== undefined && after.rank !== undefined) lines.push(rankMove(before.rank, after.rank));
+      else if (before.rank !== undefined && after.rank === undefined)
+        lines.push(`Falls outside tracked top 20 (was rank ${describe(before.rank)})`);
+      else if (before.rank === undefined && after.rank !== undefined)
+        lines.push(`Enters tracked top 20 at rank ${describe(after.rank)}`);
       else lines.push(`Rank: ${describe(before.rank)} → ${describe(after.rank)}`);
     }
     for (const [key, label] of [
@@ -88,6 +94,9 @@ export function renderEvent(
     ] as const)
       if (canonical(before[key]) !== canonical(after[key]))
         lines.push(`${label}: ${describe(before[key])} → ${describe(after[key])}`);
+  } else if (event.stream === "leaderboards" && before && !after) {
+    lines.push(`Leaves ${describe(before.category)}`);
+    if (before.rank !== undefined) lines.push(`Last observed rank: ${describe(before.rank)}`);
   } else if (event.stream === "github") {
     if (record?.stage) lines.push(describe(record.stage));
     else if (event.source.endsWith(":commits")) lines.push("Repository change; not a release yet");
@@ -144,11 +153,13 @@ export function renderEvent(
   lines.push(...collapseDetails(lines.splice(3)));
   if (summary) lines.splice(3, 0, `AI summary: ${summary}`);
   const link =
-    typeof record?.url === "string"
-      ? record.url
-      : event.source === "openrouter"
-        ? `https://openrouter.ai/${event.entity_id}`
-        : url;
+    event.stream === "leaderboards"
+      ? url
+      : typeof record?.url === "string"
+        ? record.url
+        : event.source === "openrouter"
+          ? `https://openrouter.ai/${event.entity_id}`
+          : url;
   const stamp = Math.floor(Date.parse(event.detected_at) / 1000);
   const time = platform === "discord" ? `<t:${stamp}:f>` : utcStamp(event.detected_at);
   lines.push("", link);

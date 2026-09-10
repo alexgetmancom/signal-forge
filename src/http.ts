@@ -6,10 +6,18 @@ import { bearerTokenAccepted } from "./auth.js";
 import type { AppConfig } from "./config.js";
 import { evidenceLabel } from "./events/confidence.js";
 import type { EvidenceType } from "./events/types.js";
+import { redact, redactExternalSecrets } from "./logger.js";
 import { operations } from "./operations.js";
+import { measure } from "./runtime/metrics.js";
+
+function metricRoute(path: string): string {
+  if (path.startsWith("/api/models/") && path !== "/api/models/") return "/api/models/:canonicalId";
+  return path.replace(/\/\d+(?=\/|$)/g, "/:id");
+}
 
 export function createHttpApp(config: AppConfig, db: Database): Hono {
   const app = new Hono();
+  app.use("*", async (c, next) => measure(db, `http.route:${c.req.method}:${metricRoute(c.req.path)}`, () => next()));
   app.get("/", (c) => c.json({ name: "signal-forge", status: "ok" }));
   app.get("/healthz", (c) => c.text("ok\n"));
   app.get("/readyz", (c) => {
@@ -104,6 +112,16 @@ export function createHttpApp(config: AppConfig, db: Database): Hono {
     if (!days.success) return c.json({ error: "Invalid days" }, 400);
     return c.json(defs.signal_quality.handler({ days: days.data }));
   });
+  app.get("/api/code-analytics", (c) => {
+    const days = z.coerce.number().int().min(1).max(90).default(7).safeParse(c.req.query("days"));
+    if (!days.success) return c.json({ error: "Invalid days" }, 400);
+    return c.json(defs.code_analytics.handler({ days: days.data }));
+  });
+  app.get("/api/deepseek-usage", (c) => {
+    const days = z.coerce.number().int().min(1).max(365).default(7).safeParse(c.req.query("days"));
+    if (!days.success) return c.json({ error: "Invalid days" }, 400);
+    return c.json(defs.deepseek_usage.handler({ days: days.data }));
+  });
   app.get("/api/stories", (c) => {
     const parsed = z
       .object({
@@ -173,39 +191,57 @@ export function createHttpApp(config: AppConfig, db: Database): Hono {
       method: z.string(),
       params: z.object({ name: z.string().optional(), arguments: z.unknown().optional() }).optional(),
     });
-    const parsed = schema.safeParse(await c.req.json().catch(() => null));
-    if (!parsed.success)
-      return c.json({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid request" } });
-    const req = parsed.data;
-    if (req.id === undefined) return c.body(null, 202);
-    const success = (result: unknown) => c.json({ jsonrpc: "2.0", id: req.id, result });
-    if (req.method === "initialize")
-      return success({
-        protocolVersion: "2024-11-05",
-        capabilities: { tools: {} },
-        serverInfo: { name: "signal-forge", version: "0.1.0" },
-      });
-    if (req.method === "ping") return success({});
-    if (req.method === "tools/list")
-      return success({
-        tools: Object.entries(defs).map(([name, def]) => ({
-          name,
-          description: def.description,
-          inputSchema: z.toJSONSchema(def.schema, { io: "input" }),
-        })),
-      });
-    if (req.method === "tools/call") {
-      const name = req.params?.name;
-      if (name && Object.hasOwn(defs, name)) {
-        const def = defs[name as keyof typeof defs] as { schema: z.ZodType; handler: (input: never) => unknown };
-        const input = def.schema.safeParse(req.params?.arguments ?? {});
-        if (!input.success)
-          return success({ isError: true, content: [{ type: "text", text: "Invalid tool arguments" }] });
-        const result = def.handler(input.data as never);
-        return success({ content: [{ type: "text", text: JSON.stringify(result) }] });
+    const payload = await c.req.json().catch(() => null);
+    const handle = (raw: unknown): Record<string, unknown> | null => {
+      const parsed = schema.safeParse(raw);
+      if (!parsed.success) return { jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid request" } };
+      const req = parsed.data;
+      const reply = (value: Record<string, unknown>): Record<string, unknown> | null =>
+        req.id === undefined ? null : { jsonrpc: "2.0", id: req.id, ...value };
+      if (req.method === "initialize")
+        return reply({
+          result: {
+            protocolVersion: "2024-11-05",
+            capabilities: { tools: {} },
+            serverInfo: { name: "signal-forge", version: "0.1.0" },
+          },
+        });
+      if (req.method === "ping") return reply({ result: {} });
+      if (req.method === "tools/list")
+        return reply({
+          result: {
+            tools: Object.entries(defs).map(([name, def]) => ({
+              name,
+              description: def.description,
+              inputSchema: z.toJSONSchema(def.schema, { io: "input" }),
+            })),
+          },
+        });
+      if (req.method === "tools/call") {
+        const name = req.params?.name;
+        if (name && Object.hasOwn(defs, name)) {
+          const def = defs[name as keyof typeof defs] as { schema: z.ZodType; handler: (input: never) => unknown };
+          const input = def.schema.safeParse(req.params?.arguments ?? {});
+          if (!input.success)
+            return reply({ result: { isError: true, content: [{ type: "text", text: "Invalid tool arguments" }] } });
+          try {
+            const result = measure(db, `mcp.tool:${name}`, () => def.handler(input.data as never));
+            return reply({ result: { content: [{ type: "text", text: JSON.stringify(result) }] } });
+          } catch {
+            return reply({ error: { code: -32000, message: "Tool execution failed" } });
+          }
+        }
       }
-    }
-    return c.json({ jsonrpc: "2.0", id: req.id, error: { code: -32601, message: "Unknown method or tool" } });
+      return reply({ error: { code: -32601, message: "Unknown method or tool" } });
+    };
+    if (Array.isArray(payload) && payload.length === 0)
+      return c.json({ jsonrpc: "2.0", id: null, error: { code: -32600, message: "Invalid request" } });
+    const responses = Array.isArray(payload)
+      ? payload.map(handle).filter((value) => value !== null)
+      : [handle(payload)];
+    if (!responses.length || responses[0] === null) return c.body(null, 202);
+    const body = redactExternalSecrets(JSON.stringify(redact(Array.isArray(payload) ? responses : responses[0])));
+    return c.body(body, 200, { "content-type": "application/json" });
   });
   app.onError((_error, c) => c.json({ error: "Internal server error" }, 500));
   return app;

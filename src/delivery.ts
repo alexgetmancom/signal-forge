@@ -4,10 +4,24 @@ import { type AppConfig, type Destination, destinationSchema } from "./config.js
 import { prepareDeliveries } from "./events/batching.js";
 import type { Fetch } from "./http-client.js";
 import { log } from "./logger.js";
+import { measure } from "./runtime/metrics.js";
 import { fillSummaries } from "./summary.js";
 
 type Job = { id: number; destination_json: string; body: string; attempts: number };
+type DeliveryStatus = "pending" | "sent" | "failed" | "ambiguous";
+type PreparedDelivery = {
+  destination: Destination;
+  url: string;
+  headers: Record<string, string>;
+  body: unknown;
+};
+
 const telegramResponse = z.object({ ok: z.literal(true), result: z.object({ message_id: z.number().int() }) });
+const telegramErrorResponse = z.object({
+  ok: z.literal(false),
+  error_code: z.number().int(),
+  description: z.string().optional(),
+});
 const discordResponse = z.object({ id: z.string().regex(/^\d+$/) });
 const rateLimit = z.object({
   retry_after: z.number().nonnegative().optional(),
@@ -19,105 +33,146 @@ export function recoverInterruptedDeliveries(db: Database): void {
     "UPDATE deliveries SET status='ambiguous',error='Process stopped during send; verify destination before retrying',updated_at=? WHERE status='sending'",
   ).run(Date.now());
 }
+
 export async function deliverPending(db: Database, config: AppConfig, request: Fetch = fetch): Promise<void> {
   // Summaries are written before the message is built; a failure here leaves the message unchanged.
   await fillSummaries(db, config, request);
   db.transaction(() => {
     prepareDeliveries(db, Date.now(), config.vendorRoles);
   })();
-  // One sequential sender respects channel order; each claim is conditional even if another process races it.
-  for (let n = 0; n < 20; n++) {
-    const now = Date.now();
-    const job = db
-      .query<Job, [number, number]>(`UPDATE deliveries SET status='sending',attempts=attempts+1,updated_at=?
-      WHERE id=(SELECT d.id FROM deliveries d WHERE d.status='pending' AND d.next_attempt<=?
-        AND NOT EXISTS(SELECT 1 FROM deliveries earlier WHERE earlier.batch_id=d.batch_id AND earlier.destination_id=d.destination_id AND earlier.part<d.part AND earlier.status<>'sent')
-        ORDER BY d.id LIMIT 1) AND status='pending' RETURNING id,destination_json,body,attempts`)
-      .get(now, now);
-    if (!job) return;
-    let status = "ambiguous",
-      error: string | null = null,
-      externalId: string | null = null,
-      retryAt = 0,
-      platform: Destination["platform"] | null = null;
-    try {
-      const destination = destinationSchema.parse(JSON.parse(job.destination_json));
-      platform = destination.platform;
-      let url: string, headers: Record<string, string>, body: unknown;
-      if (destination.platform === "telegram") {
-        if (!config.TELEGRAM_BOT_TOKEN) throw new Error("Missing Telegram token");
-        url = `https://api.telegram.org/bot${config.TELEGRAM_BOT_TOKEN}/sendMessage`;
-        headers = { "content-type": "application/json" };
-        body = {
-          chat_id: destination.chatId,
-          message_thread_id: destination.topicId,
-          text: job.body,
-          link_preview_options: { is_disabled: true },
-        };
-      } else {
-        if (!config.DISCORD_BOT_TOKEN) throw new Error("Missing Discord token");
-        url = `https://discord.com/api/v10/channels/${destination.channelId}/messages`;
-        headers = { "content-type": "application/json", Authorization: `Bot ${config.DISCORD_BOT_TOKEN}` };
-        const payload = job.body.startsWith("{")
-          ? (JSON.parse(job.body) as Record<string, unknown>)
-          : { content: job.body };
-        // SUPPRESS_EMBEDS (4) hides every embed on the message, our own included — setting it on a
-        // message built out of embeds delivers a bare header and nothing else. It belongs only on
-        // plain text, where the thing being suppressed is Discord's unfurl of a linked page.
-        const hasEmbeds = Array.isArray(payload.embeds) && payload.embeds.length > 0;
-        body = {
-          // A payload may carry its own allowed_mentions to permit the specific roles it names;
-          // anything without one mentions nobody.
-          allowed_mentions: { parse: [] },
-          ...payload,
-          ...(hasEmbeds ? {} : { flags: 4 }),
-          nonce: `sf-${job.id}`,
-          enforce_nonce: true,
-        };
+
+  const destinationIds = db
+    .query<{ destination_id: string }, [number]>(
+      "SELECT destination_id FROM deliveries WHERE status='pending' AND next_attempt<=? GROUP BY destination_id ORDER BY MIN(id)",
+    )
+    .all(Date.now())
+    .map((row) => row.destination_id);
+  const budget = { remaining: 20 };
+
+  await Promise.all(
+    destinationIds.map(async (destinationId) => {
+      // One lane per destination preserves multipart order while keeping a slow platform from
+      // blocking independent destinations. The shared budget keeps a busy cycle bounded.
+      while (budget.remaining > 0) {
+        const now = Date.now();
+        const job = db
+          .query<Job, [number, string, number]>(`UPDATE deliveries SET status='sending',attempts=attempts+1,updated_at=?
+          WHERE id=(SELECT d.id FROM deliveries d WHERE d.destination_id=? AND d.status='pending' AND d.next_attempt<=?
+            AND NOT EXISTS(SELECT 1 FROM deliveries earlier WHERE earlier.batch_id=d.batch_id AND earlier.destination_id=d.destination_id AND earlier.part<d.part AND earlier.status<>'sent')
+            ORDER BY d.id LIMIT 1) AND status='pending' RETURNING id,destination_json,body,attempts`)
+          .get(now, destinationId, now);
+        if (!job) return;
+        budget.remaining -= 1;
+
+        let status: DeliveryStatus = "failed";
+        let error: string | null = null;
+        let externalId: string | null = null;
+        let retryAt = 0;
+        let prepared: PreparedDelivery | null = null;
+
+        // Everything before the request is a known local failure. It cannot be ambiguous because
+        // the provider has not received a request yet.
+        try {
+          const destination = destinationSchema.parse(JSON.parse(job.destination_json));
+          if (destination.platform === "telegram") {
+            if (!config.TELEGRAM_BOT_TOKEN) throw new Error("missing Telegram token");
+            prepared = {
+              destination,
+              url: `https://api.telegram.org/bot${config.TELEGRAM_BOT_TOKEN}/sendMessage`,
+              headers: { "content-type": "application/json" },
+              body: {
+                chat_id: destination.chatId,
+                message_thread_id: destination.topicId,
+                text: job.body,
+                link_preview_options: { is_disabled: true },
+              },
+            };
+          } else {
+            if (!config.DISCORD_BOT_TOKEN) throw new Error("missing Discord token");
+            const payload = job.body.startsWith("{")
+              ? (JSON.parse(job.body) as Record<string, unknown>)
+              : { content: job.body };
+            // SUPPRESS_EMBEDS (4) hides every embed on the message, our own included — setting it on a
+            // message built out of embeds delivers a bare header and nothing else.
+            const hasEmbeds = Array.isArray(payload.embeds) && payload.embeds.length > 0;
+            prepared = {
+              destination,
+              url: `https://discord.com/api/v10/channels/${destination.channelId}/messages`,
+              headers: { "content-type": "application/json", Authorization: `Bot ${config.DISCORD_BOT_TOKEN}` },
+              body: {
+                allowed_mentions: { parse: [] },
+                ...payload,
+                ...(hasEmbeds ? {} : { flags: 4 }),
+                nonce: `sf-${job.id}`,
+                enforce_nonce: true,
+              },
+            };
+          }
+        } catch {
+          error = "Delivery rejected before external request: invalid destination or missing credentials";
+        }
+
+        if (prepared) {
+          try {
+            const response = await measure(db, `delivery.send:${prepared.destination.platform}`, () =>
+              request(prepared.url, {
+                method: "POST",
+                headers: prepared.headers,
+                body: JSON.stringify(prepared.body),
+                signal: AbortSignal.timeout(20_000),
+                redirect: "error",
+              }),
+            );
+            if (response.status === 429) {
+              const retry = rateLimit.safeParse(await response.json().catch(() => null));
+              const delay = retry.success ? (retry.data.parameters?.retry_after ?? retry.data.retry_after ?? 60) : 60;
+              status = "pending";
+              retryAt = Date.now() + Math.ceil(Math.max(1, delay) * 1000);
+              error = "Rate limited";
+              // Stop only this destination lane; another platform can continue.
+            } else if (response.ok) {
+              const data: unknown = await response.json();
+              if (prepared.destination.platform === "telegram") {
+                const success = telegramResponse.safeParse(data);
+                if (success.success) {
+                  externalId = String(success.data.result.message_id);
+                  status = "sent";
+                } else if (telegramErrorResponse.safeParse(data).success) {
+                  status = "failed";
+                  error = "Telegram rejected delivery";
+                } else {
+                  throw new Error("Invalid Telegram response");
+                }
+              } else {
+                externalId = discordResponse.parse(data).id;
+                status = "sent";
+              }
+            } else {
+              await response.body?.cancel();
+              status = response.status >= 500 ? "ambiguous" : "failed";
+              error = `Platform returned HTTP ${response.status}`;
+            }
+          } catch {
+            // The request or response may have crossed the provider boundary. Persist only a fixed,
+            // safe diagnostic and require verification before any retry.
+            status = "ambiguous";
+            error = "Send outcome unknown: network failure or invalid provider response";
+          }
+        }
+
+        db.query(
+          "UPDATE deliveries SET status=?,external_id=?,error=?,next_attempt=?,updated_at=? WHERE id=? AND status='sending'",
+        ).run(status, externalId, error, retryAt, Date.now(), job.id);
+        log(status === "sent" ? "info" : "warn", "Delivery settled", { deliveryId: job.id, status });
+        if (status === "failed" || status === "ambiguous") {
+          db.query(
+            "UPDATE deliveries SET status='failed',error='Earlier message part was not confirmed',updated_at=? WHERE batch_id=(SELECT batch_id FROM deliveries WHERE id=?) AND destination_id=(SELECT destination_id FROM deliveries WHERE id=?) AND part>(SELECT part FROM deliveries WHERE id=?) AND status='pending'",
+          ).run(Date.now(), job.id, job.id, job.id);
+        }
+        if (status === "pending") {
+          return;
+        }
       }
-      const response = await request(url, {
-        method: "POST",
-        headers,
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(20_000),
-        redirect: "error",
-      });
-      if (response.status === 429) {
-        const retry = rateLimit.safeParse(await response.json());
-        const delay = retry.success ? (retry.data.parameters?.retry_after ?? retry.data.retry_after ?? 60) : 60;
-        status = "pending";
-        retryAt = Date.now() + Math.ceil(Math.max(1, delay) * 1000);
-        error = "Rate limited";
-        // Stop this cycle as the limit may be global to the bot.
-      } else if (response.ok) {
-        const data: unknown = await response.json();
-        externalId =
-          destination.platform === "telegram"
-            ? String(telegramResponse.parse(data).result.message_id)
-            : discordResponse.parse(data).id;
-        status = "sent";
-      } else {
-        status = response.status >= 500 ? "ambiguous" : "failed";
-        error = `Platform returned HTTP ${response.status}`;
-      }
-    } catch {
-      // Exceptions can contain token-bearing Telegram URLs. Persist only a fixed, safe diagnostic.
-      error = "Send outcome unknown: network failure, invalid response or missing credentials";
-    }
-    db.query(
-      "UPDATE deliveries SET status=?,external_id=?,error=?,next_attempt=?,updated_at=? WHERE id=? AND status='sending'",
-    ).run(status, externalId, error, retryAt, Date.now(), job.id);
-    log(status === "sent" ? "info" : "warn", "Delivery settled", { deliveryId: job.id, status });
-    if (status === "failed" || status === "ambiguous") {
-      db.query(
-        "UPDATE deliveries SET status='failed',error='Earlier message part was not confirmed',updated_at=? WHERE batch_id=(SELECT batch_id FROM deliveries WHERE id=?) AND destination_id=(SELECT destination_id FROM deliveries WHERE id=?) AND id>? AND status='pending'",
-      ).run(Date.now(), job.id, job.id, job.id);
-    }
-    if (status === "pending") {
-      db.query(
-        "UPDATE deliveries SET next_attempt=MAX(next_attempt,?) WHERE status='pending' AND json_extract(destination_json,'$.platform')=?",
-      ).run(retryAt, platform);
-      return;
-    }
-  }
+    }),
+  );
 }

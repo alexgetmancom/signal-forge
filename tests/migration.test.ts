@@ -54,10 +54,13 @@ test("fresh databases use every migration and finish with a valid current schema
   expect(
     db
       .query(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('source_collection_metrics','stories','story_events','model_facts','model_fact_fields','model_fact_conflicts','hypotheses','hypothesis_events','lifecycle_deadlines','lifecycle_reminders') ORDER BY name",
+        "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('alert_attempts','code_metrics','deepseek_usage','source_collection_metrics','stories','story_events','model_facts','model_fact_fields','model_fact_conflicts','hypotheses','hypothesis_events','lifecycle_deadlines','lifecycle_reminders') ORDER BY name",
       )
       .all(),
   ).toEqual([
+    { name: "alert_attempts" },
+    { name: "code_metrics" },
+    { name: "deepseek_usage" },
     { name: "hypotheses" },
     { name: "hypothesis_events" },
     { name: "lifecycle_deadlines" },
@@ -86,6 +89,33 @@ test("an unversioned current database is adopted without rewriting its data", ()
   runMigrations(db);
   expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: CURRENT_SCHEMA_VERSION });
   expect(db.query("SELECT value FROM app_state WHERE key='marker'").get()).toEqual({ value: "kept" });
+  db.close();
+});
+
+test("migration moves legacy summary counters into the usage ledger", () => {
+  const db = new Database(":memory:");
+  const migrations = readMigrations();
+  for (const migration of migrations.slice(0, 14)) db.exec(migration.sql);
+  db.query("INSERT INTO app_state(key,value) VALUES('summary_calls_2026-09-08','3')").run();
+  db.exec("PRAGMA user_version=14");
+
+  runMigrations(db);
+
+  expect(
+    db.query("SELECT operation,model,attempts,input_chars,outcome,cost_basis,attempted_at FROM deepseek_usage").all(),
+  ).toEqual([
+    {
+      operation: "summary.legacy-counter",
+      model: "deepseek-v4-flash",
+      attempts: 3,
+      input_chars: 0,
+      outcome: "legacy",
+      cost_basis: "unknown",
+      attempted_at: "2026-09-08T23:59:59.999Z",
+    },
+  ]);
+  expect(db.query("SELECT value FROM app_state WHERE key='summary_calls_2026-09-08'").get()).toBeNull();
+  expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: CURRENT_SCHEMA_VERSION });
   db.close();
 });
 

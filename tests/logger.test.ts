@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { redact, redactKeysMatching } from "../src/logger.js";
+import { redact, redactExternalSecrets, redactKeysMatching } from "../src/logger.js";
 
 describe("redact", () => {
   test("masks sensitive keys at any depth", () => {
@@ -31,5 +31,15 @@ describe("redact", () => {
   test("passes primitives through", () => {
     expect(redact("plain")).toBe("plain");
     expect(redact(null)).toBeNull();
+  });
+
+  test("masks secrets embedded in URLs and free-form error text", () => {
+    expect(
+      redactExternalSecrets(
+        "GET https://example.test/path?api_key=secret123 failed; Bearer abc.def; https://api.telegram.org/bot123456:token/sendMessage",
+      ),
+    ).toBe(
+      "GET https://example.test/path?api_key=[REDACTED] failed; Bearer [REDACTED]; https://api.telegram.org/bot[REDACTED]/sendMessage",
+    );
   });
 });

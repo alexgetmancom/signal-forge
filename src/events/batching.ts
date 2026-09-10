@@ -136,7 +136,7 @@ export function prepareDeliveries(db: Database, now = Date.now(), vendorRoles: R
       const items = [...grouped.values()];
       const source = sourceLabel(batch.source);
       const header = batch.digest
-        ? `🗞 ${source} · ${items.length} ${items.length === 1 ? "story" : "stories"} in the last hour\n\n`
+        ? `🗞 Hourly digest · ${items.length} ${items.length === 1 ? "story" : "stories"}\n\n`
         : speaking.length > 1
           ? `📡 ${source} · ${speaking.length} updates\n\n`
           : "";

@@ -1,6 +1,5 @@
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
-import { type CapabilityReportEntry, capabilityReport } from "./capabilities.js";
 import type { AppConfig, SourceMode } from "./config.js";
 import { COLLECTION_DEGRADED_PREFIX } from "./events/store.js";
 import type { SourceAuthority } from "./events/types.js";
@@ -150,59 +149,29 @@ const COLORS = { ok: 0x2ecc71, degraded: 0xf1c40f, down: 0xe74c3c };
 const discordMessage = z.object({ id: z.string().regex(/^\d+$/) });
 const DISCORD_TIMEOUT_MS = 20_000;
 
-export type DeliverySummary = {
-  pending: number;
-  sending: number;
-  sent: number;
-  failed: number;
-  ambiguous: number;
-  verification_required: number;
-};
-
 function utcStamp(value: string): string {
   const iso = new Date(value).toISOString();
   return `${iso.slice(0, 16).replace("T", " ")} UTC`;
 }
 
-function deliverySummary(db: Database): DeliverySummary {
-  const summary: DeliverySummary = {
-    pending: 0,
-    sending: 0,
-    sent: 0,
-    failed: 0,
-    ambiguous: 0,
-    verification_required: 0,
-  };
-  const rows = db
-    .query<{ status: string; count: number }, []>("SELECT status,COUNT(*) AS count FROM deliveries GROUP BY status")
-    .all();
-  for (const row of rows) {
-    if (Object.hasOwn(summary, row.status)) summary[row.status as keyof DeliverySummary] = row.count;
-  }
-  return summary;
-}
-
-export function statusEmbed(
-  health: SourceHealth[],
-  now = Date.now(),
-  delivery?: DeliverySummary,
-  capabilities?: CapabilityReportEntry[],
-): Record<string, unknown> {
+export function statusEmbed(health: SourceHealth[], now = Date.now()): Record<string, unknown> {
   const failing = health.filter(
     (entry) => entry.state === "failing" || entry.state === "stale" || entry.state === "degraded",
   );
   const blocked = health.filter((entry) => entry.state === "blocked");
   const unavailable = health.filter((entry) => entry.state === "missing" || entry.state === "disabled");
+  const activeCount = health.length - unavailable.length;
   const headline =
     failing.length === 0
-      ? `${DOTS.ok} ${health.length - unavailable.length} active collectors reporting`
-      : `${DOTS.failing} ${failing.length} of ${health.length} collectors need attention`;
+      ? `${DOTS.ok} ${activeCount} active collectors reporting`
+      : `${DOTS.failing} ${failing.length} of ${activeCount} active collectors need attention`;
 
-  const groups = [...new Set(health.map((entry) => entry.group))];
+  const visibleHealth = health.filter((entry) => entry.state !== "missing" && entry.state !== "disabled");
+  const groups = [...new Set(visibleHealth.map((entry) => entry.group))];
   const fields: { name: string; value: string; inline: boolean }[] = [];
   for (const group of groups) {
     const rows = health
-      .filter((entry) => entry.group === group)
+      .filter((entry) => entry.group === group && entry.state !== "missing" && entry.state !== "disabled")
       .map((entry) => {
         const last = entry.lastSuccess ? ` · ${utcStamp(entry.lastSuccess)}` : "";
         return `${DOTS[entry.state]} ${entry.label} · ${entry.authority.replace("_", "-")}${entry.detail ? ` — ${entry.detail}` : ""}${last}`;
@@ -220,36 +189,13 @@ export function statusEmbed(
     if (value) fields.push({ name: page === 1 ? group : `${group} (${page})`, value, inline: false });
   }
 
-  if (delivery)
-    fields.push({
-      name: "Delivery",
-      value: [
-        `pending ${delivery.pending}`,
-        `sending ${delivery.sending}`,
-        `sent ${delivery.sent}`,
-        `failed ${delivery.failed}`,
-        `ambiguous ${delivery.ambiguous + delivery.verification_required}`,
-      ].join(" · "),
-      inline: false,
-    });
-  const unavailableIntegrations = capabilities?.filter((entry) => entry.status !== "ready") ?? [];
-  if (unavailableIntegrations.length)
-    fields.push({
-      name: "Integrations",
-      value: unavailableIntegrations
-        .map((entry) => `${entry.status} · ${entry.id}`)
-        .join("\n")
-        .slice(0, 1024),
-      inline: false,
-    });
-
   return {
     title: "Tracker status",
-    description: `${headline}${blocked.length ? `\n${DOTS.blocked} ${blocked.length} waiting on upstream` : ""}${unavailable.length ? `\n${DOTS.missing} ${unavailable.length} unavailable by configuration` : ""}`,
+    description: `${headline}${blocked.length ? `\n${DOTS.blocked} ${blocked.length} waiting on upstream` : ""}${unavailable.length ? `\n${DOTS.missing} ${unavailable.length} sources outside current coverage` : ""}`,
     color:
       failing.length === 0 ? COLORS.ok : failing.some((e) => e.state === "failing") ? COLORS.down : COLORS.degraded,
     fields,
-    footer: { text: "Signal Forge · updates itself in place" },
+    footer: { text: "Signal Forge · public collection status · updates itself in place" },
     timestamp: new Date(now).toISOString(),
   };
 }
@@ -270,7 +216,7 @@ export async function publishStatus(
     config,
     "status",
     config.statusChannelId,
-    statusEmbed(sourceHealth(db, config, now), now, deliverySummary(db), capabilityReport(db, config)),
+    statusEmbed(sourceHealth(db, config, now), now),
     request,
   );
 }
@@ -455,20 +401,25 @@ export function activityEmbed(db: Database, now = Date.now()): Record<string, un
     `**${news}** announcements · **${retirements}** retirement updates · **${incidents}** platform incidents`,
   ];
   const headline = db
-    .query<{ id: number; name: string }, [string]>(
-      `SELECT id, json_extract(after_json,'$.name') name FROM events
-       WHERE detected_at > ? AND kind='new' AND stream IN ('api-models','openrouter','weights')
-       ORDER BY id DESC LIMIT 1`,
+    .query<{ name: string; url: string }, [string]>(
+      `SELECT json_extract(e.after_json,'$.name') name, be.url
+       FROM events e JOIN batch_events be ON be.event_id=e.id
+       WHERE e.detected_at > ? AND e.kind='new' AND e.stream IN ('api-models','openrouter','weights')
+       ORDER BY e.id DESC LIMIT 1`,
     )
     .get(since);
-  if (headline?.name) lines.push("", `Latest: ${headline.name} (#${headline.id})`);
-  return {
+  const embed: Record<string, unknown> = {
     title: "Last 24 hours",
     description: lines.join("\n"),
     color: COLORS.ok,
-    footer: { text: "Counts from the feed itself · updates itself in place" },
+    footer: { text: "Observed event counts · routine changes may appear in the hourly digest" },
     timestamp: new Date(now).toISOString(),
   };
+  if (headline?.name && headline.url) {
+    embed.description = `${lines.concat("", `Latest: **${headline.name}** · [open source](${headline.url})`).join("\n")}`;
+    embed.url = headline.url;
+  }
+  return embed;
 }
 
 export async function publishActivityBoard(

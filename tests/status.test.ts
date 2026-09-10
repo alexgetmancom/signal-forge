@@ -1,8 +1,9 @@
 import { expect, test } from "bun:test";
-import { publishAlerts } from "../src/alerts.js";
+import { publishAlerts, recoverInterruptedAlerts } from "../src/alerts.js";
 import { loadConfig } from "../src/config.js";
+import { saveCollection } from "../src/events.js";
 import { PLATFORMS, parsePlatformStatus } from "../src/sources/platforms.js";
-import { platformEmbed, publishStatus, sourceHealth, statusEmbed } from "../src/status.js";
+import { activityEmbed, platformEmbed, publishStatus, sourceHealth, statusEmbed } from "../src/status.js";
 import { openDatabase } from "../src/storage/database.js";
 
 const config = loadConfig({
@@ -136,24 +137,46 @@ test("the embed groups sources and colours by the worst state", () => {
   db.close();
 });
 
-test("tracker status includes observation freshness, delivery state and unavailable integrations", () => {
+test("public tracker status includes observation freshness without operator details", () => {
   const db = openDatabase(":memory:");
   const checked = new Date(now).toISOString();
   seed(db, "openrouter", { last_success: checked, checked_at: checked });
-  const embed = statusEmbed(
-    sourceHealth(db, withStatus, now),
-    now,
-    { pending: 2, sending: 1, sent: 7, failed: 0, ambiguous: 1, verification_required: 0 },
-    [{ id: "gemini", status: "disabled", missingCount: 0, requiredCount: 1, enabledSources: [] }],
-  );
+  const embed = statusEmbed(sourceHealth(db, withStatus, now), now);
   const fields = embed.fields as { name: string; value: string }[];
-  expect(fields.find((field) => field.name === "Delivery")?.value).toContain("pending 2");
-  expect(fields.find((field) => field.name === "Integrations")?.value).toContain("disabled · gemini");
   expect(fields.find((field) => field.name === "Catalogues")?.value).toContain("2026-09-08 12:00 UTC");
+  expect(fields.some((field) => field.name === "Delivery")).toBe(false);
+  expect(fields.some((field) => field.name === "Integrations")).toBe(false);
   db.close();
 });
 
-test("tracker status lists every registered source, including disabled and missing sources", () => {
+test("activity status links the latest source and labels its counts as observations", () => {
+  const db = openDatabase(":memory:");
+  const destination = {
+    id: "models",
+    platform: "discord" as const,
+    channelId: "123",
+    streams: ["openrouter" as const],
+  };
+  const collection = {
+    source: "openrouter",
+    stream: "openrouter",
+    url: "https://openrouter.ai/models",
+    raw: [],
+    records: [{ id: "base", name: "Base model" }],
+  };
+  saveCollection(db, collection, [destination], "2026-09-08T11:00:00.000Z");
+  collection.records.push({ id: "gpt-6", name: "GPT-6" });
+  saveCollection(db, collection, [destination], "2026-09-08T11:30:00.000Z");
+
+  const embed = activityEmbed(db, now) as { description: string; footer: { text: string }; url: string };
+  expect(embed.description).toContain("Latest: **GPT-6** · [open source](https://openrouter.ai/models)");
+  expect(embed.description).not.toContain("#");
+  expect(embed.url).toBe("https://openrouter.ai/models");
+  expect(embed.footer.text).toContain("Observed event counts");
+  db.close();
+});
+
+test("tracker status keeps disabled and missing sources out of the public detail list", () => {
   const db = openDatabase(":memory:");
   const config = {
     ...withStatus,
@@ -169,12 +192,13 @@ test("tracker status lists every registered source, including disabled and missi
     detail: "missing ANTHROPIC_API_KEY",
   });
 
-  const fields = statusEmbed(health, now).fields as { name: string; value: string }[];
-  const sourceText = fields
-    .filter((field) => field.name !== "Delivery" && field.name !== "Integrations")
-    .map((field) => field.value)
-    .join("\n");
-  for (const entry of health) expect(sourceText).toContain(entry.label);
+  const embed = statusEmbed(health, now);
+  const fields = embed.fields as { name: string; value: string }[];
+  const sourceText = fields.map((field) => field.value).join("\n");
+  for (const entry of health.filter((source) => source.state !== "missing" && source.state !== "disabled"))
+    expect(sourceText).toContain(entry.label);
+  expect(embed.description).toContain("sources outside current coverage");
+  expect(sourceText).not.toContain("ANTHROPIC_API_KEY");
   expect(fields.some((field) => field.name === "Open weights")).toBe(true);
   db.close();
 });
@@ -197,7 +221,7 @@ test("an outage is announced once, and so is the recovery", async () => {
   const posts: Record<string, unknown>[] = [];
   const request = async (_url: string, init?: RequestInit) => {
     posts.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
-    return new Response("{}", { status: 200 });
+    return Response.json({ id: "1" });
   };
   const now = Date.parse("2026-09-08T12:00:00.000Z");
   const mark = (error: string | null, success: string | null) =>
@@ -221,7 +245,7 @@ test("an outage is announced once, and so is the recovery", async () => {
   const third = await publishAlerts(db, config, request, now);
   expect(third.recovered).toContain("openrouter");
   expect(posts).toHaveLength(2);
-  expect((posts[1] as { embeds: { title: string }[] }).embeds[0]?.title).toBe("Collectors recovered");
+  expect((posts[1] as { embeds: { title: string }[] }).embeds[0]?.title).toBe("Signal Forge recovered");
 });
 test("an alert that cannot be delivered is retried, not forgotten", async () => {
   const db = openDatabase(":memory:");
@@ -244,6 +268,99 @@ test("an alert that cannot be delivered is retried, not forgotten", async () => 
   await publishAlerts(db, config, failing, now);
   await publishAlerts(db, config, failing, now);
   expect(attempts).toBe(2);
+});
+
+test("an unknown alert outcome is durably settled and never retried", async () => {
+  const db = openDatabase(":memory:");
+  const config = {
+    ...loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname }),
+    DISCORD_BOT_TOKEN: "token",
+    alertChannelId: "999",
+  };
+  let attempts = 0;
+  const now = Date.parse("2026-09-08T12:00:00.000Z");
+  db.query("INSERT INTO sources(id,last_error,checked_at) VALUES('openrouter','gone',?)").run(
+    new Date(now).toISOString(),
+  );
+  const request = async () => {
+    attempts += 1;
+    throw new Error("network failed after send");
+  };
+  await publishAlerts(db, config, request, now);
+  await publishAlerts(db, config, request, now);
+  await publishAlerts(db, config, request, now);
+  expect(attempts).toBe(1);
+  expect(db.query("SELECT status FROM alert_attempts").all()).toEqual([{ status: "ambiguous" }]);
+  db.close();
+});
+
+test("interrupted alert sends become ambiguous before the next cycle", async () => {
+  const db = openDatabase(":memory:");
+  const config = {
+    ...loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname }),
+    DISCORD_BOT_TOKEN: "token",
+    alertChannelId: "999",
+  };
+  const now = Date.parse("2026-09-08T12:00:00.000Z");
+  db.query("INSERT INTO sources(id,last_error,checked_at) VALUES('openrouter','gone',?)").run(
+    new Date(now).toISOString(),
+  );
+  db.query("INSERT INTO app_state(key,value) VALUES('alert_strikes',?)").run('{"openrouter":2}');
+  db.query(
+    "INSERT INTO alert_attempts(state_version,from_state_json,to_state_json,body,status,attempts,created_at,updated_at) VALUES(1,'[]','[\"openrouter\"]','{}','sending',1,?,?)",
+  ).run(now, now);
+  recoverInterruptedAlerts(db);
+  let attempts = 0;
+  await publishAlerts(
+    db,
+    config,
+    async () => {
+      attempts += 1;
+      return Response.json({ id: "1" });
+    },
+    now,
+  );
+  expect(attempts).toBe(0);
+  expect(db.query("SELECT status FROM alert_attempts").get()).toEqual({ status: "ambiguous" });
+  db.close();
+});
+
+test("an interrupted alert advances the durable state before a changed next cycle", async () => {
+  const db = openDatabase(":memory:");
+  const config = {
+    ...loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname }),
+    DISCORD_BOT_TOKEN: "token",
+    alertChannelId: "999",
+  };
+  const now = Date.parse("2026-09-08T12:00:00.000Z");
+  db.query("INSERT INTO sources(id,last_error,checked_at) VALUES('openrouter','gone',?)").run(
+    new Date(now).toISOString(),
+  );
+  db.query("INSERT INTO app_state(key,value) VALUES('alert_strikes',?)").run('{"openrouter":2}');
+  db.query(
+    "INSERT INTO alert_attempts(state_version,from_state_json,to_state_json,body,status,attempts,created_at,updated_at) VALUES(1,'[]','[\"openrouter\"]','{}','sending',1,?,?)",
+  ).run(now, now);
+  recoverInterruptedAlerts(db);
+  db.query("UPDATE sources SET last_error=NULL,last_success=?,checked_at=? WHERE id='openrouter'").run(
+    new Date(now).toISOString(),
+    new Date(now).toISOString(),
+  );
+  let attempts = 0;
+  await publishAlerts(
+    db,
+    config,
+    async () => {
+      attempts += 1;
+      return Response.json({ id: "1" });
+    },
+    now,
+  );
+  expect(attempts).toBe(1);
+  expect(db.query("SELECT status,state_version FROM alert_attempts ORDER BY state_version").all()).toEqual([
+    { status: "ambiguous", state_version: 1 },
+    { status: "sent", state_version: 2 },
+  ]);
+  db.close();
 });
 
 test("the platform board reads the stored observation and names the open incidents", () => {
@@ -314,7 +431,7 @@ test("many collectors failing together is reported as one shared path", async ()
   const posts: { embeds: { description: string }[] }[] = [];
   const request = async (_url: string, init?: RequestInit) => {
     posts.push(JSON.parse(String(init?.body)) as { embeds: { description: string }[] });
-    return new Response("{}", { status: 200 });
+    return Response.json({ id: "1" });
   };
   const now = Date.parse("2026-09-08T12:00:00.000Z");
   for (const id of ["openrouter", "openai-news", "anthropic-news", "arena", "arena-leaderboards"])

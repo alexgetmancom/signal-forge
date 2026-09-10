@@ -43,6 +43,12 @@ function latestEvent(events: StoryRenderEvent[]): StoryRenderEvent {
   );
 }
 
+function linkEvidence(line: string, source: string): string {
+  if (!line.startsWith("Evidence: ")) return line;
+  const link = line.slice("Evidence: ".length).trim();
+  return `[Open ${sourceLabel(source)} evidence](${link})`;
+}
+
 /** One reader-facing message for a correlated story, retaining every event link as evidence. */
 export function renderStoryText(
   events: StoryRenderEvent[],
@@ -83,8 +89,20 @@ export function storyEmbed(
   const first = events[0] as StoryRenderEvent;
   const latest = latestEvent(events);
   const firstRecord = recordFor(first);
+  const sources = [...new Set(events.map((event) => sourceLabel(event.source)))];
   const body = renderStoryText(events, "discord", summaries).split("\n");
-  const description = body.slice(2, -1).join("\n").trim().slice(0, 4000);
+  let evidenceIndex = 0;
+  const description = body
+    .slice(2, -1)
+    .map((line) => {
+      if (!line.startsWith("Evidence: ")) return line;
+      const source = events[evidenceIndex]?.source ?? first.source;
+      evidenceIndex++;
+      return linkEvidence(line, source);
+    })
+    .join("\n")
+    .trim()
+    .slice(0, 4000);
   const kinds = events.map((event) => event.kind);
   const kind = kinds.includes("changed") ? "changed" : kinds.includes("new") ? "new" : "removed";
   const vendor = vendorOf(latest, recordFor(latest));
@@ -94,11 +112,17 @@ export function storyEmbed(
     ),
   ];
   const confidences = [...new Set(events.map((event) => event.confidence ?? "observed"))];
+  const latestStamp = Math.floor(Date.parse(latest.detected_at) / 1000);
   const embed: Record<string, unknown> = {
     author: { name: ["STORY", vendor === "Unknown" ? null : vendor.toUpperCase()].filter(Boolean).join(" · ") },
-    title: storyTitle(events).slice(0, 250),
+    title: `🧵 Story · ${storyTitle(events)}`.slice(0, 250),
     color: KIND_COLORS[kind],
     description,
+    fields: [
+      { name: "Sources", value: `${events.length} updates · ${sources.join(" → ")}`, inline: false },
+      { name: "Confidence", value: confidences.join(", "), inline: true },
+      { name: "Latest", value: `<t:${latestStamp}:R>\n<t:${latestStamp}:f>`, inline: true },
+    ],
     footer: { text: `Evidence: ${types.join(", ")} · Confidence: ${confidences.join(", ")}` },
   };
   const link = recordUrl(first, firstRecord);

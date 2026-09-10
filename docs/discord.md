@@ -30,11 +30,18 @@ Set `DISCORD_BOT_TOKEN` in `.env` and configure destinations in
 Replace the example IDs with the actual ones. Deploy after configuration changes. Destinations
 receive future events only; the first source observation establishes a quiet baseline.
 
-## Status boards
+## Reader channels and status
 
-Two messages are edited in place instead of being reposted, so a channel holds a state rather than
-a log. Both are rewritten only when their content actually changes. Deleting a board by hand makes
-the next cycle post a fresh one, which is also how their order in the channel is fixed.
+The server keeps five reader-facing channels: Status, Model Catalog, Benchmarks, Product Updates,
+and Official News. The private `Signal Problem` channel is separate and is not a reader feed.
+
+Three messages in Status are edited in place instead of being reposted, so the channel holds current
+state rather than a growing log. They are rewritten only when their content actually changes.
+Deleting a board by hand makes the next cycle post a fresh one, which is also how their order in the
+channel is fixed.
+
+**Activity** (`Status`) counts observed changes in the last 24 hours. Routine low-value changes may
+be filtered from the reader feed or grouped into the hourly digest.
 
 **Platform health** (`platformBoardChannelId`, defaulting to the status channel) shows what
 OpenAI's and Anthropic's own status pages say, with their open incidents. Vendors that do not run
@@ -42,9 +49,9 @@ Statuspage are absent on purpose: `status.x.ai` refuses its own API, and Google 
 different document for the whole cloud.
 
 **Tracker status** (`statusChannelId`) is about Signal Forge: every collector appears with a
-colored dot and its last successful observation, edited in place every five minutes. The board also
-shows delivery queue state and unavailable integrations. It is rewritten only when something
-actually changed, so the channel holds a board rather than a log.
+colored dot and its last successful observation, edited in place every five minutes. Internal
+delivery queue and credential details stay out of this public board; the operator can inspect them
+through the operational interfaces.
 
 A blocked source is not a broken one. `gemini` answers everywhere except the addresses this
 project can reach, so it shows as restricted with its cause instead of counting against the
@@ -52,11 +59,23 @@ headline. A board that calls every silence an outage teaches people to ignore it
 
 ## Operational alerts
 
-`alertChannelId` names a private channel that receives one message when a collector stops
-reporting and one when it recovers, never a repeat while the same outage continues. This is
-operational noise for the owner, not content for subscribers, so it does not go to a feed channel.
-A rejected alert leaves the stored state untouched, so the next cycle retries rather than losing the
-transition.
+`alertChannelId` points to the private `Signal Problem` channel. It receives one message when a
+collector, worker, or delivery problem becomes actionable and one when it recovers, never a repeat
+while the same problem continues. The alert includes the next diagnostic action and does not go to
+a reader feed channel.
+A known channel rejection leaves the transition failed, so the next cycle retries rather than losing
+it. A transport failure or an unconfirmable response is recorded as an ambiguous alert outcome and
+is never sent again automatically; verify the private channel before taking action.
+
+## Reader message format
+
+Discord cards put the change type in the title, keep the source and vendor in the author line, and
+show confidence, evidence type, detection time, and reader impact in scan-friendly fields. The title
+opens the source evidence. Stories keep one card for a related cross-source timeline, with a short
+link for each independent source.
+
+Routine changes arrive in an hourly digest. Vendor roles are mentioned only for immediate model
+appearances or removals; digest messages never ping roles.
 
 ## Role mentions
 

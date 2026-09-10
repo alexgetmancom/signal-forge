@@ -185,7 +185,10 @@ test("signal quality counts a shared digest only for subscribed streams", () => 
 
   const report = signalQuality(db, config, 7, Date.parse("2026-09-08T12:00:00Z"));
   expect(report.sources.find((source) => source.id === "openrouter")).toMatchObject({ digestDeliveries: 1 });
-  expect(report.sources.find((source) => source.id === "arena-leaderboards")).toMatchObject({ digestDeliveries: 1 });
+  expect(report.sources.find((source) => source.id === "arena-leaderboards")).toMatchObject({
+    immediateDeliveries: 1,
+    digestDeliveries: 0,
+  });
   db.close();
 });
 

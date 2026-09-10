@@ -28,9 +28,19 @@ export function vendorOf(event: Event, record: RecordData | null): string {
 
 export function isRoutine(event: Event): boolean {
   if (event.source === "claude-web") return true;
-  // A board is a standing, not an announcement. Climbing it, entering it and leaving it are all
-  // worth reading together once an hour; none of them is worth interrupting somebody for.
-  if (event.stream === "leaderboards") return true;
+  if (event.stream === "leaderboards") {
+    const before = event.before_json ? (JSON.parse(event.before_json) as RecordData) : null;
+    const after = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
+    const beforeRank = typeof before?.rank === "number" ? before.rank : null;
+    const afterRank = typeof after?.rank === "number" ? after.rank : null;
+    const rankChanged = beforeRank !== afterRank;
+    // A first-place movement is the one leaderboard event worth seeing immediately. Other board
+    // churn stays in the hourly digest, and an unchanged first-place score does not interrupt. A
+    // first-place departure is the corresponding immediate follow-up.
+    const firstPlaceMovement = event.kind === "changed" && rankChanged && (beforeRank === 1 || afterRank === 1);
+    const firstPlaceDeparture = event.kind === "removed" && beforeRank === 1;
+    return !(firstPlaceMovement || firstPlaceDeparture);
+  }
   if (event.kind !== "changed") return false;
   // A nightly or preview channel moves several times a day and says nothing about a product. The
   // release channels people actually install on stay immediate.
