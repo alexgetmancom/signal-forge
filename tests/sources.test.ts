@@ -401,7 +401,7 @@ test("official developer feeds validate RSS and Atom and retain tool release evi
   expect(rss.records[0]).toMatchObject({ name: "Codex skill update", published: "2026-09-09T10:00:00.000Z" });
   const atom = parseOfficialFeed(
     `<feed xmlns="http://www.w3.org/2005/Atom"><entry><title>CUDA AI</title><link rel="alternate" href="https://example.test/atom"/><id>x</id><updated>2026-09-09T10:00:00Z</updated><summary>GPU model</summary></entry></feed>`,
-    { source: "atom-test", maker: "NVIDIA", url: "https://example.test/feed.atom" },
+    { source: "atom-test", maker: "Example Vendor", url: "https://example.test/feed.atom" },
   );
   expect(atom.records[0]?.url).toBe("https://example.test/atom");
   expect(() =>

@@ -89,7 +89,6 @@ export function authorityForSource(source: string): SourceAuthority {
       "claude-code-changelog",
       "anthropic-sdk-releases",
       "google-deepmind-feed",
-      "nvidia-ai-feed",
       "codex-docs",
       "claude-web",
       "cursor-changelog",

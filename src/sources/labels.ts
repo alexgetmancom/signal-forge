@@ -19,7 +19,6 @@ const STATIC_LABELS: Record<string, string> = {
   "claude-code-changelog": "Claude Code · changelog",
   "anthropic-sdk-releases": "Anthropic · SDK releases",
   "google-deepmind-feed": "Google DeepMind · feed",
-  "nvidia-ai-feed": "NVIDIA · developer feed",
   "huggingface-blog-feed": "Hugging Face · blog",
   "claude-web": "Claude · interface",
   "codex-docs": "Codex · docs",

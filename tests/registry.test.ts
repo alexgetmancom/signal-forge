@@ -35,7 +35,14 @@ test("source registry has unique IDs, valid streams, labels and consistent pacin
       enabled: true,
     });
   }
-  for (const id of ["google-ai-feed", "microsoft-ai-feed", "codex-skills", "deepseek-news", "aider-polyglot"]) {
+  for (const id of [
+    "google-ai-feed",
+    "microsoft-ai-feed",
+    "nvidia-ai-feed",
+    "codex-skills",
+    "deepseek-news",
+    "aider-polyglot",
+  ]) {
     expect(definitions.find((definition) => definition.id === id)).toBeUndefined();
   }
   expect(definitions.some((definition) => definition.id === "openai-developer-feed")).toBe(false);

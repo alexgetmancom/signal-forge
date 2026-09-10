@@ -43,7 +43,7 @@ current `main` branch with no known actionable issues.
   source authority, degraded health, and independent story evidence are visible to operators.
 - DeepSeek API, website, npm and Hugging Face signals are registered alongside official
   lifecycle pages for Google, AWS, Azure, Groq, Cohere and xAI.
-- Official developer feeds cover Claude Code, Anthropic SDK releases, Google DeepMind, NVIDIA and
+- Official developer feeds cover Claude Code, Anthropic SDK releases, Google DeepMind and
   Hugging Face; stale general feeds and the undated Aider benchmark were removed.
 - Optional DeepSeek summaries are generated for large, publishable diffs after deterministic noise
   filtering when `DEEPSEEK_API_KEY` is configured; Discord and Telegram show the title, short
@@ -103,7 +103,7 @@ The current registry covers:
 - npm, PyPI and GitHub activity for selected AI tools and repositories.
 - Official OpenAI Help Center and news, Anthropic Platform release notes, Gemini API changelog, xAI,
   Mistral, Groq and DeepSeek API release surfaces; Codex documentation, Claude Code and Anthropic SDK
-  releases; and Google DeepMind, NVIDIA and Hugging Face developer feeds.
+  releases; and Google DeepMind and Hugging Face developer feeds.
 - OpenAI, Anthropic, Google, AWS, Azure, Groq, Cohere and xAI lifecycle/deprecation sources.
 - Arena leaderboard observations, with selected DeepSeek npm channels.
 - GitHub discovery for artificial-intelligence, LLM, agent and MCP repositories, plus recent global

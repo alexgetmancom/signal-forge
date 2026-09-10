@@ -17,7 +17,6 @@ import {
   collectClaudeCodeChangelog,
   collectGoogleDeepmindFeed,
   collectHuggingFaceBlogFeed,
-  collectNvidiaAiFeed,
 } from "./feeds.js";
 import { collectGithubCommits, collectGithubPulls, collectGithubReleases } from "./github.js";
 import { sourceLabel } from "./labels.js";
@@ -235,17 +234,6 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       intervalSeconds: 1800,
       collector: () => collectGoogleDeepmindFeed(fetch, cache),
       enabled: requested("google-deepmind-feed"),
-    },
-    {
-      id: "nvidia-ai-feed",
-      label: sourceLabel("nvidia-ai-feed"),
-      authority: "first_party",
-      vendor: "NVIDIA",
-      group: "Official developer feeds",
-      stream: "news",
-      intervalSeconds: 1800,
-      collector: () => collectNvidiaAiFeed(fetch, cache),
-      enabled: requested("nvidia-ai-feed"),
     },
     {
       id: "huggingface-blog-feed",

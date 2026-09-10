@@ -9,7 +9,6 @@ import { fetchText } from "./http.js";
 export const CLAUDE_CODE_CHANGELOG_URL = "https://code.claude.com/docs/en/changelog.md";
 export const ANTHROPIC_SDK_RELEASES_URL = "https://platform.claude.com/docs/en/release-notes/overview.md";
 export const GOOGLE_DEEPMIND_FEED_URL = "https://deepmind.google/blog/rss.xml";
-export const NVIDIA_AI_FEED_URL = "https://developer.nvidia.com/blog/feed/";
 export const HUGGINGFACE_BLOG_FEED_URL = "https://huggingface.co/blog/feed.xml";
 
 const xmlTextSchema = z.union([z.string(), z.object({ "#text": z.string() }).passthrough()]);
@@ -208,15 +207,6 @@ export async function collectGoogleDeepmindFeed(request: Fetch = fetch, cache?: 
     source: "google-deepmind-feed",
     maker: "Google DeepMind",
     url: GOOGLE_DEEPMIND_FEED_URL,
-  });
-}
-export async function collectNvidiaAiFeed(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
-  return parseOfficialFeed(await fetchText(NVIDIA_AI_FEED_URL, {}, request, undefined, cache), {
-    source: "nvidia-ai-feed",
-    maker: "NVIDIA",
-    url: NVIDIA_AI_FEED_URL,
-    include: (title, description) =>
-      /ai|cuda|nemo|gpu|inference|llm|deep learning|model/i.test(`${title} ${description}`),
   });
 }
 export async function collectHuggingFaceBlogFeed(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
