@@ -56,9 +56,22 @@ function readJson<T>(value: string, fallback: T): T {
 export function listActionableIssues(db: Database, config: AppConfig, now = Date.now()): ActionableIssue[] {
   const issues: ActionableIssue[] = [];
   const health = sourceHealth(db, config, now);
+  const sourceWorker = db.query<{ value: string }, []>("SELECT value FROM app_state WHERE key='worker:sources'").get();
+  const sourceWorkerState = sourceWorker ? readJson<WorkerState>(sourceWorker.value, {}) : {};
+  const sourceCycleFinished = sourceWorkerState.state === "idle" && Boolean(sourceWorkerState.lastFinishedAt);
   for (const entry of health) {
     const rateLimited = entry.state === "blocked" && entry.detail.startsWith("rate limited");
-    if (!(entry.state === "failing" || entry.state === "stale" || entry.state === "degraded" || rateLimited)) continue;
+    const unobservedAfterCycle = entry.state === "idle" && sourceCycleFinished;
+    if (
+      !(
+        entry.state === "failing" ||
+        entry.state === "stale" ||
+        entry.state === "degraded" ||
+        rateLimited ||
+        unobservedAfterCycle
+      )
+    )
+      continue;
     const checked = db
       .query<{ checked_at: string | null }, [string]>("SELECT checked_at FROM sources WHERE id=?")
       .get(entry.id)?.checked_at;
@@ -75,13 +88,17 @@ export function listActionableIssues(db: Database, config: AppConfig, now = Date
           ? "is stale"
           : entry.state === "degraded"
             ? "returned a suspiciously smaller collection"
-            : "is not collecting successfully"
+            : unobservedAfterCycle
+              ? "has no observation after the source worker completed a cycle"
+              : "is not collecting successfully"
       }: ${entry.detail}`,
       hint: rateLimited
         ? "Wait for the upstream limit to clear; do not increase polling."
-        : entry.state === "degraded"
-          ? "Inspect the upstream response before allowing this source to resume; the last known-good records were preserved."
-          : "Inspect the collector and its upstream response.",
+        : unobservedAfterCycle
+          ? "Inspect why the source was not scheduled or persisted; an enabled source must produce an observation on its first cycle."
+          : entry.state === "degraded"
+            ? "Inspect the upstream response before allowing this source to resume; the last known-good records were preserved."
+            : "Inspect the collector and its upstream response.",
     });
   }
 

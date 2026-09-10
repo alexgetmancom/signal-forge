@@ -61,6 +61,25 @@ test("collection shrinkage is a distinct actionable issue", () => {
   db.close();
 });
 
+test("an enabled API source with no first observation is actionable after a completed source cycle", () => {
+  const db = openDatabase(":memory:");
+  const config = loadConfig({ CONFIG_PATH: configPath, OPENAI_API_KEY: "fake-openai" });
+  const now = Date.parse("2026-09-08T12:00:00.000Z");
+  db.query("INSERT INTO app_state(key,value) VALUES(?,?)").run(
+    "worker:sources",
+    JSON.stringify({ state: "idle", lastFinishedAt: new Date(now - 60_000).toISOString() }),
+  );
+  const issues = listActionableIssues(db, config, now);
+  expect(issues).toContainEqual(
+    expect.objectContaining({
+      id: "openai",
+      kind: "source_failed",
+      message: expect.stringContaining("has no observation after the source worker completed a cycle"),
+    }),
+  );
+  db.close();
+});
+
 test("stale workers and sending deliveries are actionable without automatic retries", () => {
   const db = openDatabase(":memory:");
   const config = loadConfig({ CONFIG_PATH: configPath });
