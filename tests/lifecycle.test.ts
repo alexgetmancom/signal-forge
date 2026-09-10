@@ -3,6 +3,7 @@ import { type Destination, loadConfig } from "../src/config.js";
 import { type Collection, saveCollection } from "../src/events.js";
 import { listLifecycleDeadlines, rebuildLifecycleDeadlines, scheduleLifecycleReminders } from "../src/lifecycle.js";
 import { parseOpenAIDeprecations } from "../src/sources/deprecations.js";
+import { parseGeminiDeprecations } from "../src/sources/lifecycle.js";
 import { openDatabase } from "../src/storage/database.js";
 
 const baseConfig = loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname });
@@ -59,6 +60,23 @@ test("Anthropic retirement creates a deadline and 30, 7 and 1 day reminders", ()
     { offsetDays: 7, dueAt: "2026-10-07T00:00:00.000Z", batchId: null },
     { offsetDays: 1, dueAt: "2026-10-13T00:00:00.000Z", batchId: null },
   ]);
+  db.close();
+});
+
+test("structured retirement dates create deadlines for non-Anthropic lifecycle sources", () => {
+  const db = openDatabase(":memory:");
+  const html = `<table><tr><th>Model</th><th>Release date</th><th>Shutdown date</th><th>Recommended replacement</th></tr>
+    <tr><td>gemini-2.0-flash</td><td>February 5, 2025</td><td>October 1, 2026</td><td>gemini-3.5-flash</td></tr></table>`;
+  const parsed = parseGeminiDeprecations(html);
+  saveCollection(db, { ...parsed, records: [], raw: "baseline" }, [], "2026-09-09T00:00:00.000Z");
+  saveCollection(db, parsed, [], "2026-09-10T00:01:00.000Z");
+  expect(listLifecycleDeadlines(db, 365, now)[0]).toMatchObject({
+    title: "gemini-2.0-flash",
+    source: "gemini-deprecations",
+    deadlineType: "retirement",
+    deadlineAt: "2026-10-01T00:00:00.000Z",
+    replacement: "gemini-3.5-flash",
+  });
   db.close();
 });
 

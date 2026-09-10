@@ -21,7 +21,7 @@ function recordFor(event: Event): RecordData | null {
 }
 
 function recordUrl(event: StoryRenderEvent, record: RecordData | null): string {
-  return typeof record?.url === "string" ? record.url : event.url;
+  return typeof record?.url === "string" && record.url.trim() ? record.url : event.url;
 }
 
 function detailLines(event: StoryRenderEvent, summary?: string): string[] {

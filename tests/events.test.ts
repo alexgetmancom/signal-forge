@@ -415,6 +415,27 @@ test("notifications expose source confidence", () => {
   expect(eventEmbed(event, "https://example.com")).toMatchObject({
     footer: { text: "Evidence: API catalogue · Confidence: confirmed" },
   });
+  const embed = eventEmbed(event, "https://example.com") as { fields: { name: string; value: string }[] };
+  expect(embed.fields.find((field) => field.name === "Source")?.value).toBe("OpenAI API");
+});
+
+test("a single Telegram delivery retains the exact source and record link", () => {
+  const destination: Destination = { id: "single", platform: "telegram", chatId: "1", streams: ["api-models"] };
+  const records = [{ id: "gpt-6", name: "GPT-6", url: "https://platform.openai.com/docs/models" }];
+  const source: Collection = {
+    source: "openai",
+    stream: "api-models",
+    url: "https://api.openai.com/v1/models",
+    raw: records,
+    records,
+  };
+  saveCollection(db, source, [destination], "2026-09-08T10:00:00Z");
+  records.push({ id: "gpt-6-mini", name: "GPT-6 mini", url: "https://platform.openai.com/docs/models" });
+  saveCollection(db, source, [destination], "2026-09-08T10:05:00Z");
+  const delivery = db.query<{ body: string }, []>("SELECT body FROM deliveries WHERE destination_id='single'").get();
+  expect(delivery?.body).toContain("🆕 New · OpenAI API");
+  expect(delivery?.body).toContain("https://platform.openai.com/docs/models");
+  expect(db.query("SELECT url FROM batch_events").get()).toEqual({ url: "https://platform.openai.com/docs/models" });
 });
 
 test("Discord cards lead with the change type and expose scan-friendly metadata", () => {

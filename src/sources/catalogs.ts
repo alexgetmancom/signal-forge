@@ -20,8 +20,9 @@ const openRouterSchema = z.object({
     .min(1),
 });
 export async function collectOpenRouter(request: Fetch = fetch): Promise<Collection> {
-  const url = "https://openrouter.ai/api/v1/models",
-    raw: unknown = JSON.parse(await fetchText(url, {}, request));
+  const apiUrl = "https://openrouter.ai/api/v1/models",
+    url = "https://openrouter.ai/models",
+    raw: unknown = JSON.parse(await fetchText(apiUrl, {}, request));
   const data = openRouterSchema.parse(raw);
   return {
     source: "openrouter",
@@ -32,6 +33,7 @@ export async function collectOpenRouter(request: Fetch = fetch): Promise<Collect
     records: data.data.map((m) => ({
       id: m.id,
       name: m.name,
+      url: `https://openrouter.ai/${m.id}`,
       created: new Date(m.created * 1000).toISOString(),
       context: m.context_length,
       pricing: m.pricing,
@@ -45,8 +47,9 @@ const openAiSchema = z.object({
   data: z.array(z.object({ id: z.string().min(1), created: z.number(), owned_by: z.string() })).min(1),
 });
 export async function collectOpenAI(config: AppConfig, request: Fetch = fetch): Promise<Collection> {
-  const url = "https://api.openai.com/v1/models",
-    raw: unknown = JSON.parse(await fetchText(url, { Authorization: `Bearer ${config.OPENAI_API_KEY}` }, request));
+  const apiUrl = "https://api.openai.com/v1/models",
+    url = "https://platform.openai.com/docs/models",
+    raw: unknown = JSON.parse(await fetchText(apiUrl, { Authorization: `Bearer ${config.OPENAI_API_KEY}` }, request));
   return {
     source: "openai",
     stream: "api-models",
@@ -66,14 +69,15 @@ const anthropicSchema = z.object({
   last_id: z.string().nullable(),
 });
 export async function collectAnthropic(config: AppConfig, request: Fetch = fetch): Promise<Collection> {
-  const url = "https://api.anthropic.com/v1/models",
+  const apiUrl = "https://api.anthropic.com/v1/models",
+    url = "https://docs.anthropic.com/en/docs/about-claude/models",
     raw: unknown[] = [],
     records: RecordData[] = [];
   let cursor = "";
   for (let page = 0; page < 100; page++) {
     const body: unknown = JSON.parse(
       await fetchText(
-        `${url}?limit=1000${cursor ? `&after_id=${encodeURIComponent(cursor)}` : ""}`,
+        `${apiUrl}?limit=1000${cursor ? `&after_id=${encodeURIComponent(cursor)}` : ""}`,
         { "x-api-key": config.ANTHROPIC_API_KEY ?? "", "anthropic-version": "2023-06-01" },
         request,
       ),
@@ -100,14 +104,15 @@ const geminiSchema = z.object({
   nextPageToken: z.string().optional(),
 });
 export async function collectGemini(config: AppConfig, request: Fetch = fetch): Promise<Collection> {
-  const url = "https://generativelanguage.googleapis.com/v1beta/models",
+  const apiUrl = "https://generativelanguage.googleapis.com/v1beta/models",
+    url = "https://ai.google.dev/gemini-api/docs/models",
     raw: unknown[] = [],
     records: RecordData[] = [];
   let cursor = "";
   for (let page = 0; page < 100; page++) {
     const body: unknown = JSON.parse(
       await fetchText(
-        `${url}?pageSize=1000${cursor ? `&pageToken=${encodeURIComponent(cursor)}` : ""}`,
+        `${apiUrl}?pageSize=1000${cursor ? `&pageToken=${encodeURIComponent(cursor)}` : ""}`,
         { "x-goog-api-key": config.GEMINI_API_KEY ?? "" },
         request,
       ),

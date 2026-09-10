@@ -402,7 +402,8 @@ export function activityEmbed(db: Database, now = Date.now()): Record<string, un
   ];
   const headline = db
     .query<{ name: string; url: string }, [string]>(
-      `SELECT json_extract(e.after_json,'$.name') name, be.url
+      `SELECT json_extract(e.after_json,'$.name') name,
+              COALESCE(NULLIF(json_extract(e.after_json,'$.url'),''),NULLIF(json_extract(e.before_json,'$.url'),''),be.url) AS url
        FROM events e JOIN batch_events be ON be.event_id=e.id
        WHERE e.detected_at > ? AND e.kind='new' AND e.stream IN ('api-models','openrouter','weights')
        ORDER BY e.id DESC LIMIT 1`,

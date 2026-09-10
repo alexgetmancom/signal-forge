@@ -89,6 +89,39 @@ function leaderboardChange(before: string, after: string): boolean {
   return true;
 }
 
+function recordUrl(body: string | null, fallback: string): string {
+  if (!body) return fallback;
+  try {
+    const record = JSON.parse(body) as Record<string, unknown>;
+    return typeof record.url === "string" && record.url.trim() ? record.url : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function eventUrl(event: Event, fallback: string): string {
+  return recordUrl(event.after_json, recordUrl(event.before_json, fallback));
+}
+
+function resolvedRecord(body: string): string {
+  const record = JSON.parse(body) as Record<string, unknown>;
+  if (typeof record.stage === "string" && /^(?:resolved|closed|complete)$/i.test(record.stage)) return body;
+  return canonical({
+    ...record,
+    stage: "resolved",
+    summary: "Incident no longer listed by the status page.",
+  });
+}
+
+function isResolvedRecord(body: string): boolean {
+  try {
+    const record = JSON.parse(body) as Record<string, unknown>;
+    return typeof record.stage === "string" && /^(?:resolved|closed|complete)$/i.test(record.stage);
+  } catch {
+    return false;
+  }
+}
+
 /** Persists one validated observation and its immutable evidence in the caller's transaction. */
 export function persistCollection(
   db: Database,
@@ -191,8 +224,20 @@ export function persistCollection(
       "INSERT INTO records(source,id,body) VALUES(?,?,?) ON CONFLICT(source,id) DO UPDATE SET body=excluded.body,missing_count=0",
     ).run(c.source, record.id, body);
   }
-  if (!c.appendOnly)
+  if (!c.appendOnly || c.resolveMissing)
     for (const row of previous.values()) {
+      if (c.resolveMissing) {
+        if (isResolvedRecord(row.body)) {
+          db.query("UPDATE records SET missing_count=0 WHERE source=? AND id=?").run(c.source, row.id);
+        } else if (row.missing_count >= 1) {
+          const after = resolvedRecord(row.body);
+          emit(row.id, "changed", row.body, after);
+          db.query("UPDATE records SET body=?,missing_count=0 WHERE source=? AND id=?").run(after, c.source, row.id);
+        } else {
+          db.query("UPDATE records SET missing_count=missing_count+1 WHERE source=? AND id=?").run(c.source, row.id);
+        }
+        continue;
+      }
       if (row.missing_count >= 1) {
         emit(row.id, "removed", row.body, null);
         db.query("DELETE FROM change_candidates WHERE source=? AND id=?").run(c.source, row.id);
@@ -221,7 +266,11 @@ export function persistCollection(
         .get(batchSource, Number(digest), readyAt);
     if (!batch) throw new Error("Batch insert failed");
     for (const event of events)
-      db.query("INSERT INTO batch_events(batch_id,event_id,url) VALUES(?,?,?)").run(batch.id, event.id, c.url);
+      db.query("INSERT INTO batch_events(batch_id,event_id,url) VALUES(?,?,?)").run(
+        batch.id,
+        event.id,
+        eventUrl(event, c.url),
+      );
     for (const destination of targets)
       db.query("INSERT OR IGNORE INTO batch_targets(batch_id,destination_id,destination_json) VALUES(?,?,?)").run(
         batch.id,

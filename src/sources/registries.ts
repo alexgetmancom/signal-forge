@@ -126,7 +126,10 @@ export function parseNpm(payload: string): Collection {
 
 export async function collectNpm(name: string, request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
   const url = `https://registry.npmjs.org/${name.replace("/", "%2F")}`;
-  return parseNpm(await fetchText(url, { accept: "application/json" }, request, undefined, cache));
+  const collection = parseNpm(await fetchText(url, { accept: "application/json" }, request, undefined, cache));
+  if (collection.source !== `npm:${name}`)
+    throw new Error(`npm returned package ${collection.source.slice("npm:".length)}, expected ${name}`);
+  return collection;
 }
 
 const pypiPackage = z.object({
@@ -155,9 +158,12 @@ export function parsePypi(payload: string): Collection {
 }
 
 export async function collectPypi(name: string, request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
-  return parsePypi(
+  const collection = parsePypi(
     await fetchText(`https://pypi.org/pypi/${name}/json`, { accept: "application/json" }, request, undefined, cache),
   );
+  if (collection.source.toLowerCase() !== `pypi:${name}`.toLowerCase())
+    throw new Error(`PyPI returned package ${collection.source.slice("pypi:".length)}, expected ${name}`);
+  return collection;
 }
 
 const gatewayModels = z.object({

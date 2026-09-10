@@ -13,6 +13,18 @@ import { buildSourceRegistry } from "./sources/registry.js";
 
 const REMINDER_OFFSETS = [30, 7, 1] as const;
 const DAY_MS = 24 * 3_600_000;
+const LIFECYCLE_URLS: Record<string, string> = {
+  "openai-deprecations": "https://platform.openai.com/docs/deprecations",
+  "anthropic-deprecations": "https://platform.claude.com/docs/en/about-claude/model-deprecations",
+  "gemini-deprecations": "https://ai.google.dev/gemini-api/docs/deprecations?hl=en",
+  "vertex-deprecations": "https://docs.cloud.google.com/vertex-ai/generative-ai/docs/release-notes",
+  "aws-bedrock-lifecycle": "https://docs.aws.amazon.com/en_en/bedrock/latest/userguide/model-lifecycle-legacy.html",
+  "azure-foundry-lifecycle":
+    "https://learn.microsoft.com/en-us/azure/foundry/concepts/model-lifecycle-retirement?view=azureml-api-2",
+  "groq-deprecations": "https://console.groq.com/docs/deprecations",
+  "cohere-deprecations": "https://docs.cohere.com/docs/deprecations.md",
+  "xai-deprecations": "https://docs.x.ai/developers/migration/may-15-retirement",
+};
 
 type LifecycleEvent = Event & { detected_at: string };
 type DeadlineCandidate = LifecycleReminderContext & {
@@ -40,7 +52,13 @@ function recordFor(event: Event): RecordData | null {
 function normalizeDate(value: unknown): string | null {
   const raw = text(value);
   if (!raw) return null;
-  const date = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? new Date(`${raw}T00:00:00.000Z`) : new Date(raw);
+  const date = /^\d{4}-\d{2}-\d{2}$/.test(raw)
+    ? new Date(`${raw}T00:00:00.000Z`)
+    : /^(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}$|^\d{1,2}\/\d{1,2}\/\d{2,4}$/i.test(
+          raw,
+        )
+      ? new Date(`${raw} UTC`)
+      : new Date(raw);
   return Number.isFinite(date.getTime()) ? date.toISOString() : null;
 }
 
@@ -61,9 +79,9 @@ function isoDates(value: string): string[] {
 }
 
 function candidateFor(event: LifecycleEvent, now: number): DeadlineCandidate[] {
-  if (!event.source.endsWith("-deprecations") && event.source !== "openai-deprecations") return [];
+  if (event.stream !== "deprecations") return [];
   const record = recordFor(event);
-  const url = text(record?.url) ?? "https://platform.claude.com/docs/en/about-claude/model-deprecations";
+  const url = text(record?.url) ?? LIFECYCLE_URLS[event.source] ?? "https://platform.openai.com/docs/deprecations";
   const common = {
     title: text(record?.name) ?? event.entity_id,
     replacement: text(record?.replacement),
@@ -76,27 +94,23 @@ function candidateFor(event: LifecycleEvent, now: number): DeadlineCandidate[] {
     updatedAt: event.detected_at,
   };
   const result: DeadlineCandidate[] = [];
-  if (event.source === "anthropic-deprecations") {
-    const retirement = normalizeDate(record?.retirement);
-    const deprecated = normalizeDate(record?.deprecated);
-    if (retirement)
-      result.push({
-        ...common,
-        stableKey: `${event.source}:${event.entity_id}:retirement`,
-        deadlineType: "retirement",
-        deadlineAt: retirement,
-        offsetDays: 30,
-      });
-    if (deprecated)
-      result.push({
-        ...common,
-        stableKey: `${event.source}:${event.entity_id}:deprecation`,
-        deadlineType: "deprecation",
-        deadlineAt: deprecated,
-        offsetDays: 30,
-      });
-    return result;
+  for (const [field, deadlineType] of [
+    ["retirement", "retirement"],
+    ["deprecated", "deprecation"],
+    ["shutdown", "shutdown"],
+  ] as const) {
+    const deadline = normalizeDate(record?.[field]);
+    if (!deadline) continue;
+    result.push({
+      ...common,
+      stableKey: `${event.source}:${event.entity_id}:${deadlineType}`,
+      deadlineType,
+      deadlineAt: deadline,
+      offsetDays: 30,
+    });
   }
+  if (result.length) return result;
+  if (event.source !== "openai-deprecations") return [];
   const summary = text(record?.summary);
   if (!summary) return [];
   const dates = [...new Set(isoDates(summary))];

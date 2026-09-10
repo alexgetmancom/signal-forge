@@ -140,6 +140,33 @@ test("provider API availability comes only from first-party catalogues", () => {
   db.close();
 });
 
+test("lifecycle sources contribute status and dates to Model Facts", () => {
+  const db = openDatabase(":memory:");
+  introduce(
+    db,
+    "gemini-deprecations",
+    "deprecations",
+    [
+      model({
+        id: "gemini-2.0-flash",
+        name: "Gemini 2.0 Flash",
+        modelId: "gemini-2.0-flash",
+        maker: "Google Gemini",
+        provider: "Google Gemini",
+        stage: "Deprecated",
+        deprecated: "2026-09-20",
+        retirement: "2026-10-01",
+      }),
+    ],
+    "2026-09-10T00:00:00Z",
+  );
+  const facts = getModelFacts(db, "gemini-2.0-flash")?.facts;
+  expect(facts?.status).toMatchObject({ value: "Deprecated", source: "gemini-deprecations" });
+  expect(facts?.deprecationDate).toMatchObject({ value: "2026-09-20", source: "gemini-deprecations" });
+  expect(facts?.retirementDate).toMatchObject({ value: "2026-10-01", source: "gemini-deprecations" });
+  db.close();
+});
+
 test("known source vendor wins over a raw provider owner", () => {
   const db = openDatabase(":memory:");
   introduce(

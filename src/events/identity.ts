@@ -77,6 +77,16 @@ export function identityFor(event: Event, record: RecordData | null): ModelIdent
     };
   }
 
+  if (event.stream === "deprecations") {
+    const canonicalId = text(record?.canonical_id) ?? text(record?.canonicalId) ?? text(record?.modelId);
+    return {
+      canonicalId,
+      displayName: name,
+      aliases: unique([name, canonicalId, id]).filter((value) => value !== canonicalId),
+      status: canonicalId ? "canonical" : "unknown",
+    };
+  }
+
   if (["api-models", "openrouter", "weights", "packages"].includes(event.stream)) {
     return {
       canonicalId: id,

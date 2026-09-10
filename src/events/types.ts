@@ -28,6 +28,8 @@ export type Collection = {
   silentIds?: string[];
   trackChanges?: boolean;
   confirmChanges?: boolean;
+  /** A successful omission resolves a retained incident instead of deleting its evidence. */
+  resolveMissing?: boolean;
   authority?: SourceAuthority;
 };
 

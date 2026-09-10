@@ -133,7 +133,7 @@ function extractCandidates(event: EventRow, canonicalId: string): Candidate[] {
     add("pricing", record.pricing);
     add("access", text(record.access));
     add("library", text(record.library));
-    if (event.source === "anthropic-deprecations") {
+    if (event.stream === "deprecations") {
       add("status", text(record.stage));
       add("deprecationDate", text(record.deprecated));
       add("retirementDate", text(record.retirement));

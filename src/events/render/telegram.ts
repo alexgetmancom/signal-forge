@@ -153,13 +153,11 @@ export function renderEvent(
   lines.push(...collapseDetails(lines.splice(3)));
   if (summary) lines.splice(3, 0, `AI summary: ${summary}`);
   const link =
-    event.stream === "leaderboards"
-      ? url
-      : typeof record?.url === "string"
-        ? record.url
-        : event.source === "openrouter"
-          ? `https://openrouter.ai/${event.entity_id}`
-          : url;
+    typeof record?.url === "string" && record.url.trim()
+      ? record.url
+      : event.source === "openrouter"
+        ? `https://openrouter.ai/${event.entity_id}`
+        : url;
   const stamp = Math.floor(Date.parse(event.detected_at) / 1000);
   const time = platform === "discord" ? `<t:${stamp}:f>` : utcStamp(event.detected_at);
   lines.push("", link);

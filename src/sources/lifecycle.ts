@@ -284,6 +284,7 @@ function parseMarkdownRecords(markdown: string, options: LifecycleTableOptions):
 }
 
 function parseCollection(source: string, url: string, raw: string, records: RecordData[]): Collection {
+  if (!records.length) throw new Error(`${source}: lifecycle records not found`);
   return {
     source,
     stream: "deprecations",
@@ -431,6 +432,7 @@ export function parseCohereDeprecations(input: string): Collection {
         });
       }
     }
+    if (!fallback.length) throw new Error("cohere-deprecations: lifecycle records not found");
     markdownRecords = lifecycleRecords.parse([...new Map(fallback.map((record) => [record.id, record])).values()]);
   }
   return parseCollection("cohere-deprecations", COHERE_DEPRECATIONS_URL, input, markdownRecords);

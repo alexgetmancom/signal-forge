@@ -63,7 +63,7 @@ export function prepareDeliveries(db: Database, now = Date.now(), vendorRoles: R
   for (const batch of batches) {
     const events = db
       .query<Event & { url: string }, [number]>(
-        "SELECT e.*,b.url FROM batch_events b JOIN events e ON e.id=b.event_id WHERE b.batch_id=? ORDER BY e.id",
+        "SELECT e.*,COALESCE(NULLIF(json_extract(e.after_json,'$.url'),''),NULLIF(json_extract(e.before_json,'$.url'),''),b.url) AS url FROM batch_events b JOIN events e ON e.id=b.event_id WHERE b.batch_id=? ORDER BY e.id",
       )
       .all(batch.id);
     const summaries = new Map(
@@ -146,10 +146,11 @@ export function prepareDeliveries(db: Database, now = Date.now(), vendorRoles: R
           const event = group[0] as StoryRenderEvent;
           const rendered = renderEvent(event, event.url, destination.platform, summaries.get(event.id));
           const lines = rendered.split("\n");
+          const heading = lines[0] ?? `Update · ${sourceLabel(event.source)}`;
           const footer = lines.slice(-2).join("\n");
           const content = lines.slice(1, -2).join("\n").trim();
-          const kind = { new: "🆕", changed: "✏️", removed: "🗑️" }[event.kind];
-          return `${kind} ${content.length > 800 ? `${content.slice(0, 800)}…` : content}\n${footer}`;
+          const compact = content.length > 800 ? `${content.slice(0, 800)}…` : content;
+          return [heading, compact, footer].filter(Boolean).join("\n");
         })
         .join("\n\n────────\n\n");
       const store = (payload: string, part: number) =>

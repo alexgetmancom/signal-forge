@@ -3,7 +3,7 @@ import { loadConfig } from "../src/config.js";
 import { selectMeaningfulWebStrings } from "../src/events/web.js";
 import { saveCollection } from "../src/events.js";
 import { parseArena, parseLeaderboards } from "../src/sources/arena.js";
-import { collectAnthropic, collectOpenRouter } from "../src/sources/catalogs.js";
+import { collectAnthropic, collectOpenAI, collectOpenRouter } from "../src/sources/catalogs.js";
 import { claudeAssetImports, extractStrings } from "../src/sources/claude.js";
 import { parseCursorChangelog, parseDesignArena } from "../src/sources/community.js";
 import { parseDeepSeekPricing, parseDeepSeekUpdates } from "../src/sources/deepseek.js";
@@ -21,7 +21,7 @@ import {
   parseXaiDeprecations,
 } from "../src/sources/lifecycle.js";
 import { parseAnthropicNews, parseOpenAINews } from "../src/sources/news.js";
-import { collectHuggingFace, parseHuggingFace, parseNpm } from "../src/sources/registries.js";
+import { collectHuggingFace, collectNpm, collectPypi, parseHuggingFace, parseNpm } from "../src/sources/registries.js";
 import {
   collectOpenAIChatGPTReleaseNotes,
   parseGeminiApiChangelog,
@@ -370,6 +370,12 @@ test("lifecycle parsers preserve active stages instead of labelling every row de
   expect(xai.records[0]).toMatchObject({ stage: "Retired", retirement: "May 15, 2026", deprecated: null });
 });
 
+test("Cohere lifecycle parsing fails closed when the page has no records", () => {
+  expect(() => parseCohereDeprecations("<html><body>Access denied</body></html>")).toThrow(
+    "lifecycle records not found",
+  );
+});
+
 test("official developer feeds validate RSS and Atom and retain tool release evidence", () => {
   const rss = parseOfficialFeed(
     `<rss version="2.0"><channel><item><title>Codex skill update</title><link>https://example.test/codex</link><description>New skill</description><pubDate>Wed, 09 Sep 2026 10:00:00 GMT</pubDate></item></channel></rss>`,
@@ -435,6 +441,8 @@ test("OpenRouter schema rejects error pages and normalizes modality ordering", a
   };
   const c = await collectOpenRouter(async () => Response.json(data));
   expect(c.records[0]?.input).toEqual(["image", "text"]);
+  expect(c.url).toBe("https://openrouter.ai/models");
+  expect(c.records[0]?.url).toBe("https://openrouter.ai/a");
   await expect(collectOpenRouter(async () => Response.json({ error: "unavailable" }))).rejects.toThrow();
 });
 test("Anthropic collects all pages, never treating first page as entire catalog", async () => {
@@ -452,6 +460,15 @@ test("Anthropic collects all pages, never treating first page as entire catalog"
     },
   );
   expect(c.records.map((r) => r.id)).toEqual(["a", "b"]);
+  expect(c.url).toBe("https://docs.anthropic.com/en/docs/about-claude/models");
+});
+
+test("OpenAI catalogue evidence links to the model documentation, not the authenticated API", async () => {
+  const c = await collectOpenAI(
+    loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname }),
+    async () => Response.json({ data: [{ id: "gpt-6", created: 1, owned_by: "openai" }] }),
+  );
+  expect(c.url).toBe("https://platform.openai.com/docs/models");
 });
 test("diff excludes lockfiles and caps file count and excerpts", () => {
   const files = [
@@ -626,6 +643,26 @@ test("npm is tracked per channel, so a nightly does not become an event per vers
   expect(c.records.find((r) => r.id === "latest")).toMatchObject({ version: "1.2.3" });
 });
 
+test("package collectors reject a registry response for a different package", async () => {
+  await expect(
+    collectNpm("@openai/codex", async () =>
+      Response.json({
+        name: "@other/tool",
+        "dist-tags": { latest: "1.0.0" },
+        time: { "1.0.0": "2026-09-01T00:00:00.000Z" },
+      }),
+    ),
+  ).rejects.toThrow("expected @openai/codex");
+  await expect(
+    collectPypi("openai", async () =>
+      Response.json({
+        info: { name: "different-package", version: "1.0.0" },
+        releases: { "1.0.0": [] },
+      }),
+    ),
+  ).rejects.toThrow("expected openai");
+});
+
 test("Vercel gateway models carry maker, context and pricing", async () => {
   const { parseVercelGateway } = await import("../src/sources/registries.js");
   const c = parseVercelGateway(
@@ -664,6 +701,15 @@ test("DesignArena ranks by elo and stores no vote counters", () => {
   // Elo and battles move on every vote; keeping them would make each poll an event.
   expect(parsed.records[0]).not.toHaveProperty("elo");
   expect(parsed.records[0]).not.toHaveProperty("battles");
+});
+
+test("DesignArena refuses a response for a different requested category", () => {
+  expect(() =>
+    parseDesignArena(
+      JSON.stringify({ success: true, category: "image", data: [{ modelId: "model", elo: 1000 }] }),
+      "website",
+    ),
+  ).toThrow("expected website");
 });
 test("Cursor changelog takes the slug as identity and refuses a page it cannot read", () => {
   const html =

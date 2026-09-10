@@ -248,7 +248,8 @@ export function signalQuality(db: Database, config: AppConfig, days = 7, now = D
   const suppressed = new Map<string, number>();
   const changedEvents = db
     .query<RenderableEvent, [string]>(
-      `SELECT e.id,e.source,e.stream,e.entity_id,e.kind,e.before_json,e.after_json,e.detected_at,e.evidence_type,MIN(be.url) AS url
+      `SELECT e.id,e.source,e.stream,e.entity_id,e.kind,e.before_json,e.after_json,e.detected_at,e.evidence_type,
+              COALESCE(NULLIF(json_extract(e.after_json,'$.url'),''),NULLIF(json_extract(e.before_json,'$.url'),''),MIN(be.url)) AS url
        FROM events e
        JOIN batch_events be ON be.event_id=e.id
        WHERE e.detected_at>=?

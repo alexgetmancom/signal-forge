@@ -39,6 +39,8 @@ const RANKED_PLACES = 20;
 
 export function parseDesignArena(payload: string, category: string): Collection {
   const board = designArena.parse(JSON.parse(payload));
+  if (board.category !== category)
+    throw new Error(`DesignArena returned category ${board.category}, expected ${category}`);
   const ranked = [...board.data].sort((a, b) => (b.elo ?? 0) - (a.elo ?? 0));
   return {
     source: `designarena:${category}`,

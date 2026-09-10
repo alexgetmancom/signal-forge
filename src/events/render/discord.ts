@@ -92,13 +92,11 @@ export function eventEmbed(event: Event, url: string, summary?: string): Record<
   const after = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
   const record = after ?? before;
   const link =
-    event.stream === "leaderboards"
-      ? url
-      : typeof record?.url === "string"
-        ? record.url
-        : event.source === "openrouter"
-          ? `https://openrouter.ai/${event.entity_id}`
-          : url;
+    typeof record?.url === "string" && record.url.trim()
+      ? record.url
+      : event.source === "openrouter"
+        ? `https://openrouter.ai/${event.entity_id}`
+        : url;
   const rendered = renderEvent(event, url).split("\n");
   const body = rendered.slice(2, -2).join("\n").trim();
   const vendor = vendorOf(event, record);
@@ -125,6 +123,7 @@ export function eventEmbed(event: Event, url: string, summary?: string): Record<
     color: KIND_COLORS[event.kind],
     description,
     fields: [
+      { name: "Source", value: sourceLabel(event.source), inline: false },
       {
         name: "Signal",
         value: `${(event.confidence ?? "observed").replace(/^./, (letter) => letter.toUpperCase())} · ${evidenceLabel(event.evidence_type ?? evidenceTypeFor(event.source, event.stream))}`,

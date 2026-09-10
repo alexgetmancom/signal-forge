@@ -230,7 +230,7 @@ export async function fillSummaries(
   if (!config.DEEPSEEK_API_KEY) return 0;
   const pending = db
     .query<Event & { url: string }, [number]>(
-      `SELECT e.*, be.url FROM batches b
+      `SELECT e.*, COALESCE(NULLIF(json_extract(e.after_json,'$.url'),''),NULLIF(json_extract(e.before_json,'$.url'),''),be.url) AS url FROM batches b
        JOIN batch_events be ON be.batch_id = b.id
        JOIN events e ON e.id = be.event_id
        WHERE b.sealed = 0

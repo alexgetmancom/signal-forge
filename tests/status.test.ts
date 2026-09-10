@@ -415,10 +415,27 @@ test("an incident becomes an event, and its resolution is a change rather than a
   expect(parsed.stream).toBe("incidents");
   expect(parsed.appendOnly).toBe(true);
   expect(parsed.trackChanges).toBe(true);
+  expect(parsed.resolveMissing).toBe(true);
   expect(parsed.records[0]).toMatchObject({ id: "abc", name: "OpenAI: Elevated errors", stage: "investigating" });
   // A calm platform reports no incidents, and that is a valid observation, not an empty collection.
   const calm = JSON.stringify({ status: { description: "All Systems Operational", indicator: "none" }, incidents: [] });
   expect(parsePlatformStatus(calm, PLATFORMS[0] as (typeof PLATFORMS)[number]).records).toHaveLength(0);
+
+  const db = openDatabase(":memory:");
+  const platform = PLATFORMS[0] as (typeof PLATFORMS)[number];
+  saveCollection(db, { ...parsed, records: [], raw: "baseline" }, [], "2026-09-08T10:00:00.000Z");
+  saveCollection(db, parsed, [], "2026-09-08T10:05:00.000Z");
+  saveCollection(db, parsePlatformStatus(calm, platform), [], "2026-09-08T10:10:00.000Z");
+  expect(db.query("SELECT kind FROM events ORDER BY id").all()).toEqual([{ kind: "new" }]);
+  saveCollection(db, parsePlatformStatus(calm, platform), [], "2026-09-08T10:15:00.000Z");
+  expect(db.query("SELECT kind FROM events ORDER BY id").all()).toEqual([{ kind: "new" }, { kind: "changed" }]);
+  const resolution = db.query<{ after_json: string }, []>("SELECT after_json FROM events WHERE kind='changed'").get();
+  expect(JSON.parse(resolution?.after_json ?? "{}")).toMatchObject({
+    id: "abc",
+    stage: "resolved",
+    summary: "Incident no longer listed by the status page.",
+  });
+  db.close();
 });
 
 test("many collectors failing together is reported as one shared path", async () => {

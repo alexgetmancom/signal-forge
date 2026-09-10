@@ -64,10 +64,11 @@ export function parsePlatformStatus(payload: string, platform: (typeof PLATFORMS
     stream: "incidents",
     url: platform.page,
     raw: { headline: data.status.description, indicator: data.status.indicator, incidents: data.incidents },
-    // A resolved incident leaves the summary. That is the end of the incident, not a deletion of
-    // it, and the closing update has already been reported as a change.
+    // A resolved incident can leave the summary. Two successful omissions turn it into an explicit
+    // resolved change, keeping the incident evidence without treating recovery as deletion.
     appendOnly: true,
     trackChanges: true,
+    resolveMissing: true,
     records: data.incidents.map((incident) => ({
       id: incident.id,
       name: `${platform.name}: ${incident.name}`,
