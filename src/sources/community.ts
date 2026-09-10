@@ -24,16 +24,6 @@ const designArena = z.object({
 /** The categories the models arena actually serves; the site lists others that return 400. */
 export const DESIGNARENA_CATEGORIES = ["website", "uicomponent", "image"];
 
-const DESIGNARENA_BOARD_PATHS: Record<string, string> = {
-  website: "website",
-  uicomponent: "ui-components",
-  image: "image",
-};
-
-function designArenaLeaderboardUrl(category: string): string {
-  return `https://www.designarena.ai/leaderboard/${DESIGNARENA_BOARD_PATHS[category] ?? category}`;
-}
-
 /** Same rule as the text leaderboards: only the leading places are news when they move. */
 const RANKED_PLACES = 20;
 
@@ -43,8 +33,9 @@ export function parseDesignArena(payload: string, category: string): Collection 
   return {
     source: `designarena:${category}`,
     stream: "leaderboards",
-    url: designArenaLeaderboardUrl(category),
+    url: `https://www.designarena.ai/leaderboard?category=${category}`,
     raw: payload,
+    appendOnly: true,
     trackChanges: true,
     records: ranked.map((model, index) => ({
       id: model.modelId,

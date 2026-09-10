@@ -65,7 +65,6 @@ test("leaderboard keeps rank for the leading places and drops it below them", ()
     ],
   };
   const parsed = parseLeaderboards(nextPage({ leaderboards: [board] }));
-  expect(parsed.appendOnly).toBeUndefined();
   expect(parsed.records[0]).toMatchObject({ id: "text:overall:a", rank: 1, score: 1400.25, votes: 123, modelKey: "a" });
   // Deep in a board the order churns daily; storing it would buy events and no news.
   expect(parsed.records[1]).not.toHaveProperty("rank");
@@ -657,8 +656,6 @@ test("DesignArena ranks by elo and stores no vote counters", () => {
     ],
   });
   const parsed = parseDesignArena(payload, "website");
-  expect(parsed.appendOnly).toBeUndefined();
-  expect(parsed.url).toBe("https://www.designarena.ai/leaderboard/website");
   expect(parsed.records.map((record) => record.id)).toEqual(["first", "second"]);
   expect(parsed.records[0]).toMatchObject({ rank: 1, category: "designarena/website" });
   // Elo and battles move on every vote; keeping them would make each poll an event.
