@@ -15,8 +15,8 @@ import { collectGithubDiscovery, collectHuggingFaceDiscovery, GITHUB_DISCOVERY_Q
 import {
   collectAnthropicSdkReleases,
   collectClaudeCodeChangelog,
-  collectGoogleDeepmindFeed,
   collectHuggingFaceBlogFeed,
+  collectOpenAICodexChangelog,
 } from "./feeds.js";
 import { collectGithubCommits, collectGithubPulls, collectGithubReleases } from "./github.js";
 import { sourceLabel } from "./labels.js";
@@ -44,6 +44,7 @@ import {
   collectGeminiApiChangelog,
   collectGroqChangelog,
   collectMistralReleaseNotes,
+  collectOpenAIApiChangelog,
   collectOpenAIChatGPTReleaseNotes,
   collectXaiReleaseNotes,
 } from "./releaseNotes.js";
@@ -111,6 +112,28 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       intervalSeconds: 900,
       collector: () => collectOpenAIChatGPTReleaseNotes(fetch, cache),
       enabled: requested("openai-chatgpt-release-notes"),
+    },
+    {
+      id: "openai-codex-changelog",
+      label: sourceLabel("openai-codex-changelog"),
+      authority: "first_party",
+      vendor: "OpenAI",
+      group: "Official developer feeds",
+      stream: "news",
+      intervalSeconds: 1800,
+      collector: () => collectOpenAICodexChangelog(fetch, cache),
+      enabled: requested("openai-codex-changelog"),
+    },
+    {
+      id: "openai-api-changelog",
+      label: sourceLabel("openai-api-changelog"),
+      authority: "first_party",
+      vendor: "OpenAI",
+      group: "Official developer feeds",
+      stream: "news",
+      intervalSeconds: 1800,
+      collector: () => collectOpenAIApiChangelog(fetch, cache),
+      enabled: requested("openai-api-changelog"),
     },
     {
       id: "anthropic-news",
@@ -223,17 +246,6 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       intervalSeconds: 1800,
       collector: () => collectAnthropicSdkReleases(fetch, cache),
       enabled: requested("anthropic-sdk-releases"),
-    },
-    {
-      id: "google-deepmind-feed",
-      label: sourceLabel("google-deepmind-feed"),
-      authority: "first_party",
-      vendor: "Google DeepMind",
-      group: "Official developer feeds",
-      stream: "news",
-      intervalSeconds: 1800,
-      collector: () => collectGoogleDeepmindFeed(fetch, cache),
-      enabled: requested("google-deepmind-feed"),
     },
     {
       id: "huggingface-blog-feed",

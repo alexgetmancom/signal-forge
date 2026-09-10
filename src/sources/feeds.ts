@@ -8,7 +8,8 @@ import { fetchText } from "./http.js";
 
 export const CLAUDE_CODE_CHANGELOG_URL = "https://code.claude.com/docs/en/changelog.md";
 export const ANTHROPIC_SDK_RELEASES_URL = "https://platform.claude.com/docs/en/release-notes/overview.md";
-export const GOOGLE_DEEPMIND_FEED_URL = "https://deepmind.google/blog/rss.xml";
+export const OPENAI_CODEX_CHANGELOG_URL = "https://developers.openai.com/codex/changelog";
+const OPENAI_CODEX_CHANGELOG_FEED_URL = "https://learn.chatgpt.com/docs/changelog/rss.xml";
 export const HUGGINGFACE_BLOG_FEED_URL = "https://huggingface.co/blog/feed.xml";
 
 const xmlTextSchema = z.union([z.string(), z.object({ "#text": z.string() }).passthrough()]);
@@ -27,6 +28,7 @@ const feedItemSchema = z.object({
   updated: z.unknown().optional(),
   description: z.unknown().optional(),
   summary: z.unknown().optional(),
+  encoded: z.unknown().optional(),
 });
 
 type FeedOptions = {
@@ -109,7 +111,10 @@ export function parseOfficialFeed(text: string, options: FeedOptions): Collectio
   const records = items.map((unknownItem) => {
     const item = feedItemSchema.passthrough().parse(unknownItem);
     const title = textValue(item.title, "title", true).trim();
-    const description = htmlText(textValue(item.description ?? item.summary, "description"));
+    const encoded = item.encoded === undefined ? "" : textValue(item.encoded, "description");
+    const description = encoded.trim()
+      ? markdownText(htmlText(encoded))
+      : htmlText(textValue(item.description ?? item.summary, "description"));
     const url = z.url().parse(feedLink(item.link ?? item.guid ?? item.id));
     const date = textValue(item.pubDate ?? item.published ?? item.updated, "publication date", true);
     return {
@@ -202,13 +207,15 @@ export async function collectAnthropicSdkReleases(request: Fetch = fetch, cache?
   return parseAnthropicSdkReleases(await fetchText(ANTHROPIC_SDK_RELEASES_URL, {}, request, undefined, cache));
 }
 
-export async function collectGoogleDeepmindFeed(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
-  return parseOfficialFeed(await fetchText(GOOGLE_DEEPMIND_FEED_URL, {}, request, undefined, cache), {
-    source: "google-deepmind-feed",
-    maker: "Google DeepMind",
-    url: GOOGLE_DEEPMIND_FEED_URL,
+export async function collectOpenAICodexChangelog(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
+  return parseOfficialFeed(await fetchText(OPENAI_CODEX_CHANGELOG_FEED_URL, {}, request, undefined, cache), {
+    source: "openai-codex-changelog",
+    maker: "OpenAI",
+    url: OPENAI_CODEX_CHANGELOG_URL,
+    include: (title) => !/^ChatGPT for (?:iOS|Android)$/i.test(title.trim()),
   });
 }
+
 export async function collectHuggingFaceBlogFeed(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
   return parseOfficialFeed(await fetchText(HUGGINGFACE_BLOG_FEED_URL, {}, request, undefined, cache), {
     source: "huggingface-blog-feed",

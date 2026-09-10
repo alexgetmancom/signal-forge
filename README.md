@@ -144,7 +144,7 @@ The current source registry covers:
 * npm and PyPI packages
 * GitHub commits, pull requests, and releases for selected repositories
 * Recent GitHub discovery for artificial-intelligence, LLM, agent, and MCP repositories
-* Official OpenAI Help Center and news, Anthropic Platform, Gemini API, xAI, Mistral, Groq, DeepSeek, Google DeepMind, and Hugging Face release surfaces, plus Codex documentation and Claude Code/Anthropic SDK releases
+* Official OpenAI news, ChatGPT release notes, Codex and API changelogs, Anthropic Platform, Gemini API, xAI, Mistral, Groq, DeepSeek, and Hugging Face release surfaces, plus Codex documentation and Claude Code/Anthropic SDK releases
 * Provider lifecycle and deprecation pages for OpenAI, Anthropic, Google, AWS, Azure, Groq, Cohere, and xAI
 
 Provider credentials and upstream availability determine which optional sources can run. A failed or malformed collection is never treated as an empty catalog; external responses are validated before they can change stored state.

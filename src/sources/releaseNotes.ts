@@ -7,6 +7,8 @@ import { fetchText } from "./http.js";
 
 export const OPENAI_CHATGPT_RELEASE_NOTES_URL = "https://help.openai.com/en/articles/6825453-chatgpt-release-notes";
 const OPENAI_CHATGPT_RELEASE_NOTES_FETCH_URL = `${OPENAI_CHATGPT_RELEASE_NOTES_URL}.json`;
+export const OPENAI_API_CHANGELOG_URL = "https://developers.openai.com/api/docs/changelog";
+const OPENAI_API_CHANGELOG_FETCH_URL = `${OPENAI_API_CHANGELOG_URL}.md`;
 export const GEMINI_API_CHANGELOG_URL = "https://ai.google.dev/gemini-api/docs/changelog";
 export const XAI_RELEASE_NOTES_URL = "https://docs.x.ai/developers/release-notes";
 export const MISTRAL_RELEASE_NOTES_URL = "https://docs.mistral.ai/resources/release-notes";
@@ -102,6 +104,7 @@ function contentBlocks(value: string): string {
 }
 
 function releaseCollection(source: string, url: string, records: RecordData[]): Collection {
+  if (!records.length) throw new Error(`${source}: release notes have no dated entries`);
   const parsed = releaseRecordsSchema.parse(records) as RecordData[];
   return {
     source,
@@ -114,6 +117,73 @@ function releaseCollection(source: string, url: string, records: RecordData[]): 
     trackChanges: true,
     records: parsed,
   };
+}
+
+function markdownSummary(value: string): string {
+  return htmlText(value)
+    .replace(/```[\s\S]*?```/g, " ")
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
+    .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")
+    .replace(/[`*_>#]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function firstMarkdownLink(value: string): { label: string; url: string } | null {
+  const match = /\[([^\]]+)\]\((https?:\/\/[^)\s]+)(?:\s+"[^"]*")?\)/.exec(value);
+  if (!match) return null;
+  const label = htmlText(match[1] ?? "").trim();
+  const url = match[2] ?? "";
+  return label && url ? { label, url } : null;
+}
+
+function firstSentence(value: string): string {
+  return value.split(/(?<=[.!?])\s+/)[0]?.trim() ?? "";
+}
+
+/** Parse OpenAI's month- and day-grouped API changelog Markdown. */
+export function parseOpenAIApiChangelog(markdown: string): Collection {
+  const monthHeadings = [...markdown.matchAll(/^##\s+([A-Za-z]+),\s+(\d{4})\s*$/gm)].map((match) => ({
+    index: match.index ?? -1,
+    year: match[2] ?? "",
+  }));
+  const dateHeadings = [...markdown.matchAll(/^###\s+([A-Za-z]+\s+\d{1,2})\s*$/gm)];
+  const records = dateHeadings.flatMap((heading, index) => {
+    const headingIndex = heading.index ?? -1;
+    if (headingIndex < 0) return [];
+    const month = monthHeadings.filter((candidate) => candidate.index < headingIndex).at(-1);
+    if (!month) return [];
+    const published = publicationDate(`${heading[1] ?? ""}, ${month.year}`, "openai-api-changelog");
+    const sectionStart = headingIndex + heading[0].length;
+    const nextDate = dateHeadings[index + 1]?.index ?? markdown.length;
+    const nextMonth = monthHeadings.find((candidate) => candidate.index > headingIndex)?.index ?? markdown.length;
+    const section = markdown.slice(sectionStart, Math.min(nextDate, nextMonth));
+    const lines = section.split(/\r?\n/);
+    const firstContent = lines.findIndex((line) => line.trim());
+    if (firstContent < 0) return [];
+    const metadata = lines[firstContent]?.trim() ?? "";
+    const body = lines.slice(firstContent + 1).join("\n");
+    const link = firstMarkdownLink(body);
+    const summary = markdownSummary(body) || markdownSummary(metadata);
+    const name = (link?.label || firstSentence(summary) || metadata).slice(0, 200);
+    if (!name || !summary) return [];
+    const identity = slug(link?.url ?? `${metadata}:${name}`) || `entry-${index}`;
+    return [
+      {
+        id: `openai-api:${published.slice(0, 10)}:${identity}`,
+        name,
+        url: OPENAI_API_CHANGELOG_URL,
+        maker: "OpenAI",
+        published,
+        summary: summary.slice(0, 1_200),
+      } satisfies RecordData,
+    ];
+  });
+  return releaseCollection("openai-api-changelog", OPENAI_API_CHANGELOG_URL, records);
+}
+
+export async function collectOpenAIApiChangelog(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
+  return parseOpenAIApiChangelog(await fetchText(OPENAI_API_CHANGELOG_FETCH_URL, {}, request, undefined, cache));
 }
 
 /** Parse the dated article sections from OpenAI's ChatGPT Help Center release notes. */

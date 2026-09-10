@@ -20,7 +20,8 @@ test("source families collapse discovery queries but preserve independent surfac
 test("independent confirmation collapses official surfaces from one vendor", () => {
   expect(sourceIndependenceFamily("openai", "api-models")).toBe("first-party:OpenAI");
   expect(sourceIndependenceFamily("openai-news", "news")).toBe("first-party:OpenAI");
+  expect(sourceIndependenceFamily("openai-codex-changelog", "news")).toBe("first-party:OpenAI");
+  expect(sourceIndependenceFamily("openai-api-changelog", "news")).toBe("first-party:OpenAI");
   expect(sourceIndependenceFamily("status:openai", "incidents")).toBe("first-party:OpenAI");
-  expect(sourceIndependenceFamily("google-deepmind-feed", "news")).toBe("first-party:Google");
   expect(sourceIndependenceFamily("openrouter", "openrouter")).toBe("openrouter");
 });

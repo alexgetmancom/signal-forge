@@ -24,6 +24,8 @@ test("source registry has unique IDs, valid streams, labels and consistent pacin
   expect(definitions.find((definition) => definition.id === "vercel-gateway")?.restrictedReason).toBeUndefined();
   for (const id of [
     "openai-chatgpt-release-notes",
+    "openai-codex-changelog",
+    "openai-api-changelog",
     "gemini-api-changelog",
     "xai-release-notes",
     "mistral-release-notes",
@@ -39,6 +41,7 @@ test("source registry has unique IDs, valid streams, labels and consistent pacin
     "google-ai-feed",
     "microsoft-ai-feed",
     "nvidia-ai-feed",
+    "google-deepmind-feed",
     "codex-skills",
     "deepseek-news",
     "aider-polyglot",
@@ -153,5 +156,7 @@ test("source labels cover generated families", () => {
   expect(sourceLabel("github:openai/codex:releases")).toBe("GitHub · openai/codex · releases");
   expect(sourceLabel("deepseek-updates")).toBe("DeepSeek · updates");
   expect(sourceLabel("openai-chatgpt-release-notes")).toBe("OpenAI · ChatGPT release notes");
+  expect(sourceLabel("openai-codex-changelog")).toBe("OpenAI · Codex changelog");
+  expect(sourceLabel("openai-api-changelog")).toBe("OpenAI · API changelog");
   expect(sourceLabel("unknown-source")).toBe("unknown-source");
 });

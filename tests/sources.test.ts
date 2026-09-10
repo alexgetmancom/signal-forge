@@ -8,7 +8,12 @@ import { claudeAssetImports, extractStrings } from "../src/sources/claude.js";
 import { parseCursorChangelog, parseDesignArena } from "../src/sources/community.js";
 import { parseDeepSeekModels, parseDeepSeekPricing, parseDeepSeekUpdates } from "../src/sources/deepseek.js";
 import { parseAnthropicDeprecations, parseOpenAIDeprecations } from "../src/sources/deprecations.js";
-import { parseAnthropicSdkReleases, parseClaudeCodeChangelog, parseOfficialFeed } from "../src/sources/feeds.js";
+import {
+  collectOpenAICodexChangelog,
+  parseAnthropicSdkReleases,
+  parseClaudeCodeChangelog,
+  parseOfficialFeed,
+} from "../src/sources/feeds.js";
 import { collectGithubCommits, summarizeDiff } from "../src/sources/github.js";
 import { fetchText, SourceHttpError } from "../src/sources/http.js";
 import {
@@ -23,10 +28,12 @@ import {
 import { parseAnthropicNews, parseOpenAINews } from "../src/sources/news.js";
 import { collectHuggingFace, collectNpm, collectPypi, parseHuggingFace, parseNpm } from "../src/sources/registries.js";
 import {
+  collectOpenAIApiChangelog,
   collectOpenAIChatGPTReleaseNotes,
   parseGeminiApiChangelog,
   parseGroqChangelog,
   parseMistralReleaseNotes,
+  parseOpenAIApiChangelog,
   parseOpenAIChatGPTReleaseNotes,
   parseXaiReleaseNotes,
 } from "../src/sources/releaseNotes.js";
@@ -207,6 +214,66 @@ test("official release-note pages keep dated entries and reject unreadable pages
     return new Response(openaiHtml);
   });
   expect(() => parseOpenAIChatGPTReleaseNotes("<html>blocked</html>")).toThrow("article not found");
+
+  const apiMarkdown = [
+    "# Changelog",
+    "",
+    "## September, 2026",
+    "",
+    "### Sep 10",
+    "",
+    "Feature · Model: gpt-live-1 · API: v1/live/sessions",
+    "",
+    "[GPT-Live 1](https://developers.openai.com/api/docs/models/gpt-live-1) is now generally available in the API.",
+    "",
+    "### Sep 8",
+    "",
+    "Feature · API: v1/responses",
+    "",
+    "[Prompt Cache Diagnostics](https://developers.openai.com/api/docs/guides/prompt-caching/diagnostics) is now generally available.",
+    "",
+    "### Sep 8",
+    "",
+    "Update",
+    "",
+    "Updated API errors so applications can distinguish traffic conditions.",
+    "",
+    "## August, 2026",
+    "",
+    "### Aug 29",
+    "",
+    "Feature",
+    "",
+    "[Mutual TLS](https://developers.openai.com/api/docs/guides/mutual-tls) is now generally available.",
+  ].join("\n");
+  const api = parseOpenAIApiChangelog(apiMarkdown);
+  expect(api).toMatchObject({
+    source: "openai-api-changelog",
+    stream: "news",
+    url: "https://developers.openai.com/api/docs/changelog",
+    appendOnly: true,
+    trackChanges: true,
+  });
+  expect(api.records).toEqual([
+    expect.objectContaining({
+      name: "GPT-Live 1",
+      maker: "OpenAI",
+      published: "2026-09-10T00:00:00.000Z",
+      url: "https://developers.openai.com/api/docs/changelog",
+    }),
+    expect.objectContaining({ name: "Prompt Cache Diagnostics", published: "2026-09-08T00:00:00.000Z" }),
+    expect.objectContaining({ name: "Updated API errors so applications can distinguish traffic conditions." }),
+    expect.objectContaining({ name: "Mutual TLS", published: "2026-08-29T00:00:00.000Z" }),
+  ]);
+  expect(api.records[1]?.summary).toContain("Prompt Cache Diagnostics");
+  expect(api.records[1]?.id).not.toBe(api.records[2]?.id);
+  await collectOpenAIApiChangelog(async (url) => {
+    expect(String(url)).toBe("https://developers.openai.com/api/docs/changelog.md");
+    return new Response(apiMarkdown);
+  });
+  expect(() => parseOpenAIApiChangelog("# Changelog\n\n## September, 2026\n\nNothing here.")).toThrow(
+    "release notes have no dated entries",
+  );
 
   const gemini = parseGeminiApiChangelog(
     `<main><h1>Changelog</h1>
@@ -393,17 +460,29 @@ test("Cohere lifecycle parsing fails closed when the page has no records", () =>
   );
 });
 
-test("official developer feeds validate RSS and Atom and retain tool release evidence", () => {
+test("official developer feeds validate RSS and Atom and retain tool release evidence", async () => {
   const rss = parseOfficialFeed(
-    `<rss version="2.0"><channel><item><title>Codex skill update</title><link>https://example.test/codex</link><description>New skill</description><pubDate>Wed, 09 Sep 2026 10:00:00 GMT</pubDate></item></channel></rss>`,
+    `<rss version="2.0" xmlns:content="http://purl.org/rss/1.0/modules/content/"><channel><item><title>Codex skill update</title><link>https://example.test/codex</link><description>New skill</description><content:encoded>&lt;p&gt;Full &lt;strong&gt;release&lt;/strong&gt; details.&lt;/p&gt;</content:encoded><pubDate>Wed, 09 Sep 2026 10:00:00 GMT</pubDate></item></channel></rss>`,
     { source: "feed-test", maker: "OpenAI", url: "https://example.test/feed.xml" },
   );
   expect(rss.records[0]).toMatchObject({ name: "Codex skill update", published: "2026-09-09T10:00:00.000Z" });
+  expect(rss.records[0]?.description).toBe("Full release details.");
   const atom = parseOfficialFeed(
     `<feed xmlns="http://www.w3.org/2005/Atom"><entry><title>CUDA AI</title><link rel="alternate" href="https://example.test/atom"/><id>x</id><updated>2026-09-09T10:00:00Z</updated><summary>GPU model</summary></entry></feed>`,
     { source: "atom-test", maker: "Example Vendor", url: "https://example.test/feed.atom" },
   );
   expect(atom.records[0]?.url).toBe("https://example.test/atom");
+  const codexFeed = `<rss version="2.0"><channel><item><title>Codex CLI Release: 0.154.0</title><link>https://example.test/codex#release</link><description>0.154.0</description><pubDate>Wed, 09 Sep 2026 00:00:00 GMT</pubDate></item><item><title>ChatGPT for iOS</title><link>https://example.test/chatgpt-ios</link><description>Mobile update</description><pubDate>Wed, 09 Sep 2026 00:00:00 GMT</pubDate></item></channel></rss>`;
+  const codex = await collectOpenAICodexChangelog(async (url) => {
+    expect(String(url)).toBe("https://learn.chatgpt.com/docs/changelog/rss.xml");
+    return new Response(codexFeed);
+  });
+  expect(codex).toMatchObject({
+    source: "openai-codex-changelog",
+    url: "https://developers.openai.com/codex/changelog",
+  });
+  expect(codex.records).toHaveLength(1);
+  expect(codex.records[0]?.maker).toBe("OpenAI");
   expect(() =>
     parseOfficialFeed("<html>error</html>", { source: "feed-test", maker: "OpenAI", url: "https://example.test" }),
   ).toThrow();
