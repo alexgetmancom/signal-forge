@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "bun --watch src/index.ts",
     "start": "bun dist/src/index.js",
-    "build": "tsc -p tsconfig.json && bun scripts/copy-migrations.ts",
+    "build": "tsc -p tsconfig.build.json && bun scripts/copy-migrations.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "biome check .",
     "format": "biome check --write .",

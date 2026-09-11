@@ -1,0 +1,25 @@
+name: Set up Bun
+description: Install Bun and restore the download cache and installed dependencies.
+
+inputs:
+  bun-version:
+    description: Bun version to install.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Bun
+      uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+      with:
+        bun-version: ${{ inputs.bun-version }}
+    - name: Restore the Bun cache
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ~/.bun/install/cache
+          node_modules
+        key: bun-${{ inputs.bun-version }}-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('bun.lock', 'package.json') }}
+    - name: Install dependencies
+      shell: bash
+      run: bun install --frozen-lockfile --ignore-scripts

@@ -15,10 +15,16 @@ Run deployment from an authorized operator checkout:
 Set `SIGNAL_FORGE_DEPLOY_HOST`, `SIGNAL_FORGE_DEPLOY_DIR` and `SIGNAL_FORGE_BIND_ADDRESS` in the
 operator environment before deployment. Keep their values outside the repository.
 
-The deployment script runs the full check, builds the image, applies migrations, normalizes Claude
-Web evidence and performs the Arena metadata backfill while the collectors are stopped, then waits
-for container health. It preserves the production database. Credentials stay in the deployment
-environment and never enter the image.
+The release image is built and checked once in CI and published to the private container registry.
+Deployment pulls it by digest through `DEPLOY_IMAGE`, which the script requires and refuses unless
+it is pinned by digest: a tag can be repointed after the checks ran. Production no longer compiles
+anything.
+
+The deployment script pulls the image, applies migrations, normalizes Claude Web evidence and
+performs the Arena metadata backfill while the collectors are stopped, then waits for container
+health. It preserves the production database. Credentials stay in the deployment environment and
+never enter the image. Afterwards it keeps the five most recent release images and removes older
+ones; set `SIGNAL_FORGE_KEEP_RELEASES` to keep a different number.
 
 After deployment, verify the health endpoint, readiness endpoint, application logs and:
 

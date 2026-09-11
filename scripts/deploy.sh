@@ -4,9 +4,17 @@ set -euo pipefail
 REPOSITORY_DIR=$(cd "$(dirname "$0")/.." && pwd)
 : "${SIGNAL_FORGE_DEPLOY_DIR:?Set SIGNAL_FORGE_DEPLOY_DIR in the runner environment}"
 : "${DEPLOY_RELEASE:?Set DEPLOY_RELEASE to the commit SHA}"
+: "${DEPLOY_IMAGE:?Set DEPLOY_IMAGE to the registry reference built by CI}"
 
 if [[ ! "$DEPLOY_RELEASE" =~ ^[0-9a-f]{40}$ ]]; then
   echo "DEPLOY_RELEASE must be a full commit SHA" >&2
+  exit 1
+fi
+
+# By digest only. A tag can be repointed after CI verified it, and this script
+# would then deploy something no check ever ran against.
+if [[ ! "$DEPLOY_IMAGE" =~ ^[a-z0-9./:-]+@sha256:[0-9a-f]{64}$ ]]; then
+  echo "DEPLOY_IMAGE must be a registry reference pinned by digest" >&2
   exit 1
 fi
 
@@ -63,7 +71,10 @@ rollback() {
 }
 trap rollback EXIT
 
-docker build --pull --tag "$RELEASE_IMAGE" "$REPOSITORY_DIR"
+# The image is built and checked once in CI. Production pulls those exact bytes
+# rather than compiling a second time on a four-core box.
+docker pull "$DEPLOY_IMAGE"
+docker tag "$DEPLOY_IMAGE" "$RELEASE_IMAGE"
 install -m 0644 "$REPOSITORY_DIR/compose.yaml" "$NEXT_COMPOSE"
 SIGNAL_FORGE_IMAGE=$RELEASE_IMAGE docker compose --project-directory "$DEPLOY_DIR" \
   --env-file "$DEPLOY_DIR/.env" -f "$NEXT_COMPOSE" config --quiet
@@ -102,5 +113,27 @@ install -d -m 0755 "$DEPLOY_DIR/scripts"
 install -m 0755 "$REPOSITORY_DIR/scripts/backup.sh" "$DEPLOY_DIR/scripts/backup.sh"
 rm -f "$PREVIOUS_COMPOSE"
 docker image rm "$ROLLBACK_IMAGE" >/dev/null 2>&1 || true
+
+# Every release used to be tagged and kept forever: 60 images and 21 GB had
+# accumulated by 2026-09-12. Keep enough history to roll back by hand, drop the
+# rest. Only release tags match, so `latest`, the rollback tag of a deployment
+# still in flight and every other project on this host are left alone. Images
+# an existing container still references cannot be removed, and Docker refusing
+# to do so is not a deployment failure.
+KEEP_RELEASES=${SIGNAL_FORGE_KEEP_RELEASES:-5}
+stale_releases() {
+  # `grep` finding nothing is the normal state on a young host, and under
+  # `pipefail` its exit code would fail a deployment that already succeeded.
+  docker images --filter 'reference=signal-forge:*' --format '{{.CreatedAt}}\t{{.Repository}}:{{.Tag}}' \
+    | grep -E $'\t''signal-forge:[0-9a-f]{40}$' \
+    | sort -r \
+    | tail -n "+$((KEEP_RELEASES + 1))" \
+    | cut -f2 || true
+}
+while IFS= read -r stale; do
+  if [[ -n "$stale" && "$stale" != "$RELEASE_IMAGE" ]]; then
+    docker image rm "$stale" >/dev/null 2>&1 || true
+  fi
+done < <(stale_releases)
 trap - EXIT
 echo "Production is healthy on release $DEPLOY_RELEASE"

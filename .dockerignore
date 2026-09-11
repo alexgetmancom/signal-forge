@@ -1,8 +1,15 @@
 node_modules
 dist
 data
+backups
 .env
 .git
+.github
 *.log
+
+Screenshots
+docs
+tests
+*.md
 
 signal-forge.json
