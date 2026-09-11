@@ -99,10 +99,73 @@ export function identityFor(event: Event, record: RecordData | null): ModelIdent
   return { canonicalId: null, displayName: name, aliases: unique([name]), status: "unknown" };
 }
 
+/**
+ * Words that say how a model is packaged or reached, not which model it is.
+ *
+ * One release arrives four times: `kimi-k3-official` and `kimi-k3-gateway` half an hour apart on
+ * the Arena, `Mistral Small 4 (batch)` beside the model it batches, `gpt-image-2.5-flare` beside
+ * `gpt-image-2.5-flare-2026-09-08`, and `nvidia/GLM-5.3-Flash-NVFP4` a day after Zhipu published
+ * the weights it quantises. Each was a card of its own.
+ *
+ * Only markers that cannot distinguish two models belong here. A tier or a stage can: `max`,
+ * `preview`, `mini` and `thinking` are left alone, because Pro and Pro Max are two products and a
+ * preview is not the release.
+ */
+const VARIANT_MARKERS = new Set([
+  "official",
+  "gateway",
+  "free",
+  "batch",
+  "hf",
+  "nvfp4",
+  "fp4",
+  "fp8",
+  "bf16",
+  "int4",
+  "int8",
+  "awq",
+  "gguf",
+  "gptq",
+  "mlx",
+  "w8a8",
+  "w4a16",
+]);
+
+function isDateTail(words: string[]): boolean {
+  const [year, month, day] = words;
+  return (
+    /^20\d{2}$/.test(year ?? "") && /^\d{2}$/.test(month ?? "") && /^\d{2}$/.test(day ?? "") && Number(month) <= 12
+  );
+}
+
+/**
+ * One identity term with packaging removed, so that the same model written two ways meets itself.
+ * Returns the term unchanged when nothing is stripped, and never strips it down to nothing.
+ */
+export function baseIdentity(value: string): string {
+  const words = normalizeIdentity(value).split(" ").filter(Boolean);
+  while (words.length > 1) {
+    const last = words.at(-1) ?? "";
+    if (VARIANT_MARKERS.has(last) || /^\d{8}$/.test(last)) {
+      words.pop();
+      continue;
+    }
+    if (words.length > 3 && isDateTail(words.slice(-3))) {
+      words.splice(-3, 3);
+      continue;
+    }
+    break;
+  }
+  return words.join(" ");
+}
+
 export function identityTerms(identity: ModelIdentity): string[] {
-  return unique([identity.canonicalId, ...identity.aliases])
+  const terms = unique([identity.canonicalId, ...identity.aliases])
     .map(normalizeIdentity)
     .filter((value) => value.length > 0);
+  // A packaging-stripped form is an additional way to meet the same model, never a replacement:
+  // the exact term still has to match first.
+  return unique([...terms, ...terms.map(baseIdentity)]);
 }
 
 const IDENTITY_PRIORITY: Record<IdentityStatus, number> = {

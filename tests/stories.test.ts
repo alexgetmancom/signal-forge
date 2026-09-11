@@ -307,3 +307,75 @@ test("one subject still correlates across the categories of a single leaderboard
   expect(stories[0]?.eventIds).toHaveLength(2);
   db.close();
 });
+
+test("one release reached by two routes is one story, not two", () => {
+  const db = openDatabase(":memory:");
+  saveCollection(db, collection("arena", "arena", [{ id: "other", name: "other" }]), [], "2026-09-10T17:30:00.000Z");
+  // Half an hour apart on the Arena, as Kimi K3 actually arrived.
+  saveCollection(
+    db,
+    collection("arena", "arena", [
+      { id: "other", name: "other" },
+      { id: "kimi-k3-official", name: "kimi-k3-official" },
+    ]),
+    [],
+    "2026-09-10T18:00:00.000Z",
+  );
+  saveCollection(
+    db,
+    collection("arena", "arena", [
+      { id: "other", name: "other" },
+      { id: "kimi-k3-official", name: "kimi-k3-official" },
+      { id: "kimi-k3-gateway", name: "kimi-k3-gateway" },
+    ]),
+    [],
+    "2026-09-10T18:26:00.000Z",
+  );
+
+  const stories = listStories(db, { limit: 10 });
+  expect(stories).toHaveLength(1);
+  expect(stories[0]?.eventIds).toHaveLength(2);
+  db.close();
+});
+
+test("a dated alias of a model is the same model", () => {
+  const db = openDatabase(":memory:");
+  saveCollection(
+    db,
+    collection("openai", "api-models", [{ id: "gpt-5", name: "GPT-5" }]),
+    [],
+    "2026-09-09T16:00:00.000Z",
+  );
+  // OpenAI published both spellings in the same catalogue read.
+  saveCollection(
+    db,
+    collection("openai", "api-models", [
+      { id: "gpt-5", name: "GPT-5" },
+      { id: "gpt-image-2.5-flare", name: "gpt-image-2.5-flare" },
+      { id: "gpt-image-2.5-flare-2026-09-08", name: "gpt-image-2.5-flare-2026-09-08" },
+    ]),
+    [],
+    "2026-09-09T17:07:00.000Z",
+  );
+
+  expect(listStories(db, { limit: 10 })).toHaveLength(1);
+  db.close();
+});
+
+test("two tiers of one family stay two models", () => {
+  const db = openDatabase(":memory:");
+  saveCollection(db, collection("arena", "arena", [{ id: "other", name: "other" }]), [], "2026-09-10T17:00:00.000Z");
+  saveCollection(
+    db,
+    collection("arena", "arena", [
+      { id: "other", name: "other" },
+      { id: "deepseek-v4-pro", name: "deepseek-v4-pro" },
+      { id: "deepseek-v4-pro-max", name: "deepseek-v4-pro-max" },
+    ]),
+    [],
+    "2026-09-10T17:55:00.000Z",
+  );
+
+  expect(listStories(db, { limit: 10 })).toHaveLength(2);
+  db.close();
+});
