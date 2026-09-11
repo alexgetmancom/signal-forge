@@ -106,10 +106,13 @@ Not every detected change becomes a notification.
 
 For example, insignificant pricing fluctuations can remain recorded in SQLite without generating an alert. Larger or materially significant changes remain visible.
 
-Two kinds of movement are recorded without notifying anyone. A base price that lands on one of the
+Three kinds of movement are recorded without notifying anyone. A base price that lands on one of the
 tiers the source itself publishes is that schedule running, not a reprice. A level that returns to a
 value it already held inside the same window, having moved at least twice, is dithering rather than
-movement; a change that keeps going in one direction still speaks.
+movement; a change that keeps going in one direction still speaks. A number that keeps sliding
+waits instead of reporting every step, and the card that eventually speaks compares against the
+last state that reader actually saw, so a price that fell in six steps is one message about the
+whole fall.
 
 Failed or malformed source responses are never interpreted as empty catalogs, and uncertain message deliveries are never blindly retried.
 

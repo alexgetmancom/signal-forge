@@ -3,6 +3,7 @@ import type { Destination } from "../config.js";
 import { sourceLabel } from "../sources/labels.js";
 import { splitMessage } from "./canonical.js";
 import { CONFIDENCE_LEVELS } from "./confidence.js";
+import { deliveryBaseline, withBaseline } from "./cooldown.js";
 import { vendorOf } from "./interpretation.js";
 import { hasNotificationContent } from "./notification.js";
 import { isOscillating, isScheduledPricingRotation } from "./oscillation.js";
@@ -133,14 +134,27 @@ export function prepareDeliveries(
     for (const target of targets) {
       const destination = JSON.parse(target.destination_json) as Destination;
       const subscribed = new Set<string>(destination.signals);
-      const speaking = events.filter(
-        (event) =>
-          subscribed.has(event.signal) &&
-          hasNotificationContent(event) &&
-          !isScheduledPricingRotation(event) &&
-          !isOscillating(db, event, now) &&
-          !repeatsDeliveredStory(db, event, target.destination_id, storyIds.get(event.id), batch.id),
-      );
+      const speaking = events
+        .filter(
+          (event) =>
+            subscribed.has(event.signal) &&
+            hasNotificationContent(event) &&
+            !isScheduledPricingRotation(event) &&
+            !isOscillating(db, event, now) &&
+            !repeatsDeliveredStory(db, event, target.destination_id, storyIds.get(event.id), batch.id),
+        )
+        .flatMap((event) => {
+          // A number that keeps moving waits, then speaks once about the whole move this
+          // destination missed. Only routine drift waits: an event the policy already decided is
+          // worth interrupting a reader for, such as a benchmark changing hands at the top, is
+          // news every time it happens.
+          if (!batch.digest || event.signal !== "change" || event.kind !== "changed") return [event];
+          const baseline = deliveryBaseline(db, event, target.destination_id, batch.id, now);
+          if (baseline.hold) return [];
+          const caughtUp = { ...event, ...withBaseline(event, baseline) };
+          // A move that returns exactly to the state a destination last saw has nothing to say.
+          return hasNotificationContent(caughtUp) ? [caughtUp] : [];
+        });
       if (!speaking.length) {
         db.query(
           "DELETE FROM deliveries WHERE batch_id=? AND destination_id=? AND status='pending' AND attempts=0",
