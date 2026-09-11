@@ -75,6 +75,10 @@ trap rollback EXIT
 # rather than compiling a second time on a four-core box.
 docker pull "$DEPLOY_IMAGE"
 docker tag "$DEPLOY_IMAGE" "$RELEASE_IMAGE"
+# The pull leaves a second, untagged reference to the same image. It survives
+# the release-tag cleanup below and would hold every superseded release's
+# layers on disk, so drop it now that the release tag names those bytes.
+docker image rm "$DEPLOY_IMAGE" >/dev/null 2>&1 || true
 install -m 0644 "$REPOSITORY_DIR/compose.yaml" "$NEXT_COMPOSE"
 SIGNAL_FORGE_IMAGE=$RELEASE_IMAGE docker compose --project-directory "$DEPLOY_DIR" \
   --env-file "$DEPLOY_DIR/.env" -f "$NEXT_COMPOSE" config --quiet
