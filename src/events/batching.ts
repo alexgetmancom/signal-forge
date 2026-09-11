@@ -5,6 +5,7 @@ import { splitMessage } from "./canonical.js";
 import { CONFIDENCE_LEVELS } from "./confidence.js";
 import { pingWorthy, vendorOf } from "./interpretation.js";
 import { hasNotificationContent } from "./notification.js";
+import { isOscillating, isScheduledPricingRotation } from "./oscillation.js";
 import { eventEmbed } from "./render/discord.js";
 import {
   parseLifecycleReminderContext,
@@ -133,6 +134,8 @@ export function prepareDeliveries(
         (event) =>
           subscribedStreams.has(event.stream) &&
           hasNotificationContent(event, event.url) &&
+          !isScheduledPricingRotation(event) &&
+          !isOscillating(db, event, now) &&
           !repeatsDeliveredStory(db, event, target.destination_id, storyIds.get(event.id), batch.id),
       );
       if (!speaking.length) {
