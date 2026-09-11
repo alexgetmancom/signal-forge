@@ -140,3 +140,104 @@ export async function collectGemini(config: AppConfig, request: Fetch = fetch): 
   }
   throw new Error("Gemini pagination exceeded limit");
 }
+
+/**
+ * Most providers answer the same `/models` request OpenAI defined, so they need one collector
+ * rather than one file each. What differs is the address, the human page to link to, and which
+ * key unlocks it; a provider whose key is not configured is simply not collected.
+ *
+ * This is the earliest a model ID can be seen from outside a lab: xAI and Z.ai both list a model
+ * in their catalogue before it has a page anywhere.
+ */
+export type ProviderCatalogue = {
+  id: string;
+  name: string;
+  apiUrl: string;
+  url: string;
+  key: keyof AppConfig;
+};
+
+export const PROVIDER_CATALOGUES: ProviderCatalogue[] = [
+  {
+    id: "xai",
+    name: "xAI",
+    apiUrl: "https://api.x.ai/v1/models",
+    url: "https://docs.x.ai/docs/models",
+    key: "XAI_API_KEY",
+  },
+  {
+    id: "zai",
+    name: "Z.ai",
+    apiUrl: "https://api.z.ai/api/paas/v4/models",
+    url: "https://docs.z.ai/guides/llm/glm-4.6",
+    key: "ZAI_API_KEY",
+  },
+  {
+    id: "moonshot",
+    name: "Moonshot",
+    apiUrl: "https://api.moonshot.ai/v1/models",
+    url: "https://platform.moonshot.ai/docs/pricing",
+    key: "MOONSHOT_API_KEY",
+  },
+  {
+    id: "mistral",
+    name: "Mistral",
+    apiUrl: "https://api.mistral.ai/v1/models",
+    url: "https://docs.mistral.ai/getting-started/models/models_overview/",
+    key: "MISTRAL_API_KEY",
+  },
+  {
+    id: "groq",
+    name: "Groq",
+    apiUrl: "https://api.groq.com/openai/v1/models",
+    url: "https://console.groq.com/docs/models",
+    key: "GROQ_API_KEY",
+  },
+];
+
+const providerSchema = z.object({
+  data: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        created: z.number().nullish(),
+        owned_by: z.string().nullish(),
+        // Mistral and Groq add fields OpenAI never defined; they are evidence, not noise.
+        name: z.string().nullish(),
+        description: z.string().nullish(),
+        max_context_length: z.number().nullish(),
+        context_window: z.number().nullish(),
+        active: z.boolean().nullish(),
+      }),
+    )
+    .min(1),
+});
+
+export async function collectProviderCatalogue(
+  provider: ProviderCatalogue,
+  config: AppConfig,
+  request: Fetch = fetch,
+): Promise<Collection> {
+  const key = config[provider.key];
+  if (typeof key !== "string" || !key) throw new Error(`${provider.name} catalogue needs ${String(provider.key)}`);
+  const raw: unknown = JSON.parse(
+    await fetchText(provider.apiUrl, { Authorization: `Bearer ${key}`, accept: "application/json" }, request),
+  );
+  return {
+    source: provider.id,
+    stream: "api-models",
+    url: provider.url,
+    raw,
+    records: providerSchema.parse(raw).data.map((model) => ({
+      id: model.id,
+      name: model.name ?? model.id,
+      maker: provider.name,
+      ...(model.owned_by ? { owner: model.owned_by } : {}),
+      ...(model.created ? { created: new Date(model.created * 1000).toISOString() } : {}),
+      ...((model.context_window ?? model.max_context_length)
+        ? { context: model.context_window ?? model.max_context_length }
+        : {}),
+      ...(typeof model.active === "boolean" ? { selectable: model.active } : {}),
+    })),
+  };
+}

@@ -41,6 +41,12 @@ const STATIC_LABELS: Record<string, string> = {
   "groq-deprecations": "Groq · deprecations",
   "cohere-deprecations": "Cohere · deprecations",
   "xai-deprecations": "xAI · deprecations",
+  "artificial-analysis": "Artificial Analysis · benchmarks",
+  xai: "xAI API",
+  zai: "Z.ai API",
+  moonshot: "Moonshot API",
+  mistral: "Mistral API",
+  groq: "Groq API",
 };
 
 /** Pure source naming used by both the registry and transport-neutral renderers. */

@@ -4,9 +4,17 @@ import { SOURCE_AUTHORITIES } from "../events/confidence.js";
 import type { Collection, SourceAuthority } from "../events/types.js";
 import { measure } from "../runtime/metrics.js";
 import { HttpCache } from "../storage/httpCache.js";
+import { collectArtificialAnalysis } from "./analysis.js";
 import { APP_STORE_APPS, collectAppStore } from "./apps.js";
 import { collectArena, collectLeaderboards } from "./arena.js";
-import { collectAnthropic, collectGemini, collectOpenAI, collectOpenRouter } from "./catalogs.js";
+import {
+  collectAnthropic,
+  collectGemini,
+  collectOpenAI,
+  collectOpenRouter,
+  collectProviderCatalogue,
+  PROVIDER_CATALOGUES,
+} from "./catalogs.js";
 import { collectClaude } from "./claude.js";
 import { collectCodexDocs } from "./codex.js";
 import { collectCursorChangelog, collectDesignArena, DESIGNARENA_CATEGORIES } from "./community.js";
@@ -462,6 +470,33 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
         enabled: requested(`status:${platform.id}`),
       }),
     ),
+    ...PROVIDER_CATALOGUES.map(
+      (provider, index): Omit<SourceDefinition, "mode"> => ({
+        id: provider.id,
+        label: sourceLabel(provider.id),
+        authority: "first_party",
+        vendor: provider.name,
+        group: "Catalogues",
+        stream: "api-models",
+        intervalSeconds: config.pollSeconds + index * 30,
+        capabilityId: provider.id,
+        requiredCapabilities: [provider.key],
+        collector: () => collectProviderCatalogue(provider, config),
+        enabled: requested(provider.id),
+      }),
+    ),
+    {
+      id: "artificial-analysis",
+      label: sourceLabel("artificial-analysis"),
+      authority: "third_party",
+      group: "Arena",
+      stream: "leaderboards",
+      intervalSeconds: 3600,
+      capabilityId: "artificial-analysis",
+      requiredCapabilities: ["ARTIFICIAL_ANALYSIS_API_KEY"],
+      collector: () => collectArtificialAnalysis(config),
+      enabled: requested("artificial-analysis"),
+    },
     {
       id: "modelscope:recent",
       label: sourceLabel("modelscope:recent"),
@@ -631,9 +666,6 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
   });
 
   const shadowByDefault = new Set<string>([
-    // A first sitemap observation is a quiet baseline, but a site restructure can republish
-    // hundreds of paths at once. These collect evidence until their real volume is known.
-    ...WATCHED_SITES.map((site) => `pages:${site.id}`),
     "github:openai/codex:pulls",
     "github:openai/codex:commits",
     ...GITHUB_DISCOVERY_QUERIES.map((query) => `discovery:github-${query.id}`),
