@@ -23,7 +23,8 @@ Set `DISCORD_BOT_TOKEN` in `.env` and configure destinations in
   "statusChannelId": "000000000000000000",
   "platformBoardChannelId": "000000000000000000",
   "alertChannelId": "000000000000000000",
-  "vendorRoles": { "OpenAI": "000000000000000000" }
+  "vendorRoles": { "OpenAI": "000000000000000000" },
+  "allSignalsRole": "000000000000000000"
 }
 ```
 
@@ -43,7 +44,9 @@ it. Every event carries one class, derived from the same evidence its card is re
 | `change` | A number moved | Pricing, context, ranks, availability flags, edited announcements, incident updates, shifting deadlines |
 | `reminder` | Derived operator work, not an observation | Lifecycle deadline reminders |
 
-Only `launch` and `codename` carry a role mention. `change` reaches a reader through the hourly
+Only `launch` and `codename` carry a role mention. A message mentions the vendor roles its cards
+are about, and `allSignalsRole` beside them for readers who follow everything rather than one
+vendor. `change` reaches a reader through the hourly
 digest. `reminder` is delivered only to a destination that asks for it by name, because a deadline
 reminder is operator hygiene rather than news.
 

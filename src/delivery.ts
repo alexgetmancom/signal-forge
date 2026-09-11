@@ -50,7 +50,7 @@ export async function deliverPending(db: Database, config: AppConfig, request: F
   // Summaries are written before the message is built; a failure here leaves the message unchanged.
   await fillSummaries(db, config, request);
   db.transaction(() => {
-    prepareDeliveries(db, Date.now(), config.vendorRoles);
+    prepareDeliveries(db, Date.now(), config.vendorRoles, config.allSignalsRole);
   })();
 
   const destinationIds = db

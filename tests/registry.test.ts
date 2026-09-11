@@ -50,7 +50,11 @@ test("source registry has unique IDs, valid streams, labels and consistent pacin
   }
   expect(definitions.some((definition) => definition.id === "openai-developer-feed")).toBe(false);
   expect(definitions.some((definition) => definition.id.startsWith("github:deepseek-ai/"))).toBe(false);
-  expect(definitions.some((definition) => definition.id.startsWith("modelscope:"))).toBe(false);
+  // ModelScope returned as one filtered listing rather than a source per organisation: a single
+  // request, only the organisations worth watching, and only the fields that identify a release.
+  expect(definitions.filter((definition) => definition.id.startsWith("modelscope:")).map((one) => one.id)).toEqual([
+    "modelscope:recent",
+  ]);
   expect(
     definitions.filter((definition) => definition.id.startsWith("designarena:")).map((definition) => definition.id),
   ).toEqual(["designarena:website", "designarena:uicomponent", "designarena:image"]);

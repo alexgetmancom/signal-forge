@@ -30,6 +30,7 @@ import {
   collectVertexDeprecations,
   collectXaiDeprecations,
 } from "./lifecycle.js";
+import { collectModelScope } from "./modelscope.js";
 import { collectAnthropicNews, collectOpenAINews } from "./news.js";
 import { collectSitePages, WATCHED_SITES } from "./pages.js";
 import { collectPlatformStatus, PLATFORMS } from "./platforms.js";
@@ -461,6 +462,16 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
         enabled: requested(`status:${platform.id}`),
       }),
     ),
+    {
+      id: "modelscope:recent",
+      label: sourceLabel("modelscope:recent"),
+      authority: "vendor_owned",
+      group: "Open weights",
+      stream: "weights",
+      intervalSeconds: 1800,
+      collector: () => collectModelScope(fetch, cache),
+      enabled: requested("modelscope:recent"),
+    },
     ...WATCHED_SITES.map(
       (site, index): Omit<SourceDefinition, "mode"> => ({
         id: `pages:${site.id}`,

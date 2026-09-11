@@ -15,6 +15,7 @@ export function saveCollection(
   destinations: Destination[],
   now = new Date().toISOString(),
   vendorRoles: Record<string, string> = {},
+  allSignalsRole?: string,
 ): number {
   let projection: StoryProjection | null = null;
   const count = db.transaction(() => {
@@ -36,7 +37,7 @@ export function saveCollection(
     // Baseline observations have no event by design, but they still establish current Model Facts.
     if (initialized === null || initialized === undefined || currentEventId > previousEventId) rebuildModelFacts(db);
     // Leave event batches open until the delivery worker has filled any eligible summaries.
-    prepareDeliveries(db, Date.parse(now), vendorRoles, false);
+    prepareDeliveries(db, Date.parse(now), vendorRoles, allSignalsRole, false);
     return count;
   })();
   if (projection) rememberStoryProjection(db, projection);

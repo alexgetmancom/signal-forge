@@ -15,7 +15,7 @@ Built with Bun, TypeScript, and SQLite.
 * Arena appearances, codenames, and leaderboard movement
 * GitHub commits, pull requests, and releases
 * npm and PyPI package releases
-* Hugging Face and other open-weight registries
+* Hugging Face and ModelScope open-weight registries
 * Mobile app releases, with the vendor's own release notes
 * New pages appearing on vendor sites, before anything is announced
 * Product documentation and changelogs

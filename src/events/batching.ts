@@ -62,6 +62,7 @@ export function prepareDeliveries(
   db: Database,
   now = Date.now(),
   vendorRoles: Record<string, string> = {},
+  allSignalsRole?: string,
   seal = true,
 ): void {
   const batches = db
@@ -199,24 +200,25 @@ export function prepareDeliveries(
           .run(batch.id, target.destination_id, target.destination_json, payload, part, now);
 
       if (destination.platform === "discord") {
-        const roles = batch.digest
-          ? []
-          : [
-              ...new Set(
-                speaking
-                  .filter(pingWorthy)
-                  .map((event) => {
-                    const record = event.after_json
-                      ? (JSON.parse(event.after_json) as RecordData)
-                      : event.before_json
-                        ? (JSON.parse(event.before_json) as RecordData)
-                        : null;
-                    return vendorOf(event, record);
-                  })
-                  .map((vendor) => vendorRoles[vendor])
-                  .filter((role): role is string => Boolean(role)),
-              ),
-            ];
+        const pinged = batch.digest ? [] : speaking.filter(pingWorthy);
+        const roles = [
+          // A reader who follows everything is mentioned beside the vendor roles, never instead
+          // of them, and never for routine movement.
+          ...(pinged.length && allSignalsRole ? [allSignalsRole] : []),
+          ...new Set(
+            pinged
+              .map((event) => {
+                const record = event.after_json
+                  ? (JSON.parse(event.after_json) as RecordData)
+                  : event.before_json
+                    ? (JSON.parse(event.before_json) as RecordData)
+                    : null;
+                return vendorOf(event, record);
+              })
+              .map((vendor) => vendorRoles[vendor])
+              .filter((role): role is string => Boolean(role)),
+          ),
+        ];
         const mentions = roles.map((role) => `<@&${role}>`).join(" ");
         const embeds = items.map((group) =>
           group.length > 1

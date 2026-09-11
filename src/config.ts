@@ -62,6 +62,11 @@ export const settingsSchema = z
     /** A running source may collect evidence without creating subscriber delivery work. */
     sourceMode: z.record(z.string(), sourceModeSchema).default({}),
     destinations: z.array(destinationSchema).default([]),
+    /**
+     * A role for readers who follow every launch and codename rather than one vendor. It is
+     * mentioned beside the vendor role, never instead of it, and never on routine movement.
+     */
+    allSignalsRole: z.string().regex(/^\d+$/).optional(),
     /** One Discord channel holding a status board that is edited in place, not a stream of posts. */
     statusChannelId: z.string().regex(/^\d+$/).optional(),
     /**

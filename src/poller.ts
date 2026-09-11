@@ -63,7 +63,7 @@ export async function pollSources(db: Database, config: AppConfig, force = false
         const checkedAt = new Date().toISOString();
         const destinations = job.mode === "shadow" ? [] : config.destinations;
         const events = measure(db, `source.persist:${job.id}`, () =>
-          saveCollection(db, collection, destinations, checkedAt, config.vendorRoles),
+          saveCollection(db, collection, destinations, checkedAt, config.vendorRoles, config.allSignalsRole),
         );
         db.query("UPDATE sources SET failures=0,retry_at=NULL WHERE id=?").run(job.id);
         if (job.pace) pacedAt.set(job.pace.group, Date.parse(checkedAt));

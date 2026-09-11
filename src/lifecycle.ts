@@ -362,7 +362,7 @@ export function scheduleLifecycleReminders(db: Database, config: AppConfig, now 
       ).run(batch.id, reminder.deadline_id, reminder.offset_days);
       batches += 1;
     }
-    prepareDeliveries(db, now, config.vendorRoles);
+    prepareDeliveries(db, now, config.vendorRoles, config.allSignalsRole);
     return batches;
   })();
 }

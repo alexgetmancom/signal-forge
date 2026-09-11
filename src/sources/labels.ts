@@ -50,6 +50,7 @@ export function sourceLabel(id: string): string {
   if (id.startsWith("huggingface:")) return `Hugging Face · ${id.slice("huggingface:".length)}`;
   if (id === "discovery:huggingface-recent") return "Hugging Face · recent discovery";
   if (id.startsWith("discovery:github-")) return `GitHub · discovery · ${id.slice("discovery:github-".length)}`;
+  if (id === "modelscope:recent") return "ModelScope · recent";
   if (id.startsWith("modelscope:")) return `ModelScope · ${id.slice("modelscope:".length)}`;
   if (id.startsWith("designarena:")) return `DesignArena · ${id.slice("designarena:".length)}`;
   if (id.startsWith("app:ios:")) return `App Store · ${id.slice("app:ios:".length)}`;
