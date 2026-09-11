@@ -28,7 +28,14 @@ const hfModels = z
   )
   .min(1);
 
-/** The organisations worth watching; a global feed of every new repository is not a signal. */
+/**
+ * The organisations worth watching; a global feed of every new repository is not a signal.
+ *
+ * NVIDIA is deliberately absent. It published six of the eight events these twelve organisations
+ * produced in four days, and all of them were research checkpoints or quantised copies of other
+ * labs' models — a reader looking for what is new learns nothing from a second copy of GLM-5.3 in
+ * a different number format.
+ */
 export const HF_AUTHORS = [
   "openai",
   "google",
@@ -40,7 +47,6 @@ export const HF_AUTHORS = [
   "MiniMaxAI",
   "zai-org",
   "microsoft",
-  "nvidia",
   "xai-org",
 ];
 
