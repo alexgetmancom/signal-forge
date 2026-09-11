@@ -20,6 +20,7 @@ import {
   finishDeepSeekUsage,
   safeErrorType,
 } from "./runtime/deepseekUsage.js";
+import { packageReleaseNotes } from "./sources/packageNotes.js";
 
 /**
  * A rewritten page or a large commit arrives as forty changed fields. The message can count them,
@@ -246,13 +247,25 @@ export async function fillSummaries(
       log("warn", "Summary budget reached for today");
       break;
     }
-    if (!needsSummary(event, event.url)) continue;
+    // A version bump carries nothing to summarise on its own; its release notes do, and they are
+    // where a model sighting hides. Fetching them is what makes the package streams worth reading.
+    let notes: string | null = null;
+    try {
+      notes = await packageReleaseNotes(event, config, request);
+    } catch {
+      // Release notes are an enrichment. A project that publishes none, or a registry that is
+      // briefly unreachable, leaves the version bump exactly as it was.
+      notes = null;
+    }
+    if (!notes && !needsSummary(event, event.url)) continue;
     // The model reads the observation itself rather than our shortened rendering of it, because
     // the whole point is to describe what the rendering had to leave out.
     const title = eventTitle(event);
-    const body = [event.before_json ? `PREVIOUS:\n${event.before_json}` : "", `CURRENT:\n${event.after_json ?? ""}`]
-      .filter(Boolean)
-      .join("\n\n");
+    const body = notes
+      ? [`CURRENT:\n${event.after_json ?? ""}`, notes].join("\n\n")
+      : [event.before_json ? `PREVIOUS:\n${event.before_json}` : "", `CURRENT:\n${event.after_json ?? ""}`]
+          .filter(Boolean)
+          .join("\n\n");
     const context = {
       source: event.source,
       stream: event.stream,
