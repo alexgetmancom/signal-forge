@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import type { Destination } from "../src/config.js";
 import { hasNotificationContent } from "../src/events/notification.js";
+import { eventFacts } from "../src/events/render/facts.js";
 import type { Event } from "../src/events/types.js";
 import { type Collection, prepareDeliveries, saveCollection } from "../src/events.js";
 import { openDatabase } from "../src/storage/database.js";
@@ -78,4 +79,38 @@ test("a codename that keeps arriving and leaving is announced once", () => {
     db.query<{ reason: string }, []>("SELECT reason FROM suppressions WHERE reason='flapping_in_and_out'").all(),
   ).toHaveLength(1);
   db.close();
+});
+
+test("a board that re-sorts itself without changing the standing says nothing", () => {
+  const board = (score: number, votes: number, rank: number): Event =>
+    ({
+      id: 1,
+      source: "arena-leaderboards",
+      stream: "leaderboards",
+      entity_id: "text:overall:claude-fable-5",
+      kind: "changed",
+      detected_at: "2026-09-11T22:00:00.000Z",
+      before_json: JSON.stringify({ name: "claude-fable-5", rank: 1, score: 1507.164171675996, votes: 27189 }),
+      after_json: JSON.stringify({ name: "claude-fable-5", rank, score, votes }),
+    }) as Event;
+
+  // First place held, score down by a point, three thousand more votes: the same standing.
+  expect(hasNotificationContent(board(1505.5301676910974, 29683, 1))).toBe(false);
+  // The same model actually losing the top place is news.
+  expect(hasNotificationContent(board(1505.5301676910974, 29683, 2))).toBe(true);
+});
+
+test("an Elo score is reported to one decimal, not to twelve", () => {
+  const event = {
+    id: 1,
+    source: "arena-leaderboards",
+    stream: "leaderboards",
+    entity_id: "text:overall:claude-fable-5",
+    kind: "changed",
+    detected_at: "2026-09-11T22:00:00.000Z",
+    before_json: JSON.stringify({ name: "claude-fable-5", rank: 2, score: 1507.164171675996 }),
+    after_json: JSON.stringify({ name: "claude-fable-5", rank: 1, score: 1505.5301676910974 }),
+  } as Event;
+
+  expect(eventFacts(event).join("\n")).toContain("Score: 1507.2 → 1505.5");
 });

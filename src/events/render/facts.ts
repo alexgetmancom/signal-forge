@@ -23,10 +23,14 @@ import {
  */
 
 const COUNT_FIELDS = new Set(["context", "inputTokenLimit", "outputTokenLimit", "votes"]);
+/** An Elo score arrives as 1507.164171675996. Nobody reads past the first decimal. */
+const SCORE_FIELDS = new Set(["score", "scoreUpper", "scoreLower"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function value(key: string, raw: unknown): string {
-  return COUNT_FIELDS.has(key) ? compactCount(raw) : describe(raw);
+  if (COUNT_FIELDS.has(key)) return compactCount(raw);
+  if (SCORE_FIELDS.has(key) && typeof raw === "number" && Number.isFinite(raw)) return raw.toFixed(1);
+  return describe(raw);
 }
 
 function transition(key: string, before: unknown, after: unknown): string {
@@ -74,6 +78,8 @@ export function eventFacts(event: Event, summary?: string): string[] {
     const hidden = meaningfulAdded.length - shownAdded.length + (meaningfulRemoved.length - shownRemoved.length);
     if (hidden > 0) lines.push(`…and ${hidden} more material changes not shown`);
     if (!meaningfulAdded.length && !meaningfulRemoved.length) lines.push("No material user-facing text changed.");
+    // The one place this caveat is written: every transport renders these lines, and a card that
+    // said it twice in two wordings read like a machine talking to itself.
     lines.push("A public text change is not yet confirmation that a feature shipped.");
   } else if (event.stream === "arena" && before && after && before.name !== after.name) {
     lines.push(`${describe(before.name)} → ${describe(after.name)}`);

@@ -47,8 +47,6 @@ function readerImpact(event: Event, record: RecordData | null): string | null {
   if (event.stream === "deprecations")
     return "Check the notice for the deadline and replacement before changing integrations.";
   if (event.stream === "github" && !event.source.endsWith(":releases")) return "Repository activity is not a release.";
-  if (event.stream === "web" && event.kind === "changed")
-    return "A public text change; this is not confirmation that a feature shipped.";
   if (event.stream === "openrouter" && record?.selectable === true) return "Available to use from this catalogue.";
   if (event.stream === "openrouter" && record?.selectable === false)
     return "Listed in this catalogue, but not selectable yet.";

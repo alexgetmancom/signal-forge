@@ -19,18 +19,29 @@ function significantTokenLimitChange(before: unknown, after: unknown): boolean {
   return delta >= 131_072 || delta / Math.max(from, to) >= 0.5;
 }
 
-/** Retain every leaderboard event, but keep low-value rank churn out of subscriber notifications. */
-function worthLeaderboardNotification(event: Event): boolean {
-  if (event.stream !== "leaderboards") return true;
+/**
+ * Retain every leaderboard event, but keep low-value board churn out of notifications.
+ *
+ * A board is read for standings. An Elo score that drifts by a point and a vote counter that
+ * climbs all day are how a board arrives at a standing, not news about it: three hundred and
+ * forty-one of the three hundred and forty-seven leaderboard events in one day changed nothing a
+ * reader would repeat, and the handful that got through said "Rank 1 → 1, score 1507.16 → 1505.53".
+ */
+function leaderboardSilence(event: Event): string | null {
+  if (event.stream !== "leaderboards") return null;
   const before = event.before_json ? (JSON.parse(event.before_json) as Record<string, unknown>) : null;
   const after = event.after_json ? (JSON.parse(event.after_json) as Record<string, unknown>) : null;
   const beforeRank = rank(before?.rank);
   const afterRank = rank(after?.rank);
-  if (event.kind === "new") return afterRank !== null && afterRank <= TOP_RANK;
-  if (event.kind === "removed") return beforeRank !== null && beforeRank <= TOP_RANK;
+  const outsideTop = `Leaderboard movement outside the top ${TOP_RANK}`;
+  if (event.kind === "new") return afterRank !== null && afterRank <= TOP_RANK ? null : outsideTop;
+  if (event.kind === "removed") return beforeRank !== null && beforeRank <= TOP_RANK ? null : outsideTop;
   if (beforeRank === null || afterRank === null)
-    return (beforeRank !== null && beforeRank <= TOP_RANK) || (afterRank !== null && afterRank <= TOP_RANK);
-  return beforeRank <= TOP_RANK || afterRank <= TOP_RANK || Math.abs(beforeRank - afterRank) >= 3;
+    return (beforeRank !== null && beforeRank <= TOP_RANK) || (afterRank !== null && afterRank <= TOP_RANK)
+      ? null
+      : outsideTop;
+  if (beforeRank === afterRank) return "The score moved but the standing did not";
+  return beforeRank <= TOP_RANK || afterRank <= TOP_RANK || Math.abs(beforeRank - afterRank) >= 3 ? null : outsideTop;
 }
 
 /**
@@ -45,7 +56,8 @@ export function notificationBlock(event: Event): string | null {
   // collection produced eighteen such arrivals beside four hundred and eighty-six rank shuffles.
   if (event.source.startsWith("designarena:") && event.kind === "changed")
     return "A place on a design board is a vote count, not a release";
-  if (!worthLeaderboardNotification(event)) return `Leaderboard movement outside the top ${TOP_RANK}`;
+  const boardSilence = leaderboardSilence(event);
+  if (boardSilence) return boardSilence;
   if (event.stream === "packages" && !["latest", "stable"].includes(event.entity_id.toLowerCase()))
     return `Package tag "${event.entity_id}" is not a release channel`;
   if (event.kind === "changed" && event.stream === "web") {
