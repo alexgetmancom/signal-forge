@@ -58,6 +58,9 @@ export function signalClass(event: Event): SignalClass {
 
   if (event.stream === "news") return event.kind === "new" ? "launch" : "change";
 
+  // A released app version is the most direct "you can use this now" there is.
+  if (event.stream === "apps") return "launch";
+
   if (event.stream === "web") return "evidence";
   if (event.stream === "packages") return "evidence";
   if (event.stream === "incidents") return "change";

@@ -40,6 +40,9 @@ export const fieldLabels: Record<string, string> = {
   region: "Region",
   access: "Access",
   version: "Version",
+  released: "Released",
+  platform: "Platform",
+  requires: "Requires",
 };
 
 /** A context window reads as 131K, not as 131072. */

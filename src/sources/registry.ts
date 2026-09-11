@@ -4,6 +4,7 @@ import { SOURCE_AUTHORITIES } from "../events/confidence.js";
 import type { Collection, SourceAuthority } from "../events/types.js";
 import { measure } from "../runtime/metrics.js";
 import { HttpCache } from "../storage/httpCache.js";
+import { APP_STORE_APPS, collectAppStore } from "./apps.js";
 import { collectArena, collectLeaderboards } from "./arena.js";
 import { collectAnthropic, collectGemini, collectOpenAI, collectOpenRouter } from "./catalogs.js";
 import { collectClaude } from "./claude.js";
@@ -457,6 +458,21 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
         intervalSeconds: platform.interval,
         collector: () => collectPlatformStatus(platform),
         enabled: requested(`status:${platform.id}`),
+      }),
+    ),
+    ...APP_STORE_APPS.map(
+      (app, index): Omit<SourceDefinition, "mode"> => ({
+        id: `app:ios:${app.id}`,
+        label: sourceLabel(`app:ios:${app.id}`),
+        authority: "vendor_owned",
+        vendor: app.vendor,
+        group: "Apps",
+        stream: "apps",
+        // App Store metadata changes a few times a week per app, and one listing is one request.
+        intervalSeconds: 1800 + index * 60,
+        pace: { group: "itunes.apple.com", seconds: 10 },
+        collector: () => collectAppStore(app, fetch, cache),
+        enabled: requested(`app:ios:${app.id}`),
       }),
     ),
     ...NPM_PACKAGES.map(

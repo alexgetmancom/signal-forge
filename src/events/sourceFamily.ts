@@ -9,6 +9,7 @@ export function sourceFamily(source: string, stream = ""): string {
   if (source === "discovery:huggingface-recent") return "huggingface";
   if (source.startsWith("modelscope:")) return "modelscope";
   if (source.startsWith("designarena:")) return "designarena";
+  if (source.startsWith("app:ios:")) return "app-store";
   if (source.startsWith("npm:")) return "npm";
   if (source.startsWith("pypi:")) return "pypi";
   if (source === "arena" || source === "arena-leaderboards") return "arena";

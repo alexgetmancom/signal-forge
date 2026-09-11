@@ -66,6 +66,7 @@ test("source registry has unique IDs, valid streams, labels and consistent pacin
     new Map([
       ["huggingface.co", 60],
       ["designarena.ai", 60],
+      ["itunes.apple.com", 10],
       ["github-search", 60],
     ]),
   );

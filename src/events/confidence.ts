@@ -46,6 +46,7 @@ export function confidenceFor(source: string, stream: string): Confidence {
   if (source.startsWith("github:") && source.endsWith(":releases")) return "shipped";
   if (source.startsWith("npm:") || source.startsWith("pypi:")) return "shipped";
   if (source === "cursor-changelog") return "shipped";
+  if (stream === "apps") return "shipped";
   if (source.startsWith("huggingface:") || source.startsWith("modelscope:")) return "supported";
   if (source.startsWith("status:")) return "confirmed";
   if (stream === "api-models" && source !== "openrouter" && source !== "vercel-gateway") return "confirmed";
@@ -64,6 +65,8 @@ export function evidenceTypeFor(source: string, stream: string): EvidenceType {
   if (stream === "web") return "web_diff";
   if (stream === "github") return "github_activity";
   if (stream === "packages") return "package_release";
+  // An app store listing is a release register like any other: a version, a date, vendor notes.
+  if (stream === "apps") return "package_release";
   if (stream === "weights") return "open_weights";
   if (stream === "incidents") return "status_page";
   if (stream === "deprecations") return "deprecation";
