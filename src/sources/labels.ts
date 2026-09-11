@@ -53,6 +53,7 @@ export function sourceLabel(id: string): string {
   if (id.startsWith("modelscope:")) return `ModelScope · ${id.slice("modelscope:".length)}`;
   if (id.startsWith("designarena:")) return `DesignArena · ${id.slice("designarena:".length)}`;
   if (id.startsWith("app:ios:")) return `App Store · ${id.slice("app:ios:".length)}`;
+  if (id.startsWith("pages:")) return `${id.slice("pages:".length)} · site pages`;
   if (id.startsWith("npm:")) return `npm · ${id.slice("npm:".length)}`;
   if (id.startsWith("pypi:")) return `PyPI · ${id.slice("pypi:".length)}`;
   if (id.startsWith("github:")) {

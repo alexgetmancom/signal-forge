@@ -37,8 +37,8 @@ it. Every event carries one class, derived from the same evidence its card is re
 
 | Class | What it means | Examples |
 | --- | --- | --- |
-| `launch` | A reader can now use it, or can no longer use it | Official announcement, catalogue entry appearing or withdrawn, published release |
-| `codename` | Something on its way, identity often unknown | Arena sighting, entry listed but not selectable, new leaderboard key, retirement notice naming its successor |
+| `launch` | A reader can now use it, or can no longer use it | Official announcement, catalogue entry appearing or withdrawn, published release, mobile app release |
+| `codename` | Something on its way, identity often unknown | Arena sighting, entry listed but not selectable, new page on a vendor site, new leaderboard key, retirement notice naming its successor |
 | `evidence` | The raw trail for a reader who digs | Documentation and interface diffs, repository activity, package versions, a retirement notice with no successor |
 | `change` | A number moved | Pricing, context, ranks, availability flags, edited announcements, incident updates, shifting deadlines |
 | `reminder` | Derived operator work, not an observation | Lifecycle deadline reminders |

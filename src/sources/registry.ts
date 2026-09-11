@@ -31,6 +31,7 @@ import {
   collectXaiDeprecations,
 } from "./lifecycle.js";
 import { collectAnthropicNews, collectOpenAINews } from "./news.js";
+import { collectSitePages, WATCHED_SITES } from "./pages.js";
 import { collectPlatformStatus, PLATFORMS } from "./platforms.js";
 import {
   collectHuggingFace,
@@ -460,6 +461,21 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
         enabled: requested(`status:${platform.id}`),
       }),
     ),
+    ...WATCHED_SITES.map(
+      (site, index): Omit<SourceDefinition, "mode"> => ({
+        id: `pages:${site.id}`,
+        label: sourceLabel(`pages:${site.id}`),
+        authority: "first_party",
+        vendor: site.vendor,
+        group: "Site pages",
+        stream: "pages",
+        // One collection reads a site's index and its sections in sequence, so the requests are
+        // already paced by the collector itself.
+        intervalSeconds: 3600 + index * 300,
+        collector: () => collectSitePages(site, fetch, cache),
+        enabled: requested(`pages:${site.id}`),
+      }),
+    ),
     ...APP_STORE_APPS.map(
       (app, index): Omit<SourceDefinition, "mode"> => ({
         id: `app:ios:${app.id}`,
@@ -604,6 +620,9 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
   });
 
   const shadowByDefault = new Set<string>([
+    // A first sitemap observation is a quiet baseline, but a site restructure can republish
+    // hundreds of paths at once. These collect evidence until their real volume is known.
+    ...WATCHED_SITES.map((site) => `pages:${site.id}`),
     "github:openai/codex:pulls",
     "github:openai/codex:commits",
     ...GITHUB_DISCOVERY_QUERIES.map((query) => `discovery:github-${query.id}`),

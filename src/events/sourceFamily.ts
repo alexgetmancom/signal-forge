@@ -36,6 +36,10 @@ const FIRST_PARTY_VENDOR_BY_SOURCE: Record<string, string> = {
   "claude-code-changelog": "Anthropic",
   "anthropic-sdk-releases": "Anthropic",
   "claude-web": "Anthropic",
+  "pages:openai": "OpenAI",
+  "pages:anthropic": "Anthropic",
+  "pages:xai": "xAI",
+  "pages:deepmind": "Google",
   gemini: "Google",
   "gemini-api-changelog": "Google",
   "gemini-deprecations": "Google",
@@ -56,7 +60,7 @@ const FIRST_PARTY_VENDOR_BY_SOURCE: Record<string, string> = {
 /** Independent confirmation must not count two official surfaces from the same vendor twice. */
 export function sourceIndependenceFamily(source: string, stream = ""): string {
   const vendor = FIRST_PARTY_VENDOR_BY_SOURCE[source];
-  return vendor && ["api-models", "news", "deprecations", "incidents", "web"].includes(stream)
+  return vendor && ["api-models", "news", "deprecations", "incidents", "web", "pages"].includes(stream)
     ? `first-party:${vendor}`
     : sourceFamily(source, stream);
 }

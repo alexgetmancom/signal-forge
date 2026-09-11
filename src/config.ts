@@ -15,6 +15,7 @@ export const streamSchema = z.enum([
   "incidents",
   "deprecations",
   "apps",
+  "pages",
 ]);
 export type Stream = z.infer<typeof streamSchema>;
 export const sourceModeSchema = z.enum(["active", "shadow"]);

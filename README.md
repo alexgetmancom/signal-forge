@@ -17,6 +17,7 @@ Built with Bun, TypeScript, and SQLite.
 * npm and PyPI package releases
 * Hugging Face and other open-weight registries
 * Mobile app releases, with the vendor's own release notes
+* New pages appearing on vendor sites, before anything is announced
 * Product documentation and changelogs
 * Official vendor announcements
 * Platform incidents and service status

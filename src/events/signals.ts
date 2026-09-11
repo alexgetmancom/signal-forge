@@ -61,6 +61,10 @@ export function signalClass(event: Event): SignalClass {
   // A released app version is the most direct "you can use this now" there is.
   if (event.stream === "apps") return "launch";
 
+  // A page appearing on a vendor site before any announcement is the same kind of tell as an
+  // unreleased model on an arena. A page that leaves is evidence, not a signal to wake anyone.
+  if (event.stream === "pages") return event.kind === "new" ? "codename" : "evidence";
+
   if (event.stream === "web") return "evidence";
   if (event.stream === "packages") return "evidence";
   if (event.stream === "incidents") return "change";

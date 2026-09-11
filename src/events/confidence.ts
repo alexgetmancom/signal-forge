@@ -62,7 +62,7 @@ export function evidenceTypeFor(source: string, stream: string): EvidenceType {
   if (stream === "news") return "official_news";
   if (stream === "arena") return "arena_roster";
   if (stream === "leaderboards") return "leaderboard";
-  if (stream === "web") return "web_diff";
+  if (stream === "web" || stream === "pages") return "web_diff";
   if (stream === "github") return "github_activity";
   if (stream === "packages") return "package_release";
   // An app store listing is a release register like any other: a version, a date, vendor notes.
