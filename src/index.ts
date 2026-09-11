@@ -15,6 +15,7 @@ import { startIntervalWorker } from "./runtime/worker.js";
 import { publishActivityBoard, publishPlatformBoard, publishStatus } from "./status.js";
 import { openDatabase } from "./storage/database.js";
 import { HttpCache } from "./storage/httpCache.js";
+import { pruneSnapshots } from "./storage/retention.js";
 import { rebuildStories, rememberStoryProjection } from "./stories.js";
 
 const config = loadConfig();
@@ -65,6 +66,7 @@ supervisor.register(
       log("error", "Operational alert probe failed", { error });
     }
     pruneCodeMetrics(db);
+    pruneSnapshots(db);
     // Cached bodies for files nobody links to any more; a rebuilt bundle renames everything.
     new HttpCache(db).prune();
   }),
