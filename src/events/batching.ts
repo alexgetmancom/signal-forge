@@ -6,6 +6,7 @@ import { CONFIDENCE_LEVELS } from "./confidence.js";
 import { vendorOf } from "./interpretation.js";
 import { hasNotificationContent } from "./notification.js";
 import { isOscillating, isScheduledPricingRotation } from "./oscillation.js";
+import { pageEmbeds } from "./render/budget.js";
 import { eventEmbed } from "./render/discord.js";
 import {
   parseLifecycleReminderContext,
@@ -211,8 +212,8 @@ export function prepareDeliveries(
                 summaries.get((group[0] as StoryRenderEvent).id),
               ),
         );
-        for (let index = 0; index * 10 < embeds.length; index += 1) {
-          const page = embeds.slice(index * 10, index * 10 + 10);
+        const pages = pageEmbeds(embeds);
+        pages.forEach((page, index) => {
           const content = index === 0 ? [header.trim(), mentions].filter(Boolean).join("\n") : "";
           store(
             JSON.stringify({
@@ -222,10 +223,10 @@ export function prepareDeliveries(
             }),
             index,
           );
-        }
+        });
         db.query(
           "DELETE FROM deliveries WHERE batch_id=? AND destination_id=? AND status='pending' AND attempts=0 AND part>=?",
-        ).run(batch.id, target.destination_id, Math.ceil(embeds.length / 10));
+        ).run(batch.id, target.destination_id, pages.length);
         continue;
       }
       const parts = splitMessage(text, 3900 - header.length);

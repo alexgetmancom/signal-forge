@@ -1,6 +1,13 @@
 import { afterEach, expect, test } from "bun:test";
 import { type Destination, loadConfig } from "../src/config.js";
 import { deliverPending, recoverInterruptedDeliveries } from "../src/delivery.js";
+import {
+  DESCRIPTION_CHARACTERS,
+  EMBEDS_PER_MESSAGE,
+  embedCharacters,
+  MESSAGE_CHARACTERS,
+  pageEmbeds,
+} from "../src/events/render/budget.js";
 import { saveCollection } from "../src/events.js";
 import { openDatabase } from "../src/storage/database.js";
 
@@ -316,4 +323,34 @@ test("a message built from embeds is not sent with the embed-suppressing flag", 
   queue("Plain https://example.test");
   await deliverPending(local, config, request);
   expect(sent[1]?.flags).toBe(4);
+});
+
+test("a digest larger than one Discord message is paged instead of being rejected whole", () => {
+  const long = (index: number) => ({
+    author: { name: "AVAILABILITY · VENDOR" },
+    title: `Model ${index}`,
+    description: "x".repeat(DESCRIPTION_CHARACTERS),
+    footer: { text: "Evidence: availability catalogue" },
+  });
+  const pages = pageEmbeds(Array.from({ length: 7 }, (_, index) => long(index)));
+  expect(pages.length).toBeGreaterThan(1);
+  for (const page of pages) {
+    expect(page.length).toBeLessThanOrEqual(EMBEDS_PER_MESSAGE);
+    expect(page.reduce((total, embed) => total + embedCharacters(embed), 0)).toBeLessThanOrEqual(MESSAGE_CHARACTERS);
+  }
+  expect(pages.flat()).toHaveLength(7);
+});
+
+test("ten small embeds still travel as one message", () => {
+  const pages = pageEmbeds(
+    Array.from({ length: 10 }, (_, index) => ({ title: `Model ${index}`, description: "short" })),
+  );
+  expect(pages).toHaveLength(1);
+});
+
+test("an embed too large to share a message is trimmed to fit and never dropped", () => {
+  const [page] = pageEmbeds([{ title: "Huge", description: "y".repeat(MESSAGE_CHARACTERS + 500) }]);
+  expect(page).toHaveLength(1);
+  expect(embedCharacters(page?.[0] ?? {})).toBeLessThanOrEqual(MESSAGE_CHARACTERS);
+  expect(String(page?.[0]?.description ?? "")).toEndWith("…");
 });
