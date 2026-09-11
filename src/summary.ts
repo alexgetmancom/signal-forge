@@ -87,7 +87,7 @@ const responseSchema = z
  */
 export function needsSummary(event: Event, url: string): boolean {
   if (event.kind === "removed") return false;
-  if (!hasNotificationContent(event, url)) return false;
+  if (!hasNotificationContent(event)) return false;
   const material = (event.before_json?.length ?? 0) + (event.after_json?.length ?? 0);
   if (material > 1_200) return true;
   const body = renderEvent(event, url).split("\n").slice(3, -3);

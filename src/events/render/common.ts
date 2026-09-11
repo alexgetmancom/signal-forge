@@ -7,8 +7,8 @@ export const NOISE = new Set(["head", "updated", "published", "created", "starte
 export const fieldLabels: Record<string, string> = {
   name: "Name",
   context: "Context",
-  input: "Input",
-  output: "Output",
+  input: "Accepts",
+  output: "Returns",
   parameters: "Parameters",
   provider: "Provider",
   maker: "Maker",
@@ -31,7 +31,26 @@ export const fieldLabels: Record<string, string> = {
   methods: "Methods",
   inputTokenLimit: "Input token limit",
   outputTokenLimit: "Output token limit",
+  announced: "Announced",
+  deprecated: "Deprecated",
+  retirement: "Retirement",
+  shutdown: "Shutdown",
+  replacement: "Replacement",
+  modelId: "Model ID",
+  region: "Region",
+  access: "Access",
+  version: "Version",
 };
+
+/** A context window reads as 131K, not as 131072. */
+export function compactCount(value: unknown): string {
+  const count = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(count) || Math.abs(count) < 1000) return describe(value);
+  const millions = count / 1_000_000;
+  if (Math.abs(count) >= 1_000_000)
+    return `${millions.toFixed(millions >= 10 || Number.isInteger(millions) ? 0 : 2).replace(/\.?0+$/, "")}M`;
+  return `${Math.round(count / 1000)}K`;
+}
 
 export function describe(value: unknown): string {
   if (value === null || value === undefined || value === "") return "not set";
@@ -129,8 +148,8 @@ export function prices(before: unknown, after: unknown, source?: string): string
   const old = before && typeof before === "object" ? (before as Record<string, unknown>) : {};
   const next = after && typeof after === "object" ? (after as Record<string, unknown>) : {};
   const labels: Record<string, string> = {
-    prompt: "Input",
-    completion: "Output",
+    prompt: "Input price",
+    completion: "Output price",
     input_cache_read: "Cache read",
     input_cache_write: "Cache write",
     inputCacheHitOffPeak: "Cache hit off-peak",
@@ -140,6 +159,13 @@ export function prices(before: unknown, after: unknown, source?: string): string
     outputOffPeak: "Output off-peak",
     outputPeak: "Output peak",
   };
+  /** A first listing has nothing to compare against, so its rates read as one price line. */
+  const shorthand: Record<string, string> = {
+    prompt: "in",
+    completion: "out",
+    input_cache_read: "cache read",
+    input_cache_write: "cache write",
+  };
   const money = (value: unknown) => {
     const perMillion = pricePerMillion(value, priceUnitForSource(source, value));
     if (perMillion === null) return describe(value);
@@ -147,6 +173,16 @@ export function prices(before: unknown, after: unknown, source?: string): string
     return `$${Number(rounded)}`;
   };
   const result: string[] = [];
+  if (!before) {
+    const parts = Object.keys(shorthand)
+      .filter((key) => next[key] !== undefined && next[key] !== null && next[key] !== "")
+      .map((key) => `${money(next[key])} ${shorthand[key]}`);
+    const extras = Object.keys(next).filter((key) => !labels[key] && !shorthand[key]);
+    return [
+      ...(parts.length ? [`Price: ${parts.join(" · ")} / 1M tokens`] : []),
+      ...extras.map((key) => `Pricing ${key}: ${describe(next[key])}`),
+    ];
+  }
   for (const key of new Set([...Object.keys(old), ...Object.keys(next)])) {
     if (canonical(old[key]) === canonical(next[key])) continue;
     if (labels[key]) {

@@ -180,7 +180,7 @@ test("Telegram copy displays readable prices and only changed parameters", async
     detected_at: "2026-09-08T02:00:00Z",
   };
   const text = renderEvent(event, "https://openrouter.ai");
-  expect(text).toContain("Input: $0.12 → $0.23 / 1M tokens");
+  expect(text).toContain("Input price: $0.12 → $0.23 / 1M tokens");
   expect(text).toContain("Parameters: + structured_outputs");
   expect(text).not.toContain('"prompt"');
   expect(text).toContain("02:00 UTC");
@@ -218,7 +218,7 @@ test("documentation diffs normalize Markdown and suppress boilerplate-only chang
   ).toContain("AI summary: The docs add remote worktree support.");
 
   const boilerplateOnly = { ...event, after_json: JSON.stringify({ name: "Example", strings: ["Open in new tab"] }) };
-  expect(hasNotificationContent(boilerplateOnly, "https://developers.openai.com/codex/")).toBe(false);
+  expect(hasNotificationContent(boilerplateOnly)).toBe(false);
 });
 
 test("multiple changes form one message and hourly digest survives until due", async () => {
@@ -436,12 +436,8 @@ test("a cross-stream digest stays scoped to each destination", () => {
   const bodies = new Map(
     rows.map((row) => [row.destination_id, JSON.parse(row.body) as { embeds: { title: string }[] }]),
   );
-  expect(bodies.get("models")?.embeds.map((embed) => embed.title)).toEqual([
-    "✏️ Model availability updated · Router model",
-  ]);
-  expect(bodies.get("benchmarks")?.embeds.map((embed) => embed.title)).toEqual([
-    "🆕 Leaderboard entry added · Newcomer model",
-  ]);
+  expect(bodies.get("models")?.embeds.map((embed) => embed.title)).toEqual(["✏️ Router model"]);
+  expect(bodies.get("benchmarks")?.embeds.map((embed) => embed.title)).toEqual(["🆕 Newcomer model"]);
   local.close();
 });
 
@@ -508,11 +504,13 @@ test("notifications expose source confidence", () => {
     evidence_type: "api_catalogue" as const,
   };
   expect(renderEvent(event, "https://example.com")).toContain("Signal Forge · API catalogue · confirmed ·");
+  // Source, evidence and confidence live in the footer once. They used to appear both as fields
+  // and as footer text, which spent a third of the card repeating itself.
   expect(eventEmbed(event, "https://example.com")).toMatchObject({
-    footer: { text: "Evidence: API catalogue · Confidence: confirmed" },
+    footer: { text: "OpenAI API · API catalogue · confirmed" },
+    timestamp: "2026-09-08T14:06:00.000Z",
   });
-  const embed = eventEmbed(event, "https://example.com") as { fields: { name: string; value: string }[] };
-  expect(embed.fields.find((field) => field.name === "Source")?.value).toBe("OpenAI API");
+  expect(eventEmbed(event, "https://example.com").fields).toBeUndefined();
 });
 
 test("a single Telegram delivery retains the exact source and record link", () => {
@@ -539,7 +537,7 @@ test("a single Telegram delivery retains the exact source and record link", () =
   expect(db.query("SELECT url FROM batch_events").get()).toEqual({ url: "https://platform.openai.com/docs/models" });
 });
 
-test("Discord cards lead with the change type and expose scan-friendly metadata", () => {
+test("a Discord card leads with the name and says what it means in one line", () => {
   const event = {
     id: 12,
     source: "openrouter",
@@ -553,17 +551,20 @@ test("Discord cards lead with the change type and expose scan-friendly metadata"
     evidence_type: "availability_catalogue" as const,
   };
   const embed = eventEmbed(event, "https://openrouter.ai/models/openai/gpt-6") as {
+    author: { name: string };
     title: string;
     description: string;
-    fields: { name: string; value: string }[];
+    footer: { text: string };
+    timestamp: string;
   };
-  expect(embed.title).toBe("🆕 New model available · GPT-6");
-  expect(embed.description).toContain("**What changed**");
-  expect(embed.fields.find((field) => field.name === "Signal")?.value).toBe("Confirmed · availability catalogue");
-  expect(embed.fields.find((field) => field.name === "Detected")?.value).toContain("<t:1788876360:R>");
-  expect(embed.fields.find((field) => field.name === "Reader impact")?.value).toBe(
-    "Available to use from this catalogue.",
-  );
+  // The eyebrow names the surface, the title names the thing, the first line says why it matters.
+  expect(embed.author.name).toBe("AVAILABILITY · OPENAI");
+  expect(embed.title).toBe("🆕 GPT-6");
+  expect(embed.description).toStartWith("Available to use from this catalogue.");
+  expect(embed.footer.text).toBe("OpenRouter · availability catalogue · confirmed");
+  expect(embed.timestamp).toBe("2026-09-08T14:06:00.000Z");
+  // The vendor is already in the eyebrow, so the body does not repeat it.
+  expect(embed.description).not.toContain("Maker");
 });
 
 test("Discord labels an AI summary before the raw evidence", () => {
@@ -586,7 +587,7 @@ test("Discord labels an AI summary before the raw evidence", () => {
     "https://github.com/openai/codex/commit/commit-1",
     "Conversation history stores the originating model.",
   ) as { description: string };
-  expect(embed.description).toStartWith("**Summary**\nConversation history stores the originating model.");
+  expect(embed.description).toStartWith("*Conversation history stores the originating model.*");
   expect(embed.description).toContain("Changes: 1 file · +4/−1 lines");
   expect(embed.description).not.toContain("model_info");
 });
@@ -742,23 +743,13 @@ test("leaderboard notifications keep top-five entries and meaningful movements o
       after_json: after === null ? null : JSON.stringify(after),
       detected_at: "2026-09-08T19:27:00.000Z",
     }) as const;
-  expect(hasNotificationContent(event("new", null, { id: "m", name: "M", rank: 5 }), "https://example.test")).toBe(
-    true,
-  );
-  expect(hasNotificationContent(event("new", null, { id: "m", name: "M", rank: 6 }), "https://example.test")).toBe(
-    false,
-  );
+  expect(hasNotificationContent(event("new", null, { id: "m", name: "M", rank: 5 }))).toBe(true);
+  expect(hasNotificationContent(event("new", null, { id: "m", name: "M", rank: 6 }))).toBe(false);
   expect(
-    hasNotificationContent(
-      event("changed", { id: "m", name: "M", rank: 12 }, { id: "m", name: "M", rank: 13 }),
-      "https://example.test",
-    ),
+    hasNotificationContent(event("changed", { id: "m", name: "M", rank: 12 }, { id: "m", name: "M", rank: 13 })),
   ).toBe(false);
   expect(
-    hasNotificationContent(
-      event("changed", { id: "m", name: "M", rank: 12 }, { id: "m", name: "M", rank: 8 }),
-      "https://example.test",
-    ),
+    hasNotificationContent(event("changed", { id: "m", name: "M", rank: 12 }, { id: "m", name: "M", rank: 8 })),
   ).toBe(true);
 });
 
@@ -849,7 +840,7 @@ test("removed models use before evidence for vendor role mentions", () => {
   saveCollection(local, collection, [destination], "2026-09-08T10:05:00.000Z", { OpenAI: "111" });
   saveCollection(local, collection, [destination], "2026-09-08T10:10:00.000Z", { OpenAI: "111" });
   const event = local.query("SELECT * FROM events WHERE kind='removed'").get() as Event;
-  expect(hasNotificationContent(event, "https://openrouter.ai")).toBe(true);
+  expect(hasNotificationContent(event)).toBe(true);
   const body = local.query<{ body: string }, []>("SELECT body FROM deliveries").get()?.body ?? "";
   const payload = JSON.parse(body) as { content: string; allowed_mentions?: { roles?: string[] } };
   expect(payload.content).toContain("<@&111>");
@@ -908,12 +899,12 @@ test("catalogue ignores sub-cent drift but keeps meaningful cheap-model changes"
     detected_at: "2026-09-08T10:00:00.000Z",
   });
   const smallEvent = makeEvent(small, smallAfter);
-  expect(hasNotificationContent(smallEvent, "https://openrouter.ai")).toBe(false);
+  expect(hasNotificationContent(smallEvent)).toBe(false);
 
   const meaningfulAfter = { ...small, pricing: { ...small.pricing, prompt: "0.00000109" } };
   const meaningfulEvent = makeEvent(small, meaningfulAfter);
-  expect(hasNotificationContent(meaningfulEvent, "https://openrouter.ai")).toBe(true);
-  expect(renderEvent(meaningfulEvent, "https://openrouter.ai")).toContain("Input: $0.96 → $1.09 / 1M tokens");
+  expect(hasNotificationContent(meaningfulEvent)).toBe(true);
+  expect(renderEvent(meaningfulEvent, "https://openrouter.ai")).toContain("Input price: $0.96 → $1.09 / 1M tokens");
 });
 
 test("catalogue hides a two-cent expensive-model drift but keeps a sub-cent DeepSeek halving", () => {
@@ -931,14 +922,14 @@ test("catalogue hides a two-cent expensive-model drift but keeps a sub-cent Deep
     { id: "z-ai/glm-latest", name: "Z.ai: GLM Latest", pricing: { completion: "0.00000343" } },
     { id: "z-ai/glm-latest", name: "Z.ai: GLM Latest", pricing: { completion: "0.00000341" } },
   );
-  expect(hasNotificationContent(glm, "https://openrouter.ai")).toBe(false);
+  expect(hasNotificationContent(glm)).toBe(false);
 
   const deepSeek = makeEvent(
     { id: "deepseek-v4-flash", name: "DeepSeek V4 Flash", pricing: { inputCacheHitPeak: 0.014 } },
     { id: "deepseek-v4-flash", name: "DeepSeek V4 Flash", pricing: { inputCacheHitPeak: 0.007 } },
     "deepseek-pricing",
   );
-  expect(hasNotificationContent(deepSeek, "https://api-docs.deepseek.com")).toBe(true);
+  expect(hasNotificationContent(deepSeek)).toBe(true);
   expect(renderEvent(deepSeek, "https://api-docs.deepseek.com")).toContain(
     "Cache hit peak: $0.014 → $0.007 / 1M tokens",
   );
@@ -955,12 +946,15 @@ test("parameter-only catalogue churn and prerelease package channels stay out of
     after_json: JSON.stringify({ id: "model", name: "Model", parameters: ["tools", "temperature"] }),
     detected_at: "2026-09-10T08:00:00.000Z",
   };
-  expect(hasNotificationContent(parameterEvent, "https://openrouter.ai")).toBe(false);
+  expect(hasNotificationContent(parameterEvent)).toBe(false);
   expect(
-    hasNotificationContent(
-      { ...parameterEvent, stream: "packages", entity_id: "next", kind: "new", before_json: null },
-      "https://npmjs.com",
-    ),
+    hasNotificationContent({
+      ...parameterEvent,
+      stream: "packages",
+      entity_id: "next",
+      kind: "new",
+      before_json: null,
+    }),
   ).toBe(false);
 });
 
@@ -975,8 +969,8 @@ test("catalogue keeps material token-limit changes and hides small corrections",
     after_json: JSON.stringify({ id: "model", name: "Model", context: to }),
     detected_at: "2026-09-10T08:00:00.000Z",
   });
-  expect(hasNotificationContent(changedContext(128_000, 131_072), "https://openrouter.ai")).toBe(false);
-  expect(hasNotificationContent(changedContext(128_000, 256_000), "https://openrouter.ai")).toBe(true);
+  expect(hasNotificationContent(changedContext(128_000, 131_072))).toBe(false);
+  expect(hasNotificationContent(changedContext(128_000, 256_000))).toBe(true);
 });
 
 test("a failing source is asked less often, and a healthy one keeps its interval", async () => {

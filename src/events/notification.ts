@@ -1,6 +1,6 @@
 import { canonical } from "./canonical.js";
 import { significantPriceChange, webStringChanges } from "./render/common.js";
-import { renderEvent } from "./render/telegram.js";
+import { eventFacts } from "./render/facts.js";
 import type { Event } from "./types.js";
 
 const TOP_RANK = 5;
@@ -33,7 +33,7 @@ function worthLeaderboardNotification(event: Event): boolean {
 }
 
 /** An observation can be real evidence but still contain no subscriber-facing change. */
-export function hasNotificationContent(event: Event, url: string): boolean {
+export function hasNotificationContent(event: Event): boolean {
   if (!worthLeaderboardNotification(event)) return false;
   if (event.stream === "packages" && !["latest", "stable"].includes(event.entity_id.toLowerCase())) return false;
   if (event.kind === "changed" && event.stream === "web") {
@@ -72,6 +72,5 @@ export function hasNotificationContent(event: Event, url: string): boolean {
     !subscriberChanges.some((key) => significantTokenLimitChange(before[key], after[key]))
   )
     return false;
-  const body = renderEvent(event, url).split("\n").slice(3, -3).join("").trim();
-  return body.length > 0;
+  return eventFacts(event).join("").trim().length > 0;
 }

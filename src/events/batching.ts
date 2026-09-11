@@ -135,7 +135,7 @@ export function prepareDeliveries(
       const speaking = events.filter(
         (event) =>
           subscribed.has(event.signal) &&
-          hasNotificationContent(event, event.url) &&
+          hasNotificationContent(event) &&
           !isScheduledPricingRotation(event) &&
           !isOscillating(db, event, now) &&
           !repeatsDeliveredStory(db, event, target.destination_id, storyIds.get(event.id), batch.id),

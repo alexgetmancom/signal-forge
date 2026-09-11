@@ -39,10 +39,11 @@ test("first-place movement is immediate, stable rechecks are silent, and a real 
   expect(deliveries(db)).toHaveLength(1);
   expect(db.query<{ digest: number }, []>("SELECT digest FROM batches").all()).toEqual([{ digest: 0 }]);
   const first = JSON.parse(deliveries(db)[0]?.body ?? "{}") as {
-    embeds: { author: { name: string }; description: string }[];
+    embeds: { author: { name: string }; description: string; url: string }[];
   };
   expect(first.embeds[0]?.author.name).toBe("DESIGNARENA · IMAGE");
-  expect(first.embeds[0]?.description).toContain("https://www.designarena.ai/leaderboard/image");
+  // The board is reachable through the card title rather than through a line of the body.
+  expect(first.embeds[0]?.url).toBe("https://www.designarena.ai/leaderboard/image");
   expect(first.embeds[0]?.description).toContain("Benchmark: designarena/image");
   expect(first.embeds[0]?.description).toContain("Rank 1 🔼 1 (was 2)");
 

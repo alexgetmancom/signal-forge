@@ -3,7 +3,7 @@ import { evidenceLabel, evidenceTypeFor } from "../confidence.js";
 import { vendorOf } from "../interpretation.js";
 import type { Event, RecordData } from "../types.js";
 import { utcStamp } from "./common.js";
-import { renderEvent } from "./telegram.js";
+import { eventFacts } from "./facts.js";
 
 export type StoryRenderEvent = Event & { url: string };
 
@@ -25,8 +25,7 @@ function recordUrl(event: StoryRenderEvent, record: RecordData | null): string {
 }
 
 function detailLines(event: StoryRenderEvent, summary?: string): string[] {
-  const lines = renderEvent(event, event.url, "telegram", summary).split("\n");
-  return lines.slice(3, -3);
+  return eventFacts(event, summary);
 }
 
 function storyTitle(events: StoryRenderEvent[]): string {

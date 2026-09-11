@@ -255,8 +255,7 @@ export function signalQuality(db: Database, config: AppConfig, days = 7, now = D
     )
     .all(since);
   for (const event of changedEvents) {
-    if (!hasNotificationContent(event, event.url))
-      suppressed.set(event.source, (suppressed.get(event.source) ?? 0) + 1);
+    if (!hasNotificationContent(event)) suppressed.set(event.source, (suppressed.get(event.source) ?? 0) + 1);
   }
 
   const sources = sourceJobs(db, config).map<SignalQualitySource>((job) => {
