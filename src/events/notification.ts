@@ -40,6 +40,11 @@ function worthLeaderboardNotification(event: Event): boolean {
  */
 export function notificationBlock(event: Event): string | null {
   if (event.stream === "incidents") return incidentSilence(event);
+  // A design board is worth watching for who turns up on it, not for who is third today.
+  // `gpt-6-astra` reached first place there before it existed anywhere else, and four days of
+  // collection produced eighteen such arrivals beside four hundred and eighty-six rank shuffles.
+  if (event.source.startsWith("designarena:") && event.kind === "changed")
+    return "A place on a design board is a vote count, not a release";
   if (!worthLeaderboardNotification(event)) return `Leaderboard movement outside the top ${TOP_RANK}`;
   if (event.stream === "packages" && !["latest", "stable"].includes(event.entity_id.toLowerCase()))
     return `Package tag "${event.entity_id}" is not a release channel`;

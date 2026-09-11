@@ -12,6 +12,7 @@ export const SUPPRESSION_REASONS = [
   "no_reader_facing_change",
   "scheduled_pricing_rotation",
   "oscillating",
+  "flapping_in_and_out",
   "already_told_by_another_source",
   "waiting_for_the_move_to_settle",
   "returned_to_the_delivered_state",
@@ -27,6 +28,8 @@ export function suppressionDetail(event: Event, reason: SuppressionReason): stri
       return "Base rates rotated onto a tier this record already publishes";
     case "oscillating":
       return "The value returned to one it held earlier today";
+    case "flapping_in_and_out":
+      return "This entry has arrived on the board before and was announced then";
     case "already_told_by_another_source":
       return "A source in another family already reported this within six hours";
     case "waiting_for_the_move_to_settle":

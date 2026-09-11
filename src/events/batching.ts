@@ -6,7 +6,7 @@ import { CONFIDENCE_LEVELS } from "./confidence.js";
 import { deliveryBaseline, withBaseline } from "./cooldown.js";
 import { vendorOf } from "./interpretation.js";
 import { hasNotificationContent } from "./notification.js";
-import { isOscillating, isScheduledPricingRotation } from "./oscillation.js";
+import { isOscillating, isReappearance, isScheduledPricingRotation } from "./oscillation.js";
 import { type Attachment, eventAttachment } from "./render/attachment.js";
 import { pageEmbeds } from "./render/budget.js";
 import { eventEmbed } from "./render/discord.js";
@@ -160,6 +160,7 @@ export function prepareDeliveries(
             );
           if (isScheduledPricingRotation(event)) return quiet(event, "scheduled_pricing_rotation");
           if (isOscillating(db, event, now)) return quiet(event, "oscillating");
+          if (isReappearance(db, event, now)) return quiet(event, "flapping_in_and_out");
           if (repeatsDeliveredStory(db, event, target.destination_id, storyIds.get(event.id), batch.id))
             return quiet(event, "already_told_by_another_source");
           // A number that keeps moving waits, then speaks once about the whole move it missed.

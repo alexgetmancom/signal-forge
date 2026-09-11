@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import type { Destination } from "../src/config.js";
-import { type Collection, saveCollection } from "../src/events.js";
+import { type Collection, prepareDeliveries, saveCollection } from "../src/events.js";
 import { openDatabase } from "../src/storage/database.js";
 
 const destination: Destination = {
@@ -21,8 +21,24 @@ function collection(records: Collection["records"]): Collection {
   };
 }
 
+/** The text boards, where a change of first place is a change in the state of the art. */
+function textBoard(records: Collection["records"]): Collection {
+  return {
+    source: "arena-leaderboards",
+    stream: "leaderboards",
+    url: "https://lmarena.ai/leaderboard",
+    raw: records,
+    trackChanges: true,
+    records,
+  };
+}
+
 function model(id: string, rank: number): Collection["records"][number] {
   return { id, name: id, category: "designarena/image", rank };
+}
+
+function ranked(id: string, rank: number): Collection["records"][number] {
+  return { id, name: id, category: "text/overall", rank };
 }
 
 function deliveries(db: ReturnType<typeof openDatabase>): { body: string }[] {
@@ -31,9 +47,9 @@ function deliveries(db: ReturnType<typeof openDatabase>): { body: string }[] {
 
 test("first-place movement is immediate, stable rechecks are silent, and a real reversal is sent once", () => {
   const db = openDatabase(":memory:");
-  saveCollection(db, collection([model("riverflow-2.5-pro", 2)]), [destination], "2026-09-10T10:00:00.000Z");
+  saveCollection(db, textBoard([ranked("riverflow-2.5-pro", 2)]), [destination], "2026-09-10T10:00:00.000Z");
   expect(
-    saveCollection(db, collection([model("riverflow-2.5-pro", 1)]), [destination], "2026-09-10T10:05:00.000Z"),
+    saveCollection(db, textBoard([ranked("riverflow-2.5-pro", 1)]), [destination], "2026-09-10T10:05:00.000Z"),
   ).toBe(1);
 
   expect(deliveries(db)).toHaveLength(1);
@@ -41,23 +57,43 @@ test("first-place movement is immediate, stable rechecks are silent, and a real 
   const first = JSON.parse(deliveries(db)[0]?.body ?? "{}") as {
     embeds: { author: { name: string }; description: string; url: string }[];
   };
-  expect(first.embeds[0]?.author.name).toBe("DESIGNARENA · IMAGE");
+  expect(first.embeds[0]?.author.name).toBe("ARENA · LEADERBOARDS");
   // The board is reachable through the card title rather than through a line of the body.
-  expect(first.embeds[0]?.url).toBe("https://www.designarena.ai/leaderboard/image");
-  expect(first.embeds[0]?.description).toContain("Benchmark: designarena/image");
+  expect(first.embeds[0]?.url).toBe("https://lmarena.ai/leaderboard");
   expect(first.embeds[0]?.description).toContain("Rank 1 🔼 1 (was 2)");
 
   expect(
-    saveCollection(db, collection([model("riverflow-2.5-pro", 1)]), [destination], "2026-09-10T10:10:00.000Z"),
+    saveCollection(db, textBoard([ranked("riverflow-2.5-pro", 1)]), [destination], "2026-09-10T10:10:00.000Z"),
   ).toBe(0);
   expect(deliveries(db)).toHaveLength(1);
 
   expect(
-    saveCollection(db, collection([model("riverflow-2.5-pro", 2)]), [destination], "2026-09-10T10:15:00.000Z"),
+    saveCollection(db, textBoard([ranked("riverflow-2.5-pro", 2)]), [destination], "2026-09-10T10:15:00.000Z"),
   ).toBe(1);
   expect(deliveries(db)).toHaveLength(2);
   const second = JSON.parse(deliveries(db)[1]?.body ?? "{}") as { embeds: { description: string }[] };
   expect(second.embeds[0]?.description).toContain("Rank 2 🔽 1 (was 1)");
+  db.close();
+});
+
+test("taking first place on a design board is not news; arriving on it is", () => {
+  const db = openDatabase(":memory:");
+  saveCollection(db, collection([model("riverflow-2.5-pro", 2)]), [destination], "2026-09-10T10:00:00.000Z");
+  // A design board is voted on all day. Who is first today says nothing about what is new.
+  saveCollection(db, collection([model("riverflow-2.5-pro", 1)]), [destination], "2026-09-10T10:05:00.000Z");
+  expect(deliveries(db)).toHaveLength(0);
+
+  saveCollection(
+    db,
+    collection([model("riverflow-2.5-pro", 1), model("gpt-6-astra", 2)]),
+    [destination],
+    "2026-09-10T10:10:00.000Z",
+  );
+  // An arrival travels with the hourly digest, which is where board movement belongs.
+  prepareDeliveries(db, Date.parse("2026-09-10T11:05:00.000Z"));
+  const bodies = deliveries(db).map((row) => row.body);
+  expect(bodies).toHaveLength(1);
+  expect(bodies[0]).toContain("gpt-6-astra");
   db.close();
 });
 

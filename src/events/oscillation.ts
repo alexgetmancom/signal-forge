@@ -7,6 +7,9 @@ import type { Event, RecordData } from "./types.js";
  * evidence untouched; they only decide that a subscriber does not need a message about it.
  */
 
+/** How long a board entry that keeps arriving and leaving stays the same piece of news. */
+const REAPPEARANCE_WINDOW_MS = 14 * 24 * 3_600_000;
+
 /** How far back a repeated value still counts as the same oscillation. */
 const OSCILLATION_WINDOW_MS = 48 * 3_600_000;
 /** A field must have moved this often inside the window before a repeat reads as dithering. */
@@ -92,4 +95,22 @@ export function isOscillating(db: Database, event: Event, now = Date.now()): boo
     const seen = new Set(moves.flatMap((move) => [canonical(move.from), canonical(move.to)]));
     return seen.has(canonical((after as RecordData)[field]));
   });
+}
+
+/**
+ * A codename that comes and goes.
+ *
+ * `muse-spark-1.3-max` arrived on a design board, left the next day and arrived again the day
+ * after, and each arrival was announced as a new sighting. The first one is the news; a board
+ * entry that is being switched on and off says nothing more about the model behind it.
+ */
+export function isReappearance(db: Database, event: Event, now = Date.now()): boolean {
+  if (event.kind !== "new" || !["leaderboards", "arena"].includes(event.stream)) return false;
+  const since = new Date(now - REAPPEARANCE_WINDOW_MS).toISOString();
+  const seen = db
+    .query<{ c: number }, [string, string, number, string]>(
+      "SELECT COUNT(*) c FROM events WHERE source=? AND entity_id=? AND id<? AND detected_at>=? AND kind='new'",
+    )
+    .get(event.source, event.entity_id, event.id, since);
+  return (seen?.c ?? 0) > 0;
 }
