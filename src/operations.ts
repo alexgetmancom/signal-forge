@@ -5,6 +5,7 @@ import type { AppConfig } from "./config.js";
 import { requireDeliveryVerification, resolveDeliveryVerification } from "./deliveryVerification.js";
 import { getHypothesis, listHypotheses } from "./hypotheses.js";
 import { listActionableIssues } from "./issues.js";
+import { leadTime } from "./leadTime.js";
 import { listLifecycleDeadlines } from "./lifecycle.js";
 import { getModelFacts, listModelFacts } from "./modelFacts.js";
 import { deepSeekUsage } from "./runtime/deepseekUsage.js";
@@ -121,6 +122,11 @@ export function operations(db: Database, config: AppConfig) {
              ORDER BY s.recorded_at DESC, s.event_id DESC LIMIT ?2`,
           )
           .all(input.destinationId ?? null, input.limit),
+    },
+    lead_time: {
+      description: "Which sources saw a story first, and by how long, over an operator-selected period.",
+      schema: z.object({ days: z.number().int().min(1).max(90).default(7) }),
+      handler: (input: { days: number }) => leadTime(db, input.days),
     },
     signal_quality: {
       description: "Source collection, event, delivery and suppression metrics for an operator-selected period.",
