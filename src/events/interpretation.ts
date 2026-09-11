@@ -1,4 +1,5 @@
 import { canonical } from "./canonical.js";
+import { incidentIsUrgent } from "./incidents.js";
 import type { Event, RecordData } from "./types.js";
 
 const VENDORS: [RegExp, string][] = [
@@ -28,6 +29,9 @@ export function vendorOf(event: Event, record: RecordData | null): string {
 
 export function isRoutine(event: Event): boolean {
   if (event.source === "claude-web") return true;
+  // An outage is the one thing here that cannot wait for the top of the hour, but only when the
+  // vendor itself calls it severe; everything else an incident does travels with the digest.
+  if (event.stream === "incidents") return !incidentIsUrgent(event);
   if (event.stream === "leaderboards") {
     const before = event.before_json ? (JSON.parse(event.before_json) as RecordData) : null;
     const after = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;

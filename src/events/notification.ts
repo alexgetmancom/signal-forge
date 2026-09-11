@@ -1,4 +1,5 @@
 import { canonical } from "./canonical.js";
+import { incidentSilence } from "./incidents.js";
 import { MIN_PRICE_CHANGE_RATIO, priceMoveRatio, significantPriceChange, webStringChanges } from "./render/common.js";
 import { eventFacts } from "./render/facts.js";
 import type { Event } from "./types.js";
@@ -38,6 +39,7 @@ function worthLeaderboardNotification(event: Event): boolean {
  * the hourly digest stay empty?" meant replaying events by hand against the thresholds.
  */
 export function notificationBlock(event: Event): string | null {
+  if (event.stream === "incidents") return incidentSilence(event);
   if (!worthLeaderboardNotification(event)) return `Leaderboard movement outside the top ${TOP_RANK}`;
   if (event.stream === "packages" && !["latest", "stable"].includes(event.entity_id.toLowerCase()))
     return `Package tag "${event.entity_id}" is not a release channel`;
