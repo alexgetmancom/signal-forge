@@ -17,10 +17,11 @@ const KEEP_HOURS = 6;
 /**
  * Rows per statement. The payloads behind them are large enough that deleting a backlog in one
  * statement writes hundreds of megabytes into the journal at once, on a service that has already
- * been killed once for holding a whole database in memory.
+ * been killed once for holding a whole database in memory. Fifty is what production actually
+ * swallowed; one statement for the whole backlog did not.
  */
-const CHUNK = 200;
-const MAX_CHUNKS = 50;
+const CHUNK = 50;
+const MAX_CHUNKS = 200;
 
 export function pruneSnapshots(db: Database, now = Date.now()): number {
   const cutoff = new Date(now - KEEP_HOURS * 3_600_000).toISOString();
