@@ -227,3 +227,83 @@ test("GitHub repository events stay separate unless their entity identity is the
   ).toBe(true);
   db.close();
 });
+
+const designArena = (source: string, records: Collection["records"]): Collection => ({
+  source,
+  stream: "leaderboards",
+  url: `https://www.designarena.ai/leaderboard/${source.split(":")[1]}`,
+  raw: records,
+  records,
+});
+
+test("a similar display name never merges two subjects one source family already told apart", () => {
+  const db = openDatabase(":memory:");
+  const websiteBaseline = [{ id: "website:1", name: "kimi-k3", category: "designarena/website", rank: 1 }];
+  const uiBaseline = [{ id: "uicomponent:1", name: "kimi-k3", category: "designarena/uicomponent", rank: 1 }];
+  saveCollection(db, designArena("designarena:website", websiteBaseline), [], "2026-09-08T00:00:00.000Z");
+  saveCollection(db, designArena("designarena:uicomponent", uiBaseline), [], "2026-09-08T00:01:00.000Z");
+  saveCollection(
+    db,
+    designArena("designarena:website", [
+      ...websiteBaseline,
+      { id: "website:2", name: "muse-spark-1.3", category: "designarena/website", rank: 2 },
+    ]),
+    [],
+    "2026-09-08T00:05:00.000Z",
+  );
+  saveCollection(
+    db,
+    designArena("designarena:uicomponent", [
+      ...uiBaseline,
+      { id: "uicomponent:2", name: "muse-spark-1.3-max", category: "designarena/uicomponent", rank: 2 },
+    ]),
+    [],
+    "2026-09-08T00:10:00.000Z",
+  );
+
+  const stories = listStories(db, { limit: 20 });
+  expect(stories.find((story) => story.eventIds.length > 1)).toBeUndefined();
+  expect(stories.map((story) => story.title).sort()).toEqual(["muse-spark-1.3", "muse-spark-1.3-max"]);
+  db.close();
+});
+
+test("one subject still correlates across the categories of a single leaderboard family", () => {
+  const db = openDatabase(":memory:");
+  saveCollection(
+    db,
+    designArena("designarena:website", [
+      { id: "website:1", name: "kimi-k3", category: "designarena/website", rank: 4 },
+    ]),
+    [],
+    "2026-09-08T00:00:00.000Z",
+  );
+  saveCollection(
+    db,
+    designArena("designarena:uicomponent", [
+      { id: "uicomponent:1", name: "kimi-k3", category: "designarena/uicomponent", rank: 4 },
+    ]),
+    [],
+    "2026-09-08T00:01:00.000Z",
+  );
+  saveCollection(
+    db,
+    designArena("designarena:website", [
+      { id: "website:1", name: "kimi-k3", category: "designarena/website", rank: 2 },
+    ]),
+    [],
+    "2026-09-08T00:05:00.000Z",
+  );
+  saveCollection(
+    db,
+    designArena("designarena:uicomponent", [
+      { id: "uicomponent:1", name: "kimi-k3", category: "designarena/uicomponent", rank: 2 },
+    ]),
+    [],
+    "2026-09-08T00:06:00.000Z",
+  );
+
+  const stories = listStories(db, { limit: 20 });
+  expect(stories).toHaveLength(1);
+  expect(stories[0]?.eventIds).toHaveLength(2);
+  db.close();
+});

@@ -26,6 +26,8 @@ type StoryGroup = {
   terms: Set<string>;
   urls: Set<string>;
   titleTerms: Set<string>;
+  /** Identity evidence per source family, so one family cannot contradict itself inside a story. */
+  familyIdentity: Map<string, { canonicals: Set<string>; terms: Set<string> }>;
   storyId?: number;
 };
 
@@ -150,6 +152,12 @@ function cloneProjection(projection: StoryProjection): StoryProjection {
     terms: new Set(group.terms),
     urls: new Set(group.urls),
     titleTerms: new Set(group.titleTerms),
+    familyIdentity: new Map(
+      [...group.familyIdentity].map(([family, known]) => [
+        family,
+        { canonicals: new Set(known.canonicals), terms: new Set(known.terms) },
+      ]),
+    ),
   }));
   const copies = new Map(projection.groups.map((group, index) => [group, groups[index] as StoryGroup]));
   return {
@@ -165,6 +173,30 @@ function emptyProjection(): StoryProjection {
   return { groups: [], current: new Map(), aliases: new Map(), lastEventId: 0, lastDetectedAt: null };
 }
 
+/**
+ * Two records observed through the same source family are different subjects when that family
+ * already gave them different identities. A shared URL or a similar display name is never enough
+ * to overrule identity evidence the source itself provides.
+ */
+function contradictsFamilyIdentity(
+  group: StoryGroup,
+  family: string,
+  canonical: string | null,
+  terms: string[],
+): boolean {
+  const known = group.familyIdentity.get(family);
+  if (!known) return false;
+  if (canonical !== null && known.canonicals.size > 0 && !known.canonicals.has(canonical)) return true;
+  return terms.length > 0 && known.terms.size > 0 && !terms.some((term) => known.terms.has(term));
+}
+
+function rememberFamilyIdentity(group: StoryGroup, family: string, canonical: string | null, terms: string[]): void {
+  const known = group.familyIdentity.get(family) ?? { canonicals: new Set<string>(), terms: new Set<string>() };
+  if (canonical !== null) known.canonicals.add(canonical);
+  for (const term of terms) known.terms.add(term);
+  group.familyIdentity.set(family, known);
+}
+
 function projectEvent(projection: StoryProjection, event: StoryEvent): StoryGroup {
   const record = recordFor(event);
   const identity = identityFor(event, record);
@@ -175,6 +207,8 @@ function projectEvent(projection: StoryProjection, event: StoryEvent): StoryGrou
   const url = repositoryEvent ? null : canonicalUrl(record?.url);
   const titles = repositoryEvent ? new Set<string>() : titleTerms(record);
   const { key, subject, vendor } = baseKeyFor(event, record);
+  const family = sourceFamily(event.source, event.stream);
+  const canonical = identity.canonicalId ? normalizeIdentity(identity.canonicalId) : null;
   const identityMatch = terms
     .map((term) => projection.aliases.get(`${normalized(vendor)}:${term}`))
     .find((group) => group !== undefined && withinCorrelationWindow(group, event));
@@ -192,6 +226,7 @@ function projectEvent(projection: StoryProjection, event: StoryEvent): StoryGrou
       )
         return false;
       if (!compatibleVendor(group.vendor, vendor)) return false;
+      if (contradictsFamilyIdentity(group, family, canonical, terms)) return false;
       return (url !== null && group.urls.has(url)) || similarTitle(group.titleTerms, titles);
     });
   const last = previous?.last;
@@ -207,7 +242,9 @@ function projectEvent(projection: StoryProjection, event: StoryEvent): StoryGrou
       terms: new Set(terms),
       urls: new Set(url ? [url] : []),
       titleTerms: new Set(titles),
+      familyIdentity: new Map(),
     };
+    rememberFamilyIdentity(group, family, canonical, terms);
     projection.groups.push(group);
     projection.current.set(key, group);
     for (const term of terms) projection.aliases.set(`${normalized(vendor)}:${term}`, group);
@@ -215,6 +252,7 @@ function projectEvent(projection: StoryProjection, event: StoryEvent): StoryGrou
   }
   previous.last = event;
   previous.identity = mergeIdentities(previous.identity, identity);
+  rememberFamilyIdentity(previous, family, canonical, terms);
   projection.current.set(key, previous);
   for (const term of terms) {
     previous.terms.add(term);
