@@ -9,6 +9,7 @@ import {
   pageEmbeds,
 } from "../src/events/render/budget.js";
 import { type Collection, prepareDeliveries, saveCollection } from "../src/events.js";
+import { listActionableIssues } from "../src/issues.js";
 import { openDatabase } from "../src/storage/database.js";
 
 const db = openDatabase(":memory:");
@@ -395,5 +396,33 @@ test("a long evidence list travels as a file instead of ending at a truncation n
   expect(form.get("files[0]")).toBeInstanceOf(Blob);
   // The boundary belongs to the request body, so no content type is set by hand.
   expect((sent?.headers as Record<string, string> | undefined)?.["content-type"]).toBeUndefined();
+  local.close();
+});
+test("a message turned away for hours becomes a failure an operator can see", async () => {
+  const local = openDatabase(":memory:");
+  const discord = { id: "dc", platform: "discord" as const, channelId: "2", signals: ["launch"] };
+  local.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'test',0,1)").run();
+  local
+    .query(
+      "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,updated_at) VALUES(1,1,'dc',?,'dc',0,0)",
+    )
+    .run(JSON.stringify(discord));
+
+  let attempts = 0;
+  for (let round = 0; round < 12; round++) {
+    // Each round happens after the delay the platform asked for.
+    local.query("UPDATE deliveries SET next_attempt=0 WHERE status='pending'").run();
+    await deliverPending(local, config, async () => {
+      attempts++;
+      return Response.json({ parameters: { retry_after: 60 } }, { status: 429 });
+    });
+  }
+
+  const row = local.query<{ status: string; error: string }, []>("SELECT status,error FROM deliveries").get();
+  expect(row?.status).toBe("failed");
+  expect(row?.error).toContain("never accepted");
+  // It stops trying once it has failed, rather than retrying for ever.
+  expect(attempts).toBe(8);
+  expect(listActionableIssues(local, config).map((issue) => issue.kind)).toContain("delivery_failed");
   local.close();
 });

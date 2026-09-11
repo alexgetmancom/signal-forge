@@ -8,6 +8,14 @@ import { measure } from "./runtime/metrics.js";
 import { fillSummaries } from "./summary.js";
 
 type Job = { id: number; destination_json: string; body: string; attempts: number };
+
+/**
+ * How many times one message may be turned away by a rate limit before it is given up on. Each
+ * attempt already waits for the delay the platform asks for, so reaching this means the lane has
+ * been blocked for hours; the delivery becomes a failure an operator can see in `issues` instead
+ * of a job that retries silently for ever.
+ */
+const MAX_RATE_LIMIT_ATTEMPTS = 8;
 type DeliveryStatus = "pending" | "sent" | "failed" | "ambiguous";
 type PreparedDelivery = {
   destination: Destination;
@@ -147,9 +155,16 @@ export async function deliverPending(db: Database, config: AppConfig, request: F
             if (response.status === 429) {
               const retry = rateLimit.safeParse(await response.json().catch(() => null));
               const delay = retry.success ? (retry.data.parameters?.retry_after ?? retry.data.retry_after ?? 60) : 60;
-              status = "pending";
-              retryAt = Date.now() + Math.ceil(Math.max(1, delay) * 1000);
-              error = "Rate limited";
+              if (job.attempts >= MAX_RATE_LIMIT_ATTEMPTS) {
+                // A message that has been turned away this many times is not going to be accepted
+                // by waiting longer, and a job that retries for ever is a job nobody is told about.
+                status = "failed";
+                error = `Rate limited on ${job.attempts} attempts; the message was never accepted`;
+              } else {
+                status = "pending";
+                retryAt = Date.now() + Math.ceil(Math.max(1, delay) * 1000);
+                error = "Rate limited";
+              }
               // Stop only this destination lane; another platform can continue.
             } else if (response.ok) {
               const data: unknown = await response.json();
