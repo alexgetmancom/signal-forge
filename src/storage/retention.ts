@@ -14,23 +14,40 @@ import { log } from "../logger.js";
  */
 const KEEP_PER_SOURCE = 3;
 const KEEP_HOURS = 6;
+/**
+ * Rows per statement. The payloads behind them are large enough that deleting a backlog in one
+ * statement writes hundreds of megabytes into the journal at once, on a service that has already
+ * been killed once for holding a whole database in memory.
+ */
+const CHUNK = 200;
+const MAX_CHUNKS = 50;
 
 export function pruneSnapshots(db: Database, now = Date.now()): number {
   const cutoff = new Date(now - KEEP_HOURS * 3_600_000).toISOString();
-  try {
-    return db
-      .query<{ removed: number }, [number, string]>(
-        `DELETE FROM snapshots WHERE id IN (
-           SELECT id FROM (
-             SELECT id, collected_at, ROW_NUMBER() OVER (PARTITION BY source ORDER BY id DESC) AS recency
-             FROM snapshots
-           ) WHERE recency > ? AND collected_at < ?
-         ) RETURNING 1 AS removed`,
-      )
-      .all(KEEP_PER_SOURCE, cutoff).length;
-  } catch {
-    // A database that cannot prune is still a database that collects; it must not stop the cycle.
-    log("warn", "Snapshot retention cleanup failed");
-    return 0;
+  let removed = 0;
+  for (let chunk = 0; chunk < MAX_CHUNKS; chunk++) {
+    try {
+      const deleted = db
+        .query<{ removed: number }, [number, string, number]>(
+          `DELETE FROM snapshots WHERE id IN (
+             SELECT id FROM (
+               SELECT id, collected_at, ROW_NUMBER() OVER (PARTITION BY source ORDER BY id DESC) AS recency
+               FROM snapshots
+             ) WHERE recency > ? AND collected_at < ? LIMIT ?
+           ) RETURNING 1 AS removed`,
+        )
+        .all(KEEP_PER_SOURCE, cutoff, CHUNK).length;
+      removed += deleted;
+      if (deleted < CHUNK) return removed;
+    } catch (error) {
+      // A database that cannot prune is still a database that collects; it must not stop the
+      // cycle, but a silent failure is how this grew to a gigabyte unnoticed in the first place.
+      log("warn", "Snapshot retention cleanup failed", {
+        errorType: error instanceof Error ? error.message : "unknown",
+        removed,
+      });
+      return removed;
+    }
   }
+  return removed;
 }
