@@ -88,3 +88,23 @@ test("a first change for a subject never waits", () => {
   expect(cards(db)).toHaveLength(1);
   db.close();
 });
+
+test("steps too small to report on their own add up to one card", () => {
+  const db = openDatabase(":memory:");
+  const hour = 3_600_000;
+  const start = Date.parse("2026-09-11T01:00:00.000Z");
+  // $1.896 → $1.720 → $1.630 → $1.560: −9.3%, −5.2% and −4.3%, every step under the ten percent
+  // that makes a price worth reporting, and −17.7% together.
+  const steps = ["0.000001896", "0.00000172", "0.00000163", "0.00000156"];
+  steps.forEach((price, index) => {
+    saveCollection(db, catalogue(price), [destination], new Date(start + index * hour).toISOString());
+    prepareDeliveries(db, start + (index + 1) * hour);
+  });
+
+  const delivered = cards(db);
+  expect(delivered).toHaveLength(1);
+  // It speaks as soon as the accumulated drift crosses the line, and the card covers the whole
+  // drift rather than the small step that happened to cross it.
+  expect(delivered[0]).toContain("$1.9 → $1.63 / 1M tokens");
+  db.close();
+});

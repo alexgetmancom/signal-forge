@@ -144,21 +144,26 @@ export function prepareDeliveries(
       const speaking = events
         .filter((event) => subscribed.has(event.signal))
         .flatMap((event) => {
-          if (!hasNotificationContent(event)) return quiet(event, "no_reader_facing_change");
+          // Routine drift is judged against the last state this destination actually saw, so that
+          // steps too small to report on their own still add up to one card. Only routine drift:
+          // an event the policy already decided is worth interrupting a reader for, such as a
+          // benchmark changing hands at the top, is news every time it happens.
+          const drifting = batch.digest && event.signal === "change" && event.kind === "changed";
+          const baseline = drifting ? deliveryBaseline(db, event, target.destination_id, batch.id, now) : null;
+          const caughtUp = baseline ? { ...event, ...withBaseline(event, baseline) } : event;
+          if (!hasNotificationContent(caughtUp))
+            return quiet(
+              caughtUp,
+              baseline?.sinceJson && hasNotificationContent(event)
+                ? "returned_to_the_delivered_state"
+                : "no_reader_facing_change",
+            );
           if (isScheduledPricingRotation(event)) return quiet(event, "scheduled_pricing_rotation");
           if (isOscillating(db, event, now)) return quiet(event, "oscillating");
           if (repeatsDeliveredStory(db, event, target.destination_id, storyIds.get(event.id), batch.id))
             return quiet(event, "already_told_by_another_source");
-          // A number that keeps moving waits, then speaks once about the whole move this
-          // destination missed. Only routine drift waits: an event the policy already decided is
-          // worth interrupting a reader for, such as a benchmark changing hands at the top, is
-          // news every time it happens.
-          if (!batch.digest || event.signal !== "change" || event.kind !== "changed") return [event];
-          const baseline = deliveryBaseline(db, event, target.destination_id, batch.id, now);
-          if (baseline.hold) return quiet(event, "waiting_for_the_move_to_settle");
-          const caughtUp = { ...event, ...withBaseline(event, baseline) };
-          // A move that returns exactly to the state a destination last saw has nothing to say.
-          if (!hasNotificationContent(caughtUp)) return quiet(event, "returned_to_the_delivered_state");
+          // A number that keeps moving waits, then speaks once about the whole move it missed.
+          if (baseline?.hold) return quiet(event, "waiting_for_the_move_to_settle");
           return [caughtUp];
         });
       for (const event of speaking) clearSuppression(db, event.id, target.destination_id);
