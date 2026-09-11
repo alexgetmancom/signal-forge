@@ -55,6 +55,33 @@ export const WATCHED_SITES: readonly WatchedSite[] = [
     sitemap: "https://deepmind.google/sitemap.xml",
     ignoreSections: ["about", "careers", "jobs"],
   },
+  // DeepMind publishes the research; a model becomes usable on the developer site, and a page for
+  // a Gemini version appears there before the changelog mentions it.
+  {
+    id: "google",
+    name: "Google AI for Developers",
+    vendor: "Google",
+    sitemap: "https://ai.google.dev/sitemap.xml",
+    ignoreSections: ["competition", "edu", "responsible-ai", "terms"],
+  },
+  // Most of this sitemap is the billing console; what is left is the model and pricing pages.
+  {
+    id: "zai",
+    name: "Z.ai",
+    vendor: "Z.ai",
+    sitemap: "https://z.ai/sitemap.xml",
+    ignoreSections: [
+      "manage-apikey",
+      "team",
+      "subscribe",
+      "payment",
+      "usage-bundle",
+      "usage-bundles",
+      "contact",
+      "consultation",
+      "company",
+    ],
+  },
 ];
 
 /** One collection follows at most this many child sitemaps of an index, newest sections first. */
