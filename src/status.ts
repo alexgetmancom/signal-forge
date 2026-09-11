@@ -404,10 +404,21 @@ export function activityEmbed(db: Database, now = Date.now()): Record<string, un
     "SELECT COUNT(*) c FROM events WHERE detected_at > ? AND kind='changed' AND stream IN ('api-models','openrouter')",
     since,
   );
-  const weights = count("SELECT COUNT(*) c FROM events WHERE detected_at > ? AND stream='weights'", since);
+  // Shadow discovery scans every fresh community upload to find candidates worth watching. Those
+  // are leads, not releases: counting them told a reader 3200 open-weight releases in a day.
+  const weights = count(
+    "SELECT COUNT(*) c FROM events WHERE detected_at > ? AND stream='weights' AND source NOT LIKE 'discovery:%'",
+    since,
+  );
   const news = count("SELECT COUNT(*) c FROM events WHERE detected_at > ? AND stream='news'", since);
-  const arenaChanges = count(
-    "SELECT COUNT(*) c FROM events WHERE detected_at > ? AND stream='arena' AND kind='changed'",
+  // What matters on the Arena is which models appeared and which are gone; scores and votes move
+  // constantly and were the only thing this line used to count, so it read "0" on a busy day.
+  const arenaNew = count(
+    "SELECT COUNT(*) c FROM events WHERE detected_at > ? AND stream='arena' AND kind='new'",
+    since,
+  );
+  const arenaGone = count(
+    "SELECT COUNT(*) c FROM events WHERE detected_at > ? AND stream='arena' AND kind='removed'",
     since,
   );
   const retirements = count("SELECT COUNT(*) c FROM events WHERE detected_at > ? AND stream='deprecations'", since);
@@ -415,7 +426,7 @@ export function activityEmbed(db: Database, now = Date.now()): Record<string, un
 
   const lines = [
     `**${models}** new models · **${gone}** withdrawn · **${modelChanges}** catalogue changes`,
-    `**${weights}** open-weight releases · **${arenaChanges}** Arena changes`,
+    `**${weights}** open-weight releases · **${arenaNew}** new on Arena · **${arenaGone}** gone from Arena`,
     `**${news}** announcements · **${retirements}** retirement updates · **${incidents}** platform incidents`,
   ];
   const headline = db
