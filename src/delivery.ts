@@ -14,6 +14,8 @@ type PreparedDelivery = {
   url: string;
   headers: Record<string, string>;
   body: unknown;
+  /** Evidence too long for a card travels as a file beside it. */
+  files?: { filename: string; content: string }[];
 };
 
 const telegramResponse = z.object({ ok: z.literal(true), result: z.object({ message_id: z.number().int() }) });
@@ -27,6 +29,16 @@ const rateLimit = z.object({
   retry_after: z.number().nonnegative().optional(),
   parameters: z.object({ retry_after: z.number().nonnegative() }).optional(),
 });
+
+/** Discord takes a message and its files as one multipart request with the payload as a field. */
+function multipart(prepared: PreparedDelivery): FormData {
+  const form = new FormData();
+  form.append("payload_json", JSON.stringify(prepared.body));
+  (prepared.files ?? []).forEach((file, index) => {
+    form.append(`files[${index}]`, new Blob([file.content], { type: "text/plain" }), file.filename);
+  });
+  return form;
+}
 
 export function recoverInterruptedDeliveries(db: Database): void {
   db.query(
@@ -89,16 +101,23 @@ export async function deliverPending(db: Database, config: AppConfig, request: F
             };
           } else {
             if (!config.DISCORD_BOT_TOKEN) throw new Error("missing Discord token");
-            const payload = job.body.startsWith("{")
+            const parsed = job.body.startsWith("{")
               ? (JSON.parse(job.body) as Record<string, unknown>)
               : { content: job.body };
+            const { files, ...payload } = parsed as Record<string, unknown> & {
+              files?: { filename: string; content: string }[];
+            };
             // SUPPRESS_EMBEDS (4) hides every embed on the message, our own included — setting it on a
             // message built out of embeds delivers a bare header and nothing else.
             const hasEmbeds = Array.isArray(payload.embeds) && payload.embeds.length > 0;
             prepared = {
               destination,
               url: `https://discord.com/api/v10/channels/${destination.channelId}/messages`,
-              headers: { "content-type": "application/json", Authorization: `Bot ${config.DISCORD_BOT_TOKEN}` },
+              // A multipart request carries its own boundary, so the content type is left to fetch.
+              headers: {
+                ...(files?.length ? {} : { "content-type": "application/json" }),
+                Authorization: `Bot ${config.DISCORD_BOT_TOKEN}`,
+              },
               body: {
                 allowed_mentions: { parse: [] },
                 ...payload,
@@ -106,6 +125,7 @@ export async function deliverPending(db: Database, config: AppConfig, request: F
                 nonce: `sf-${job.id}`,
                 enforce_nonce: true,
               },
+              ...(files?.length ? { files } : {}),
             };
           }
         } catch {
@@ -114,11 +134,12 @@ export async function deliverPending(db: Database, config: AppConfig, request: F
 
         if (prepared) {
           try {
+            const payload = prepared.files?.length ? multipart(prepared) : JSON.stringify(prepared.body);
             const response = await measure(db, `delivery.send:${prepared.destination.platform}`, () =>
               request(prepared.url, {
                 method: "POST",
                 headers: prepared.headers,
-                body: JSON.stringify(prepared.body),
+                body: payload,
                 signal: AbortSignal.timeout(20_000),
                 redirect: "error",
               }),

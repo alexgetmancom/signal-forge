@@ -6,6 +6,7 @@ import { CONFIDENCE_LEVELS } from "./confidence.js";
 import { vendorOf } from "./interpretation.js";
 import { hasNotificationContent } from "./notification.js";
 import { isOscillating, isScheduledPricingRotation } from "./oscillation.js";
+import { type Attachment, eventAttachment } from "./render/attachment.js";
 import { pageEmbeds } from "./render/budget.js";
 import { eventEmbed } from "./render/discord.js";
 import {
@@ -212,13 +213,23 @@ export function prepareDeliveries(
                 summaries.get((group[0] as StoryRenderEvent).id),
               ),
         );
+        // An embed and its evidence file travel together: the page an embed lands on decides
+        // which message carries its attachment.
+        const attachments = new Map<Record<string, unknown>, Attachment>();
+        items.forEach((group, index) => {
+          const file = group.length === 1 ? eventAttachment(group[0] as StoryRenderEvent) : null;
+          const embed = embeds[index];
+          if (file && embed) attachments.set(embed, file);
+        });
         const pages = pageEmbeds(embeds);
         pages.forEach((page, index) => {
           const content = index === 0 ? [header.trim(), mentions].filter(Boolean).join("\n") : "";
+          const files = page.map((embed) => attachments.get(embed)).filter((file): file is Attachment => Boolean(file));
           store(
             JSON.stringify({
               content,
               embeds: page,
+              ...(files.length ? { files } : {}),
               ...(index === 0 && roles.length ? { allowed_mentions: { parse: [], roles } } : {}),
             }),
             index,

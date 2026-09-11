@@ -114,6 +114,13 @@ and does not need for delivery.
 Verify a new channel with one manual `POST /channels/<id>/messages` before relying on it.
 A destination that cannot be written to only shows up as a failed delivery later.
 
+## Long evidence
+
+A card shows the few changes a person can read at a glance. When a page rewrote hundreds of
+strings, the rest used to end at a truncation notice and were reachable nowhere. Those changes now
+travel with the message as a text file, so the card stays short and the evidence stays complete.
+Telegram deliveries keep the truncation notice; attachments there are a different endpoint.
+
 ## Timestamps
 
 Discord messages carry `<t:unix:f>`, which every reader sees in their own timezone.

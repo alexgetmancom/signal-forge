@@ -8,7 +8,7 @@ import {
   MESSAGE_CHARACTERS,
   pageEmbeds,
 } from "../src/events/render/budget.js";
-import { saveCollection } from "../src/events.js";
+import { type Collection, prepareDeliveries, saveCollection } from "../src/events.js";
 import { openDatabase } from "../src/storage/database.js";
 
 const db = openDatabase(":memory:");
@@ -353,4 +353,47 @@ test("an embed too large to share a message is trimmed to fit and never dropped"
   expect(page).toHaveLength(1);
   expect(embedCharacters(page?.[0] ?? {})).toBeLessThanOrEqual(MESSAGE_CHARACTERS);
   expect(String(page?.[0]?.description ?? "")).toEndWith("…");
+});
+
+test("a long evidence list travels as a file instead of ending at a truncation notice", async () => {
+  const local = openDatabase(":memory:");
+  const destination: Destination = { id: "dc", platform: "discord", channelId: "77", signals: ["evidence"] };
+  const strings = (count: number, prefix: string) =>
+    Array.from(
+      { length: count },
+      (_, index) => `${prefix} permission ${index} is required before a plugin can use this tool`,
+    );
+  const page = (values: string[]): Collection => ({
+    source: "claude-web",
+    stream: "web",
+    url: "https://claude.ai",
+    raw: values,
+    records: [{ id: "claude", name: "Claude: public interface strings", strings: values }],
+  });
+  saveCollection(local, page(strings(30, "Old")), [destination], "2026-09-11T09:00:00.000Z");
+  saveCollection(local, page(strings(30, "New")), [destination], "2026-09-11T09:05:00.000Z");
+  prepareDeliveries(local, Date.parse("2026-09-11T10:00:00.000Z"));
+
+  const body = local.query<{ body: string }, []>("SELECT body FROM deliveries ORDER BY id LIMIT 1").get()?.body ?? "{}";
+  const payload = JSON.parse(body) as { files?: { filename: string; content: string }[] };
+  expect(payload.files).toHaveLength(1);
+  expect(payload.files?.[0]?.filename).toEndWith(".txt");
+  expect(payload.files?.[0]?.content).toContain("+ New permission 29 is required before a plugin can use this tool");
+  expect(payload.files?.[0]?.content).toContain("- Old permission 0 is required before a plugin can use this tool");
+
+  let sent: RequestInit | undefined;
+  await deliverPending(local, { ...config, destinations: [destination] }, async (_url, init) => {
+    sent = init;
+    return new Response(JSON.stringify({ id: "9001" }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  });
+  expect(sent?.body).toBeInstanceOf(FormData);
+  const form = sent?.body as FormData;
+  expect(form.get("payload_json")).toBeTypeOf("string");
+  expect(form.get("files[0]")).toBeInstanceOf(Blob);
+  // The boundary belongs to the request body, so no content type is set by hand.
+  expect((sent?.headers as Record<string, string> | undefined)?.["content-type"]).toBeUndefined();
+  local.close();
 });

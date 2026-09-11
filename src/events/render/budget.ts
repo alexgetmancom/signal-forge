@@ -27,13 +27,18 @@ export function embedCharacters(embed: Embed): number {
   );
 }
 
-/** Trims one embed's description until the embed fits the message budget on its own. */
+/**
+ * Trims one embed's description until the embed fits the message budget on its own. The embed is
+ * trimmed in place: callers pair an embed with the evidence file that belongs to it, and a copy
+ * would break that pairing for exactly the largest cards.
+ */
 function fitAlone(embed: Embed): Embed {
   const overflow = embedCharacters(embed) - MESSAGE_CHARACTERS;
   if (overflow <= 0) return embed;
   const description = typeof embed.description === "string" ? embed.description : "";
   const keep = Math.max(0, description.length - overflow - 1);
-  return { ...embed, description: keep > 0 ? `${description.slice(0, keep)}…` : "" };
+  embed.description = keep > 0 ? `${description.slice(0, keep)}…` : "";
+  return embed;
 }
 
 /**
