@@ -9,8 +9,12 @@ import { log } from "../logger.js";
  *
  * The newest payloads are what a person actually opens when a card looks wrong, so a few of those
  * stay whatever their age, along with everything collected in the last few hours while a problem
- * is still being looked at. The rest is evidence nobody has asked for, and the events it produced
- * keep their own before and after state regardless.
+ * is still being looked at.
+ *
+ * Nothing an event points at is ever deleted. Every event names the snapshot it was derived from,
+ * and a card that cannot be traced back to the bytes it came from is a claim without evidence —
+ * which is the one thing this database exists to avoid. The first version of this cleanup did not
+ * check, and the foreign key stopped it; that refusal was the database doing its job.
  */
 const KEEP_PER_SOURCE = 3;
 const KEEP_HOURS = 6;
@@ -34,6 +38,7 @@ export function pruneSnapshots(db: Database, now = Date.now()): number {
              SELECT id FROM (
                SELECT id, collected_at, ROW_NUMBER() OVER (PARTITION BY source ORDER BY id DESC) AS recency
                FROM snapshots
+               WHERE NOT EXISTS (SELECT 1 FROM events WHERE events.snapshot_id = snapshots.id)
              ) WHERE recency > ? AND collected_at < ? LIMIT ?
            ) RETURNING 1 AS removed`,
         )

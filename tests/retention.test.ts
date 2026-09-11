@@ -53,3 +53,22 @@ test("each source is pruned on its own, not against the busiest one", () => {
   ).toBe(3);
   db.close();
 });
+
+test("a payload an event was derived from is never deleted", () => {
+  const db = openDatabase(":memory:");
+  for (let hours = 120; hours >= 12; hours -= 12) snapshot(db, "openrouter", hours);
+  // The oldest reading is the one an event points back to.
+  const oldest = db.query<{ id: number }, []>("SELECT id FROM snapshots ORDER BY id LIMIT 1").get();
+  db.query(
+    "INSERT INTO events(source,stream,entity_id,kind,after_json,detected_at,snapshot_id) VALUES('openrouter','openrouter','gpt-5','new','{}',?,?)",
+  ).run(new Date(now - 120 * 3_600_000).toISOString(), oldest?.id ?? 0);
+
+  pruneSnapshots(db, now);
+
+  expect(db.query<{ c: number }, [number]>("SELECT COUNT(*) c FROM snapshots WHERE id=?").get(oldest?.id ?? 0)?.c).toBe(
+    1,
+  );
+  // Its evidence survives; the readings nothing points at do not.
+  expect(db.query<{ c: number }, []>("SELECT COUNT(*) c FROM snapshots").get()?.c).toBe(4);
+  db.close();
+});
