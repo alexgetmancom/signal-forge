@@ -17,7 +17,7 @@ const destination: Destination = {
   id: "dc",
   platform: "discord",
   channelId: "123",
-  streams: ["arena", "github", "openrouter", "api-models", "news", "deprecations"],
+  signals: ["launch", "codename", "evidence", "change", "reminder"],
 };
 
 function collection(source: string, stream: Collection["stream"], records: Collection["records"]): Collection {

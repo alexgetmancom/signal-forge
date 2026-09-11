@@ -10,7 +10,12 @@ const configPath = new URL("./fixtures/config.json", import.meta.url).pathname;
 test("capabilities distinguish disabled integrations from missing credentials", () => {
   const db = openDatabase(":memory:");
   const config = loadConfig({ CONFIG_PATH: configPath });
-  const destination: Destination = { id: "tg", platform: "telegram", chatId: "-100", streams: ["news"] };
+  const destination: Destination = {
+    id: "tg",
+    platform: "telegram",
+    chatId: "-100",
+    signals: ["launch", "codename", "evidence", "change"],
+  };
   const report = capabilityReport(db, {
     ...config,
     sourceEnabled: { openai: false },

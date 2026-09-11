@@ -235,9 +235,11 @@ test("migration preserves existing delivery IDs, outcomes and event evidence", (
   legacy.close();
   try {
     let db = openDatabase(path);
+    // A sent delivery is history and survives every migration. A never-attempted pending row
+    // addressed by the old stream subscription cannot be routed by signal class, so the signal
+    // class migration removes it instead of leaving it to fail at the transport boundary.
     expect(db.query("SELECT id,batch_id,status,external_id FROM deliveries ORDER BY id").all()).toEqual([
       { id: 42, batch_id: 7, status: "sent", external_id: "123" },
-      { id: 43, batch_id: 7, status: "pending", external_id: null },
     ]);
     expect(db.query("SELECT before_json,after_json FROM events WHERE id=7").all()).toEqual([
       { before_json: null, after_json: "{}" },
@@ -249,7 +251,7 @@ test("migration preserves existing delivery IDs, outcomes and event evidence", (
     expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: CURRENT_SCHEMA_VERSION });
     db.close();
     db = openDatabase(path);
-    expect(db.query("SELECT COUNT(*) AS n FROM deliveries").get()).toEqual({ n: 2 });
+    expect(db.query("SELECT COUNT(*) AS n FROM deliveries").get()).toEqual({ n: 1 });
     expect(db.query("SELECT id,status,external_id FROM deliveries WHERE id=42").get()).toEqual({
       id: 42,
       status: "sent",

@@ -7,7 +7,12 @@ import { parseGeminiDeprecations } from "../src/sources/lifecycle.js";
 import { openDatabase } from "../src/storage/database.js";
 
 const baseConfig = loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname });
-const destination: Destination = { id: "dc", platform: "discord", channelId: "123", streams: ["deprecations"] };
+const destination: Destination = {
+  id: "dc",
+  platform: "discord",
+  channelId: "123",
+  signals: ["launch", "codename", "evidence", "change", "reminder"],
+};
 const now = Date.parse("2026-09-10T00:00:00.000Z");
 
 function lifecycleRecord(retirement: string, fields: Record<string, unknown> = {}): Collection["records"][number] {

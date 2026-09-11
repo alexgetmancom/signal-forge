@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { z } from "zod";
+import { SIGNAL_CLASSES } from "./events/signals.js";
 
 export const streamSchema = z.enum([
   "api-models",
@@ -17,16 +18,21 @@ export const streamSchema = z.enum([
 export type Stream = z.infer<typeof streamSchema>;
 export const sourceModeSchema = z.enum(["active", "shadow"]);
 export type SourceMode = z.infer<typeof sourceModeSchema>;
-const streams = z.array(streamSchema).min(1);
+/**
+ * A destination subscribes to what its readers came for, not to the sources that happen to
+ * produce it. `signalClass` derives the class of every event from the same evidence the card is
+ * rendered from.
+ */
+const signals = z.array(z.enum(SIGNAL_CLASSES)).min(1);
 export const destinationSchema = z.discriminatedUnion("platform", [
   z.object({
     id: z.string().min(1),
     platform: z.literal("telegram"),
     chatId: z.string().regex(/^-?\d+$/),
     topicId: z.number().int().positive().optional(),
-    streams,
+    signals,
   }),
-  z.object({ id: z.string().min(1), platform: z.literal("discord"), channelId: z.string().regex(/^\d+$/), streams }),
+  z.object({ id: z.string().min(1), platform: z.literal("discord"), channelId: z.string().regex(/^\d+$/), signals }),
 ]);
 export type Destination = z.infer<typeof destinationSchema>;
 const optionalSecret = z.preprocess((v) => (v === "" ? undefined : v), z.string().min(1).optional());

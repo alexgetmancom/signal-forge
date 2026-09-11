@@ -6,7 +6,12 @@ import { signalQuality } from "../src/signalQuality.js";
 import { openDatabase } from "../src/storage/database.js";
 
 const config = loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname });
-const destination: Destination = { id: "dc", platform: "discord", channelId: "123", streams: ["openrouter"] };
+const destination: Destination = {
+  id: "dc",
+  platform: "discord",
+  channelId: "123",
+  signals: ["launch", "codename", "evidence", "change"],
+};
 
 const collection = (_at: string, records: Collection["records"]): Collection => ({
   source: "openrouter",
@@ -117,7 +122,7 @@ test("signal quality counts persisted role mentions without another schema table
 test("signal quality attributes a shared story digest to every contributing source", () => {
   const db = openDatabase(":memory:");
   const destinations: Destination[] = [
-    { id: "dc", platform: "discord", channelId: "123", streams: ["openrouter", "api-models"] },
+    { id: "dc", platform: "discord", channelId: "123", signals: ["launch", "codename", "evidence", "change"] },
   ];
   const router: Collection = {
     source: "openrouter",
@@ -155,11 +160,11 @@ test("signal quality attributes a shared story digest to every contributing sour
   db.close();
 });
 
-test("signal quality counts a shared digest only for subscribed streams", () => {
+test("signal quality counts a shared digest only for subscribed signal classes", () => {
   const db = openDatabase(":memory:");
   const destinations: Destination[] = [
-    { id: "models", platform: "discord", channelId: "123", streams: ["openrouter"] },
-    { id: "benchmarks", platform: "discord", channelId: "456", streams: ["leaderboards"] },
+    { id: "models", platform: "discord", channelId: "123", signals: ["change"] },
+    { id: "benchmarks", platform: "discord", channelId: "456", signals: ["codename"] },
   ];
   const router: Collection = {
     source: "openrouter",

@@ -11,8 +11,14 @@ const config = loadConfig({
   DISCORD_BOT_TOKEN: "fake-discord",
 });
 const destinations: Destination[] = [
-  { id: "tg", platform: "telegram", chatId: "-100123", topicId: 42, streams: ["news"] },
-  { id: "dc", platform: "discord", channelId: "123456", streams: ["news"] },
+  {
+    id: "tg",
+    platform: "telegram",
+    chatId: "-100123",
+    topicId: 42,
+    signals: ["launch", "codename", "evidence", "change"],
+  },
+  { id: "dc", platform: "discord", channelId: "123456", signals: ["launch", "codename", "evidence", "change"] },
 ];
 afterEach(() =>
   db.exec(
@@ -60,8 +66,18 @@ test("rate limits each destination lane and retries only after requested delay",
 });
 test("rate limit does not block an independent destination", async () => {
   const local = openDatabase(":memory:");
-  const telegram = { id: "tg", platform: "telegram" as const, chatId: "1", streams: ["news"] };
-  const discord = { id: "dc", platform: "discord" as const, channelId: "2", streams: ["news"] };
+  const telegram = {
+    id: "tg",
+    platform: "telegram" as const,
+    chatId: "1",
+    signals: ["launch", "codename", "evidence", "change"],
+  };
+  const discord = {
+    id: "dc",
+    platform: "discord" as const,
+    channelId: "2",
+    signals: ["launch", "codename", "evidence", "change"],
+  };
   local.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'test',0,1),(2,'test',0,1)").run();
   local
     .query(
@@ -84,8 +100,18 @@ test("rate limit does not block an independent destination", async () => {
 });
 test("a rate limit does not block another destination on the same platform", async () => {
   const local = openDatabase(":memory:");
-  const first = { id: "tg-1", platform: "telegram" as const, chatId: "1", streams: ["news"] };
-  const second = { id: "tg-2", platform: "telegram" as const, chatId: "2", streams: ["news"] };
+  const first = {
+    id: "tg-1",
+    platform: "telegram" as const,
+    chatId: "1",
+    signals: ["launch", "codename", "evidence", "change"],
+  };
+  const second = {
+    id: "tg-2",
+    platform: "telegram" as const,
+    chatId: "2",
+    signals: ["launch", "codename", "evidence", "change"],
+  };
   local.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'test',0,1),(2,'test',0,1)").run();
   local
     .query(
@@ -104,7 +130,12 @@ test("a rate limit does not block another destination on the same platform", asy
 });
 test("preflight delivery failures are failed without making a provider request", async () => {
   const local = openDatabase(":memory:");
-  const telegram = { id: "tg", platform: "telegram" as const, chatId: "1", streams: ["news"] };
+  const telegram = {
+    id: "tg",
+    platform: "telegram" as const,
+    chatId: "1",
+    signals: ["launch", "codename", "evidence", "change"],
+  };
   local.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'test',0,1)").run();
   local
     .query(
@@ -150,7 +181,12 @@ test("restart recovers in-flight sends as ambiguous", () => {
 });
 test("a later multipart part waits behind an ambiguous earlier part", async () => {
   const local = openDatabase(":memory:");
-  const destination = { id: "dc", platform: "discord" as const, channelId: "123456", streams: ["news"] };
+  const destination = {
+    id: "dc",
+    platform: "discord" as const,
+    channelId: "123456",
+    signals: ["launch", "codename", "evidence", "change"],
+  };
   local.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'test',0,1)").run();
   const insert = local.query(
     "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,status,updated_at) VALUES(?,?,?,?,?,?,?,?)",
@@ -171,7 +207,12 @@ test("a later multipart part waits behind an ambiguous earlier part", async () =
 });
 test("an unresolved delivery blocks only later parts in its own batch", async () => {
   const local = openDatabase(":memory:");
-  const destination = { id: "dc", platform: "discord" as const, channelId: "123456", streams: ["news"] };
+  const destination = {
+    id: "dc",
+    platform: "discord" as const,
+    channelId: "123456",
+    signals: ["launch", "codename", "evidence", "change"],
+  };
   local.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'test',0,1),(2,'test',0,1)").run();
   const insert = local.query(
     "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,status,updated_at) VALUES(?,?,?,?,?,?,?,?)",
@@ -202,7 +243,12 @@ test("permanent platform rejection fails one target without blocking another", a
 });
 test("a Telegram application error is a failed delivery, not an ambiguous send", async () => {
   const local = openDatabase(":memory:");
-  const telegram = { id: "tg", platform: "telegram" as const, chatId: "1", streams: ["news"] };
+  const telegram = {
+    id: "tg",
+    platform: "telegram" as const,
+    chatId: "1",
+    signals: ["launch", "codename", "evidence", "change"],
+  };
   local.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'test',0,1)").run();
   local
     .query(
@@ -225,7 +271,7 @@ test("discord sends suppress the link unfurl", async () => {
     id: "d",
     platform: "discord",
     channelId: "1",
-    streams: ["openrouter"],
+    signals: ["launch", "codename", "evidence", "change"],
   };
   db.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'openrouter',0,1)").run();
   db.query(
@@ -250,7 +296,12 @@ test("a message built from embeds is not sent with the embed-suppressing flag", 
   };
   const local = openDatabase(":memory:");
   local.query("INSERT INTO batches(id,source,digest,ready_at) VALUES(0,'test',0,0)").run();
-  const destination = { id: "d", platform: "discord" as const, channelId: "42", streams: ["api-models"] };
+  const destination = {
+    id: "d",
+    platform: "discord" as const,
+    channelId: "42",
+    signals: ["launch", "codename", "evidence", "change"],
+  };
   const queue = (body: string) =>
     local
       .query(

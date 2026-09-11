@@ -14,10 +14,10 @@ Set `DISCORD_BOT_TOKEN` in `.env` and configure destinations in
   "pollSeconds": 300,
   "destinations": [
     {
-      "id": "discord-model-catalog",
+      "id": "discord-new",
       "platform": "discord",
       "channelId": "000000000000000000",
-      "streams": ["api-models", "openrouter", "weights"]
+      "signals": ["launch"]
     }
   ],
   "statusChannelId": "000000000000000000",
@@ -30,10 +30,27 @@ Set `DISCORD_BOT_TOKEN` in `.env` and configure destinations in
 Replace the example IDs with the actual ones. Deploy after configuration changes. Destinations
 receive future events only; the first source observation establishes a quiet baseline.
 
+## Signal classes
+
+A destination subscribes to what its readers came for, not to the sources that happen to produce
+it. Every event carries one class, derived from the same evidence its card is rendered from:
+
+| Class | What it means | Examples |
+| --- | --- | --- |
+| `launch` | A reader can now use it, or can no longer use it | Official announcement, catalogue entry appearing or withdrawn, published release |
+| `codename` | Something on its way, identity often unknown | Arena sighting, entry listed but not selectable, new leaderboard key, retirement notice naming its successor |
+| `evidence` | The raw trail for a reader who digs | Documentation and interface diffs, repository activity, package versions, a retirement notice with no successor |
+| `change` | A number moved | Pricing, context, ranks, availability flags, edited announcements, incident updates, shifting deadlines |
+| `reminder` | Derived operator work, not an observation | Lifecycle deadline reminders |
+
+Only `launch` and `codename` carry a role mention. `change` reaches a reader through the hourly
+digest. `reminder` is delivered only to a destination that asks for it by name, because a deadline
+reminder is operator hygiene rather than news.
+
 ## Reader channels and status
 
-The server keeps five reader-facing channels: Status, Model Catalog, Benchmarks, Product Updates,
-and Official News. The private `Signal Problem` channel is separate and is not a reader feed.
+The server keeps four reader-facing channels plus Status: New, Codenames, Evidence, and Changes.
+The private `Signal Problem` channel is separate and is not a reader feed.
 
 Three messages in Status are edited in place instead of being reposted, so the channel holds current
 state rather than a growing log. They are rewritten only when their content actually changes.
@@ -90,8 +107,7 @@ automatically.
 
 ## Permissions and channel checks
 
-Discord destinations take a `channelId` and the same `streams` used by the event
-pipeline. A bot only reaches a private category when its role is granted `VIEW_CHANNEL`
+Discord destinations take a `channelId` and the signal classes the channel is for. A bot only reaches a private category when its role is granted `VIEW_CHANNEL`
 there. Creating channels additionally needs `MANAGE_CHANNELS`, which the bot does not have
 and does not need for delivery.
 

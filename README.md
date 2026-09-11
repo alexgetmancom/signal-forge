@@ -85,6 +85,19 @@ Confirmed · availability catalogue
 Detected a few minutes ago
 ```
 
+## What a reader subscribed to
+
+Confidence says how much a source can be trusted. It does not say whether a reader cares. An
+unnamed codename on an arena is the weakest evidence in the system and the most interesting thing
+in it; a first-party retirement date shifting by a week is the strongest evidence and the least
+interesting.
+
+Those are two axes, so delivery follows a second one. Every event carries a signal class derived
+from its own evidence — `launch` (usable now, or no longer), `codename` (on its way), `evidence`
+(the raw trail), `change` (a number moved), `reminder` (derived operator work) — and a destination
+subscribes to classes rather than to the sources that happen to produce them. Only `launch` and
+`codename` carry a role mention.
+
 ## Signal, not noise
 
 Not every detected change becomes a notification.

@@ -68,9 +68,3 @@ export function isRoutine(event: Event): boolean {
   const budgetOnly = ["pricing", "context", "inputTokenLimit", "outputTokenLimit"];
   return moved.length === 0 || moved.every((key) => budgetOnly.includes(key));
 }
-
-/** Only appearance and disappearance carry an immediate vendor role mention. */
-export function pingWorthy(event: Event): boolean {
-  const pingable = new Set(["api-models", "openrouter", "weights", "arena", "deprecations", "news"]);
-  return pingable.has(event.stream) && (event.kind === "new" || event.kind === "removed");
-}

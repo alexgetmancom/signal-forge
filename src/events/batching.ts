@@ -3,7 +3,7 @@ import type { Destination } from "../config.js";
 import { sourceLabel } from "../sources/labels.js";
 import { splitMessage } from "./canonical.js";
 import { CONFIDENCE_LEVELS } from "./confidence.js";
-import { pingWorthy, vendorOf } from "./interpretation.js";
+import { vendorOf } from "./interpretation.js";
 import { hasNotificationContent } from "./notification.js";
 import { isOscillating, isScheduledPricingRotation } from "./oscillation.js";
 import { eventEmbed } from "./render/discord.js";
@@ -14,6 +14,7 @@ import {
 } from "./render/lifecycle.js";
 import { renderStoryText, type StoryRenderEvent, storyEmbed } from "./render/story.js";
 import { renderEvent } from "./render/telegram.js";
+import { pingWorthy, type SignalClass } from "./signals.js";
 import { sourceFamily } from "./sourceFamily.js";
 import type { Event, RecordData } from "./types.js";
 
@@ -69,8 +70,8 @@ export function prepareDeliveries(
   for (const batch of batches) {
     let hasSpeakingEvents = false;
     const events = db
-      .query<Event & { url: string }, [number]>(
-        "SELECT e.*,COALESCE(NULLIF(json_extract(e.after_json,'$.url'),''),NULLIF(json_extract(e.before_json,'$.url'),''),b.url) AS url FROM batch_events b JOIN events e ON e.id=b.event_id WHERE b.batch_id=? ORDER BY e.id",
+      .query<Event & { url: string; signal: SignalClass | "" }, [number]>(
+        "SELECT e.*,b.signal,COALESCE(NULLIF(json_extract(e.after_json,'$.url'),''),NULLIF(json_extract(e.before_json,'$.url'),''),b.url) AS url FROM batch_events b JOIN events e ON e.id=b.event_id WHERE b.batch_id=? ORDER BY e.id",
       )
       .all(batch.id);
     const summaries = new Map(
@@ -129,10 +130,10 @@ export function prepareDeliveries(
     );
     for (const target of targets) {
       const destination = JSON.parse(target.destination_json) as Destination;
-      const subscribedStreams = new Set<string>(destination.streams);
+      const subscribed = new Set<string>(destination.signals);
       const speaking = events.filter(
         (event) =>
-          subscribedStreams.has(event.stream) &&
+          subscribed.has(event.signal) &&
           hasNotificationContent(event, event.url) &&
           !isScheduledPricingRotation(event) &&
           !isOscillating(db, event, now) &&

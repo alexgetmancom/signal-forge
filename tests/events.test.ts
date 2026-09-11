@@ -24,9 +24,14 @@ afterEach(() =>
   ),
 );
 const targets: Destination[] = [
-  { id: "tg", platform: "telegram", chatId: "-100123", topicId: 7, streams: ["openrouter"] },
-  { id: "dc", platform: "discord", channelId: "123", streams: ["openrouter"] },
-  { id: "news", platform: "discord", channelId: "456", streams: ["news"] },
+  {
+    id: "tg",
+    platform: "telegram",
+    chatId: "-100123",
+    topicId: 7,
+    signals: ["launch", "codename", "evidence", "change"],
+  },
+  { id: "dc", platform: "discord", channelId: "123", signals: ["launch", "codename", "evidence", "change"] },
 ];
 const collection = (ids: string[]): Collection => ({
   source: "openrouter",
@@ -44,6 +49,27 @@ test("first snapshot is quiet, new records fan out exactly once", () => {
     { destination_id: "dc" },
   ]);
 });
+test("a destination receives only the signal classes it subscribed to", () => {
+  const local = openDatabase(":memory:");
+  const launches: Destination = { id: "new", platform: "discord", channelId: "1", signals: ["launch"] };
+  const movements: Destination = { id: "changes", platform: "discord", channelId: "2", signals: ["change"] };
+  const both = [launches, movements];
+  const listing = (pricing: string): Collection => ({
+    source: "openrouter",
+    stream: "openrouter",
+    url: "https://openrouter.ai",
+    raw: [],
+    records: [{ id: "a", name: "Model A", pricing: { prompt: pricing } }],
+  });
+  saveCollection(local, listing("0.000001"), both, "2026-09-08T09:00:00.000Z");
+  // A second record appearing is a launch; only the launch channel hears about it.
+  const withNew = listing("0.000001");
+  withNew.records.push({ id: "b", name: "Model B" });
+  saveCollection(local, withNew, both, "2026-09-08T09:05:00.000Z");
+  expect(local.query("SELECT destination_id FROM deliveries").all()).toEqual([{ destination_id: "new" }]);
+  local.close();
+});
+
 test("removal needs two observations; reappearance is a new event", () => {
   saveCollection(db, collection(["a", "b"]), []);
   expect(saveCollection(db, collection(["a"]), [])).toBe(0);
@@ -219,8 +245,8 @@ test("multiple changes form one message and hourly digest survives until due", a
 test("one story becomes one cross-source digest with every evidence link", () => {
   const local = openDatabase(":memory:");
   const destinations: Destination[] = [
-    { id: "tg", platform: "telegram", chatId: "-100123", streams: ["openrouter", "api-models"] },
-    { id: "dc", platform: "discord", channelId: "123", streams: ["openrouter", "api-models"] },
+    { id: "tg", platform: "telegram", chatId: "-100123", signals: ["launch", "codename", "evidence", "change"] },
+    { id: "dc", platform: "discord", channelId: "123", signals: ["launch", "codename", "evidence", "change"] },
   ];
   const router: Collection = {
     source: "openrouter",
@@ -276,7 +302,7 @@ test("a later source does not repost a story already queued for the same destina
     id: "dc",
     platform: "discord",
     channelId: "123",
-    streams: ["arena", "openrouter"],
+    signals: ["launch", "codename", "evidence", "change"],
   };
   const arena: Collection = {
     source: "arena",
@@ -309,7 +335,7 @@ test("a manually unresolved delivery suppresses a later duplicate story", () => 
     id: "dc",
     platform: "discord",
     channelId: "123",
-    streams: ["arena", "openrouter"],
+    signals: ["launch", "codename", "evidence", "change"],
   };
   const arena: Collection = {
     source: "arena",
@@ -343,7 +369,7 @@ test("an immediate source wins when a routine story batch becomes due later", ()
     id: "dc",
     platform: "discord",
     channelId: "123",
-    streams: ["leaderboards", "openrouter"],
+    signals: ["launch", "codename", "evidence", "change"],
   };
   const leaderboard: Collection = {
     source: "arena-leaderboards",
@@ -374,8 +400,8 @@ test("an immediate source wins when a routine story batch becomes due later", ()
 test("a cross-stream digest stays scoped to each destination", () => {
   const local = openDatabase(":memory:");
   const destinations: Destination[] = [
-    { id: "models", platform: "discord", channelId: "123", streams: ["openrouter"] },
-    { id: "benchmarks", platform: "discord", channelId: "456", streams: ["leaderboards"] },
+    { id: "models", platform: "discord", channelId: "123", signals: ["change"] },
+    { id: "benchmarks", platform: "discord", channelId: "456", signals: ["codename"] },
   ];
   const router: Collection = {
     source: "openrouter",
@@ -394,7 +420,9 @@ test("a cross-stream digest stays scoped to each destination", () => {
   saveCollection(local, router, destinations, "2026-09-08T09:00:00Z");
   saveCollection(local, leaderboard, destinations, "2026-09-08T09:05:00Z");
   router.records = [{ id: "router-model", name: "Router model", pricing: { prompt: "2" } }];
-  leaderboard.records = [{ id: "leaderboard-model", name: "Leaderboard model", rank: 1, score: 2 }];
+  // A board key appearing is a codename signal; the price move is a change signal. One digest
+  // batch holds both, and each destination renders only the class it asked for.
+  leaderboard.records.push({ id: "newcomer", name: "Newcomer model", rank: 3, score: 1 });
   saveCollection(local, router, destinations, "2026-09-08T10:00:00Z");
   saveCollection(local, leaderboard, destinations, "2026-09-08T10:05:00Z");
 
@@ -412,7 +440,7 @@ test("a cross-stream digest stays scoped to each destination", () => {
     "✏️ Model availability updated · Router model",
   ]);
   expect(bodies.get("benchmarks")?.embeds.map((embed) => embed.title)).toEqual([
-    "✏️ Leaderboard movement · Leaderboard model",
+    "🆕 Leaderboard entry added · Newcomer model",
   ]);
   local.close();
 });
@@ -488,7 +516,12 @@ test("notifications expose source confidence", () => {
 });
 
 test("a single Telegram delivery retains the exact source and record link", () => {
-  const destination: Destination = { id: "single", platform: "telegram", chatId: "1", streams: ["api-models"] };
+  const destination: Destination = {
+    id: "single",
+    platform: "telegram",
+    chatId: "1",
+    signals: ["launch", "codename", "evidence", "change"],
+  };
   const records = [{ id: "gpt-6", name: "GPT-6", url: "https://platform.openai.com/docs/models" }];
   const source: Collection = {
     source: "openai",
@@ -598,7 +631,12 @@ test("a single long value is trimmed rather than dropped", () => {
 test("a new model pings the role of its vendor and nothing else", async () => {
   const { prepareDeliveries, saveCollection } = await import("../src/events.js");
   const db = openDatabase(":memory:");
-  const destination: Destination = { id: "d", platform: "discord", channelId: "1", streams: ["api-models"] };
+  const destination: Destination = {
+    id: "d",
+    platform: "discord",
+    channelId: "1",
+    signals: ["launch", "codename", "evidence", "change"],
+  };
   const roles = { OpenAI: "111", Anthropic: "222" };
   const collection = {
     source: "openrouter",
@@ -624,7 +662,12 @@ test("a new model pings the role of its vendor and nothing else", async () => {
 test("a capability edit travels without a ping", async () => {
   const { prepareDeliveries, saveCollection } = await import("../src/events.js");
   const db = openDatabase(":memory:");
-  const destination: Destination = { id: "d", platform: "discord", channelId: "1", streams: ["api-models"] };
+  const destination: Destination = {
+    id: "d",
+    platform: "discord",
+    channelId: "1",
+    signals: ["launch", "codename", "evidence", "change"],
+  };
   const roles = { OpenAI: "111" };
   const records = [{ id: "openai/gpt-6", name: "GPT-6", maker: "OpenAI", selectable: true }];
   const collection = { source: "openrouter", stream: "api-models", url: "https://e.test", raw: [], records };
@@ -721,7 +764,12 @@ test("leaderboard notifications keep top-five entries and meaningful movements o
 
 test("leaderboard sample timestamps stay in evidence without creating message changes", () => {
   const local = openDatabase(":memory:");
-  const destination: Destination = { id: "d", platform: "discord", channelId: "1", streams: ["leaderboards"] };
+  const destination: Destination = {
+    id: "d",
+    platform: "discord",
+    channelId: "1",
+    signals: ["launch", "codename", "evidence", "change"],
+  };
   const record = (sampledAt: string, rank = 1): RecordData => ({
     id: "overall:model",
     name: "Model",
@@ -787,7 +835,12 @@ test("leaderboard vote-only changes and overlapping intervals do not create even
 
 test("removed models use before evidence for vendor role mentions", () => {
   const local = openDatabase(":memory:");
-  const destination: Destination = { id: "d", platform: "discord", channelId: "1", streams: ["openrouter"] };
+  const destination: Destination = {
+    id: "d",
+    platform: "discord",
+    channelId: "1",
+    signals: ["launch", "codename", "evidence", "change"],
+  };
   const other = { id: "other/model", name: "Other" };
   const records = [{ id: "openai/gpt-6", name: "GPT-6", maker: "OpenAI" }, other];
   const collection = { source: "openrouter", stream: "openrouter", url: "https://openrouter.ai", raw: [], records };
@@ -806,7 +859,12 @@ test("removed models use before evidence for vendor role mentions", () => {
 
 test("a price that rounds away produces no message at all", () => {
   const db = openDatabase(":memory:");
-  const destination: Destination = { id: "d", platform: "discord", channelId: "1", streams: ["openrouter"] };
+  const destination: Destination = {
+    id: "d",
+    platform: "discord",
+    channelId: "1",
+    signals: ["launch", "codename", "evidence", "change"],
+  };
   const priced = (prompt: string): RecordData => ({
     id: "deepseek/v4-pro",
     name: "DeepSeek V4 Pro",

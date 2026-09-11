@@ -294,7 +294,7 @@ function eventUrl(event: Event): string {
 /** Creates idempotent lifecycle reminder batches and materializes their normal delivery rows. */
 export function scheduleLifecycleReminders(db: Database, config: AppConfig, now = Date.now()): number {
   return db.transaction(() => {
-    const destinations = config.destinations.filter((destination) => destination.streams.includes("deprecations"));
+    const destinations = config.destinations.filter((destination) => destination.signals.includes("reminder"));
     if (!destinations.length) return 0;
     const shadowSources = new Set(
       buildSourceRegistry(db, config)
@@ -346,7 +346,11 @@ export function scheduleLifecycleReminders(db: Database, config: AppConfig, now 
         )
         .get(reminder.source, 0, now, JSON.stringify(context));
       if (!batch) throw new Error("Lifecycle reminder batch insert failed");
-      db.query("INSERT INTO batch_events(batch_id,event_id,url) VALUES(?,?,?)").run(batch.id, event.id, context.url);
+      db.query("INSERT INTO batch_events(batch_id,event_id,url,signal) VALUES(?,?,?,'reminder')").run(
+        batch.id,
+        event.id,
+        context.url,
+      );
       for (const destination of destinations)
         db.query("INSERT INTO batch_targets(batch_id,destination_id,destination_json) VALUES(?,?,?)").run(
           batch.id,

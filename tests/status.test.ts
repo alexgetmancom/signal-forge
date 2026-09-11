@@ -176,7 +176,7 @@ test("activity status links the latest source and labels its counts as observati
     id: "models",
     platform: "discord" as const,
     channelId: "123",
-    streams: ["openrouter" as const],
+    signals: ["launch", "codename", "evidence", "change"] as ("launch" | "codename" | "evidence" | "change")[],
   };
   const collection = {
     source: "openrouter",

@@ -72,7 +72,14 @@ test("health is public, operational state requires token, MCP lists matching sch
     .query(
       "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,status,updated_at) VALUES(7,7,'dc',?,'body',0,'ambiguous',0)",
     )
-    .run(JSON.stringify({ id: "dc", platform: "discord", channelId: "1", streams: ["news"] }));
+    .run(
+      JSON.stringify({
+        id: "dc",
+        platform: "discord",
+        channelId: "1",
+        signals: ["launch", "codename", "evidence", "change"],
+      }),
+    );
   const resolutionApp = createHttpApp(config, resolutionDb);
   const resolution = await resolutionApp.request("/api/deliveries/7/verification/resolve", {
     method: "POST",
@@ -95,8 +102,8 @@ test("duplicate destination addresses fail configuration instead of doubling not
   expect(() =>
     settingsSchema.parse({
       destinations: [
-        { id: "a", platform: "discord", channelId: "123", streams: ["news"] },
-        { id: "b", platform: "discord", channelId: "123", streams: ["github"] },
+        { id: "a", platform: "discord", channelId: "123", signals: ["launch", "codename", "evidence", "change"] },
+        { id: "b", platform: "discord", channelId: "123", signals: ["launch", "codename", "evidence", "change"] },
       ],
     }),
   ).toThrow("once");

@@ -13,7 +13,12 @@ const configPath = new URL("./fixtures/config.json", import.meta.url).pathname;
 async function pollWithMode(mode: "active" | "shadow"): Promise<ReturnType<typeof openDatabase>> {
   const db = openDatabase(":memory:");
   const base = loadConfig({ CONFIG_PATH: configPath });
-  const destination: Destination = { id: "dc", platform: "discord", channelId: "123", streams: ["openrouter"] };
+  const destination: Destination = {
+    id: "dc",
+    platform: "discord",
+    channelId: "123",
+    signals: ["launch", "codename", "evidence", "change"],
+  };
   const allIds = (await import("../src/sources/registry.js")).buildSourceRegistry(db, base).map((source) => source.id);
   const config = {
     ...base,

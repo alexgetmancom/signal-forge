@@ -131,7 +131,7 @@ export function signalQuality(db: Database, config: AppConfig, days = 7, now = D
        JOIN batches b ON b.id=d.batch_id
        JOIN batch_events be ON be.batch_id=b.id
        JOIN events e ON e.id=be.event_id
-       JOIN json_each(d.destination_json, '$.streams') AS subscribed ON subscribed.value=e.stream
+       JOIN json_each(d.destination_json, '$.signals') AS subscribed ON subscribed.value=be.signal
        WHERE EXISTS (
          SELECT 1
          FROM batch_events be
@@ -158,7 +158,7 @@ export function signalQuality(db: Database, config: AppConfig, days = 7, now = D
        JOIN batches b ON b.id=d.batch_id
        JOIN batch_events be ON be.batch_id=b.id
        JOIN events e ON e.id=be.event_id
-       JOIN json_each(d.destination_json, '$.streams') AS subscribed ON subscribed.value=e.stream
+       JOIN json_each(d.destination_json, '$.signals') AS subscribed ON subscribed.value=be.signal
        WHERE EXISTS (
          SELECT 1
          FROM batch_events be

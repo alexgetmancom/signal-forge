@@ -17,7 +17,14 @@ function seedAmbiguousDelivery() {
   db.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'test',0,1)").run();
   db.query(
     "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,status,updated_at) VALUES(7,1,'dc',?,'already attempted',0,'ambiguous',100)",
-  ).run(JSON.stringify({ id: "dc", platform: "discord", channelId: "123", streams: ["news"] }));
+  ).run(
+    JSON.stringify({
+      id: "dc",
+      platform: "discord",
+      channelId: "123",
+      signals: ["launch", "codename", "evidence", "change"],
+    }),
+  );
   return db;
 }
 
@@ -79,7 +86,14 @@ test("manual verification records the outcome and releases the same batch", asyn
   const db = seedAmbiguousDelivery();
   db.query(
     "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,status,updated_at) VALUES(8,1,'dc',?,'part 1',1,'pending',100)",
-  ).run(JSON.stringify({ id: "dc", platform: "discord", channelId: "123", streams: ["news"] }));
+  ).run(
+    JSON.stringify({
+      id: "dc",
+      platform: "discord",
+      channelId: "123",
+      signals: ["launch", "codename", "evidence", "change"],
+    }),
+  );
   requireDeliveryVerification(db, 7, 200);
   expect(resolveDeliveryVerification(db, 7, "sent", "12345", 300)).toEqual({
     id: 7,

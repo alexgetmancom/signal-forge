@@ -4,6 +4,7 @@ import type { Destination } from "../config.js";
 import { canonical } from "./canonical.js";
 import { authorityForSource, confidenceFor, evidenceTypeFor } from "./confidence.js";
 import { isRoutine } from "./interpretation.js";
+import { signalClass } from "./signals.js";
 import type { Collection, Event } from "./types.js";
 
 export const COLLECTION_DEGRADED_PREFIX = "Collection degraded:";
@@ -257,7 +258,8 @@ export function persistCollection(
     }
   for (const digest of [false, true]) {
     const events = emitted.filter((event) => isRoutine(event) === digest);
-    const targets = destinations.filter((destination) => destination.streams.some((stream) => stream === c.stream));
+    const present = new Set(events.map((event) => signalClass(event)));
+    const targets = destinations.filter((destination) => destination.signals.some((signal) => present.has(signal)));
     if (!events.length || !targets.length) continue;
     const readyAt = digest ? (Math.floor(Date.parse(now) / 3_600_000) + 1) * 3_600_000 : Date.parse(now);
     const batchSource = digest ? "story-digest" : c.source;
@@ -277,10 +279,11 @@ export function persistCollection(
         .get(batchSource, Number(digest), readyAt);
     if (!batch) throw new Error("Batch insert failed");
     for (const event of events)
-      db.query("INSERT INTO batch_events(batch_id,event_id,url) VALUES(?,?,?)").run(
+      db.query("INSERT INTO batch_events(batch_id,event_id,url,signal) VALUES(?,?,?,?)").run(
         batch.id,
         event.id,
         eventUrl(event, c.url),
+        signalClass(event),
       );
     for (const destination of targets)
       db.query("INSERT OR IGNORE INTO batch_targets(batch_id,destination_id,destination_json) VALUES(?,?,?)").run(

@@ -47,7 +47,12 @@ test("GitHub summaries receive the commit context", async () => {
 });
 test("a summary is attached to a long diff and skipped for a short one", async () => {
   const db = openDatabase(":memory:");
-  const destination = { id: "d", platform: "discord" as const, channelId: "1", streams: ["api-models" as const] };
+  const destination = {
+    id: "d",
+    platform: "discord" as const,
+    channelId: "1",
+    signals: ["launch", "codename", "evidence", "change"] as ("launch" | "codename" | "evidence" | "change")[],
+  };
   const long: RecordData = { id: "m", name: "Model" };
   for (let index = 0; index < 20; index++) long[`field${index}`] = "before";
   const collection = { source: "openrouter", stream: "api-models", url: "https://e.test", raw: [], records: [long] };
@@ -87,7 +92,12 @@ test("a summary is attached to a long diff and skipped for a short one", async (
 });
 test("a failing summariser never breaks the batch", async () => {
   const db = openDatabase(":memory:");
-  const destination = { id: "d", platform: "discord" as const, channelId: "1", streams: ["api-models" as const] };
+  const destination = {
+    id: "d",
+    platform: "discord" as const,
+    channelId: "1",
+    signals: ["launch", "codename", "evidence", "change"] as ("launch" | "codename" | "evidence" | "change")[],
+  };
   const record: RecordData = { id: "m", name: "Model" };
   for (let index = 0; index < 20; index++) record[`field${index}`] = "before";
   const collection = { source: "openrouter", stream: "api-models", url: "https://e.test", raw: [], records: [record] };

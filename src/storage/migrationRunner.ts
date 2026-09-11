@@ -63,10 +63,11 @@ function unversionedBaseline(db: Database): number | null {
       tableExists(db, "lifecycle_deadlines")
     ) {
       const recordColumns = columns(db, "records");
-      if (recordColumns.has("stream") && recordColumns.has("observed_at")) return CURRENT_SCHEMA_VERSION;
-      if (tableExists(db, "alert_attempts")) return CURRENT_SCHEMA_VERSION - 1;
-      if (tableExists(db, "deepseek_usage")) return CURRENT_SCHEMA_VERSION - 2;
-      return tableExists(db, "code_metrics") ? CURRENT_SCHEMA_VERSION - 3 : CURRENT_SCHEMA_VERSION - 4;
+      if (recordColumns.has("stream") && recordColumns.has("observed_at"))
+        return columns(db, "batch_events").has("signal") ? CURRENT_SCHEMA_VERSION : CURRENT_SCHEMA_VERSION - 1;
+      if (tableExists(db, "alert_attempts")) return CURRENT_SCHEMA_VERSION - 2;
+      if (tableExists(db, "deepseek_usage")) return CURRENT_SCHEMA_VERSION - 3;
+      return tableExists(db, "code_metrics") ? CURRENT_SCHEMA_VERSION - 4 : CURRENT_SCHEMA_VERSION - 5;
     }
     const currentVerificationNames = deliveryColumns.has("verification_source");
     const baseline = tableExists(db, "stories") ? (currentVerificationNames ? 9 : 8) : currentVerificationNames ? 8 : 7;

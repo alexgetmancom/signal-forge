@@ -3,7 +3,12 @@ import type { Destination } from "../src/config.js";
 import { type Collection, saveCollection } from "../src/events.js";
 import { openDatabase } from "../src/storage/database.js";
 
-const destination: Destination = { id: "discord", platform: "discord", channelId: "123", streams: ["leaderboards"] };
+const destination: Destination = {
+  id: "discord",
+  platform: "discord",
+  channelId: "123",
+  signals: ["launch", "codename", "evidence", "change"],
+};
 
 function collection(records: Collection["records"]): Collection {
   return {
