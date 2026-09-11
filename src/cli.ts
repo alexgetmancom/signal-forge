@@ -17,7 +17,10 @@ try {
       process.stdout.write(`${JSON.stringify(defs.event.handler(input), null, 2)}\n`);
     } else if (command === "events" || command === "deliveries")
       process.stdout.write(`${JSON.stringify(defs[command].handler({ limit: 20 }), null, 2)}\n`);
-    else if (command === "issues" || command === "capabilities")
+    else if (command === "suppressions") {
+      const input = defs.suppressions.schema.parse({ limit: Number(Bun.argv[3] ?? 20) });
+      process.stdout.write(`${JSON.stringify(defs.suppressions.handler(input), null, 2)}\n`);
+    } else if (command === "issues" || command === "capabilities")
       process.stdout.write(`${JSON.stringify(defs[command].handler({}), null, 2)}\n`);
     else if (command === "signal-quality") {
       const input = defs.signal_quality.schema.parse({ days: Number(Bun.argv[3] ?? 7) });

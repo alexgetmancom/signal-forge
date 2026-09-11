@@ -17,6 +17,8 @@ export const fieldLabels: Record<string, string> = {
   created: "Created",
   published: "Published",
   stage: "Stage",
+  impact: "Impact",
+  status: "Status",
   author: "Author",
   association: "Repository association",
   owner: "Owner",
@@ -125,6 +127,19 @@ function pricePerMillion(value: unknown, unit: PriceUnit): number | null {
   if (typeof value !== "string" || !value.trim()) return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) && parsed >= 0 ? (unit === "per-million" ? parsed : parsed * 1_000_000) : null;
+}
+
+/**
+ * How far a price moved, as a fraction of the larger of the two. Used to say in words why a move
+ * stayed quiet: "moved 9.3%, under the 10% threshold" is an answer; silence is not.
+ */
+export function priceMoveRatio(before: unknown, after: unknown, source?: string): number | null {
+  const unit = priceUnitForSource(source, before);
+  const from = pricePerMillion(before, unit);
+  const to = pricePerMillion(after, unit);
+  if (from === null || to === null) return null;
+  const base = Math.max(Math.abs(from), Math.abs(to));
+  return base > 0 ? Math.abs(from - to) / base : 0;
 }
 
 export function significantPriceChange(before: unknown, after: unknown, source?: string): boolean {

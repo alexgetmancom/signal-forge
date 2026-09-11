@@ -19,6 +19,7 @@ import { renderStoryText, type StoryRenderEvent, storyEmbed } from "./render/sto
 import { renderEvent } from "./render/telegram.js";
 import { pingWorthy, type SignalClass } from "./signals.js";
 import { sourceFamily } from "./sourceFamily.js";
+import { clearSuppression, recordSuppression, type SuppressionReason } from "./suppression.js";
 import type { Event, RecordData } from "./types.js";
 
 const DUPLICATE_STORY_WINDOW_MS = 6 * 3_600_000;
@@ -135,27 +136,32 @@ export function prepareDeliveries(
     for (const target of targets) {
       const destination = JSON.parse(target.destination_json) as Destination;
       const subscribed = new Set<string>(destination.signals);
+      // Every event subscribed to by this destination leaves either a card or a written reason.
+      const quiet = (event: Event, reason: SuppressionReason): never[] => {
+        recordSuppression(db, event, target.destination_id, batch.id, reason, now);
+        return [];
+      };
       const speaking = events
-        .filter(
-          (event) =>
-            subscribed.has(event.signal) &&
-            hasNotificationContent(event) &&
-            !isScheduledPricingRotation(event) &&
-            !isOscillating(db, event, now) &&
-            !repeatsDeliveredStory(db, event, target.destination_id, storyIds.get(event.id), batch.id),
-        )
+        .filter((event) => subscribed.has(event.signal))
         .flatMap((event) => {
+          if (!hasNotificationContent(event)) return quiet(event, "no_reader_facing_change");
+          if (isScheduledPricingRotation(event)) return quiet(event, "scheduled_pricing_rotation");
+          if (isOscillating(db, event, now)) return quiet(event, "oscillating");
+          if (repeatsDeliveredStory(db, event, target.destination_id, storyIds.get(event.id), batch.id))
+            return quiet(event, "already_told_by_another_source");
           // A number that keeps moving waits, then speaks once about the whole move this
           // destination missed. Only routine drift waits: an event the policy already decided is
           // worth interrupting a reader for, such as a benchmark changing hands at the top, is
           // news every time it happens.
           if (!batch.digest || event.signal !== "change" || event.kind !== "changed") return [event];
           const baseline = deliveryBaseline(db, event, target.destination_id, batch.id, now);
-          if (baseline.hold) return [];
+          if (baseline.hold) return quiet(event, "waiting_for_the_move_to_settle");
           const caughtUp = { ...event, ...withBaseline(event, baseline) };
           // A move that returns exactly to the state a destination last saw has nothing to say.
-          return hasNotificationContent(caughtUp) ? [caughtUp] : [];
+          if (!hasNotificationContent(caughtUp)) return quiet(event, "returned_to_the_delivered_state");
+          return [caughtUp];
         });
+      for (const event of speaking) clearSuppression(db, event.id, target.destination_id);
       if (!speaking.length) {
         db.query(
           "DELETE FROM deliveries WHERE batch_id=? AND destination_id=? AND status='pending' AND attempts=0",

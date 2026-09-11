@@ -105,6 +105,23 @@ export function operations(db: Database, config: AppConfig) {
       handler: (input: { id: number; outcome: "sent" | "failed"; externalId?: string | undefined }) =>
         resolveDeliveryVerification(db, input.id, input.outcome, input.externalId),
     },
+    suppressions: {
+      description: "Events that were subscribed to but produced no message, with the rule and the reason in words.",
+      schema: z.object({
+        destinationId: z.string().min(1).optional(),
+        limit: z.number().int().min(1).max(100).default(20),
+      }),
+      handler: (input: { destinationId?: string | undefined; limit: number }) =>
+        db
+          .query(
+            `SELECT s.event_id,s.destination_id,s.batch_id,s.reason,s.detail,s.recorded_at,
+                    e.source,e.stream,e.kind,e.entity_id
+             FROM suppressions s JOIN events e ON e.id=s.event_id
+             WHERE (?1 IS NULL OR s.destination_id=?1)
+             ORDER BY s.recorded_at DESC, s.event_id DESC LIMIT ?2`,
+          )
+          .all(input.destinationId ?? null, input.limit),
+    },
     signal_quality: {
       description: "Source collection, event, delivery and suppression metrics for an operator-selected period.",
       schema: z.object({ days: z.number().int().min(1).max(90).default(7) }),
