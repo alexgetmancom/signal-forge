@@ -30,23 +30,24 @@ cd "$DIR"
   db.exec(\"VACUUM INTO '/app/data/backup-$STAMP.db'\");
   db.close();
 "
-mv "$DIR/data/backup-$STAMP.db" "$DEST/app-$STAMP.db"
-gzip -f "$DEST/app-$STAMP.db"
-
-# A backup that cannot be opened is not a backup: read it back before trusting it.
+# A backup that cannot be opened is not a backup: read it back before trusting it. The file is
+# verified while it is still uncompressed, because decompressing it in memory to check it needs as
+# much memory as the database is large. That is what killed this job once the database passed a
+# gigabyte: the backup was written, and the step that proves it readable was OOM-killed.
 "${RUN[@]}" bun -e "
   const { Database } = require('bun:sqlite');
-  const { gunzipSync } = require('node:zlib');
-  const { readFileSync, writeFileSync, unlinkSync } = require('node:fs');
-  writeFileSync('/tmp/verify.db', gunzipSync(readFileSync('/app/backups/app-$STAMP.db.gz')));
-  const db = new Database('/tmp/verify.db', { readonly: true });
+  const db = new Database('/app/data/backup-$STAMP.db', { readonly: true });
   const integrity = db.query('PRAGMA integrity_check').get();
   const events = db.query('SELECT COUNT(*) AS n FROM events').get();
   db.close();
-  unlinkSync('/tmp/verify.db');
   if (integrity.integrity_check !== 'ok') throw new Error('integrity_check: ' + integrity.integrity_check);
   console.log('verified', '$STAMP', 'events=' + events.n);
 "
+
+mv "$DIR/data/backup-$STAMP.db" "$DEST/app-$STAMP.db"
+gzip -f "$DEST/app-$STAMP.db"
+# The archive is the artifact that gets kept, so its own integrity is checked as a stream.
+gzip -t "$DEST/app-$STAMP.db.gz"
 
 ls -1t "$DEST"/app-*.db.gz | tail -n "+$((KEEP + 1))" | xargs -r rm --
 echo "backup ok: $STAMP"
