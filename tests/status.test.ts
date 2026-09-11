@@ -263,6 +263,9 @@ test("an outage is announced once, and so is the recovery", async () => {
   expect(posts).toHaveLength(1);
 
   mark(null, new Date(now).toISOString());
+  // Leaving takes the same confirmation as arriving: a source that answers once and fails again
+  // has not recovered, it is flapping.
+  expect((await publishAlerts(db, config, request, now)).recovered).toEqual([]);
   const third = await publishAlerts(db, config, request, now);
   expect(third.recovered).toContain("openrouter");
   expect(posts).toHaveLength(2);
@@ -367,15 +370,13 @@ test("an interrupted alert advances the durable state before a changed next cycl
     new Date(now).toISOString(),
   );
   let attempts = 0;
-  await publishAlerts(
-    db,
-    config,
-    async () => {
-      attempts += 1;
-      return Response.json({ id: "1" });
-    },
-    now,
-  );
+  const send = async () => {
+    attempts += 1;
+    return Response.json({ id: "1" });
+  };
+  // A recovery is confirmed over two readings before it is announced.
+  await publishAlerts(db, config, send, now);
+  await publishAlerts(db, config, send, now);
   expect(attempts).toBe(1);
   expect(db.query("SELECT status,state_version FROM alert_attempts ORDER BY state_version").all()).toEqual([
     { status: "ambiguous", state_version: 1 },

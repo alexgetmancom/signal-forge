@@ -20,6 +20,43 @@ const PATH_OUTAGE = 4;
 const ALERT_STATE_VERSION_KEY = "alert_state_version";
 const ALERT_DOWN_KEY = "alert_down";
 const ALERT_STRIKES_KEY = "alert_strikes";
+/**
+ * A problem has to stay gone before it counts as gone.
+ *
+ * Anthropic's status page answers a poll and then serves a CAPTCHA to the next one, so the same
+ * source went down and recovered repeatedly and each swing was announced. Arriving needed two
+ * confirmations from the start; leaving needed none, which is where the noise came from.
+ */
+const ALERT_CLEAR_KEY = "alert_clear_strikes";
+
+function readCounters(db: Database, key: string): Record<string, number> {
+  const row = db.query<{ value: string }, [string]>("SELECT value FROM app_state WHERE key=?").get(key);
+  try {
+    const parsed: unknown = row ? JSON.parse(row.value) : {};
+    return parsed && typeof parsed === "object" ? (parsed as Record<string, number>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeCounters(db: Database, key: string, counters: Record<string, number>): void {
+  const value = JSON.stringify(counters);
+  db.query("INSERT INTO app_state(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=?").run(
+    key,
+    value,
+    value,
+  );
+}
+
+/**
+ * "3 of 3 actionable problems active" told a reader nothing: the two numbers are the same
+ * whenever every problem is confirmed, which is most of the time. What is worth saying is how
+ * many are being watched but have not been confirmed yet.
+ */
+function alertFooter(active: number, unconfirmed: number): string {
+  const problems = `${active} ${active === 1 ? "problem" : "problems"} active`;
+  return unconfirmed > 0 ? `${problems} · ${unconfirmed} seen once, not confirmed` : problems;
+}
 const alertResponse = z.object({ id: z.string().regex(/^\d+$/) });
 const alertableKinds = new Set<IssueKind>([
   "source_failed",
@@ -197,26 +234,21 @@ export async function publishAlerts(
   );
   const previous = readStringSet(db, ALERT_DOWN_KEY);
   const version = readStateVersion(db);
-  const strikes = (() => {
-    const row = db.query<{ value: string }, [string]>("SELECT value FROM app_state WHERE key=?").get(ALERT_STRIKES_KEY);
-    try {
-      const parsed: unknown = row ? JSON.parse(row.value) : {};
-      return parsed && typeof parsed === "object" ? (parsed as Record<string, number>) : {};
-    } catch {
-      return {};
-    }
-  })();
+  const strikes = readCounters(db, ALERT_STRIKES_KEY);
+  const clearStrikes = readCounters(db, ALERT_CLEAR_KEY);
   const nextStrikes: Record<string, number> = {};
   for (const issue of issues) nextStrikes[issue.id] = (strikes[issue.id] ?? 0) + 1;
-  const strikeValue = JSON.stringify(nextStrikes);
-  db.query("INSERT INTO app_state(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=?").run(
-    ALERT_STRIKES_KEY,
-    strikeValue,
-    strikeValue,
-  );
-  const current = new Set(
-    issues.filter((issue) => (nextStrikes[issue.id] ?? 0) >= CONFIRMATIONS).map((issue) => issue.id),
-  );
+  const present = new Set(issues.map((issue) => issue.id));
+  const nextClear: Record<string, number> = {};
+  for (const id of previous) if (!present.has(id)) nextClear[id] = (clearStrikes[id] ?? 0) + 1;
+  writeCounters(db, ALERT_STRIKES_KEY, nextStrikes);
+  writeCounters(db, ALERT_CLEAR_KEY, nextClear);
+  const current = new Set([
+    ...issues.filter((issue) => (nextStrikes[issue.id] ?? 0) >= CONFIRMATIONS).map((issue) => issue.id),
+    // A problem that was announced stays announced while it is still there, and for one more
+    // reading after it disappears, so that a source flapping in and out speaks once.
+    ...[...previous].filter((id) => present.has(id) || (nextClear[id] ?? 0) < CONFIRMATIONS),
+  ]);
   outcome.down = [...current].filter((id) => !previous.has(id));
   outcome.recovered = [...previous].filter((id) => !current.has(id));
 
@@ -243,7 +275,7 @@ export async function publishAlerts(
     title: outcome.down.length ? "Signal Forge problem" : "Signal Forge recovered",
     description: lines.join("\n").slice(0, 4000),
     color: outcome.down.length ? 0xe74c3c : 0x2ecc71,
-    footer: { text: `${current.size} of ${issues.length} actionable problems active` },
+    footer: { text: alertFooter(current.size, issues.length - current.size) },
     timestamp: new Date(now).toISOString(),
   };
   const fromState = JSON.stringify([...previous].sort());
