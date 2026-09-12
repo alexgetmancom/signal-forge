@@ -33,10 +33,13 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-      start_period: 10s
-      # start_period alone only forgives early failures -- it does not make the first probe happen
-      # any sooner, so a container that was ready in a second still sat unprobed until the 30s
-      # interval came round. Measured on release 406fd96: the deployment waited 70 seconds between
-      # "Started" and "Healthy" for a probe that answers in 110 ms. start_interval is what governs
-      # the spacing until the first success, and it is the whole reason a deploy takes minutes.
+      # Measured on release f2877d1: the process needs 46 seconds between container start and
+      # "Signal Forge started", because it rebuilds every projection in one transaction before it
+      # listens. start_period has to cover that, or the 2s spacing below stops applying while the
+      # app is still booting and detection falls back to the 30s interval -- which is exactly what
+      # happened: ready at 22:53:05, reported healthy at 22:53:30.
+      start_period: 90s
+      # start_interval governs probe spacing until the first success, but only within start_period
+      # above. Without it the first probe waits a full interval; with it, readiness is noticed
+      # within two seconds of actually happening.
       start_interval: 2s
