@@ -324,13 +324,15 @@ bun run dev
 
 Signal Forge is actively running and being evaluated against real-world signal quality.
 
-Current engineering priorities include restore testing, longer-term signal-quality measurement, improved outage-duration tracking, and selective expansion of source coverage.
+Current engineering priorities are restore testing, accurate outage duration, plainer confidence
+wording on cards, and selective expansion of source coverage.
 
-See [ROADMAP.md](ROADMAP.md) for current priorities.
+See [docs/roadmap.md](docs/roadmap.md) for current priorities and for the decisions that measurement
+has already settled.
 
 ## Documentation
 
 * [docs/runbook.md](docs/runbook.md) — deployment, backup, restore, and operator procedures
 * [docs/agent-workflow.md](docs/agent-workflow.md) — evidence handoff for downstream publication workflows
 * [docs/discord.md](docs/discord.md) — Discord delivery, boards, roles, and channel configuration
-* [ROADMAP.md](ROADMAP.md) — current engineering priorities
+* [docs/roadmap.md](docs/roadmap.md) — current engineering priorities

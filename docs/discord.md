@@ -55,7 +55,7 @@ reminder is operator hygiene rather than news.
 The server keeps four reader-facing channels plus Status: New, Codenames, Evidence, and Changes.
 The private `Signal Problem` channel is separate and is not a reader feed.
 
-Three messages in Status are edited in place instead of being reposted, so the channel holds current
+Four messages in Status are edited in place instead of being reposted, so the channel holds current
 state rather than a growing log. They are rewritten only when their content actually changes.
 Deleting a board by hand makes the next cycle post a fresh one, which is also how their order in the
 channel is fixed.
@@ -67,6 +67,12 @@ be filtered from the reader feed or grouped into the hourly digest.
 OpenAI's and Anthropic's own status pages say, with their open incidents. Vendors that do not run
 Statuspage are absent on purpose: `status.x.ai` refuses its own API, and Google publishes a
 different document for the whole cloud.
+
+**Filtered out** (`platformBoardChannelId`, defaulting to the status channel) counts what the
+notification policy stopped in the last 24 hours, grouped by the rule that stopped it, beside the
+number of events that actually reached a channel. A filter tuned too tight otherwise shows up as
+nothing at all. `suppressions` in the CLI lists the individual decisions, each with the reason it
+carries.
 
 **Tracker status** (`statusChannelId`) is about Signal Forge: every collector appears with a
 colored dot and its last successful observation, edited in place every five minutes. Internal

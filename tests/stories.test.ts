@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { confidenceFor } from "../src/events/confidence.js";
 import { identityFor } from "../src/events/identity.js";
+import { vendorOf } from "../src/events/interpretation.js";
 import { type Collection, saveCollection } from "../src/events.js";
 import { openDatabase } from "../src/storage/database.js";
 import { listStories, rebuildStories } from "../src/stories.js";
@@ -425,4 +426,23 @@ test("a Hugging Face derivative does not corroborate the model it was built from
     .get();
   expect(shared?.c).toBe(0);
   db.close();
+});
+
+test("a vendor pattern claims its own models and nobody else's", () => {
+  const vendor = (maker: string, entity = "x") =>
+    vendorOf({ source: "arena-leaderboards", entity_id: entity } as never, { id: entity, maker } as never);
+
+  // Named by the competitor audit and confirmed against a week of production events.
+  expect(vendor("Tencent")).toBe("Tencent");
+  expect(vendor("Bytedance")).toBe("ByteDance");
+  expect(vendor("Black Forest Labs")).toBe("Black Forest Labs");
+  expect(vendor("Microsoft AI")).toBe("Microsoft");
+  // A maker recorded as exactly "Meta" reached Unknown while the pattern demanded a trailing slash.
+  expect(vendor("Meta")).toBe("Meta");
+  // SpaceXAI is not xAI, and a Hugging Face account called Xaiowu is neither.
+  expect(vendor("SpaceXAI")).toBe("Unknown");
+  expect(vendor("", "Xaiowu/shan-tts-mms-v2")).toBe("Unknown");
+  expect(vendor("xAI")).toBe("xAI");
+  // A cloud that resells a model does not become its maker.
+  expect(vendorOf({ source: "aws-bedrock-lifecycle", entity_id: "claude-sonnet" } as never, null)).toBe("Anthropic");
 });

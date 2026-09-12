@@ -7,10 +7,10 @@ data/
 *.db-shm
 *.db-wal
 .DS_Store
-Screenshots/
-dev-mode-analysis.md
-lumina-analysis.md
-ragtag-analysis.md
+
+# Raw competitor research: screenshots of other people's servers and the notes taken from them.
+# The conclusions drawn from it live in docs/competitors/ and are tracked.
+docs/competitors/private/
 
 signal-forge.json
 backups/

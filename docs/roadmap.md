@@ -1,7 +1,7 @@
 # Roadmap
 
-Updated 2026-09-10 UTC. This is the current backlog and implementation record; historical audits
-are not a second source of truth.
+Updated 2026-09-12 UTC. This is the current backlog and implementation record; `docs/competitors/`
+records what the competitor audit already settled and is not a second source of truth.
 
 ## Current state
 
@@ -15,6 +15,9 @@ current `main` branch with no known actionable issues.
 
 - Story reads are read-only; GitHub commit, pull request and release events are not merged into one
   repository-wide story.
+- Seventy-nine sources are registered. Three fail persistently and all three are blocked upstream
+  rather than broken here: `gemini` (HTTP 400), `vercel-gateway` and `status:anthropic` (bot
+  protection).
 
 ## Completed
 
@@ -64,21 +67,50 @@ current `main` branch with no known actionable issues.
   confirmations resolve them without creating synthetic events.
 - Lifecycle deadlines and idempotent 30-, 7- and 1-day reminders derive delivery work from
   structured lifecycle evidence.
+- Every suppressed event records the rule that stopped it and the same decision in a reader's words;
+  a status board counts them beside the events that actually spoke.
+- Snapshots are stored gzipped and deduplicated by hash, bodies expire after 90 days, the HTTP cache
+  is bounded, and shadow candidates that never reached a batch are pruned.
+- Sub-threshold price moves accumulate against a weekly baseline, so drift that never crosses the
+  threshold in one step is still reported once it adds up.
+- Minor incidents speak only on start and resolution; severe and resolved incidents bypass the digest.
+- A changed field whose value survives normalization to letters and digits is not reported.
+- Package releases are enriched with their upstream release notes before the card is rendered.
 
 ## Next work
 
-Ordered by risk and reader value.
+Ordered by risk and reader value. Measurements behind these entries come from the production
+database and are dated, because a priority derived from a number that has since moved is not a
+priority.
 
 | Priority | Task | Definition of done |
 |---|---|---|
 | Next | Run a real restore drill. | Restore a verified archive into a stopped test instance, run `integrity_check`, start it, and compare event counts and health reports. |
-| Next | Observe signal quality for seven days. | Use `signal-quality 7` to decide whether discovery noise, DesignArena rank churn, story duplication or another source needs batching, thresholds or a different notification policy. |
 | Next | Preserve outage start time. | Store `failure_started_at` separately from the latest observation so issue duration is accurate. |
-| Owner decision | Google catalogue. | Choose Vertex AI with a billed service account or accept OpenRouter as the Google model source. |
-| Owner decision | Vercel AI Gateway. | Decide whether the incomplete upstream response is worth another parser or should remain disabled. |
-| Next | Add a welcome channel. | Explain the channel map, event types, confidence labels and how readers can use the feed. |
+| Next | Make confidence legible on the card. | Render `observed`, `supported`, `confirmed` and `shipped` as a sentence a non-specialist reads, instead of the footer's "Confidence: observed". |
+| Owner decision | Google catalogue. | `gemini` has never succeeded: HTTP 400 from every address this project can reach. Choose Vertex AI with a billed service account, route around the block, or accept OpenRouter as the Google source. |
+| Owner decision | Vercel AI Gateway. | Has never succeeded. Decide whether the incomplete upstream response is worth another parser or should be removed. |
+| Owner decision | Provider catalogue keys. | `xai`, `moonshot`, `mistral` and `groq` catalogues are implemented and waiting on keys; Artificial Analysis is implemented and blocked by its own IP filter. |
+| Later | Add a welcome channel. | Explain the channel map, event types, confidence labels and how readers can use the feed. |
+| Later | ModelScope verdict. | Keep or remove on measured lead time once it has produced a week of first sightings. |
 | Later | More repositories. | Add only repositories with a clear reader benefit and one explicit configuration entry each. |
 | Later | History commands. | Add `/latest` and `/search` only after the event and identity model remains useful in daily use. |
+
+## Settled by measurement
+
+Kept because the reasoning cost real observation and is easy to re-litigate from intuition.
+
+- **Shadow discovery stays in the shadow.** `discovery:huggingface-recent` produced 7,723 stories in
+  seven days; 73 were touched by another source and all 73 were false matches on a base model's name
+  carried by a third-party derivative. Its apparent lead time was an artefact of being the only
+  source present. It now correlates only with itself.
+- **A source-count badge on a card is not worth building.** Of the cards that actually reached a
+  reader, 0% in New and 10% in Codenames had a second independent source at send time, and 18% would
+  have carried a permanently wrong count because confirmation arrived a median 8.2 hours after the
+  message was already sent and cards are not edited. Source-derived confidence already separates
+  rumour from fact and is correct from the first second; it only needs plainer wording.
+- **Site pages are not early warning.** `pages:openai` leads by 0.1 hours: the page appears when
+  everyone else sees it. Packages lead by 17.9 hours and are worth the enrichment.
 
 ## Deferred
 
@@ -107,7 +139,11 @@ The current registry covers:
 - OpenAI, Anthropic, Google, AWS, Azure, Groq, Cohere and xAI lifecycle/deprecation sources.
 - Arena leaderboard observations, with selected DeepSeek npm channels.
 - GitHub discovery for artificial-intelligence, LLM, agent and MCP repositories, plus recent global
-  Hugging Face model discovery; both default to shadow mode.
+  Hugging Face model discovery; both default to shadow mode. The Hugging Face feed correlates only
+  with itself.
+- Vendor site pages watched for new URLs appearing before the announcement does.
+- Direct provider catalogues for xAI, Moonshot, Mistral, Groq and Z.ai, and Artificial Analysis,
+  each enabled by its own key and inert without it.
 
 A failed or malformed collection is never treated as an empty catalogue. External responses are
 validated before they can change stored state.

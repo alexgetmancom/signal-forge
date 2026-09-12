@@ -1,5 +1,9 @@
 # Recommendations for Signal Forge
 
+**Status: all seven recommendations below are implemented.** This file is kept as the record of
+where the shape of the product came from, not as a backlog. New work belongs in
+[docs/roadmap.md](../roadmap.md).
+
 Observation date: 2026-09-09 UTC. These recommendations are based on the inspected Dev Mode, RAGtag, and Lumina feeds. The screenshots are three-pages-up captures for each requested channel; Web Watcher also has an extra multi-page capture series because its history was especially useful for comparison.
 
 ## Highest-value changes

@@ -2,14 +2,22 @@ import { canonical } from "./canonical.js";
 import { incidentIsUrgent } from "./incidents.js";
 import type { Event, RecordData } from "./types.js";
 
+/**
+ * The first pattern that matches wins, so a first-party maker is listed before any cloud that
+ * merely resells it: an Anthropic model on Bedrock is Anthropic's news, not Amazon's.
+ *
+ * Patterns that are short or double as ordinary words are anchored on word boundaries. `xai`
+ * without them claims SpaceXAI, and a maker recorded as exactly "Meta" went to Unknown for a week
+ * because the pattern demanded a trailing slash.
+ */
 const VENDORS: [RegExp, string][] = [
   [/openai|gpt|codex|chatgpt|sora/i, "OpenAI"],
   [/anthropic|claude/i, "Anthropic"],
   [/google|gemini|deepmind|lyria|imagen|veo/i, "Google"],
-  [/x-ai|xai|grok/i, "xAI"],
+  [/\bx-ai\b|\bxai\b|grok/i, "xAI"],
   [/deepseek/i, "DeepSeek"],
   [/qwen|alibaba/i, "Qwen"],
-  [/meta-llama|llama|^meta\//i, "Meta"],
+  [/meta-llama|llama|\bmeta\b/i, "Meta"],
   [/mistral/i, "Mistral"],
   [/groq/i, "Groq"],
   [/moonshot|kimi/i, "Moonshot"],
@@ -17,6 +25,20 @@ const VENDORS: [RegExp, string][] = [
   [/z-ai|zhipu|glm/i, "Z.ai"],
   [/cohere/i, "Cohere"],
   [/perplexity/i, "Perplexity"],
+  [/tencent|hunyuan/i, "Tencent"],
+  [/bytedance|doubao/i, "ByteDance"],
+  [/xiaomi|\bmimo\b/i, "Xiaomi"],
+  [/baidu|ernie/i, "Baidu"],
+  [/upstage|\bsolar\b/i, "Upstage"],
+  [/black[\s-]?forest|\bflux\b/i, "Black Forest Labs"],
+  [/\brunway\b/i, "Runway"],
+  [/\bkling\b/i, "Kling"],
+  [/recraft/i, "Recraft"],
+  [/\bluma\b/i, "Luma"],
+  [/\breve\b/i, "Reve"],
+  [/nvidia|nemotron/i, "NVIDIA"],
+  [/microsoft|azure|\bphi-\d/i, "Microsoft"],
+  [/amazon|\baws\b|bedrock/i, "Amazon"],
 ];
 
 /** The vendor an event is about, for role pings and presentation labels. */

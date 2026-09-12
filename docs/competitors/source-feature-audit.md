@@ -1,6 +1,24 @@
 # Competitor and Source Audit
 
-Status: baseline audit completed 2026-09-09 UTC. The selected implementation is now in the working tree; source-gap tables below describe the pre-implementation state.
+Status: baseline audit completed 2026-09-09 UTC; reviewed against the implementation 2026-09-12 UTC.
+Every P0 and P1 item is implemented, and so is all of section 7 except vendor mapping, which landed
+on 2026-09-12. The source-gap tables below describe the pre-implementation state and are kept as the
+record of where the source list came from — they are not a current inventory. For what is actually
+registered now, read `sources/registry.ts` or the tracker-status board.
+
+What this document still proposes and Signal Forge has not built:
+
+- **P2.2 Hugging Face metadata.** Model-card and metadata changes, with likes and downloads kept as
+  evidence rather than messages.
+- **P2.3 OpenRouter usage and trending.** Still gated on a stable public endpoint.
+- **P2.4 Hacker News.** Optional, digest-only, never sufficient for `confirmed`.
+- **Regional lifecycle schedules** from section 8: a deprecation with different dates per region is
+  stored as one record with one date.
+
+P2.1, one benchmark lane, is written and waiting on access rather than on a decision: the Artificial
+Analysis collector exists and its upstream refuses this project's addresses.
+
+New work goes in [docs/roadmap.md](../roadmap.md), not here.
 
 Date: 2026-09-09 UTC
 
@@ -69,11 +87,11 @@ hardening
 
 ## 1. Signal Forge baseline
 
-Signal Forge is an observability service for changes in AI models, developer tools, documentation, packages, arenas, incidents, and platform catalogues. Its current scope and architecture are documented in [README.md](../README.md).
+Signal Forge is an observability service for changes in AI models, developer tools, documentation, packages, arenas, incidents, and platform catalogues. Its current scope and architecture are documented in [README.md](../../README.md).
 
 ### Current source families
 
-The current registry in [src/sources/registry.ts](../src/sources/registry.ts) includes:
+The current registry in [src/sources/registry.ts](../../src/sources/registry.ts) includes:
 
 - first-party model catalogues;
 - OpenRouter availability and pricing;
@@ -91,7 +109,7 @@ The current registry in [src/sources/registry.ts](../src/sources/registry.ts) in
 
 ### Current safety properties
 
-The current event path in [src/events/store.ts](../src/events/store.ts) already provides several protections that the audited projects do not consistently provide:
+The current event path in [src/events/store.ts](../../src/events/store.ts) already provides several protections that the audited projects do not consistently provide:
 
 - empty collections are rejected;
 - duplicate normalized record IDs are rejected;
@@ -103,7 +121,7 @@ The current event path in [src/events/store.ts](../src/events/store.ts) already 
 - failed delivery is distinguished from ambiguous delivery;
 - delivery ambiguity is manually reconciled rather than blindly retried.
 
-The project already has source health in [src/status.ts](../src/status.ts), actionable issues in [src/issues.ts](../src/issues.ts), and signal-quality reporting in [src/signalQuality.ts](../src/signalQuality.ts).
+The project already has source health in [src/status.ts](../../src/status.ts), actionable issues in [src/issues.ts](../../src/issues.ts), and signal-quality reporting in [src/signalQuality.ts](../../src/signalQuality.ts).
 
 That means most useful work is not a rewrite. It is the addition of missing source coverage and a few derived quality fields around the existing transaction boundary.
 
@@ -158,8 +176,8 @@ Recommendation: adapt. This is small and directly prevents silent wiring errors.
 
 Likely files:
 
-- [src/events/store.ts](../src/events/store.ts)
-- [tests/events.test.ts](../tests/events.test.ts)
+- [src/events/store.ts](../../src/events/store.ts)
+- [tests/events.test.ts](../../tests/events.test.ts)
 
 #### Evidence coverage
 
@@ -754,8 +772,8 @@ Do not copy the upstream project's risky normalizations:
 
 Files:
 
-- [src/events/store.ts](../src/events/store.ts)
-- [tests/events.test.ts](../tests/events.test.ts)
+- [src/events/store.ts](../../src/events/store.ts)
+- [tests/events.test.ts](../../tests/events.test.ts)
 
 Acceptance criteria:
 
@@ -768,10 +786,10 @@ Acceptance criteria:
 
 Files:
 
-- [src/events/store.ts](../src/events/store.ts)
-- [src/status.ts](../src/status.ts)
-- [src/issues.ts](../src/issues.ts)
-- [src/signalQuality.ts](../src/signalQuality.ts)
+- [src/events/store.ts](../../src/events/store.ts)
+- [src/status.ts](../../src/status.ts)
+- [src/issues.ts](../../src/issues.ts)
+- [src/signalQuality.ts](../../src/signalQuality.ts)
 - one numbered migration under `src/storage/migrations/` if persistence is needed.
 
 Acceptance criteria:
