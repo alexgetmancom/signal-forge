@@ -59,6 +59,7 @@ import {
   collectOpenAIChatGPTReleaseNotes,
   collectXaiReleaseNotes,
 } from "./releaseNotes.js";
+import { collectCodexResets } from "./resets.js";
 
 export type SourceDefinition = {
   id: string;
@@ -309,6 +310,19 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       intervalSeconds: 3600,
       collector: () => collectCodexDocs(fetch, cache),
       enabled: requested("codex-docs"),
+    },
+    {
+      id: "codex-resets",
+      label: sourceLabel("codex-resets"),
+      authority: "third_party",
+      vendor: "OpenAI",
+      group: "Usage limits",
+      stream: "resets",
+      // Measured over the tracked history: one reset every 6.9 days. A quarter-hour poll is
+      // already far finer than the thing it watches.
+      intervalSeconds: 900,
+      collector: () => collectCodexResets(fetch, cache),
+      enabled: requested("codex-resets"),
     },
     {
       id: "claude-web",

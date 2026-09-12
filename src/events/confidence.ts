@@ -172,6 +172,16 @@ const fallback: Record<Confidence, string> = {
  * destination is configured to benefit from it.
  */
 export function readerStanding(event: Event): string | null {
+  // A reset is the one observation here whose weight differs record by record: most are a post by
+  // the OpenAI staff member who announces them, and some were only noticed happening. The record
+  // says which, so the sentence is read from the record rather than from the stream.
+  if (event.stream === "resets") {
+    const record = event.after_json ?? event.before_json;
+    const announcement = record ? (JSON.parse(record) as { announcement?: unknown }).announcement : null;
+    return typeof announcement === "string" && announcement.startsWith("Posted")
+      ? "Announced by the OpenAI staff member who announces these, via a third-party tracker."
+      : "Noticed by a third-party tracker with no announcement behind it.";
+  }
   const type = event.evidence_type ?? evidenceTypeFor(event.source, event.stream);
   const sentence = standings[type] || fallback[event.confidence ?? "observed"];
   return sentence || null;

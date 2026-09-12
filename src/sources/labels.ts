@@ -23,6 +23,7 @@ const STATIC_LABELS: Record<string, string> = {
   "huggingface-blog-feed": "Hugging Face · blog",
   "claude-web": "Claude · interface",
   "codex-docs": "Codex · docs",
+  "codex-resets": "Codex Resets · limit resets",
   "vercel-gateway": "Vercel AI Gateway",
   "cursor-changelog": "Cursor · changelog",
   "app:ios:chatgpt": "App Store · ChatGPT",

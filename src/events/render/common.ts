@@ -30,6 +30,8 @@ export const fieldLabels: Record<string, string> = {
   votes: "Votes",
   sampledAt: "Sampled",
   license: "License",
+  announcement: "Announcement",
+  resetType: "Reset type",
   methods: "Methods",
   inputTokenLimit: "Input token limit",
   outputTokenLimit: "Output token limit",

@@ -19,6 +19,7 @@ const EYEBROWS: Record<string, string> = {
   deprecations: "RETIREMENT",
   apps: "APP RELEASE",
   pages: "NEW PAGES",
+  resets: "USAGE LIMITS",
 };
 
 const KIND_COLORS: Record<Event["kind"], number> = { new: 0x2ecc71, changed: 0xf1c40f, removed: 0xe74c3c };
@@ -57,6 +58,10 @@ function readerImpact(event: Event, record: RecordData | null): string | null {
       : "Visible and selectable on Arena.";
   if (event.kind === "removed") return "No longer present in this source's latest observation.";
   if (event.stream === "packages" && event.kind === "new") return "A package release was published to the registry.";
+  if (event.stream === "resets" && event.kind === "new")
+    return record?.resetType === "banked"
+      ? "A reset credit was granted; it applies to a later limit window."
+      : "Usage limits were returned to everyone.";
   return null;
 }
 
@@ -99,7 +104,7 @@ export function eventEmbed(event: Event, url: string, summary?: string): Record<
     // on something the client already does.
     timestamp: new Date(event.detected_at).toISOString(),
     footer: {
-      text: `${sourceLabel(event.source)} · ${evidenceLabel(evidenceType)} · ${event.confidence ?? "observed"}`,
+      text: `${sourceLabel(event.source)} · ${event.stream === "resets" ? "usage limit reset" : evidenceLabel(evidenceType)} · ${event.confidence ?? "observed"}`,
     },
   };
   if (link) embed.url = link;

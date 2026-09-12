@@ -68,6 +68,8 @@ export function signalClass(event: Event): SignalClass {
   if (event.stream === "web") return "evidence";
   if (event.stream === "packages") return "evidence";
   if (event.stream === "incidents") return "change";
+  // Limits coming back is a number moving for everyone at once, not a release.
+  if (event.stream === "resets") return "change";
 
   if (event.stream === "github")
     return event.source.endsWith(":releases") && event.kind === "new" ? "launch" : "evidence";

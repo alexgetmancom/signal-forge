@@ -15,7 +15,7 @@ current `main` branch with no known actionable issues.
 
 - Story reads are read-only; GitHub commit, pull request and release events are not merged into one
   repository-wide story.
-- Seventy-nine sources are registered. Three fail persistently and all three are blocked upstream
+- Eighty sources are registered. Three fail persistently and all three are blocked upstream
   rather than broken here: `gemini` (HTTP 400), `vercel-gateway` and `status:anthropic` (bot
   protection).
 
@@ -80,6 +80,10 @@ current `main` branch with no known actionable issues.
   line saying what it means. The footer keeps the machine-readable labels.
 - The vendor map covers the makers Arena actually carries, and short patterns are anchored so `xai`
   cannot claim SpaceXAI.
+- Codex usage-limit resets are collected from the `codex-resets` tracker: the whole tracked history
+  lands as the first, silent baseline, and only a new announcement reaches Changes. Its scheduled
+  reset and AI-classified watch forecast are retained as evidence and never become records, because
+  the tracker's own documentation says neither implies a reset happened.
 
 ## Next work
 
@@ -90,10 +94,13 @@ priority.
 | Priority | Task | Definition of done |
 |---|---|---|
 | Next | Run a real restore drill. | Restore a verified archive into a stopped test instance, run `integrity_check`, start it, and compare event counts and health reports. |
+| Next | A last-reset board. | One status message, edited in place, naming when each tracked vendor last reset usage limits. Worth building when a second vendor's resets are collected; with one row it is a card that already exists. |
 | Next | Preserve outage start time. | Store `failure_started_at` separately from the latest observation so issue duration is accurate. |
 | Owner decision | Google catalogue. | `gemini` has never succeeded: HTTP 400 from every address this project can reach. Choose Vertex AI with a billed service account, route around the block, or accept OpenRouter as the Google source. |
 | Owner decision | Vercel AI Gateway. | Has never succeeded. Decide whether the incomplete upstream response is worth another parser or should be removed. |
 | Owner decision | Provider catalogue keys. | `xai`, `moonshot`, `mistral` and `groq` catalogues are implemented and waiting on keys; Artificial Analysis is implemented and blocked by its own IP filter. |
+| Later | More reset sources. | Add Z.ai, xAI and Meta reset surfaces once each has one address that can be read and validated; each arrives as its own source with its own authority, never merged into the Codex tracker's family. |
+| Later | An evidence type for resets. | `events.evidence_type` carries a CHECK constraint, so a new member needs a rebuild of a table a dozen others reference. Resets store `unknown` and say what they are in the card's own words until that rebuild is worth one move. |
 | Later | Add a welcome channel. | Explain the channel map, event types, confidence labels and how readers can use the feed. |
 | Later | ModelScope verdict. | Keep or remove on measured lead time once it has produced a week of first sightings. |
 | Later | More repositories. | Add only repositories with a clear reader benefit and one explicit configuration entry each. |
@@ -151,6 +158,7 @@ The current registry covers:
   Hugging Face model discovery; both default to shadow mode. The Hugging Face feed correlates only
   with itself.
 - Vendor site pages watched for new URLs appearing before the announcement does.
+- Codex usage-limit resets, from the third-party tracker that keeps the announcements with times.
 - Direct provider catalogues for xAI, Moonshot, Mistral, Groq and Z.ai, and Artificial Analysis,
   each enabled by its own key and inert without it.
 
