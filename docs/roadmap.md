@@ -107,9 +107,12 @@ current `main` branch with no known actionable issues.
 - One collection cycle runs at a time, under a database lease that a crashed holder releases.
 - Every operator mutation is journalled with the surface it was run from.
 - `bun run check` also enforces English-only sources, that only `config.ts` reads `process.env`,
-  the layer boundaries in `.dependency-cruiser.jsonc`, a clean knip report, and a high-severity
-  dependency audit. `scripts/check-steps.ts` is the list of what it runs. Lefthook runs it on
-  push, and on commit runs Biome over the staged files and gitleaks over the staged diff.
+  the layer boundaries in `.dependency-cruiser.jsonc` -- including that Hono is imported by
+  `http.ts` alone and that nothing in `src/` imports a test helper -- a clean knip report, and a
+  high-severity dependency audit. A relative import the graph cannot resolve is itself a violation,
+  so a rule cannot stop holding quietly. `scripts/check-steps.ts` is the list of what it runs, in
+  groups that run at once; the whole gate is about three seconds. Lefthook runs it on push, and on
+  commit runs Biome over the staged files and gitleaks over the staged diff.
 - `scripts/rehearse-migration.ts` runs a migration against a copy of a real database and reports
   how many stored `records.body` values it moved.
 
@@ -136,6 +139,14 @@ priority.
 ## Settled by measurement
 
 Kept because the reasoning cost real observation and is easy to re-litigate from intuition.
+
+- **dependency-cruiser cannot be installed here, and the reason is not preference.** Its own graph
+  builder needs the TypeScript compiler API at `typescript@>=2 <7`; this repository is on
+  TypeScript 7, whose npm package ships a Go binary and a CLI and no JS API at all -- `require`ing
+  it yields two keys, `version` and `versionMajorMinor`. Installed and pointed at `src/`, it cruised
+  0 modules and said so. Adopting it means vendoring a second, older TypeScript purely to parse the
+  code the real compiler already parses. `scripts/check-architecture.ts` reads the same rules file
+  instead, and the day dependency-cruiser supports TypeScript 7 the rules move across untouched.
 
 - **Shadow discovery stays in the shadow.** `discovery:huggingface-recent` produced 7,723 stories in
   seven days; 73 were touched by another source and all 73 were false matches on a base model's name
