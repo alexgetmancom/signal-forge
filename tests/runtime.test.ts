@@ -228,3 +228,56 @@ describe("sleep", () => {
     expect(winner).toBe("aborted");
   });
 });
+
+test("an outage is dated from its first failure, not from the last time it was confirmed", async () => {
+  const db = openDatabase(":memory:");
+  const base = loadConfig({ CONFIG_PATH: configPath });
+  const allIds = (await import("../src/sources/registry.js")).buildSourceRegistry(db, base).map((source) => source.id);
+  const config = {
+    ...base,
+    sourceEnabled: Object.fromEntries(allIds.map((id) => [id, id === "openrouter"])),
+    destinations: [],
+  };
+  const started = () =>
+    db.query<{ failure_started_at: string | null }, []>("SELECT failure_started_at FROM sources").get()
+      ?.failure_started_at ?? null;
+
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () => new Response("nope", { status: 500 })) as unknown as typeof fetch;
+  try {
+    await pollSources(db, config, true);
+    const first = started();
+    expect(first).not.toBeNull();
+
+    // Reading the duration from checked_at reported a source that had never once succeeded as
+    // having first failed a moment ago, and said so again on every cycle.
+    await sleep(5);
+    await pollSources(db, config, true);
+    expect(started()).toBe(first);
+    expect(db.query<{ n: number }, []>("SELECT failures AS n FROM sources").get()?.n).toBe(2);
+
+    globalThis.fetch = (async () => Response.json({ data: [] })) as unknown as typeof fetch;
+    await pollSources(db, config, true);
+    // A collection that comes back empty is a failed read here, so the outage is still running.
+    expect(started()).toBe(first);
+
+    globalThis.fetch = (async () =>
+      Response.json({
+        data: [
+          {
+            id: "openai/gpt-6",
+            name: "GPT-6",
+            created: 1,
+            context_length: 128000,
+            pricing: {},
+            architecture: { input_modalities: ["text"], output_modalities: ["text"] },
+          },
+        ],
+      })) as unknown as typeof fetch;
+    await pollSources(db, config, true);
+    expect(started()).toBeNull();
+  } finally {
+    globalThis.fetch = original;
+  }
+  db.close();
+});

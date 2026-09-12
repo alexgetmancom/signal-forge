@@ -78,6 +78,8 @@ current `main` branch with no known actionable issues.
 - Package releases are enriched with their upstream release notes before the card is rendered.
 - `scripts/restore-drill.sh` restores the newest archive into a throwaway instance with no network,
   checks integrity and provenance, boots it, rebuilds every derived view and destroys the copy.
+- An outage is dated from its first failure rather than from the last confirmation of it, so a
+  source that has never succeeded stops reporting that it broke a moment ago.
 - Discord cards say how solid an observation is in a sentence keyed on evidence type, above the
   line saying what it means. The footer keeps the machine-readable labels.
 - The vendor map covers the makers Arena actually carries, and short patterns are anchored so `xai`
@@ -118,7 +120,6 @@ priority.
 | Priority | Task | Definition of done |
 |---|---|---|
 | Next | A last-reset board. | One status message, edited in place, naming when each tracked vendor last reset usage limits. Worth building when a second vendor's resets are collected; with one row it is a card that already exists. |
-| Next | Preserve outage start time. | Store `failure_started_at` separately from the latest observation so issue duration is accurate. |
 | Owner decision | Google catalogue. | `gemini` has never succeeded: HTTP 400 from every address this project can reach. Choose Vertex AI with a billed service account, route around the block, or accept OpenRouter as the Google source. |
 | Owner decision | Vercel AI Gateway. | Has never succeeded. Decide whether the incomplete upstream response is worth another parser or should be removed. |
 | Owner decision | Provider catalogue keys. | `xai`, `moonshot`, `mistral` and `groq` catalogues are implemented and waiting on keys; Artificial Analysis is implemented and blocked by its own IP filter. |
