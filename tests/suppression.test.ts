@@ -66,3 +66,35 @@ test("a held move records the wait and names the destination that is already cau
   expect(recorded[0]?.detail).toContain("six hours ago");
   db.close();
 });
+
+test("a title that gained punctuation is not an announcement", () => {
+  const db = openDatabase(":memory:");
+  const start = Date.parse("2026-09-12T01:00:00.000Z");
+  const named = (name: string): Collection => ({
+    source: "openrouter",
+    stream: "openrouter",
+    url: "https://openrouter.ai/models",
+    raw: [],
+    records: [{ id: "anthropic/claude-sonnet-latest", name, pricing: { completion: "0.000001" } }],
+  });
+  // OpenRouter restyled every title in one pass, and OpenAI wrapped every deprecated id in
+  // backticks the same morning: nineteen cards about punctuation.
+  saveCollection(db, named("Anthropic Claude Sonnet Latest"), [destination], new Date(start).toISOString());
+  saveCollection(
+    db,
+    named("Anthropic: Claude Sonnet Latest"),
+    [destination],
+    new Date(start + 3_600_000).toISOString(),
+  );
+  prepareDeliveries(db, start + 2 * 3_600_000);
+
+  expect(db.query<{ c: number }, []>("SELECT COUNT(*) c FROM deliveries").get()?.c).toBe(0);
+  expect(suppressions(db)).toEqual([
+    {
+      reason: "no_reader_facing_change",
+      detail: "The wording changed, the thing behind it did not",
+      destination_id: "changes",
+    },
+  ]);
+  db.close();
+});

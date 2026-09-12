@@ -59,6 +59,29 @@ function repeatsDeliveredStory(
 }
 
 /** Builds transport payloads without changing immutable event evidence. */
+/** How long an immediate batch waits for a sentence that is still being written. */
+const SUMMARY_GRACE_MS = 90_000;
+
+/**
+ * True while a package release in this batch could still gain a summary and the batch is young
+ * enough to wait for it. Only packages wait: a version bump renders to "2.1.268 → 2.1.269" and
+ * nothing else, while a large page diff already says something without a sentence. An event that
+ * was attempted — recorded in `deepseek_usage` whatever the outcome — is finished waiting, so a
+ * provider failure delays a card by one cycle and never strands it.
+ */
+function awaitingSummary(db: Database, events: readonly Event[], now: number): boolean {
+  return events.some((event) => {
+    if (event.stream !== "packages") return false;
+    if (Date.parse(event.detected_at) + SUMMARY_GRACE_MS <= now) return false;
+    const attempted = db
+      .query<{ n: number }, [number]>(
+        "SELECT (SELECT COUNT(*) FROM summaries WHERE event_id=?1) + (SELECT COUNT(*) FROM deepseek_usage WHERE event_id=?1) AS n",
+      )
+      .get(event.id);
+    return (attempted?.n ?? 0) === 0;
+  });
+}
+
 export function prepareDeliveries(
   db: Database,
   now = Date.now(),
@@ -79,6 +102,12 @@ export function prepareDeliveries(
         "SELECT e.*,b.signal,COALESCE(NULLIF(json_extract(e.after_json,'$.url'),''),NULLIF(json_extract(e.before_json,'$.url'),''),b.url) AS url FROM batch_events b JOIN events e ON e.id=b.event_id WHERE b.batch_id=? ORDER BY e.id",
       )
       .all(batch.id);
+    // An immediate batch is rendered within seconds of the poll that created it, and the message
+    // body is stored at render time. A package release bump carries nothing but a version number
+    // until its release notes are fetched and summarised, so rendering it on sight ships the empty
+    // version of the card and seals the batch before the sentence can ever arrive. Hourly digests
+    // never hit this because they sit unsealed for an hour; every delivered package release did.
+    if (batch.kind === "event" && !batch.digest && awaitingSummary(db, events, now)) continue;
     const summaries = new Map(
       db
         .query<{ event_id: number; text: string }, []>("SELECT event_id,text FROM summaries")

@@ -3,7 +3,7 @@ import { confidenceFor } from "../src/events/confidence.js";
 import { identityFor } from "../src/events/identity.js";
 import { type Collection, saveCollection } from "../src/events.js";
 import { openDatabase } from "../src/storage/database.js";
-import { listStories } from "../src/stories.js";
+import { listStories, rebuildStories } from "../src/stories.js";
 
 const collection = (source: string, stream: string, records: Collection["records"]): Collection => ({
   source,
@@ -377,5 +377,52 @@ test("two tiers of one family stay two models", () => {
   );
 
   expect(listStories(db, { limit: 10 })).toHaveLength(2);
+  db.close();
+});
+
+test("a Hugging Face derivative does not corroborate the model it was built from", () => {
+  const db = openDatabase(":memory:");
+  const at = "2026-09-12T09:00:00.000Z";
+  saveCollection(
+    db,
+    {
+      source: "openrouter",
+      stream: "openrouter",
+      url: "https://openrouter.ai/models",
+      raw: [],
+      records: [{ id: "qwen/qwen3-4b-instruct", name: "Qwen3 4B Instruct", maker: "Qwen" }],
+    },
+    [],
+    at,
+  );
+  // A quantised finetune carries the base model's terms in its name and nothing of its news.
+  saveCollection(
+    db,
+    {
+      source: "discovery:huggingface-recent",
+      stream: "weights",
+      url: "https://huggingface.co/api/models",
+      raw: [],
+      appendOnly: true,
+      records: [
+        {
+          id: "Ali-Mhrez/Qwen3-4B-Instruct-2507-SD-FNC-512-43",
+          name: "Ali-Mhrez/Qwen3-4B-Instruct-2507-SD-FNC-512-43",
+        },
+      ],
+    },
+    [],
+    at,
+  );
+  rebuildStories(db);
+
+  const shared = db
+    .query<{ c: number }, []>(
+      `SELECT COUNT(*) c FROM (
+         SELECT se.story_id FROM story_events se JOIN events e ON e.id=se.event_id
+         GROUP BY se.story_id HAVING COUNT(DISTINCT e.source)>1)`,
+    )
+    .get();
+  expect(shared?.c).toBe(0);
   db.close();
 });

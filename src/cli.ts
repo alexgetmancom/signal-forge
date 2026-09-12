@@ -28,6 +28,9 @@ try {
     } else if (command === "code-analytics") {
       const input = defs.code_analytics.schema.parse({ days: Number(Bun.argv[3] ?? 7) });
       process.stdout.write(`${JSON.stringify(defs.code_analytics.handler(input), null, 2)}\n`);
+    } else if (command === "lead-time") {
+      const input = defs.lead_time.schema.parse({ days: Number(Bun.argv[3] ?? 7) });
+      process.stdout.write(`${JSON.stringify(defs.lead_time.handler(input), null, 2)}\n`);
     } else if (command === "deepseek-usage") {
       const input = defs.deepseek_usage.schema.parse({ days: Number(Bun.argv[3] ?? 7) });
       process.stdout.write(`${JSON.stringify(defs.deepseek_usage.handler(input), null, 2)}\n`);
@@ -62,7 +65,7 @@ try {
       process.stdout.write(`${JSON.stringify(defs.resolve_delivery_verification.handler(input), null, 2)}\n`);
     } else
       throw new Error(
-        "Usage: bun src/cli.ts status|events|event <id>|deliveries|deliveries-needing-verification|require-delivery-verification <id>|resolve-delivery-verification <id> <sent|failed> [external-id]|issues|capabilities|signal-quality [days]|code-analytics [days]|deepseek-usage [days]|stories|models|model <canonical-id>|hypotheses|hypothesis <id>|deadlines|poll",
+        "Usage: bun src/cli.ts status|events|event <id>|deliveries|deliveries-needing-verification|require-delivery-verification <id>|resolve-delivery-verification <id> <sent|failed> [external-id]|issues|capabilities|suppressions [limit]|lead-time [days]|signal-quality [days]|code-analytics [days]|deepseek-usage [days]|stories|models|model <canonical-id>|hypotheses|hypothesis <id>|deadlines|poll",
       );
   });
 } finally {

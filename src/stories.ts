@@ -28,6 +28,8 @@ type StoryGroup = {
   titleTerms: Set<string>;
   /** Identity evidence per source family, so one family cannot contradict itself inside a story. */
   familyIdentity: Map<string, { canonicals: Set<string>; terms: Set<string> }>;
+  /** Set for sources that correlate only with themselves; see `isolatedCandidate`. */
+  candidate: boolean;
   storyId?: number;
 };
 
@@ -197,6 +199,21 @@ function rememberFamilyIdentity(group: StoryGroup, family: string, canonical: st
   group.familyIdentity.set(family, known);
 }
 
+/**
+ * Hugging Face's recent-models feed correlates only with itself.
+ *
+ * The feed is overwhelmingly third-party derivatives, and their names carry the base model's terms:
+ * `Ali-Mhrez/Qwen3-4B-Instruct-2507-SD-FNC-512-43` joined OpenRouter's Qwen story on the term
+ * "qwen3", and a robotics checkpoint joined an Anthropic SDK release on nothing but a shared
+ * correlation window. All seventy-three cross-source matches it produced in seven days were false,
+ * and each one makes a story look corroborated when only a quantised copy of something else turned
+ * up. GitHub discovery is deliberately not included: an `openai/model-x` repository beside a
+ * `model-x` arena entry is the evidence a hypothesis is built from.
+ */
+function isolatedCandidate(event: StoryEvent): boolean {
+  return event.source === "discovery:huggingface-recent";
+}
+
 function projectEvent(projection: StoryProjection, event: StoryEvent): StoryGroup {
   const record = recordFor(event);
   const identity = identityFor(event, record);
@@ -209,14 +226,19 @@ function projectEvent(projection: StoryProjection, event: StoryEvent): StoryGrou
   const { key, subject, vendor } = baseKeyFor(event, record);
   const family = sourceFamily(event.source, event.stream);
   const canonical = identity.canonicalId ? normalizeIdentity(identity.canonicalId) : null;
+  const candidate = isolatedCandidate(event);
+  const scope = candidate ? "candidate" : "confirmed";
   const identityMatch = terms
-    .map((term) => projection.aliases.get(`${normalized(vendor)}:${term}`))
+    .map((term) => projection.aliases.get(`${scope}:${normalized(vendor)}:${term}`))
     .find((group) => group !== undefined && withinCorrelationWindow(group, event));
   const currentMatch = projection.current.get(key);
   const previous =
     identityMatch ??
-    (currentMatch && withinCorrelationWindow(currentMatch, event) ? currentMatch : undefined) ??
+    (currentMatch && currentMatch.candidate === candidate && withinCorrelationWindow(currentMatch, event)
+      ? currentMatch
+      : undefined) ??
     [...projection.groups].reverse().find((group) => {
+      if (group.candidate !== candidate) return false;
       const lastTime = Date.parse(group.last.detected_at);
       const eventTime = Date.parse(event.detected_at);
       if (
@@ -243,11 +265,12 @@ function projectEvent(projection: StoryProjection, event: StoryEvent): StoryGrou
       urls: new Set(url ? [url] : []),
       titleTerms: new Set(titles),
       familyIdentity: new Map(),
+      candidate,
     };
     rememberFamilyIdentity(group, family, canonical, terms);
     projection.groups.push(group);
     projection.current.set(key, group);
-    for (const term of terms) projection.aliases.set(`${normalized(vendor)}:${term}`, group);
+    for (const term of terms) projection.aliases.set(`${scope}:${normalized(vendor)}:${term}`, group);
     return group;
   }
   previous.last = event;
@@ -256,7 +279,7 @@ function projectEvent(projection: StoryProjection, event: StoryEvent): StoryGrou
   projection.current.set(key, previous);
   for (const term of terms) {
     previous.terms.add(term);
-    projection.aliases.set(`${normalized(vendor)}:${term}`, previous);
+    projection.aliases.set(`${scope}:${normalized(vendor)}:${term}`, previous);
   }
   if (url) previous.urls.add(url);
   for (const term of titles) previous.titleTerms.add(term);

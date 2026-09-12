@@ -45,6 +45,22 @@ function leaderboardSilence(event: Event): string | null {
 }
 
 /**
+ * Letters and digits only, so a name that gained a colon or a pair of backticks reads as the name
+ * it already was. OpenRouter restyled every title from "Anthropic Claude Sonnet Latest" to
+ * "Anthropic: Claude Sonnet Latest" and OpenAI wrapped every deprecated id in backticks; between
+ * them that was one morning of announcements about punctuation.
+ */
+function plain(value: unknown): string {
+  return canonical(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function cosmeticOnly(before: unknown, after: unknown): boolean {
+  return plain(before) === plain(after);
+}
+
+/**
  * Why an event says nothing to a subscriber, in the words an operator needs, or null when it does
  * speak. Every quiet event has a reason; before this it had only silence, and answering "why did
  * the hourly digest stay empty?" meant replaying events by hand against the thresholds.
@@ -76,6 +92,8 @@ export function notificationBlock(event: Event): string | null {
   );
   const subscriberChanges = changed.filter((key) => !["updated", "published", "created", "parameters"].includes(key));
   if (!subscriberChanges.length) return "Only bookkeeping fields moved";
+  if (subscriberChanges.every((key) => cosmeticOnly(before[key], after[key])))
+    return "The wording changed, the thing behind it did not";
   if (subscriberChanges.every((key) => key === "pricing")) {
     const oldPrices =
       before.pricing && typeof before.pricing === "object" ? (before.pricing as Record<string, unknown>) : {};
