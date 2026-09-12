@@ -14,10 +14,15 @@ import { fetchText } from "./http.js";
  * kept with timestamps. Hence third-party authority and the weakest confidence label, even though
  * the underlying words are OpenAI's.
  *
- * Only executed resets become records. The tracker also publishes a scheduled reset and an
- * AI-classified "watch" forecast, and its own documentation says a passed schedule does not imply
- * completion and a watch is not an OpenAI commitment. Both are retained in the snapshot as
- * evidence and neither is allowed to tell a reader that their limits came back.
+ * Resets arrive in two steps, because the announcer works in two steps: he either promises one
+ * ("limits will be reset in the next hour") or reports one already applied ("reset all
+ * propagated"). Both are news, so both are records — one announcement, carrying the stage it has
+ * reached. A promise says it is a promise and never claims the limits came back; when the tracker
+ * stops holding it as scheduled, the same record moves to applied and that move is the second card.
+ *
+ * The AI-classified "watch" forecast is not a record at all. Their own documentation says it is
+ * not an OpenAI commitment, and a guess standing beside these two costs both their weight; it is
+ * retained in the snapshot as evidence.
  */
 
 const source = z.discriminatedUnion("type", [
@@ -33,6 +38,15 @@ const reset = z.object({
   source,
 });
 
+const scheduled = z.object({
+  id: z.string().min(1).max(64),
+  reset_type: z.enum(["regular", "banked"]),
+  announced_at: z.string().min(1),
+  scheduled_for: z.string().nullish(),
+  text: z.string(),
+  source,
+});
+
 const listResponse = z.object({
   data: z.array(reset),
   pagination: z.object({ has_more: z.boolean(), next_cursor: z.string().nullish() }),
@@ -40,7 +54,7 @@ const listResponse = z.object({
 
 const statusResponse = z.object({
   data: z.object({
-    scheduled_reset: z.unknown().nullish(),
+    scheduled_reset: scheduled.nullish(),
     active_watch: z.unknown().nullish(),
     stats: z.object({
       total: z.number().int().min(0),
@@ -52,30 +66,49 @@ const statusResponse = z.object({
 });
 
 type Reset = z.infer<typeof reset>;
+type Scheduled = z.infer<typeof scheduled>;
+
+/** What stage of its own announcement a reset has reached, in the words the card prints. */
+const ANNOUNCED = "Announced, not applied yet";
+const APPLIED = "Applied";
 
 const SITE = "https://codex-resets.com";
 /** 100 is the API's own page limit; ten pages is a thousand announcements at a rate of one a week. */
 const MAX_PAGES = 10;
+
+/** UTC to the minute: this is read on a card, and the exact second is in the retained snapshot. */
+function minute(time: string): string {
+  const parsed = new Date(time);
+  if (Number.isNaN(parsed.getTime())) throw new Error("Codex reset announcement carries an unreadable time");
+  return `${parsed.toISOString().slice(0, 16).replace("T", " ")} UTC`;
+}
 
 /** How the announcement reached the tracker, in the words a reader needs to weigh it. */
 function announcement(entry: Reset): string {
   return entry.source.type === "x_post" ? `Posted by @${entry.source.author} on X` : "Observed without an announcement";
 }
 
-export function resetRecords(entries: Reset[]): Collection["records"] {
+export function resetRecords(entries: Reset[], pending: Scheduled | null = null): Collection["records"] {
   const records = new Map<string, Collection["records"][number]>();
-  for (const entry of entries) {
-    const announcedAt = new Date(entry.announced_at);
-    if (Number.isNaN(announcedAt.getTime())) throw new Error("Codex reset announcement carries an unreadable time");
+  for (const entry of [...entries, ...(pending ? [pending] : [])]) {
+    const applied = entry.id !== pending?.id;
+    const banked = entry.reset_type === "banked";
     records.set(entry.id, {
       id: entry.id,
-      name:
-        entry.reset_type === "banked" ? "Codex banked reset credit granted" : "Codex usage limits reset for everyone",
+      name: applied
+        ? banked
+          ? "Codex banked reset credit granted"
+          : "Codex usage limits reset for everyone"
+        : banked
+          ? "Codex banked reset credit announced"
+          : "Codex usage limits reset announced",
       url: entry.source.url ?? SITE,
       maker: "OpenAI",
-      // Minute precision in UTC: this is read on a card, and the exact second of a post is in
-      // the retained snapshot for anyone who needs it.
-      announced: `${announcedAt.toISOString().slice(0, 16).replace("T", " ")} UTC`,
+      // The stage is the field that moves: one announcement, promised and then applied. It is
+      // deliberately the only field that can change, so the second card is about exactly that.
+      stage: applied ? APPLIED : ANNOUNCED,
+      announced: minute(entry.announced_at),
+      ...(!applied && pending?.scheduled_for ? { expected: minute(pending.scheduled_for) } : {}),
       resetType: entry.reset_type,
       announcement: announcement(entry),
       // The post itself, which is the whole of what the announcement says.
@@ -107,23 +140,26 @@ export async function collectCodexResets(request: Fetch = fetch, cache?: HttpCac
   if (cursor) throw new Error("Codex reset history exceeds the pages this collector reads");
   const statusBody = await fetchText(`${SITE}/api/v1/status`, {}, request);
   const status = statusResponse.parse(JSON.parse(statusBody));
-  const records = resetRecords(entries);
+  const records = resetRecords(entries, status.data.scheduled_reset ?? null);
   // An empty answer is a broken observation, never a history in which no reset ever happened.
   if (!records.length) throw new Error("Codex reset history came back empty");
-  if (status.data.stats.total > records.length)
-    throw new Error(`Codex reset history is short: ${records.length} of ${status.data.stats.total} announcements`);
+  // A scheduled announcement is excluded from the tracker's own count, so it is excluded here too.
+  if (status.data.stats.total > entries.length)
+    throw new Error(`Codex reset history is short: ${entries.length} of ${status.data.stats.total} announcements`);
   return {
     source: "codex-resets",
     stream: "resets",
     url: SITE,
     // Announcements are never withdrawn, and a truncated page must not read as a deleted history.
     appendOnly: true,
+    // The one change worth an event: a promised reset becoming an applied one.
+    trackChanges: true,
     records,
     raw: {
       resets: entries,
       stats: status.data.stats,
-      // Retained as evidence, deliberately not records: a forecast is not a reset.
       scheduled_reset: status.data.scheduled_reset ?? null,
+      // Retained as evidence, deliberately not a record: a guess is not an announcement.
       active_watch: status.data.active_watch ?? null,
       pages: pages.length,
     },

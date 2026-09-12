@@ -142,6 +142,9 @@ export function eventFacts(event: Event, summary?: string): string[] {
         lines.push(rankMove(before[key], after[key]));
         continue;
       }
+      // A reset's title already reads "announced" then "for everyone"; the stage line below says
+      // the same move in the same card.
+      if (key === "name" && event.stream === "resets") continue;
       if (key === "name") {
         // A package name carries its version, so "openai 3.12.0 → openai 3.13.0" and
         // "3.12.0 → 3.13.0" are the same sentence twice.

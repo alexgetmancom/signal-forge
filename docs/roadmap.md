@@ -81,9 +81,11 @@ current `main` branch with no known actionable issues.
 - The vendor map covers the makers Arena actually carries, and short patterns are anchored so `xai`
   cannot claim SpaceXAI.
 - Codex usage-limit resets are collected from the `codex-resets` tracker: the whole tracked history
-  lands as the first, silent baseline, and only a new announcement speaks. A reset reads as a
-  number moving and behaves like a launch — usable now, for a few hours — so it travels with the
-  launches in New and carries the vendor role mention. Its scheduled
+  lands as the first, silent baseline, and only a new announcement speaks. A reset is announced in
+  two steps by the same person, so one announcement carries the stage it has reached: promised,
+  then applied. Both steps are launches and both reach New; only the applied one mentions the
+  vendor role, because a promise is worth reading and not worth interrupting. The AI-classified
+  watch forecast stays out of the records entirely. Its scheduled
   reset and AI-classified watch forecast are retained as evidence and never become records, because
   the tracker's own documentation says neither implies a reset happened.
 
@@ -102,6 +104,7 @@ priority.
 | Owner decision | Vercel AI Gateway. | Has never succeeded. Decide whether the incomplete upstream response is worth another parser or should be removed. |
 | Owner decision | Provider catalogue keys. | `xai`, `moonshot`, `mistral` and `groq` catalogues are implemented and waiting on keys; Artificial Analysis is implemented and blocked by its own IP filter. |
 | Later | More reset sources. | Add Z.ai, xAI and Meta reset surfaces once each has one address that can be read and validated; each arrives as its own source with its own authority, never merged into the Codex tracker's family. |
+| Later | Measure the watch forecast. | The tracker's AI-classified watch is retained in snapshots but never delivered. Decide on measurement: how many `strong` watches were followed by a reset inside their own window. |
 | Later | An evidence type for resets. | `events.evidence_type` carries a CHECK constraint, so a new member needs a rebuild of a table a dozen others reference. Resets store `unknown` and say what they are in the card's own words until that rebuild is worth one move. |
 | Later | Add a welcome channel. | Explain the channel map, event types, confidence labels and how readers can use the feed. |
 | Later | ModelScope verdict. | Keep or remove on measured lead time once it has produced a week of first sightings. |

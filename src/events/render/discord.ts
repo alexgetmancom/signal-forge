@@ -58,10 +58,17 @@ function readerImpact(event: Event, record: RecordData | null): string | null {
       : "Visible and selectable on Arena.";
   if (event.kind === "removed") return "No longer present in this source's latest observation.";
   if (event.stream === "packages" && event.kind === "new") return "A package release was published to the registry.";
-  if (event.stream === "resets" && event.kind === "new")
+  if (event.stream === "resets") {
+    if (record?.stage !== "Applied") {
+      const when = typeof record?.expected === "string" ? ` Expected ${record.expected}.` : "";
+      return record?.resetType === "banked"
+        ? `A reset credit is promised.${when} Nothing has been credited yet.`
+        : `A reset is promised.${when} Limits have not come back yet.`;
+    }
     return record?.resetType === "banked"
       ? "A reset credit was granted; it applies to a later limit window."
-      : "Usage limits were returned to everyone.";
+      : "Usage limits are back for everyone.";
+  }
   return null;
 }
 

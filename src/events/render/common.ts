@@ -2,7 +2,18 @@ import { canonical } from "../canonical.js";
 import { meaningfulWebString, normalizeWebString } from "../web.js";
 
 /** Observation metadata that is useful in evidence but not useful in a notification. */
-export const NOISE = new Set(["head", "updated", "published", "created", "started", "url", "detected", "sampledAt"]);
+export const NOISE = new Set([
+  "head",
+  "updated",
+  "published",
+  "created",
+  "started",
+  "url",
+  "detected",
+  "sampledAt",
+  // Said in words by the sentence about what a promised reset means.
+  "expected",
+]);
 
 export const fieldLabels: Record<string, string> = {
   name: "Name",
@@ -32,6 +43,7 @@ export const fieldLabels: Record<string, string> = {
   license: "License",
   announcement: "Announcement",
   resetType: "Reset type",
+  expected: "Expected",
   methods: "Methods",
   inputTokenLimit: "Input token limit",
   outputTokenLimit: "Output token limit",

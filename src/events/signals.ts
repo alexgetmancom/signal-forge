@@ -72,8 +72,10 @@ export function signalClass(event: Event): SignalClass {
   /**
    * Limits coming back is the most direct "you can use this now" in the system: nothing was
    * released, but a reader who ran out an hour ago can work again, and only for the next few
-   * hours. It reads as a number moving and behaves like a launch, so it travels with the
-   * launches — and, like them, it is worth a role mention, at a rate of roughly one a week.
+   * hours. It reads as a number moving and behaves like a launch, so it travels with the launches.
+   *
+   * A reset is announced in two steps by the same person — promised, then applied — and both
+   * steps are news, so both are launches and both reach the same channel.
    */
   if (event.stream === "resets") return "launch";
 
@@ -94,6 +96,9 @@ export function signalClass(event: Event): SignalClass {
  * for. Numbers moving and raw evidence never ping.
  */
 export function pingWorthy(event: Event): boolean {
+  // A promised reset is worth reading and not worth interrupting: nothing has come back yet, and
+  // the same announcement pings for real when it is applied.
+  if (event.stream === "resets" && recordFor(event)?.stage !== "Applied") return false;
   const signal = signalClass(event);
   return signal === "launch" || signal === "codename";
 }
