@@ -82,7 +82,12 @@ jobs:
       group: signal-forge-production
       cancel-in-progress: false
     steps:
+      # The deployment reads three things out of the repository: this workflow's own script,
+      # compose.yaml and scripts/backup.sh. Cone mode brings the root files along with scripts/,
+      # so nothing else has to travel to the runner on every release.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          sparse-checkout: scripts
       - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4
         with:
           registry: ghcr.io

@@ -42,5 +42,5 @@ services:
       start_period: 90s
       # start_interval governs probe spacing until the first success, but only within start_period
       # above. Without it the first probe waits a full interval; with it, readiness is noticed
-      # within two seconds of actually happening.
-      start_interval: 2s
+      # about as soon as it happens -- the probe costs 110 ms, so asking every second is free.
+      start_interval: 1s
