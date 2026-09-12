@@ -1,7 +1,7 @@
 import { text } from "../text.js";
 import type { Event, RecordData } from "./types.js";
 
-export type IdentityStatus = "canonical" | "alias" | "codename" | "unconfirmed" | "unknown";
+type IdentityStatus = "canonical" | "alias" | "codename" | "unconfirmed" | "unknown";
 
 export type ModelIdentity = {
   canonicalId: string | null;

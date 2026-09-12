@@ -35,7 +35,7 @@ type MetricAggregate = {
   lastErrorType: string | null;
 };
 
-export type CodeAnalyticsSection = {
+type CodeAnalyticsSection = {
   name: string;
   calls: number;
   successes: number;

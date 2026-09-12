@@ -39,17 +39,17 @@ import { listStories } from "./stories.js";
  * diagnosis is what that surface is for, and a mutation is on only when it is part of routine
  * delivery work. Anything that touches credentials or the host is off regardless.
  */
-export type CliArgument = { name: string; optional?: boolean; rest?: boolean };
+type CliArgument = { name: string; optional?: boolean; rest?: boolean };
 
 /** What a surface hands the registry: path, query and body, already separated, never parsed. */
-export type OperationRequest = {
+type OperationRequest = {
   path: string;
   params: Record<string, string | undefined>;
   query: Record<string, string | undefined>;
   body: unknown;
 };
 
-export type OperationDefinition = {
+type OperationDefinition = {
   section: OperationSection;
   summary: string;
   /** The question an operator arrives with, when this command is where the answer starts. */

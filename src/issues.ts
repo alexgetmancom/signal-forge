@@ -25,7 +25,7 @@ export type IssueKind =
   | "capability_rejected"
   | "backup_stale"
   | "database_oversized";
-export type IssueSeverity = "warning" | "error" | "critical";
+type IssueSeverity = "warning" | "error" | "critical";
 
 export type ActionableIssue = {
   id: string;

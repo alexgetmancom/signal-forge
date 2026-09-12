@@ -7,7 +7,7 @@ import type { Event } from "./events/types.js";
 import { median } from "./numbers.js";
 import { sourceJobs } from "./sources/registry.js";
 
-export type SignalQualitySource = {
+type SignalQualitySource = {
   id: string;
   label: string;
   mode: SourceMode;

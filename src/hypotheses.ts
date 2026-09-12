@@ -3,9 +3,9 @@ import { confidenceRank } from "./events/confidence.js";
 import { sourceIndependenceFamily } from "./events/sourceFamily.js";
 import type { Confidence, Event, EvidenceType } from "./events/types.js";
 
-export type HypothesisStatus = "emerging" | "strengthening" | "confirmed" | "stale";
+type HypothesisStatus = "emerging" | "strengthening" | "confirmed" | "stale";
 
-export type HypothesisEvent = {
+type HypothesisEvent = {
   eventId: number;
   role: "supporting" | "resolution";
   source: string;

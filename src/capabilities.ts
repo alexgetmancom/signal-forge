@@ -7,7 +7,7 @@ import { buildSourceRegistry } from "./sources/registry.js";
  * `rejected` is a credential that is present and was refused by the upstream. It reads differently
  * from `missing` on purpose: nothing needs to be supplied, something needs to be replaced.
  */
-export type CapabilityStatus = "ready" | "missing" | "disabled" | "rejected";
+type CapabilityStatus = "ready" | "missing" | "disabled" | "rejected";
 
 export type CapabilityReportEntry = {
   id: string;

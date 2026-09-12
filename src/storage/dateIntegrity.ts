@@ -6,7 +6,7 @@ import { TIMESTAMP_COLUMNS, TIMESTAMP_GLOB } from "./timestamps.js";
  * before they existed, and a report drawn from those rows is wrong in the one way nobody checks:
  * it looks like a date.
  */
-export type DateViolation = {
+type DateViolation = {
   table: string;
   column: string;
   rows: number;

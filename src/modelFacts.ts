@@ -16,7 +16,7 @@ const FIRST_PARTY_API_CATALOGUE_SOURCES = new Set([
   "deepseek-pricing",
 ]);
 
-export type ModelFact<T = unknown> = {
+type ModelFact<T = unknown> = {
   value: T;
   confidence: Confidence;
   evidenceType: EvidenceType;
@@ -25,7 +25,7 @@ export type ModelFact<T = unknown> = {
   observedAt: string;
 };
 
-export type ModelFactConflict = {
+type ModelFactConflict = {
   field: string;
   incumbentEventId: number;
   challengerEventId: number;

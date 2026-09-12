@@ -10,9 +10,9 @@ export const DEEPSEEK_SUMMARY_MAX_OUTPUT_TOKENS = 90;
 export const DEEPSEEK_SUMMARY_DAILY_ATTEMPT_LIMIT = 300;
 const DEEPSEEK_PRICING_VERSION = "deepseek-flash-2026-08-16";
 
-export type DeepSeekPricingPeriod = "peak" | "off_peak";
-export type DeepSeekCostBasis = "exact" | "estimated" | "unknown";
-export type DeepSeekOutcome = "pending" | "summarized" | "unclear" | "invalid" | "rejected" | "failed" | "legacy";
+type DeepSeekPricingPeriod = "peak" | "off_peak";
+type DeepSeekCostBasis = "exact" | "estimated" | "unknown";
+type DeepSeekOutcome = "pending" | "summarized" | "unclear" | "invalid" | "rejected" | "failed" | "legacy";
 
 export type DeepSeekTokenUsage = {
   promptTokens: number | null;
@@ -230,7 +230,7 @@ type UsageTotals = {
   totalCostUsd: number;
 };
 
-export type DeepSeekUsageStats = {
+type DeepSeekUsageStats = {
   attempts: number;
   events: number;
   outcomes: {

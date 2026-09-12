@@ -8,7 +8,7 @@ import type { Database } from "bun:sqlite";
  * A lease, not a mutex: a holder that is killed mid-cycle leaves its row behind, and nothing would
  * ever take the lock again. The expiry is what a crashed holder releases with.
  */
-export type ActionLease = {
+type ActionLease = {
   name: string;
   holder: string;
   acquiredAt: string;

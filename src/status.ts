@@ -15,7 +15,7 @@ import { readLatestSnapshot } from "./storage/snapshots.js";
  * "down" teaches readers to ignore it. Blocked is not broken: Gemini answers everywhere except
  * the addresses this project can reach, so it is reported as a restriction with its cause, not a fault.
  */
-export type SourceState = "ok" | "stale" | "failing" | "degraded" | "blocked" | "idle" | "missing" | "disabled";
+type SourceState = "ok" | "stale" | "failing" | "degraded" | "blocked" | "idle" | "missing" | "disabled";
 
 export type SourceHealth = {
   id: string;
