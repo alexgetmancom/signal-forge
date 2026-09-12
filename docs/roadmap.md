@@ -88,10 +88,14 @@ current `main` branch with no known actionable issues.
   lands as the first, silent baseline, and only a new announcement speaks. A reset is announced in
   two steps by the same person, so one announcement carries the stage it has reached: promised,
   then applied. Both steps are launches and both reach New; only the applied one mentions the
-  vendor role, because a promise is worth reading and not worth interrupting. The AI-classified
-  watch forecast stays out of the records entirely. Its scheduled
-  reset and AI-classified watch forecast are retained as evidence and never become records, because
-  the tracker's own documentation says neither implies a reset happened.
+  vendor role, because a promise is worth reading and not worth interrupting. The promise and the
+  fact are the whole of what this source is for: they are the words of the OpenAI engineer who runs
+  Codex, and a promise from him has never failed to arrive -- only to arrive later than it said.
+  The tracker's own AI-classified watch forecast is a different kind of thing and is wanted by
+  nobody here. It stays out of the records entirely, alongside the scheduled reset, retained as
+  evidence and never delivered, because the tracker's own documentation says neither implies a
+  reset happened. This is settled, not deferred: there is nothing to measure and no plan to deliver
+  it.
 
 - Every operation is one registry entry; the CLI dispatch and its usage lines, the HTTP routes, the
   MCP tool list and the `guide` catalog are projections of it. `mutates` marks an operation that
@@ -125,11 +129,10 @@ priority.
 | Priority | Task | Definition of done |
 |---|---|---|
 | Next | A last-reset board. | One status message, edited in place, naming when each tracked vendor last reset usage limits. Worth building when a second vendor's resets are collected; with one row it is a card that already exists. |
-| Owner decision | Google catalogue. | `gemini` has never succeeded: HTTP 400 from every address this project can reach. Choose Vertex AI with a billed service account, route around the block, or accept OpenRouter as the Google source. |
+| Owner decision | Google catalogue. | `gemini` has never succeeded, and the reason is not yet established. Measured 2026-09-13 from the router across all four tunnels: `generativelanguage.googleapis.com` answers `API key not valid`, never the `FAILED_PRECONDITION` that a refused region returns, so nothing blocks the request at the network layer. Re-run the collector with the configured key before choosing between Vertex AI with a billed service account and accepting OpenRouter as the Google source. |
 | Owner decision | Vercel AI Gateway. | Has never succeeded. Decide whether the incomplete upstream response is worth another parser or should be removed. |
-| Owner decision | Provider catalogue keys. | `xai`, `moonshot`, `mistral` and `groq` catalogues are implemented and waiting on keys; Artificial Analysis is implemented and blocked by its own IP filter. |
+| Owner decision | Provider catalogue keys. | `xai`, `moonshot`, `mistral` and `groq` catalogues are implemented and waiting on keys. Artificial Analysis is implemented and waiting on a key too: measured 2026-09-13, its API answers `401` through the house tunnels rather than refusing the address, so it is reachable and unauthenticated, not IP-filtered as recorded here before. Nothing is to be connected until the key is supplied. |
 | Later | More reset sources. | Add Z.ai, xAI and Meta reset surfaces once each has one address that can be read and validated; each arrives as its own source with its own authority, never merged into the Codex tracker's family. |
-| Later | Measure the watch forecast. | The tracker's AI-classified watch is retained in snapshots but never delivered. Decide on measurement: how many `strong` watches were followed by a reset inside their own window. |
 | Later | An evidence type for resets. | `events.evidence_type` carries a CHECK constraint, so a new member needs a rebuild of a table a dozen others reference. Resets store `unknown` and say what they are in the card's own words until that rebuild is worth one move. |
 | Later | Add a welcome channel. | Explain the channel map, event types, confidence labels and how readers can use the feed. |
 | Later | ModelScope verdict. | Keep or remove on measured lead time once it has produced a week of first sightings. |
