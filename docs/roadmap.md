@@ -143,6 +143,17 @@ priority.
 
 Kept because the reasoning cost real observation and is easy to re-litigate from intuition.
 
+- **The story correlation fallback is ordered by position on purpose, not by recency.** When an
+  event matches several open stories, the one latest in the projection wins -- which in practice is
+  the story created by the same collection pass, and so the neighbouring record from the same
+  upstream. Indexing the search by `lastTime` instead looks like the obvious optimisation and is a
+  behaviour change: measured 2026-09-13 on a copy of production, the fallback found a match 151
+  times over 11,485 events and 22 of those 151 would land in a different story. The samples say
+  which order is right -- recency merged `claude sonnet 4 6` into `claude sonnet 5`,
+  `claude fable 5 1` into `claude fable 5`, and `gemini 3 pro image preview` into
+  `gemini 3 7 flash`, because a busy story always has the newest last event and matches loosely on
+  title terms. Position order is the one that keeps distinct models apart.
+
 - **dependency-cruiser cannot be installed here, and the reason is not preference.** Its own graph
   builder needs the TypeScript compiler API at `typescript@>=2 <7`; this repository is on
   TypeScript 7, whose npm package ships a Go binary and a CLI and no JS API at all -- `require`ing

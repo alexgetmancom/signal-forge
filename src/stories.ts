@@ -40,6 +40,16 @@ type StoryGroup = {
 
 export type StoryProjection = {
   groups: StoryGroup[];
+  /**
+   * The groups the fallback search still has to look at, in the same order as `groups`.
+   *
+   * Events are projected in `detected_at` order, so the clock only moves forward. A group whose own
+   * last event has fallen out of the correlation window can therefore never be joined again: the
+   * only thing that moves its `lastTime` is a match, and a match is what just became impossible. It
+   * leaves this list and the search stops paying for it, while `groups`, `current` and `aliases`
+   * keep it for everything else.
+   */
+  active: StoryGroup[];
   current: Map<string, StoryGroup>;
   aliases: Map<string, StoryGroup>;
   lastEventId: number;
@@ -160,6 +170,7 @@ function cloneProjection(projection: StoryProjection): StoryProjection {
   const copies = new Map(projection.groups.map((group, index) => [group, groups[index] as StoryGroup]));
   return {
     groups,
+    active: projection.active.map((group) => copies.get(group) as StoryGroup),
     current: new Map([...projection.current].map(([key, group]) => [key, copies.get(group) as StoryGroup])),
     aliases: new Map([...projection.aliases].map(([key, group]) => [key, copies.get(group) as StoryGroup])),
     lastEventId: projection.lastEventId,
@@ -168,7 +179,7 @@ function cloneProjection(projection: StoryProjection): StoryProjection {
 }
 
 function emptyProjection(): StoryProjection {
-  return { groups: [], current: new Map(), aliases: new Map(), lastEventId: 0, lastDetectedAt: null };
+  return { groups: [], active: [], current: new Map(), aliases: new Map(), lastEventId: 0, lastDetectedAt: null };
 }
 
 /**
@@ -229,15 +240,28 @@ function findLatestMatch(
 ): StoryGroup | undefined {
   const eventTime = Date.parse(event.detected_at);
   if (!Number.isFinite(eventTime)) return undefined;
-  for (let index = projection.groups.length - 1; index >= 0; index -= 1) {
-    const group = projection.groups[index] as StoryGroup;
+  const expiresBefore = eventTime - CORRELATION_WINDOW_MS;
+  let expired = 0;
+  for (let index = projection.active.length - 1; index >= 0; index -= 1) {
+    const group = projection.active[index] as StoryGroup;
+    if (!Number.isFinite(group.lastTime) || group.lastTime < expiresBefore) {
+      expired += 1;
+      continue;
+    }
     if (group.candidate !== subject.candidate) continue;
-    if (!Number.isFinite(group.lastTime) || Math.abs(eventTime - group.lastTime) > CORRELATION_WINDOW_MS) continue;
+    if (Math.abs(eventTime - group.lastTime) > CORRELATION_WINDOW_MS) continue;
     if (!compatibleVendor(group.vendor, subject.vendor)) continue;
     if (contradictsFamilyIdentity(group, subject.family, subject.canonical, subject.terms)) continue;
     if ((subject.url !== null && group.urls.has(subject.url)) || similarTitle(group.titleTerms, subject.titles))
       return group;
   }
+  // Only a walk that reached the end has judged every group, and only a walk that found something
+  // to drop has anything to write. While history is shorter than the correlation window nothing
+  // ever expires, so this costs one comparison per group and allocates nothing at all.
+  if (expired > 0)
+    projection.active = projection.active.filter(
+      (group) => Number.isFinite(group.lastTime) && group.lastTime >= expiresBefore,
+    );
   return undefined;
 }
 
@@ -287,6 +311,7 @@ function projectEvent(projection: StoryProjection, event: StoryEvent): StoryGrou
     };
     rememberFamilyIdentity(group, family, canonical, terms);
     projection.groups.push(group);
+    projection.active.push(group);
     projection.current.set(key, group);
     for (const term of terms) projection.aliases.set(`${scope}:${normalized(vendor)}:${term}`, group);
     return group;
