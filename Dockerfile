@@ -23,11 +23,19 @@ COPY scripts ./scripts
 # compiling them shipped their JavaScript inside dist.
 RUN bun run build
 
-# The slim tag rather than the untagged one. No ca-certificates package: Bun
-# carries its own root store and verifies HTTPS without the system one, which
-# was verified against a public endpoint from this image. Anything added here
-# that shells out to curl or git would need the package back.
-FROM oven/bun:1.3.14-slim@sha256:d56a2534ffd262e92c12fd3249d3924d296d97086da773f821d7d0477435ea04
+# Alpine, which puts the whole operating system at 10 MB against Debian's 108.
+# What is left is mostly the Bun binary itself, so this is the end of the road
+# for shrinking the image rather than one step along it.
+#
+# Bun on Alpine is the musl build. Nothing here links against a native npm
+# package, which is the usual reason to stay on glibc, and the full test suite
+# was run under musl before this base was adopted. Adding a dependency with a
+# native component means re-checking that.
+#
+# No ca-certificates package: Bun carries its own root store and verified HTTPS
+# against every configured source from this image. Anything added here that
+# shells out to curl or git would need the package back.
+FROM oven/bun:1.3.14-alpine@sha256:5acc90a93e91ff07bf72aa90a7c9f0fa189765aec90b47bdbf2152d2196383c0
 
 WORKDIR /app
 
