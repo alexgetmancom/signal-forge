@@ -70,6 +70,18 @@
       "comment": "The event pipeline is driven by the poller, the CLI and the HTTP server alike. A Hono import inside it would make one of those three the shape every caller has to pretend to be.",
       "from": { "path": "^src/events/" },
       "to": { "path": "^src/http\\.ts$" }
+    },
+    {
+      "name": "only-the-server-speaks-hono",
+      "comment": "Hono is how one process happens to answer HTTP. Everything else works in domain types and codes, so the day the server is replaced, or a second entry point is added, the change is one file and not a search for every module that learned a framework's Context.",
+      "from": { "path": "^src/", "pathNot": "^src/http\\.ts$" },
+      "to": { "dependencyTypes": ["npm"], "path": "^(hono|@hono/)" }
+    },
+    {
+      "name": "production-does-not-import-tests",
+      "comment": "Test helpers stand in for the clock, the network and the database. An import from src/ would ship one into production, where it would quietly answer for the real thing.",
+      "from": { "path": "^src/" },
+      "to": { "path": "^tests/" }
     }
   ]
 }

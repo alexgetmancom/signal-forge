@@ -10,8 +10,9 @@ import { dirname, extname, join, relative, resolve } from "node:path";
 const root = resolve(import.meta.dir, "..");
 const sourceRoot = join(root, "src");
 
-type Edge = { source: string; target: string };
-type Selector = { path?: string; pathNot?: string; circular?: boolean };
+/** A local edge's target is a file in this repository; an npm edge's is the bare specifier. */
+type Edge = { source: string; target: string; kind: "local" | "npm" };
+type Selector = { path?: string; pathNot?: string; circular?: boolean; dependencyTypes?: ("local" | "npm")[] };
 type Rule = { name: string; comment?: string; from: Selector; to: Selector };
 
 function walk(directory: string, result: string[] = []): string[] {
@@ -41,10 +42,14 @@ function imports(file: string): string[] {
   return result;
 }
 
+/**
+ * A relative specifier this cannot resolve is reported rather than skipped. A missed edge is a rule
+ * that silently stops holding, which is worse than no rule at all: the gate still says it passed.
+ */
 function resolveLocal(file: string, specifier: string): string | null {
-  if (!specifier.startsWith(".")) return null;
-  const candidate = resolve(dirname(file), specifier.replace(/\.js$/, ".ts"));
-  if (statSync(candidate, { throwIfNoEntry: false })?.isFile()) return candidate;
+  const base = resolve(dirname(file), specifier.replace(/\.js$/, ".ts"));
+  for (const candidate of [base, `${base}.ts`, join(base, "index.ts"), base.replace(/\.ts$/, ".json")])
+    if (statSync(candidate, { throwIfNoEntry: false })?.isFile()) return candidate;
   return null;
 }
 
@@ -107,16 +112,24 @@ const rules: Rule[] = (
 
 const files = walk(sourceRoot);
 const edges: Edge[] = [];
+const unresolved: string[] = [];
 for (const file of files) {
   for (const specifier of new Set(imports(file))) {
+    if (specifier.startsWith("bun:") || specifier.startsWith("node:")) continue;
+    if (!specifier.startsWith(".")) {
+      edges.push({ source: moduleName(file), target: specifier, kind: "npm" });
+      continue;
+    }
     const target = resolveLocal(file, specifier);
-    if (target) edges.push({ source: moduleName(file), target: moduleName(target) });
+    if (target) edges.push({ source: moduleName(file), target: moduleName(target), kind: "local" });
+    else unresolved.push(`unresolved import: ${moduleName(file)} -> ${specifier}`);
   }
 }
 
 function cycles(): string[][] {
   const graph = new Map<string, string[]>();
-  for (const edge of edges) graph.set(edge.source, [...(graph.get(edge.source) ?? []), edge.target]);
+  for (const edge of edges)
+    if (edge.kind === "local") graph.set(edge.source, [...(graph.get(edge.source) ?? []), edge.target]);
   const state = new Map<string, "visiting" | "visited">();
   const stack: string[] = [];
   const found = new Set<string>();
@@ -141,7 +154,10 @@ function cycles(): string[][] {
   return result;
 }
 
-function matches(selector: Selector, module: string): boolean {
+function matches(selector: Selector, module: string, kind?: Edge["kind"]): boolean {
+  // A rule that says nothing about dependency types is about this repository's own files, which is
+  // what every layer rule below the npm ones means.
+  if (kind && !(selector.dependencyTypes ?? ["local"]).includes(kind)) return false;
   if (selector.path && !new RegExp(selector.path).test(module)) return false;
   if (selector.pathNot && new RegExp(selector.pathNot).test(module)) return false;
   return true;
@@ -167,16 +183,14 @@ for (const rule of rules) {
     continue;
   }
   for (const edge of edges)
-    if (matches(rule.from, edge.source) && matches(rule.to, edge.target))
+    if (matches(rule.from, edge.source) && matches(rule.to, edge.target, edge.kind))
       violations.push(`${rule.name}: ${edge.source} -> ${edge.target}`);
 }
-violations.push(...environmentReaders());
+violations.push(...unresolved, ...environmentReaders());
 
 if (violations.length) {
   console.error(`Architecture checks failed:\n${violations.map((violation) => `- ${violation}`).join("\n")}`);
   process.exit(1);
 }
 
-console.log(
-  `Architecture checks passed: ${files.length} modules, ${edges.length} local imports, ${rules.length} rules.`,
-);
+console.log(`Architecture checks passed: ${files.length} modules, ${edges.length} imports, ${rules.length} rules.`);
