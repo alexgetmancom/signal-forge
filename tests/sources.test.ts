@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { loadConfig } from "../src/config.js";
+import { saveCollection } from "../src/events/pipeline.js";
 import { selectMeaningfulWebStrings } from "../src/events/web.js";
-import { saveCollection } from "../src/events.js";
 import { parseArena, parseLeaderboards } from "../src/sources/arena.js";
 import { collectAnthropic, collectOpenAI, collectOpenRouter } from "../src/sources/catalogs.js";
 import { claudeAssetImports, extractStrings } from "../src/sources/claude.js";

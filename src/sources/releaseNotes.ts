@@ -2,7 +2,8 @@ import { z } from "zod";
 import type { Collection, RecordData } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
 import type { HttpCache } from "../storage/httpCache.js";
-import { htmlText } from "./html.js";
+import { slug } from "../text.js";
+import { attribute, htmlText } from "./html.js";
 import { fetchText } from "./http.js";
 
 export const OPENAI_CHATGPT_RELEASE_NOTES_URL = "https://help.openai.com/en/articles/6825453-chatgpt-release-notes";
@@ -52,17 +53,6 @@ const monthNumbers: Record<string, number> = {
   dec: 11,
   december: 11,
 };
-
-function attribute(attributes: string, name: string): string | null {
-  return attributes.match(new RegExp(`\\b${name}=["']([^"']+)["']`, "i"))?.[1] ?? null;
-}
-
-function slug(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
-}
 
 function utcDate(year: number, month: number, day: number, source: string): string {
   const time = Date.UTC(year, month, day);

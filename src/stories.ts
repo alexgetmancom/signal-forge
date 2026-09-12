@@ -8,6 +8,7 @@ import {
   normalizeIdentity,
 } from "./events/identity.js";
 import { vendorOf } from "./events/interpretation.js";
+import { recordFor } from "./events/record.js";
 import { sourceFamily } from "./events/sourceFamily.js";
 import type { Confidence, Event, EvidenceType, RecordData, SourceAuthority } from "./events/types.js";
 
@@ -42,16 +43,6 @@ export type StoryProjection = {
 };
 
 const projections = new WeakMap<Database, StoryProjection>();
-
-function recordFor(event: Event): RecordData | null {
-  const raw = event.after_json ?? event.before_json;
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as RecordData;
-  } catch {
-    return null;
-  }
-}
 
 function normalized(value: unknown): string {
   return String(value ?? "")

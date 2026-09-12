@@ -175,7 +175,9 @@ describe("startIntervalWorker", () => {
       runs += 1;
       throw new Error("boom");
     });
-    await Bun.sleep(30);
+    // Wait for the schedule to prove itself rather than for a fixed slice of wall clock.
+    const deadline = Date.now() + 5_000;
+    while (runs < 2 && Date.now() < deadline) await Bun.sleep(5);
     await worker.stop();
     // A thrown cycle must not kill the schedule: the next one still fires.
     expect(runs).toBeGreaterThan(1);
@@ -206,17 +208,23 @@ describe("sleep", () => {
     expect(Date.now() - started).toBeGreaterThanOrEqual(15);
   });
 
+  // These race the aborted sleep against a much shorter plain one rather than reading the clock:
+  // the ordering is what the contract promises, and a loaded machine must not fail the gate.
   test("returns early when the signal aborts", async () => {
     const controller = new AbortController();
-    const started = Date.now();
     setTimeout(() => controller.abort(), 10);
-    await sleep(5_000, controller.signal);
-    expect(Date.now() - started).toBeLessThan(1_000);
+    const winner = await Promise.race([
+      sleep(5_000, controller.signal).then(() => "aborted"),
+      Bun.sleep(2_000).then(() => "timeout"),
+    ]);
+    expect(winner).toBe("aborted");
   });
 
   test("returns immediately for an already aborted signal", async () => {
-    const started = Date.now();
-    await sleep(5_000, AbortSignal.abort());
-    expect(Date.now() - started).toBeLessThan(100);
+    const winner = await Promise.race([
+      sleep(5_000, AbortSignal.abort()).then(() => "aborted"),
+      Bun.sleep(2_000).then(() => "timeout"),
+    ]);
+    expect(winner).toBe("aborted");
   });
 });

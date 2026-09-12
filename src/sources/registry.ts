@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import type { AppConfig, SourceMode, Stream } from "../config.js";
+import { openCredentialCircuitIds } from "../credentials.js";
 import { SOURCE_AUTHORITIES } from "../events/confidence.js";
 import type { Collection, SourceAuthority } from "../events/types.js";
 import { measure } from "../runtime/metrics.js";
@@ -76,12 +77,6 @@ export type SourceDefinition = {
   enabled: boolean;
   mode: SourceMode;
   restrictedReason?: string;
-};
-
-export type SourceJob = SourceDefinition & {
-  /** Compatibility projection for the scheduler; interval remains registry-owned. */
-  interval: number;
-  run: SourceDefinition["collector"];
 };
 
 /**
@@ -727,10 +722,14 @@ export function validateSourceRegistry(definitions: readonly SourceDefinition[])
 }
 
 /** Scheduler projection: all operational metadata still comes from buildSourceRegistry. */
-export function sourceJobs(db: Database, config: AppConfig): SourceJob[] {
-  return buildSourceRegistry(db, config)
-    .filter((definition) => definition.enabled && sourceRequirementsReady(definition, config))
-    .map((definition) => ({ ...definition, interval: definition.intervalSeconds, run: definition.collector }));
+export function sourceJobs(db: Database, config: AppConfig): SourceDefinition[] {
+  const rejected = openCredentialCircuitIds(db);
+  return buildSourceRegistry(db, config).filter(
+    (definition) =>
+      definition.enabled &&
+      sourceRequirementsReady(definition, config) &&
+      !rejected.has(definition.capabilityId ?? definition.id),
+  );
 }
 
 export function sourceRequirementsReady(definition: SourceDefinition, config: AppConfig): boolean {

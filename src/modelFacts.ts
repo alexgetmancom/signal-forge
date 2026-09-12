@@ -1,10 +1,12 @@
 import type { Database } from "bun:sqlite";
 import { canonical } from "./events/canonical.js";
-import { authorityForSource, CONFIDENCE_LEVELS, confidenceFor, evidenceTypeFor } from "./events/confidence.js";
+import { authorityForSource, confidenceFor, confidenceRank, evidenceTypeFor } from "./events/confidence.js";
 import { identityFor, type ModelIdentity, mergeIdentities, normalizeIdentity } from "./events/identity.js";
 import { vendorOf } from "./events/interpretation.js";
+import { recordFor } from "./events/record.js";
 import { sourceFamily } from "./events/sourceFamily.js";
 import type { Confidence, Event, EvidenceType, RecordData } from "./events/types.js";
+import { text } from "./text.js";
 
 const FIRST_PARTY_API_CATALOGUE_SOURCES = new Set([
   "openai",
@@ -76,20 +78,6 @@ type Candidate = {
 };
 type ModelAggregate = { canonicalId: string; firstSeenAt: string; updatedAt: string };
 type CurrentRecordRow = { source: string; id: string; body: string; stream: string; observed_at: string };
-
-function recordFor(event: Event): RecordData | null {
-  const raw = event.after_json ?? event.before_json;
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as RecordData;
-  } catch {
-    return null;
-  }
-}
-
-function text(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 function number(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -197,10 +185,6 @@ function currentEvent(row: CurrentRecordRow): EventRow {
 
 function emptyIdentity(): ModelIdentity {
   return { canonicalId: null, displayName: "", aliases: [], status: "unknown" };
-}
-
-function confidenceRank(value: Confidence): number {
-  return CONFIDENCE_LEVELS.indexOf(value);
 }
 
 function newer(left: Candidate, right: Candidate): boolean {

@@ -42,6 +42,14 @@ cd "$DIR"
   db.close();
   if (integrity.integrity_check !== 'ok') throw new Error('integrity_check: ' + integrity.integrity_check);
   console.log('verified', '$STAMP', 'events=' + events.n);
+  // The service cannot see this job. Without a marker, a backup that stopped three weeks ago looks
+  // exactly like one that ran last night, right up until somebody needs it.
+  require('fs').writeFileSync('/app/backups/last-verified.json', JSON.stringify({
+    verifiedAt: new Date().toISOString(),
+    file: 'app-$STAMP.db.gz',
+    bytes: require('fs').statSync('/app/data/backup-$STAMP.db').size,
+    events: events.n,
+  }) + '\n');
 "
 
 mv "$DIR/data/backup-$STAMP.db" "$DEST/app-$STAMP.db"

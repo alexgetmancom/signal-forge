@@ -34,13 +34,6 @@ const evidenceLabels: Record<EvidenceType, string> = {
   unknown: "unknown evidence",
 };
 
-const rank: Record<Confidence, number> = {
-  observed: 0,
-  supported: 1,
-  confirmed: 2,
-  shipped: 3,
-};
-
 /** Source semantics, not an LLM judgment, assign the initial confidence label. */
 export function confidenceFor(source: string, stream: string): Confidence {
   if (source.startsWith("github:") && source.endsWith(":releases")) return "shipped";
@@ -125,12 +118,9 @@ export function evidenceLabel(type: EvidenceType): string {
   return evidenceLabels[type];
 }
 
-export function strongerConfidence(left: Confidence, right: Confidence): Confidence {
-  return rank[left] >= rank[right] ? left : right;
-}
-
-export function eventConfidence(event: Pick<Event, "source" | "stream">): Confidence {
-  return confidenceFor(event.source, event.stream);
+/** Where a confidence label sits on the `observed` -> `shipped` scale. */
+export function confidenceRank(value: Confidence): number {
+  return CONFIDENCE_LEVELS.indexOf(value);
 }
 
 /**

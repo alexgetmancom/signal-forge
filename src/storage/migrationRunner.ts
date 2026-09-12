@@ -7,6 +7,12 @@ function tableExists(db: Database, name: string): boolean {
   );
 }
 
+function triggerExists(db: Database, name: string): boolean {
+  return Boolean(
+    db.query<{ name: string }, [string]>("SELECT name FROM sqlite_master WHERE type='trigger' AND name=?").get(name),
+  );
+}
+
 function columns(db: Database, table: string): Set<string> {
   return new Set(
     db
@@ -17,8 +23,13 @@ function columns(db: Database, table: string): Set<string> {
 }
 
 /**
- * Databases created before user_version existed already contain the latest schema. Adopt only that
- * exact shape; every older shape goes through the SQL migrations from version zero.
+ * Databases created before user_version existed already contain the schema of the day they were
+ * made. Adopt the version that shape actually is; every older shape goes through the SQL
+ * migrations from version zero.
+ *
+ * The versions here are written out rather than counted back from the current one: a baseline is a
+ * statement about a schema that exists on disk, and expressing it as an offset moved every one of
+ * them the next time a migration was added.
  */
 function unversionedBaseline(db: Database): number | null {
   const requiredTables = [
@@ -64,13 +75,18 @@ function unversionedBaseline(db: Database): number | null {
     ) {
       const recordColumns = columns(db, "records");
       if (recordColumns.has("stream") && recordColumns.has("observed_at")) {
-        if (!columns(db, "batch_events").has("signal")) return CURRENT_SCHEMA_VERSION - 3;
-        if (!tableExists(db, "suppressions")) return CURRENT_SCHEMA_VERSION - 2;
-        return columns(db, "snapshots").has("body") ? CURRENT_SCHEMA_VERSION : CURRENT_SCHEMA_VERSION - 1;
+        if (!columns(db, "batch_events").has("signal")) return 17;
+        if (!tableExists(db, "suppressions")) return 18;
+        if (!columns(db, "snapshots").has("body")) return 19;
+        // The shapes after 20 are a trigger, two tables and a column, in the order they arrived.
+        if (!triggerExists(db, "events_detected_at_shape_insert")) return 20;
+        if (!tableExists(db, "credential_circuits")) return 21;
+        if (!tableExists(db, "operator_journal")) return 22;
+        return sourceColumns.has("failure_started_at") ? 24 : 23;
       }
-      if (tableExists(db, "alert_attempts")) return CURRENT_SCHEMA_VERSION - 4;
-      if (tableExists(db, "deepseek_usage")) return CURRENT_SCHEMA_VERSION - 5;
-      return tableExists(db, "code_metrics") ? CURRENT_SCHEMA_VERSION - 6 : CURRENT_SCHEMA_VERSION - 7;
+      if (tableExists(db, "alert_attempts")) return 16;
+      if (tableExists(db, "deepseek_usage")) return 15;
+      return tableExists(db, "code_metrics") ? 14 : 13;
     }
     const currentVerificationNames = deliveryColumns.has("verification_source");
     const baseline = tableExists(db, "stories") ? (currentVerificationNames ? 9 : 8) : currentVerificationNames ? 8 : 7;

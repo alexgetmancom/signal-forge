@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { loadConfig, settingsSchema } from "../src/config.js";
-import { type Collection, saveCollection } from "../src/events.js";
+import { saveCollection } from "../src/events/pipeline.js";
+import type { Collection } from "../src/events/types.js";
 import { createHttpApp } from "../src/http.js";
 import { openDatabase } from "../src/storage/database.js";
 
@@ -15,9 +16,9 @@ test("health is public, operational state requires token, MCP lists matching sch
   expect((await app.request("/readyz")).status).toBe(200);
   expect((await app.request("/reports/1")).status).toBe(401);
   expect((await app.request("/reports/1", { headers: auth })).status).toBe(404);
-  db.exec(`INSERT INTO snapshots(id,source,collected_at,raw_json) VALUES(1,'web','2026-09-08','{}');
+  db.exec(`INSERT INTO snapshots(id,source,collected_at,raw_json) VALUES(1,'web','2026-09-08T00:00:00.000Z','{}');
     INSERT INTO events(id,source,stream,entity_id,kind,before_json,after_json,detected_at,snapshot_id)
-    VALUES(1,'web','web','<script>','changed','{"strings":[]}','{"strings":["Claude Code"]}','2026-09-08',1)`);
+    VALUES(1,'web','web','<script>','changed','{"strings":[]}','{"strings":["Claude Code"]}','2026-09-08T00:00:00.000Z',1)`);
   const report = await app.request("/reports/1", { headers: auth });
   expect(report.status).toBe(200);
   expect(await report.text()).toContain("&lt;script&gt;");
@@ -28,27 +29,37 @@ test("health is public, operational state requires token, MCP lists matching sch
     body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
   });
   const body = (await response.json()) as { result: { tools: { name: string }[] } };
-  expect(body.result.tools.map((t: { name: string }) => t.name)).toEqual([
+  // Only operations marked for the agent surface are listed, and a mutation that is not routine
+  // delivery work is not among them.
+  const tools = body.result.tools.map((t: { name: string }) => t.name);
+  expect(tools).not.toContain("poll");
+  expect(tools).not.toContain("clear_credential_circuit");
+  expect(tools).not.toContain("guide");
+  expect(tools).toEqual([
+    "doctor",
     "status",
-    "events",
-    "event",
+    "issues",
+    "capabilities",
+    "date_integrity",
     "deliveries",
     "deliveries_needing_verification",
     "require_delivery_verification",
     "resolve_delivery_verification",
     "suppressions",
-    "lead_time",
-    "signal_quality",
-    "code_analytics",
-    "deepseek_usage",
+    "events",
+    "event",
     "stories",
     "models",
     "model",
     "hypotheses",
     "hypothesis",
     "lifecycle_deadlines",
-    "issues",
-    "capabilities",
+    "lead_time",
+    "signal_quality",
+    "code_analytics",
+    "deepseek_usage",
+    "credential_circuits",
+    "journal",
   ]);
   const batch = await app.request("/api/mcp", {
     method: "POST",

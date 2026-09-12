@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
 import type { Destination } from "../src/config.js";
+import { prepareDeliveries } from "../src/events/batching.js";
 import { readerStanding } from "../src/events/confidence.js";
-import { type Collection, prepareDeliveries, saveCollection } from "../src/events.js";
+import { saveCollection } from "../src/events/pipeline.js";
+import type { Collection } from "../src/events/types.js";
 import { suppressionEmbed } from "../src/status.js";
 import { openDatabase } from "../src/storage/database.js";
 

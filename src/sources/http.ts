@@ -8,6 +8,8 @@ export class SourceHttpError extends Error {
   constructor(
     message: string,
     readonly retryAt: string | null = null,
+    /** The status is kept because 401 and 403 are a refused credential, not a flaky link. */
+    readonly status: number | null = null,
   ) {
     super(message);
   }
@@ -110,6 +112,7 @@ export async function fetchText(
     throw new SourceHttpError(
       `Source returned HTTP ${response.status}`,
       response.status === 429 ? retryAt(response.headers) : null,
+      response.status,
     );
   const reader = response.body?.getReader();
   if (!reader) throw new Error("Source returned no body");

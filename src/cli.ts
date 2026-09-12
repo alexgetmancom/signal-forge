@@ -1,73 +1,80 @@
 import { loadConfig } from "./config.js";
-import { operations } from "./operations.js";
-import { pollSources } from "./poller.js";
+import { recordOperatorAction } from "./journal.js";
+import { cliCommand, type OperationMap, operationCatalog, operations } from "./operations.js";
 import { measure } from "./runtime/metrics.js";
 import { openDatabase } from "./storage/database.js";
+
+/**
+ * The dispatch is generic: every command, its arguments, its usage line and whether it is a
+ * mutation come from the registry. The previous chain of branches and its hand-written usage
+ * string had already drifted apart, which is the failure this shape cannot have.
+ */
+function write(value: unknown): void {
+  process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
+}
+
+function usage(defs: OperationMap): string {
+  const catalog = operationCatalog(defs).filter((entry) => !entry.usage.startsWith("GET "));
+  const width = Math.max(...catalog.map((entry) => entry.usage.length));
+  return [
+    "Usage: bun src/cli.ts <command> [arguments]",
+    "",
+    ...catalog.map((entry) => `  ${entry.usage.padEnd(width)}  ${entry.mutates ? "[mutates] " : ""}${entry.summary}`),
+    "",
+    "Start with `guide` when the command you need is not obvious.",
+  ].join("\n");
+}
+
+/** Positional arguments are named by the registry; the schema coerces them from text. */
+function cliInput(defs: OperationMap, name: string, argv: readonly string[]): Record<string, unknown> {
+  const args = defs[name]?.cli?.args ?? [];
+  const input: Record<string, unknown> = {};
+  args.forEach((argument, index) => {
+    const value = argument.rest ? argv.slice(index).join("/") : argv[index];
+    if (value !== undefined && value !== "") input[argument.name] = value;
+  });
+  return input;
+}
 
 const config = loadConfig(),
   db = openDatabase(config.DATABASE_URL);
 try {
-  const command = Bun.argv[2] ?? "status",
-    defs = operations(db, config);
-  await measure(db, `cli.command:${command}`, async () => {
-    if (command === "poll") await pollSources(db, config, true);
-    else if (command === "status") process.stdout.write(`${JSON.stringify(defs.status.handler(), null, 2)}\n`);
-    else if (command === "event") {
-      const input = defs.event.schema.parse({ id: Number(Bun.argv[3]) });
-      process.stdout.write(`${JSON.stringify(defs.event.handler(input), null, 2)}\n`);
-    } else if (command === "events" || command === "deliveries")
-      process.stdout.write(`${JSON.stringify(defs[command].handler({ limit: 20 }), null, 2)}\n`);
-    else if (command === "suppressions") {
-      const input = defs.suppressions.schema.parse({ limit: Number(Bun.argv[3] ?? 20) });
-      process.stdout.write(`${JSON.stringify(defs.suppressions.handler(input), null, 2)}\n`);
-    } else if (command === "issues" || command === "capabilities")
-      process.stdout.write(`${JSON.stringify(defs[command].handler({}), null, 2)}\n`);
-    else if (command === "signal-quality") {
-      const input = defs.signal_quality.schema.parse({ days: Number(Bun.argv[3] ?? 7) });
-      process.stdout.write(`${JSON.stringify(defs.signal_quality.handler(input), null, 2)}\n`);
-    } else if (command === "code-analytics") {
-      const input = defs.code_analytics.schema.parse({ days: Number(Bun.argv[3] ?? 7) });
-      process.stdout.write(`${JSON.stringify(defs.code_analytics.handler(input), null, 2)}\n`);
-    } else if (command === "lead-time") {
-      const input = defs.lead_time.schema.parse({ days: Number(Bun.argv[3] ?? 7) });
-      process.stdout.write(`${JSON.stringify(defs.lead_time.handler(input), null, 2)}\n`);
-    } else if (command === "deepseek-usage") {
-      const input = defs.deepseek_usage.schema.parse({ days: Number(Bun.argv[3] ?? 7) });
-      process.stdout.write(`${JSON.stringify(defs.deepseek_usage.handler(input), null, 2)}\n`);
-    } else if (command === "stories")
-      process.stdout.write(
-        `${JSON.stringify(defs.stories.handler({ minConfidence: "observed", limit: 50 }), null, 2)}\n`,
+  const defs = operations(db, config);
+  const byCommand = new Map(Object.keys(defs).map((name) => [cliCommand(name), name]));
+  const command = Bun.argv[2] ?? "status";
+  const name = byCommand.get(command);
+  if (!name || !defs[name]?.cli) {
+    process.stderr.write(`${usage(defs)}\n`);
+    process.exitCode = command === "help" || command === "--help" ? 0 : 1;
+  } else {
+    const definition = defs[name];
+    const input = definition.schema.safeParse(cliInput(defs, name, Bun.argv.slice(3)));
+    if (!input.success) {
+      process.stderr.write(
+        `${input.error.issues.map((issue) => `${issue.path.join(".") || "input"}: ${issue.message}`).join("\n")}\n`,
       );
-    else if (command === "models")
-      process.stdout.write(`${JSON.stringify(defs.models.handler({ limit: 50 }), null, 2)}\n`);
-    else if (command === "model") {
-      const input = defs.model.schema.parse({ canonicalId: Bun.argv.slice(3).join("/") });
-      process.stdout.write(`${JSON.stringify(defs.model.handler(input), null, 2)}\n`);
-    } else if (command === "hypotheses")
-      process.stdout.write(`${JSON.stringify(defs.hypotheses.handler({ limit: 50 }), null, 2)}\n`);
-    else if (command === "hypothesis") {
-      const input = defs.hypothesis.schema.parse({ id: Number(Bun.argv[3]) });
-      process.stdout.write(`${JSON.stringify(defs.hypothesis.handler(input), null, 2)}\n`);
-    } else if (command === "deadlines")
-      process.stdout.write(`${JSON.stringify(defs.lifecycle_deadlines.handler({ days: 30 }), null, 2)}\n`);
-    else if (command === "deliveries-needing-verification")
-      process.stdout.write(`${JSON.stringify(defs.deliveries_needing_verification.handler({ limit: 20 }), null, 2)}\n`);
-    else if (command === "require-delivery-verification") {
-      const input = defs.require_delivery_verification.schema.parse({ id: Number(Bun.argv[3]) });
-      process.stdout.write(`${JSON.stringify(defs.require_delivery_verification.handler(input), null, 2)}\n`);
-    } else if (command === "resolve-delivery-verification") {
-      const externalId = Bun.argv[5];
-      const input = defs.resolve_delivery_verification.schema.parse({
-        id: Number(Bun.argv[3]),
-        outcome: Bun.argv[4],
-        ...(externalId === undefined ? {} : { externalId }),
+      if (definition.mutates)
+        recordOperatorAction(db, { surface: "cli", operation: name, input: {}, outcome: "rejected" });
+      process.exitCode = 1;
+    } else {
+      // A mutation says so before it runs: the operator asked for it, and the journal will carry it.
+      if (definition.mutates) process.stderr.write(`This command changes stored state: ${name}\n`);
+      await measure(db, `cli.command:${command}`, async () => {
+        try {
+          const result = await (definition.handler as (value: unknown) => unknown)(input.data);
+          if (definition.mutates)
+            recordOperatorAction(db, { surface: "cli", operation: name, input: input.data, outcome: "ok" });
+          write(result ?? null);
+        } catch (error) {
+          const detail = error instanceof Error ? error.message : "Operation failed";
+          if (definition.mutates)
+            recordOperatorAction(db, { surface: "cli", operation: name, input: input.data, outcome: "failed", detail });
+          process.stderr.write(`${detail}\n`);
+          process.exitCode = 1;
+        }
       });
-      process.stdout.write(`${JSON.stringify(defs.resolve_delivery_verification.handler(input), null, 2)}\n`);
-    } else
-      throw new Error(
-        "Usage: bun src/cli.ts status|events|event <id>|deliveries|deliveries-needing-verification|require-delivery-verification <id>|resolve-delivery-verification <id> <sent|failed> [external-id]|issues|capabilities|suppressions [limit]|lead-time [days]|signal-quality [days]|code-analytics [days]|deepseek-usage [days]|stories|models|model <canonical-id>|hypotheses|hypothesis <id>|deadlines|poll",
-      );
-  });
+    }
+  }
 } finally {
   db.close();
 }

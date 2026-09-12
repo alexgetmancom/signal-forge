@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Collection, RecordData } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
 import type { HttpCache } from "../storage/httpCache.js";
+import { slug } from "../text.js";
 import { htmlText } from "./html.js";
 import { fetchText } from "./http.js";
 
@@ -130,13 +131,6 @@ export function parseOfficialFeed(text: string, options: FeedOptions): Collectio
     ? records.filter((record) => options.include?.(record.name, String(record.description ?? "")))
     : records;
   return sourceCollection(options, raw, [...new Map(filtered.map((record) => [record.id, record])).values()]);
-}
-
-function slug(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
 }
 
 function markdownText(value: string): string {

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Collection, RecordData } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
+import { slug } from "../text.js";
 import { htmlText } from "./html.js";
 import { fetchText } from "./http.js";
 
@@ -137,13 +138,6 @@ function lifecycleStage(value: string | null): string | null {
   if (/\bactive\b/i.test(normalized)) return "Active";
   if (/\bga\b/i.test(normalized)) return "GA";
   return null;
-}
-
-function slug(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
 }
 
 function parseTableRecords(html: string, options: LifecycleTableOptions): RecordData[] {

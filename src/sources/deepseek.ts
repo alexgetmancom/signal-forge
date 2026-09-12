@@ -3,7 +3,8 @@ import type { AppConfig } from "../config.js";
 import type { Collection, RecordData } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
 import type { HttpCache } from "../storage/httpCache.js";
-import { htmlText } from "./html.js";
+import { slug } from "../text.js";
+import { attribute, htmlText } from "./html.js";
 import { fetchText } from "./http.js";
 
 export const DEEPSEEK_UPDATES_URL = "https://api-docs.deepseek.com/updates";
@@ -45,17 +46,6 @@ const pricingRecordSchema = z
   .passthrough();
 
 const pricingRecordsSchema = z.array(pricingRecordSchema).min(1);
-
-function attribute(attributes: string, name: string): string | null {
-  return attributes.match(new RegExp(`\\b${name}=["']([^"']+)["']`, "i"))?.[1] ?? null;
-}
-
-function slug(value: string): string {
-  return value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
-}
 
 /** Parse the dated update sections from DeepSeek's official API documentation page. */
 export function parseDeepSeekUpdates(html: string): Collection {

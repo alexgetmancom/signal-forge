@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { median, round } from "./numbers.js";
 import { sourceLabel } from "./sources/labels.js";
 
 /**
@@ -27,12 +28,9 @@ export type LeadTimeRow = {
 
 type Sighting = { story_id: number; source: string; detected_at: string };
 
-function median(values: number[]): number | null {
-  if (!values.length) return null;
-  const sorted = [...values].sort((left, right) => left - right);
-  const middle = Math.floor(sorted.length / 2);
-  const value = sorted.length % 2 ? sorted[middle] : ((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2;
-  return Math.round((value ?? 0) * 10) / 10;
+function medianHours(values: number[]): number | null {
+  const value = median(values);
+  return value === null ? null : round(value, 1);
 }
 
 export function leadTime(db: Database, days = 7): { since: string; stories: number; sources: LeadTimeRow[] } {
@@ -85,8 +83,8 @@ export function leadTime(db: Database, days = 7): { since: string; stories: numb
       label: sourceLabel(source),
       firstSightings: wins.get(source) ?? 0,
       appearances: appearances.get(source) ?? 0,
-      medianLeadHours: median(leads.get(source) ?? []),
-      medianLagHours: median(lags.get(source) ?? []),
+      medianLeadHours: medianHours(leads.get(source) ?? []),
+      medianLagHours: medianHours(lags.get(source) ?? []),
     }))
     .sort((left, right) => right.firstSightings - left.firstSightings || right.appearances - left.appearances);
 

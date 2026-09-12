@@ -91,6 +91,24 @@ current `main` branch with no known actionable issues.
   reset and AI-classified watch forecast are retained as evidence and never become records, because
   the tracker's own documentation says neither implies a reset happened.
 
+- Every operation is one registry entry; the CLI dispatch and its usage lines, the HTTP routes, the
+  MCP tool list and the `guide` catalog are projections of it. `mutates` marks an operation that
+  changes stored state, and `agent` keeps credential and host operations off the MCP surface.
+- `guide` answers with sections, a symptom index and what to do when the database is unusable;
+  `doctor` answers whether this deployment is configured, has a database and has a verified backup.
+- The nightly backup writes a marker after verifying an archive. `doctor` reads it and `issues`
+  raises `backup_stale`, so a backup job that stopped is visible before the day it is needed.
+- Stored instants are ISO-8601 UTC, enforced by database triggers on every timestamp column;
+  `date-integrity` reports rows written before the shape was enforced.
+- A credential an upstream refused opens a circuit on the capability rather than the source: every
+  source carrying it stops, `capabilities` reports `rejected`, and only the owner clears it.
+- One collection cycle runs at a time, under a database lease that a crashed holder releases.
+- Every operator mutation is journalled with the surface it was run from.
+- `bun run check` also enforces English-only sources, that only `config.ts` reads `process.env`,
+  unused files and dependencies, and a high-severity dependency audit; `.githooks/pre-push` runs it.
+- `scripts/rehearse-migration.ts` runs a migration against a copy of a real database and reports
+  how many stored `records.body` values it moved.
+
 ## Next work
 
 Ordered by risk and reader value. Measurements behind these entries come from the production

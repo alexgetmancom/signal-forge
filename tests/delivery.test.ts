@@ -1,6 +1,8 @@
 import { afterEach, expect, test } from "bun:test";
 import { type Destination, loadConfig } from "../src/config.js";
 import { deliverPending, recoverInterruptedDeliveries } from "../src/delivery.js";
+import { prepareDeliveries } from "../src/events/batching.js";
+import { saveCollection } from "../src/events/pipeline.js";
 import {
   DESCRIPTION_CHARACTERS,
   EMBEDS_PER_MESSAGE,
@@ -8,7 +10,7 @@ import {
   MESSAGE_CHARACTERS,
   pageEmbeds,
 } from "../src/events/render/budget.js";
-import { type Collection, prepareDeliveries, saveCollection } from "../src/events.js";
+import type { Collection } from "../src/events/types.js";
 import { listActionableIssues } from "../src/issues.js";
 import { openDatabase } from "../src/storage/database.js";
 

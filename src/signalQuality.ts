@@ -4,6 +4,7 @@ import { CONFIDENCE_LEVELS } from "./events/confidence.js";
 import { hasNotificationContent } from "./events/notification.js";
 import { sourceIndependenceFamily } from "./events/sourceFamily.js";
 import type { Event } from "./events/types.js";
+import { median } from "./numbers.js";
 import { sourceJobs } from "./sources/registry.js";
 
 export type SignalQualitySource = {
@@ -79,13 +80,9 @@ const rounded = (value: number, digits = 2): number => {
   return Math.round(value * factor) / factor;
 };
 
-function median(values: number[]): number | null {
-  if (!values.length) return null;
-  const sorted = [...values].sort((left, right) => left - right);
-  const middle = Math.floor(sorted.length / 2);
-  return sorted.length % 2
-    ? (sorted[middle] ?? null)
-    : Math.round(((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2);
+function medianSeconds(values: number[]): number | null {
+  const value = median(values);
+  return value === null ? null : Math.round(value);
 }
 
 /**
@@ -298,7 +295,7 @@ export function signalQuality(db: Database, config: AppConfig, days = 7, now = D
       confirmationRate: firstSourceWins.get(job.id)
         ? rounded((laterConfirmed.get(job.id) ?? 0) / (firstSourceWins.get(job.id) ?? 1), 3)
         : 0,
-      medianLeadTimeSeconds: median(
+      medianLeadTimeSeconds: medianSeconds(
         leadTimes.filter((leadTime) => leadTime.source === job.id).map((leadTime) => leadTime.leadTimeSeconds),
       ),
     };

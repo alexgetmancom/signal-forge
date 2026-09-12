@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
 import { publishAlerts, recoverInterruptedAlerts } from "../src/alerts.js";
 import { loadConfig } from "../src/config.js";
-import { saveCollection } from "../src/events.js";
+import { saveCollection } from "../src/events/pipeline.js";
 import { PLATFORMS, parsePlatformStatus } from "../src/sources/platforms.js";
-import { activityEmbed, platformEmbed, publishStatus, sourceHealth, statusEmbed } from "../src/status.js";
+import { activityEmbed, platformEmbed, publishBoard, sourceHealth, statusEmbed } from "../src/status.js";
 import { openDatabase } from "../src/storage/database.js";
 import { storeSnapshot } from "../src/storage/snapshots.js";
 
@@ -102,12 +102,12 @@ test("the board posts once and edits afterwards", async () => {
     calls.push(`${init?.method ?? "GET"} ${String(url).split("/channels/")[1]}`);
     return new Response(JSON.stringify({ id: "555" }), { status: 200 });
   };
-  expect(await publishStatus(db, withStatus, request, now)).toBe("created");
+  expect(await publishBoard(db, withStatus, "status", request, now)).toBe("created");
   // Nothing moved, so the board is not rewritten: an unchanged status is not an event.
-  expect(await publishStatus(db, withStatus, request, now)).toBe("unchanged");
+  expect(await publishBoard(db, withStatus, "status", request, now)).toBe("unchanged");
 
   seed(db, "arena", { last_error: "Source returned HTTP 500", checked_at: new Date(now).toISOString() });
-  expect(await publishStatus(db, withStatus, request, now)).toBe("edited");
+  expect(await publishBoard(db, withStatus, "status", request, now)).toBe("edited");
   // The unchanged cycle still checks the board is there: a board deleted by hand must come back.
   expect(calls).toEqual(["POST 99/messages", "GET 99/messages/555", "PATCH 99/messages/555"]);
   db.close();
@@ -127,8 +127,8 @@ test("a retried board create reuses its Discord nonce after an unknown outcome",
     }
     return Response.json({ id: "555" });
   };
-  await expect(publishStatus(db, withStatus, request, now)).rejects.toThrow("network failed after send");
-  expect(await publishStatus(db, withStatus, request, now)).toBe("created");
+  await expect(publishBoard(db, withStatus, "status", request, now)).rejects.toThrow("network failed after send");
+  expect(await publishBoard(db, withStatus, "status", request, now)).toBe("created");
   expect(bodies[0]?.nonce).toBe(bodies[1]?.nonce);
   expect(bodies[0]?.enforce_nonce).toBe(true);
   db.close();
@@ -143,10 +143,10 @@ test("a board deleted by hand is posted again even though its content did not ch
     if (deleted && method !== "POST") return new Response("{}", { status: 404 });
     return new Response(JSON.stringify({ id: "555" }), { status: 200 });
   };
-  expect(await publishStatus(db, withStatus, request, now)).toBe("created");
+  expect(await publishBoard(db, withStatus, "status", request, now)).toBe("created");
   deleted = true;
   // This is how the boards are put in the right order: delete one, and the next cycle reposts it.
-  expect(await publishStatus(db, withStatus, request, now)).toBe("created");
+  expect(await publishBoard(db, withStatus, "status", request, now)).toBe("created");
   db.close();
 });
 

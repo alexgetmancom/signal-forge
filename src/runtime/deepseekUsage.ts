@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { log } from "../logger.js";
+import { round } from "../numbers.js";
 
 export const DEEPSEEK_SUMMARY_MODEL = "deepseek-v4-flash";
 export const DEEPSEEK_SUMMARY_ENDPOINT = "https://api.deepseek.com/v1/chat/completions";
@@ -334,11 +335,6 @@ function addRow(totals: UsageTotals, row: StoredDeepSeekUsage): void {
   }
 }
 
-function round(value: number, digits = 8): number {
-  const factor = 10 ** digits;
-  return Math.round(value * factor) / factor;
-}
-
 function stats(totals: UsageTotals): DeepSeekUsageStats {
   return {
     attempts: totals.attempts,
@@ -362,9 +358,9 @@ function stats(totals: UsageTotals): DeepSeekUsageStats {
     },
     cost: {
       currency: "USD",
-      exactUsd: round(totals.exactCostUsd),
-      estimatedUsd: round(totals.estimatedCostUsd),
-      totalUsd: round(totals.totalCostUsd),
+      exactUsd: round(totals.exactCostUsd, 8),
+      estimatedUsd: round(totals.estimatedCostUsd, 8),
+      totalUsd: round(totals.totalCostUsd, 8),
       totalCents: round(totals.totalCostUsd * 100, 6),
       pricedAttempts: totals.pricedAttempts,
       unpricedAttempts: totals.unpricedAttempts,

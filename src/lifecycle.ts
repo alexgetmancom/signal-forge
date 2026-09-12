@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import type { AppConfig } from "./config.js";
 import { prepareDeliveries } from "./events/batching.js";
 import { identityFor } from "./events/identity.js";
+import { recordFor } from "./events/record.js";
 import {
   type LifecycleReminderContext,
   lifecycleReminderContextSchema,
@@ -10,6 +11,7 @@ import {
 } from "./events/render/lifecycle.js";
 import type { Event, RecordData } from "./events/types.js";
 import { buildSourceRegistry } from "./sources/registry.js";
+import { text } from "./text.js";
 
 const REMINDER_OFFSETS = [30, 7, 1] as const;
 const DAY_MS = 24 * 3_600_000;
@@ -34,20 +36,6 @@ type DeadlineCandidate = LifecycleReminderContext & {
   canonicalId: string | null;
   updatedAt: string;
 };
-
-function text(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
-
-function recordFor(event: Event): RecordData | null {
-  const raw = event.after_json ?? event.before_json;
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as RecordData;
-  } catch {
-    return null;
-  }
-}
 
 function normalizeDate(value: unknown): string | null {
   const raw = text(value);

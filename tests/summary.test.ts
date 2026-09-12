@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { loadConfig } from "../src/config.js";
-import { type RecordData, saveCollection } from "../src/events.js";
+import { saveCollection } from "../src/events/pipeline.js";
+import type { RecordData } from "../src/events/types.js";
 import { openDatabase } from "../src/storage/database.js";
 import { fillSummaries, sanitize, summarize } from "../src/summary.js";
 

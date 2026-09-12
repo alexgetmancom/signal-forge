@@ -32,6 +32,7 @@ to undo.
 
 # Production
 
-`docs/runbook.md` is the route. Get CLI output before reading source, and never run a mutation
-without an explicit request. `docs/roadmap.md` is the current plan; `docs/competitors/` records what
-was already decided from the competitor audit and is not a second backlog.
+`docs/runbook.md` is the route, and `bun src/cli.ts guide` is where to start when the command is not
+obvious. Get CLI output before reading source, and never run a mutation without an explicit
+request. `docs/roadmap.md` is the current plan; `docs/competitors/` records what was already
+decided from the competitor audit and is not a second backlog.

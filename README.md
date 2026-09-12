@@ -232,7 +232,13 @@ See [docs/discord.md](docs/discord.md) for channel configuration, status boards,
 
 Signal Forge exposes the same operational model through CLI, HTTP, and MCP interfaces.
 
+Every operation is one entry in `src/operations.ts`, and the CLI dispatch, its usage lines, the
+HTTP routes, the MCP tool list and the `guide` catalog are projections of it. `bun src/cli.ts help`
+prints the catalog; `guide` answers with the symptom index when the command you need is not obvious.
+
 ```sh
+bun src/cli.ts guide
+bun src/cli.ts doctor
 bun src/cli.ts status
 bun src/cli.ts issues
 bun src/cli.ts signal-quality 7
@@ -241,9 +247,15 @@ bun src/cli.ts deepseek-usage 30
 bun src/cli.ts stories
 bun src/cli.ts models
 bun src/cli.ts hypotheses
-bun src/cli.ts deadlines
+bun src/cli.ts lifecycle-deadlines
 bun src/cli.ts deliveries-needing-verification
+bun src/cli.ts journal
 ```
+
+An operation that changes stored state is marked `[mutates]` in the catalog, says so before it
+runs, and is recorded in the operator journal with the surface it was run from. Operations that
+touch credentials or the host — `poll`, `clear-credential-circuit` — are deliberately absent from
+the MCP tool list.
 
 Operational endpoints require bearer-token authentication.
 
@@ -295,9 +307,9 @@ Full event evidence remains in SQLite even when a message excerpt is truncated.
 
 ## HTTP / MCP API
 
-For HTTP/MCP access, set `MCP_TOKEN` to at least 32 random characters and use `Authorization: Bearer <token>` with `/reports/:id`, `/api/status`, `/api/events`, `/api/events/:id`, `/api/models`, `/api/models/*`, `/api/hypotheses`, `/api/hypotheses/:id`, `/api/deadlines`, `/api/code-analytics`, `/api/deepseek-usage`, or `/api/mcp`.
+For HTTP/MCP access, set `MCP_TOKEN` to at least 32 random characters and use `Authorization: Bearer <token>` with `/reports/:id`, `/api/status`, `/api/events`, `/api/events/:id`, `/api/models`, `/api/models/*`, `/api/hypotheses`, `/api/hypotheses/:id`, `/api/deadlines`, `/api/code-analytics`, `/api/deepseek-usage`, `/api/doctor`, `/api/guide`, `/api/journal`, `/api/credentials`, or `/api/mcp`.
 
-MCP operations: `status`, `events`, `event`, `deliveries`, `issues`, `capabilities`, `deliveries_needing_verification`, `require_delivery_verification`, `resolve_delivery_verification`, `signal_quality`, `code_analytics`, `deepseek_usage`, `stories`, `models`, `model`, `hypotheses`, `hypothesis`, and `lifecycle_deadlines`.
+MCP operations: `doctor`, `status`, `issues`, `capabilities`, `date_integrity`, `deliveries`, `deliveries_needing_verification`, `require_delivery_verification`, `resolve_delivery_verification`, `suppressions`, `events`, `event`, `stories`, `models`, `model`, `hypotheses`, `hypothesis`, `lifecycle_deadlines`, `lead_time`, `signal_quality`, `code_analytics`, `deepseek_usage`, `credential_circuits`, and `journal`.
 
 ## Development
 

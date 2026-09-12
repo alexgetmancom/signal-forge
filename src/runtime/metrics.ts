@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { log } from "../logger.js";
+import { round } from "../numbers.js";
 
 const METRIC_BUCKET_MS = 60 * 60 * 1000;
 const RETENTION_DAYS = 90;
@@ -72,11 +73,6 @@ export type CodeAnalyticsReport = {
     averageDurationMs: number;
   }[];
 };
-
-function round(value: number, digits = 2): number {
-  const factor = 10 ** digits;
-  return Math.round(value * factor) / factor;
-}
 
 function bucketStart(now: number): string {
   return new Date(Math.floor(now / METRIC_BUCKET_MS) * METRIC_BUCKET_MS).toISOString();
@@ -264,7 +260,7 @@ function sectionReport(metric: MetricAggregate): CodeAnalyticsSection {
     failures: metric.failures,
     failureRate: metric.calls ? round(metric.failures / metric.calls, 4) : 0,
     totalDurationMs: metric.totalDurationMs,
-    averageDurationMs: metric.calls ? round(metric.totalDurationMs / metric.calls) : 0,
+    averageDurationMs: metric.calls ? round(metric.totalDurationMs / metric.calls, 2) : 0,
     minDurationMs: Number.isFinite(metric.minDurationMs) ? metric.minDurationMs : 0,
     maxDurationMs: metric.maxDurationMs,
     p50DurationMs: percentile(metric.durationBuckets, 0.5),
@@ -312,13 +308,13 @@ export function codeAnalytics(db: Database, days = 7, now = Date.now()): CodeAna
       failures,
       failureRate: calls ? round(failures / calls, 4) : 0,
       totalDurationMs,
-      averageDurationMs: calls ? round(totalDurationMs / calls) : 0,
+      averageDurationMs: calls ? round(totalDurationMs / calls, 2) : 0,
     },
     sections: metrics.map(sectionReport),
     timeline: [...timeline.entries()].map(([bucketStartValue, value]) => ({
       bucketStart: bucketStartValue,
       ...value,
-      averageDurationMs: value.calls ? round(value.totalDurationMs / value.calls) : 0,
+      averageDurationMs: value.calls ? round(value.totalDurationMs / value.calls, 2) : 0,
     })),
   };
 }

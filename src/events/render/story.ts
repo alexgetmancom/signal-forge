@@ -1,6 +1,7 @@
 import { sourceLabel } from "../../sources/labels.js";
 import { evidenceLabel, evidenceTypeFor } from "../confidence.js";
 import { vendorOf } from "../interpretation.js";
+import { recordFor } from "../record.js";
 import type { Event, RecordData } from "../types.js";
 import { utcStamp } from "./common.js";
 import { eventFacts } from "./facts.js";
@@ -9,16 +10,6 @@ export type StoryRenderEvent = Event & { url: string };
 
 const KIND_LABELS: Record<Event["kind"], string> = { new: "🆕", changed: "✏️", removed: "🗑️" };
 const KIND_COLORS: Record<Event["kind"], number> = { new: 0x2ecc71, changed: 0xf1c40f, removed: 0xe74c3c };
-
-function recordFor(event: Event): RecordData | null {
-  const raw = event.after_json ?? event.before_json;
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as RecordData;
-  } catch {
-    return null;
-  }
-}
 
 function recordUrl(event: StoryRenderEvent, record: RecordData | null): string {
   return typeof record?.url === "string" && record.url.trim() ? record.url : event.url;

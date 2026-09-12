@@ -13,7 +13,7 @@ import { stopServerGracefully } from "./runtime/shutdown.js";
 import { RuntimeSupervisor } from "./runtime/supervisor.js";
 import { startIntervalWorker } from "./runtime/worker.js";
 import { buildSourceRegistry } from "./sources/registry.js";
-import { publishActivityBoard, publishPlatformBoard, publishStatus, publishSuppressionBoard } from "./status.js";
+import { BOARD_ORDER, publishBoard } from "./status.js";
 import { openDatabase } from "./storage/database.js";
 import { HttpCache } from "./storage/httpCache.js";
 import { expireSnapshotBodies, pruneShadowCandidates, pruneSnapshots } from "./storage/retention.js";
@@ -41,30 +41,21 @@ supervisor.register(
   }),
 );
 supervisor.register(startIntervalWorker(db, "delivery", 1500, () => deliverPending(db, config)));
-supervisor.register(startIntervalWorker(db, "sources", 30_000, () => pollSources(db, config)));
+supervisor.register(
+  startIntervalWorker(db, "sources", 30_000, async () => {
+    await pollSources(db, config);
+  }),
+);
 supervisor.register(
   startIntervalWorker(db, "status", 300_000, async () => {
-    // Order matters on a first run: the channel reads top to bottom, so what happened comes first,
-    // then how the vendors are doing, then how we are doing.
-    try {
-      await publishActivityBoard(db, config);
-    } catch (error) {
-      log("error", "Activity board probe failed", { error });
-    }
-    try {
-      await publishPlatformBoard(db, config);
-    } catch (error) {
-      log("error", "Platform board probe failed", { error });
-    }
-    try {
-      await publishSuppressionBoard(db, config);
-    } catch (error) {
-      log("error", "Suppression board probe failed", { error });
-    }
-    try {
-      await publishStatus(db, config);
-    } catch (error) {
-      log("error", "Status board probe failed", { error });
+    // Order matters on a first run: the channel reads top to bottom, and one board that cannot be
+    // sent must not stop the rest.
+    for (const board of BOARD_ORDER) {
+      try {
+        await publishBoard(db, config, board);
+      } catch (error) {
+        log("error", "Board probe failed", { board, error });
+      }
     }
     try {
       await publishAlerts(db, config);

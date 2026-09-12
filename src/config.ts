@@ -45,6 +45,8 @@ const envSchema = z.object({
   BIND_HOST: z.string().default("127.0.0.1"),
   DATABASE_URL: z.string().default("./data/app.db"),
   CONFIG_PATH: z.string().default("./signal-forge.json"),
+  /** Where the nightly backup job leaves its archives and the marker it writes after verifying one. */
+  BACKUP_DIRECTORY: z.string().default("./backups"),
   MCP_TOKEN: z.preprocess((v) => (v === "" ? undefined : v), z.string().min(32).optional()),
   TELEGRAM_BOT_TOKEN: optionalSecret,
   DISCORD_BOT_TOKEN: optionalSecret,

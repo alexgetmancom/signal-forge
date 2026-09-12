@@ -1,20 +1,14 @@
 import { afterEach, expect, test } from "bun:test";
 import type { Destination } from "../src/config.js";
-import {
-  type Collection,
-  canonical,
-  collapseDetails,
-  type Event,
-  eventEmbed,
-  hasNotificationContent,
-  isRoutine,
-  MAX_DETAIL_LINES,
-  prepareDeliveries,
-  type RecordData,
-  renderEvent,
-  saveCollection,
-  splitMessage,
-} from "../src/events.js";
+import { prepareDeliveries } from "../src/events/batching.js";
+import { canonical, splitMessage } from "../src/events/canonical.js";
+import { isRoutine } from "../src/events/interpretation.js";
+import { hasNotificationContent } from "../src/events/notification.js";
+import { saveCollection } from "../src/events/pipeline.js";
+import { collapseDetails, MAX_DETAIL_LINES } from "../src/events/render/common.js";
+import { eventEmbed } from "../src/events/render/discord.js";
+import { renderEvent } from "../src/events/render/telegram.js";
+import type { Collection, Event, RecordData } from "../src/events/types.js";
 import { openDatabase } from "../src/storage/database.js";
 
 const db = openDatabase(":memory:");
@@ -163,7 +157,7 @@ test("message chunks preserve Unicode and platform limits", () => {
 });
 
 test("Telegram copy displays readable prices and only changed parameters", async () => {
-  const { renderEvent } = await import("../src/events.js");
+  const { renderEvent } = await import("../src/events/render/telegram.js");
   const event = {
     id: 1,
     source: "openrouter",
@@ -187,7 +181,7 @@ test("Telegram copy displays readable prices and only changed parameters", async
 });
 
 test("web copy hides routine strings but keeps product signals", async () => {
-  const { meaningfulWebString } = await import("../src/events.js");
+  const { meaningfulWebString } = await import("../src/events/web.js");
   expect(meaningfulWebString("Open in new tab")).toBe(false);
   expect(meaningfulWebString("Claude Code can now open a remote worktree")).toBe(true);
 });
@@ -222,7 +216,7 @@ test("documentation diffs normalize Markdown and suppress boilerplate-only chang
 });
 
 test("multiple changes form one message and hourly digest survives until due", async () => {
-  const { prepareDeliveries } = await import("../src/events.js");
+  const { prepareDeliveries } = await import("../src/events/batching.js");
   const now = "2026-09-08T10:15:00Z";
   saveCollection(db, collection(["a"]), targets, now);
   saveCollection(db, collection(["a", "b", "c"]), targets, now);
@@ -596,7 +590,7 @@ test("Discord labels an AI summary before the raw evidence", () => {
 });
 
 test("a rank change reads as a movement, not as two numbers", async () => {
-  const { rankMove } = await import("../src/events.js");
+  const { rankMove } = await import("../src/events/render/common.js");
   expect(rankMove(7, 5)).toBe("Rank 5 🔼 2 (was 7)");
   expect(rankMove(2, 6)).toBe("Rank 6 🔽 4 (was 2)");
 });
@@ -633,7 +627,8 @@ test("a single long value is trimmed rather than dropped", () => {
 });
 
 test("a new model pings the role of its vendor and nothing else", async () => {
-  const { prepareDeliveries, saveCollection } = await import("../src/events.js");
+  const { prepareDeliveries } = await import("../src/events/batching.js");
+  const { saveCollection } = await import("../src/events/pipeline.js");
   const db = openDatabase(":memory:");
   const destination: Destination = {
     id: "d",
@@ -664,7 +659,8 @@ test("a new model pings the role of its vendor and nothing else", async () => {
   expect(payload.allowed_mentions?.roles).toEqual(["111"]);
 });
 test("a capability edit travels without a ping", async () => {
-  const { prepareDeliveries, saveCollection } = await import("../src/events.js");
+  const { prepareDeliveries } = await import("../src/events/batching.js");
+  const { saveCollection } = await import("../src/events/pipeline.js");
   const db = openDatabase(":memory:");
   const destination: Destination = {
     id: "d",

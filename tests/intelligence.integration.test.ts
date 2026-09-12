@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { type Destination, loadConfig } from "../src/config.js";
-import { type Collection, saveCollection } from "../src/events.js";
+import { saveCollection } from "../src/events/pipeline.js";
+import type { Collection } from "../src/events/types.js";
 import { listHypotheses, rebuildHypotheses } from "../src/hypotheses.js";
 import { listLifecycleDeadlines, rebuildLifecycleDeadlines, scheduleLifecycleReminders } from "../src/lifecycle.js";
 import { getModelFacts, rebuildModelFacts } from "../src/modelFacts.js";

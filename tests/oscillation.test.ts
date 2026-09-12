@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { isOscillating, isScheduledPricingRotation } from "../src/events/oscillation.js";
-import type { Event } from "../src/events/types.js";
-import { type Collection, saveCollection } from "../src/events.js";
+import { saveCollection } from "../src/events/pipeline.js";
+import type { Collection, Event } from "../src/events/types.js";
 import { openDatabase } from "../src/storage/database.js";
 
 const tiers = [

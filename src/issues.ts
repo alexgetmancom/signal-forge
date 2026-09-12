@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { capabilityReport } from "./capabilities.js";
 import type { AppConfig } from "./config.js";
+import { backupStatus } from "./doctor.js";
 import { sourceHealth } from "./status.js";
 import { databaseSize } from "./storage/retention.js";
 
@@ -21,6 +22,8 @@ export type IssueKind =
   | "worker_stale"
   | "restart_loop"
   | "capability_missing"
+  | "capability_rejected"
+  | "backup_stale"
   | "database_oversized";
 export type IssueSeverity = "warning" | "error" | "critical";
 
@@ -81,16 +84,22 @@ export function listActionableIssues(db: Database, config: AppConfig, now = Date
       )
     )
       continue;
-    const checked = db
-      .query<{ checked_at: string | null }, [string]>("SELECT checked_at FROM sources WHERE id=?")
-      .get(entry.id)?.checked_at;
+    // When it started and when it was last confirmed are different questions. Reading both from
+    // checked_at reported every outage as a moment old, however many days it had been running.
+    const row = db
+      .query<{ checked_at: string | null; failure_started_at: string | null }, [string]>(
+        "SELECT checked_at,failure_started_at FROM sources WHERE id=?",
+      )
+      .get(entry.id);
+    const checked = row?.checked_at;
+    const started = row?.failure_started_at ?? checked;
     issues.push({
       id: entry.id,
       kind: entry.state === "degraded" ? "collection_degraded" : "source_failed",
       severity: rateLimited ? "warning" : entry.state === "degraded" ? "critical" : "error",
       entity: entry.id,
       source: entry.id,
-      firstSeenAt: issueTime(checked, now),
+      firstSeenAt: issueTime(started, now),
       updatedAt: issueTime(checked, now),
       message: `${entry.label} ${
         entry.state === "stale"
@@ -239,17 +248,39 @@ export function listActionableIssues(db: Database, config: AppConfig, now = Date
   }
 
   for (const capability of capabilityReport(db, config)) {
-    if (capability.status !== "missing") continue;
+    if (capability.status !== "missing" && capability.status !== "rejected") continue;
     const timestamp = new Date(now).toISOString();
+    const rejected = capability.status === "rejected";
     issues.push({
       id: `capability:${capability.id}`,
-      kind: "capability_missing",
+      kind: rejected ? "capability_rejected" : "capability_missing",
       severity: "error",
       entity: capability.id,
       firstSeenAt: timestamp,
       updatedAt: timestamp,
-      message: `Capability ${capability.id} is missing ${capability.missingCount} required credential${capability.missingCount === 1 ? "" : "s"}`,
-      hint: "Provide the credential for an intentionally enabled integration, then restart the service.",
+      message: rejected
+        ? `Capability ${capability.id} was refused by its upstream; ${capability.enabledSources.length} source${capability.enabledSources.length === 1 ? " is" : "s are"} not being collected`
+        : `Capability ${capability.id} is missing ${capability.missingCount} required credential${capability.missingCount === 1 ? "" : "s"}`,
+      hint: rejected
+        ? "Rotate the credential and restart the service, then clear-credential-circuit to schedule its sources again."
+        : "Provide the credential for an intentionally enabled integration, then restart the service.",
+    });
+  }
+
+  // The nightly backup runs on the host, outside this process. Nothing here could see it stop, so
+  // a backup that quietly stopped stayed invisible until the day it was needed.
+  const backup = backupStatus(config.BACKUP_DIRECTORY, now);
+  if (!backup.ok) {
+    const seenAt = backup.verifiedAt ?? new Date(now).toISOString();
+    issues.push({
+      id: "backup:stale",
+      kind: "backup_stale",
+      severity: backup.state === "stale" ? "error" : "critical",
+      entity: "backup",
+      firstSeenAt: seenAt,
+      updatedAt: new Date(now).toISOString(),
+      message: `Backup is not current: ${backup.detail}`,
+      hint: "Check the nightly backup job on the host; an archive that has not been verified is not a backup.",
     });
   }
 

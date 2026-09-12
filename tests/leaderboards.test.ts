@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test";
 import type { Destination } from "../src/config.js";
+import { prepareDeliveries } from "../src/events/batching.js";
 import { hasNotificationContent } from "../src/events/notification.js";
+import { saveCollection } from "../src/events/pipeline.js";
 import { eventFacts } from "../src/events/render/facts.js";
-import type { Event } from "../src/events/types.js";
-import { type Collection, prepareDeliveries, saveCollection } from "../src/events.js";
+import type { Collection, Event } from "../src/events/types.js";
 import { openDatabase } from "../src/storage/database.js";
 
 const board = (records: Collection["records"]): Collection => ({

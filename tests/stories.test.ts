@@ -2,7 +2,8 @@ import { expect, test } from "bun:test";
 import { confidenceFor } from "../src/events/confidence.js";
 import { identityFor } from "../src/events/identity.js";
 import { vendorOf } from "../src/events/interpretation.js";
-import { type Collection, saveCollection } from "../src/events.js";
+import { saveCollection } from "../src/events/pipeline.js";
+import type { Collection } from "../src/events/types.js";
 import { openDatabase } from "../src/storage/database.js";
 import { listStories, rebuildStories } from "../src/stories.js";
 

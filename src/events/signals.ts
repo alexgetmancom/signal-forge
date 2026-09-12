@@ -1,4 +1,6 @@
-import type { Event, RecordData } from "./types.js";
+import { text } from "../text.js";
+import { recordFor } from "./record.js";
+import type { Event } from "./types.js";
 
 /**
  * What a reader came for, which is a different question from how solid the evidence is.
@@ -10,24 +12,6 @@ import type { Event, RecordData } from "./types.js";
  */
 export const SIGNAL_CLASSES = ["launch", "codename", "evidence", "change", "reminder"] as const;
 export type SignalClass = (typeof SIGNAL_CLASSES)[number];
-
-export function isSignalClass(value: string): value is SignalClass {
-  return (SIGNAL_CLASSES as readonly string[]).includes(value);
-}
-
-function recordFor(event: Event): RecordData | null {
-  const raw = event.after_json ?? event.before_json;
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as RecordData;
-  } catch {
-    return null;
-  }
-}
-
-function text(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 /**
  * The class of an event, derived from the same evidence the card is rendered from.

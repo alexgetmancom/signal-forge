@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { type Collection, saveCollection } from "../src/events.js";
+import { saveCollection } from "../src/events/pipeline.js";
+import type { Collection } from "../src/events/types.js";
 import { getHypothesis, listHypotheses, rebuildHypotheses } from "../src/hypotheses.js";
 import { openDatabase } from "../src/storage/database.js";
 

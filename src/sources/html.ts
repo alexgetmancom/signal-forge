@@ -35,3 +35,8 @@ export function htmlText(value: string): string {
       .replace(/\s+/g, " "),
   ).trim();
 }
+
+/** Reads one attribute out of a raw HTML tag's attribute string. */
+export function attribute(attributes: string, name: string): string | null {
+  return attributes.match(new RegExp(`\\b${name}=["']([^"']+)["']`, "i"))?.[1] ?? null;
+}

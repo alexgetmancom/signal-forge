@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { CONFIDENCE_LEVELS } from "./events/confidence.js";
+import { confidenceRank } from "./events/confidence.js";
 import { sourceIndependenceFamily } from "./events/sourceFamily.js";
 import type { Confidence, Event, EvidenceType } from "./events/types.js";
 
@@ -41,10 +41,6 @@ type StoryTimeline = {
   firstSeenAt: string;
   events: TimelineEvent[];
 };
-
-function confidenceRank(value: Confidence): number {
-  return CONFIDENCE_LEVELS.indexOf(value);
-}
 
 function timelines(db: Database): StoryTimeline[] {
   const rows = db

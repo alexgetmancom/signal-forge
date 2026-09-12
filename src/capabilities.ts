@@ -1,8 +1,13 @@
 import type { Database } from "bun:sqlite";
 import type { AppConfig } from "./config.js";
+import { openCredentialCircuitIds } from "./credentials.js";
 import { buildSourceRegistry } from "./sources/registry.js";
 
-export type CapabilityStatus = "ready" | "missing" | "disabled";
+/**
+ * `rejected` is a credential that is present and was refused by the upstream. It reads differently
+ * from `missing` on purpose: nothing needs to be supplied, something needs to be replaced.
+ */
+export type CapabilityStatus = "ready" | "missing" | "disabled" | "rejected";
 
 export type CapabilityReportEntry = {
   id: string;
@@ -43,12 +48,13 @@ export function capabilityReport(db: Database, config: AppConfig): CapabilityRep
   add("discord", ["DISCORD_BOT_TOKEN"], discordEnabled, "discord");
 
   const values = config as unknown as Record<string, unknown>;
+  const rejected = openCredentialCircuitIds(db);
   return [...states.entries()]
     .map(([id, state]) => {
       const missingCount = [...state.required].filter((name) => !values[name]).length;
       return {
         id,
-        status: !state.enabled ? "disabled" : missingCount ? "missing" : "ready",
+        status: !state.enabled ? "disabled" : missingCount ? "missing" : rejected.has(id) ? "rejected" : "ready",
         missingCount,
         requiredCount: state.required.size,
         enabledSources: [...state.enabledSources].sort(),

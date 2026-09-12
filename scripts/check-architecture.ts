@@ -88,7 +88,21 @@ const rules: Rule[] = [
   { name: "event core cannot import HTTP framework", from: /^src\/events\//, to: /^src\/http\.ts$/ },
 ];
 
+/**
+ * Configuration is read once, validated once, in one place. A module reaching for `process.env`
+ * directly is a setting that never appears in the schema, is never validated, and is discovered by
+ * whoever deploys without it.
+ */
+function environmentReaders(): string[] {
+  return files
+    .map(moduleName)
+    .filter((file) => file !== "src/config.ts")
+    .filter((file) => /\bprocess\.env\b/.test(readFileSync(join(root, file), "utf8")))
+    .map((file) => `only config.ts reads process.env: ${file}`);
+}
+
 const violations = cycles().map((cycle) => `circular import: ${cycle.join(" -> ")}`);
+violations.push(...environmentReaders());
 for (const rule of rules)
   for (const edge of edges)
     if (rule.from.test(edge.source) && rule.to.test(edge.target))

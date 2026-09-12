@@ -3,7 +3,7 @@ import { loadConfig } from "../src/config.js";
 import { deliverPending } from "../src/delivery.js";
 import { requireDeliveryVerification, resolveDeliveryVerification } from "../src/deliveryVerification.js";
 import { listActionableIssues } from "../src/issues.js";
-import { operations } from "../src/operations.js";
+import { callOperation, operations } from "../src/operations.js";
 import { openDatabase } from "../src/storage/database.js";
 
 const config = loadConfig({
@@ -60,7 +60,7 @@ test("delivery verification records manual verification without sending again", 
 test("verification-required deliveries remain visible and never become sent", () => {
   const db = seedAmbiguousDelivery();
   requireDeliveryVerification(db, 7, 200);
-  const listed = operations(db, config).deliveries_needing_verification.handler({ limit: 20 });
+  const listed = callOperation(operations(db, config), "deliveries_needing_verification", { limit: 20 });
   expect(listed).toEqual([
     expect.objectContaining({
       id: 7,

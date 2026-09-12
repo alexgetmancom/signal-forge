@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { type Collection, saveCollection } from "../src/events.js";
+import { saveCollection } from "../src/events/pipeline.js";
+import type { Collection } from "../src/events/types.js";
 import { getModelFacts, listModelFacts, rebuildModelFacts } from "../src/modelFacts.js";
 import { openDatabase } from "../src/storage/database.js";
 import { rebuildStories } from "../src/stories.js";

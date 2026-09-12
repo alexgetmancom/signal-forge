@@ -202,27 +202,6 @@ export function statusEmbed(health: SourceHealth[], now = Date.now()): Record<st
   };
 }
 
-/**
- * One message that is edited rather than reposted, so the channel holds a board instead of a log.
- * The rendered payload is compared before sending: a status that has not changed is not an event.
- */
-export async function publishStatus(
-  db: Database,
-  config: AppConfig,
-  request: Fetch = fetch,
-  now = Date.now(),
-): Promise<BoardResult> {
-  if (!config.statusChannelId || !config.DISCORD_BOT_TOKEN) return "skipped";
-  return publishBoard(
-    db,
-    config,
-    "status",
-    config.statusChannelId,
-    statusEmbed(sourceHealth(db, config, now), now),
-    request,
-  );
-}
-
 export type BoardResult = "skipped" | "created" | "edited" | "unchanged";
 
 function boardNonce(key: string, comparable: string, previousMessageId: string | null): string {
@@ -239,7 +218,7 @@ function boardNonce(key: string, comparable: string, previousMessageId: string |
  * The rendered payload is compared before sending: a board that has not changed is not an event,
  * and editing it anyway would mark the channel unread for everyone watching it.
  */
-async function publishBoard(
+async function sendBoard(
   db: Database,
   config: AppConfig,
   key: string,
@@ -371,17 +350,6 @@ export function platformEmbed(db: Database, now = Date.now()): Record<string, un
   };
 }
 
-export async function publishPlatformBoard(
-  db: Database,
-  config: AppConfig,
-  request: Fetch = fetch,
-  now = Date.now(),
-): Promise<BoardResult> {
-  const channelId = config.platformBoardChannelId ?? config.statusChannelId;
-  if (!channelId || !config.DISCORD_BOT_TOKEN) return "skipped";
-  return publishBoard(db, config, "platforms", channelId, platformEmbed(db, now), request);
-}
-
 /**
  * The board a reader looks at first: what actually happened today, in counts they can check
  * against the channels. Facts only — no model writes this one, because a headline that cannot be
@@ -452,17 +420,6 @@ export function activityEmbed(db: Database, now = Date.now()): Record<string, un
   return embed;
 }
 
-export async function publishActivityBoard(
-  db: Database,
-  config: AppConfig,
-  request: Fetch = fetch,
-  now = Date.now(),
-): Promise<BoardResult> {
-  const channelId = config.platformBoardChannelId ?? config.statusChannelId;
-  if (!channelId || !config.DISCORD_BOT_TOKEN) return "skipped";
-  return publishBoard(db, config, "activity", channelId, activityEmbed(db, now), request);
-}
-
 /**
  * What the filters stopped, so the operator can see whether they are set too tight.
  *
@@ -518,13 +475,50 @@ export function suppressionEmbed(db: Database, now = Date.now()): Record<string,
   };
 }
 
-export async function publishSuppressionBoard(
+export type BoardKey = "activity" | "platforms" | "suppressions" | "status";
+
+/**
+ * The boards, in the order the channel reads them: what happened, then how the vendors are doing,
+ * then how we are doing. Each is one message edited in place rather than reposted, so the channel
+ * holds a board instead of a log; the rendered payload is compared before sending, because a
+ * status that has not changed is not an event.
+ */
+const BOARDS: Record<
+  BoardKey,
+  {
+    channel: (config: AppConfig) => string | null | undefined;
+    embed: (db: Database, config: AppConfig, now: number) => Record<string, unknown>;
+  }
+> = {
+  activity: {
+    channel: (config) => config.platformBoardChannelId ?? config.statusChannelId,
+    embed: (db, _config, now) => activityEmbed(db, now),
+  },
+  platforms: {
+    channel: (config) => config.platformBoardChannelId ?? config.statusChannelId,
+    embed: (db, _config, now) => platformEmbed(db, now),
+  },
+  suppressions: {
+    channel: (config) => config.platformBoardChannelId ?? config.statusChannelId,
+    embed: (db, _config, now) => suppressionEmbed(db, now),
+  },
+  status: {
+    channel: (config) => config.statusChannelId,
+    embed: (db, config, now) => statusEmbed(sourceHealth(db, config, now), now),
+  },
+};
+
+export const BOARD_ORDER: readonly BoardKey[] = ["activity", "platforms", "suppressions", "status"];
+
+export async function publishBoard(
   db: Database,
   config: AppConfig,
+  key: BoardKey,
   request: Fetch = fetch,
   now = Date.now(),
 ): Promise<BoardResult> {
-  const channelId = config.platformBoardChannelId ?? config.statusChannelId;
+  const board = BOARDS[key];
+  const channelId = board.channel(config);
   if (!channelId || !config.DISCORD_BOT_TOKEN) return "skipped";
-  return publishBoard(db, config, "suppressions", channelId, suppressionEmbed(db, now), request);
+  return sendBoard(db, config, key, channelId, board.embed(db, config, now), request);
 }

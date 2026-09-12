@@ -1,3 +1,4 @@
+import { text } from "../text.js";
 import type { Event, RecordData } from "./types.js";
 
 export type IdentityStatus = "canonical" | "alias" | "codename" | "unconfirmed" | "unknown";
@@ -8,10 +9,6 @@ export type ModelIdentity = {
   aliases: string[];
   status: IdentityStatus;
 };
-
-function text(value: unknown): string | null {
-  return typeof value === "string" && value.trim() ? value.trim() : null;
-}
 
 export function normalizeIdentity(value: string): string {
   return value
