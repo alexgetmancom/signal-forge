@@ -557,10 +557,13 @@ test("a Discord card leads with the name and says what it means in one line", ()
     footer: { text: string };
     timestamp: string;
   };
-  // The eyebrow names the surface, the title names the thing, the first line says why it matters.
+  // The eyebrow names the surface, the title names the thing, then how solid it is, then why it
+  // matters. A reader decides whether to believe a card before deciding whether to act on it.
   expect(embed.author.name).toBe("AVAILABILITY · OPENAI");
   expect(embed.title).toBe("🆕 GPT-6");
-  expect(embed.description).toStartWith("Available to use from this catalogue.");
+  expect(embed.description).toStartWith(
+    "Seen in a reseller's catalogue, not announced by the maker.\nAvailable to use from this catalogue.",
+  );
   expect(embed.footer.text).toBe("OpenRouter · availability catalogue · confirmed");
   expect(embed.timestamp).toBe("2026-09-08T14:06:00.000Z");
   // The vendor is already in the eyebrow, so the body does not repeat it.

@@ -324,8 +324,8 @@ bun run dev
 
 Signal Forge is actively running and being evaluated against real-world signal quality.
 
-Current engineering priorities are restore testing, accurate outage duration, plainer confidence
-wording on cards, and selective expansion of source coverage.
+Current engineering priorities are restore testing, accurate outage duration, and selective
+expansion of source coverage.
 
 See [docs/roadmap.md](docs/roadmap.md) for current priorities and for the decisions that measurement
 has already settled.

@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import type { Destination } from "../src/config.js";
+import { readerStanding } from "../src/events/confidence.js";
 import { type Collection, prepareDeliveries, saveCollection } from "../src/events.js";
 import { suppressionEmbed } from "../src/status.js";
 import { openDatabase } from "../src/storage/database.js";
@@ -112,4 +113,25 @@ test("the board counts what was held back beside what actually spoke", () => {
   expect(String(embed.description)).toContain("**1** events held back · **0** reached a channel");
   expect(String(embed.description)).toContain("**1** · no reader facing change");
   db.close();
+});
+
+test("a card says how solid it is in words a non-specialist reads", () => {
+  const standing = (source: string, stream: string, evidence: string, confidence: string) =>
+    readerStanding({ source, stream, evidence_type: evidence, confidence } as never);
+
+  // The difference between a rumour and a fact used to live in a footer reading
+  // "Evidence: arena roster · Confidence: observed".
+  expect(standing("arena", "arena", "arena_roster", "observed")).toBe(
+    "Spotted on a public arena. Nobody has said what it is yet.",
+  );
+  // A reseller listing a model is not the maker announcing it.
+  expect(standing("openrouter", "openrouter", "availability_catalogue", "observed")).toBe(
+    "Seen in a reseller's catalogue, not announced by the maker.",
+  );
+  expect(standing("openai-news", "news", "official_news", "supported")).toBe("The maker announced this themselves.");
+  expect(standing("npm:x", "packages", "package_release", "shipped")).toBe(
+    "Published to the registry. You can install it now.",
+  );
+  // An unrecognised evidence type still says something rather than nothing.
+  expect(standing("whatever", "other", "unknown", "confirmed")).toBe("Confirmed by the provider directly.");
 });

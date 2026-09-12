@@ -76,6 +76,10 @@ current `main` branch with no known actionable issues.
 - Minor incidents speak only on start and resolution; severe and resolved incidents bypass the digest.
 - A changed field whose value survives normalization to letters and digits is not reported.
 - Package releases are enriched with their upstream release notes before the card is rendered.
+- Discord cards say how solid an observation is in a sentence keyed on evidence type, above the
+  line saying what it means. The footer keeps the machine-readable labels.
+- The vendor map covers the makers Arena actually carries, and short patterns are anchored so `xai`
+  cannot claim SpaceXAI.
 
 ## Next work
 
@@ -87,7 +91,6 @@ priority.
 |---|---|---|
 | Next | Run a real restore drill. | Restore a verified archive into a stopped test instance, run `integrity_check`, start it, and compare event counts and health reports. |
 | Next | Preserve outage start time. | Store `failure_started_at` separately from the latest observation so issue duration is accurate. |
-| Next | Make confidence legible on the card. | Render `observed`, `supported`, `confirmed` and `shipped` as a sentence a non-specialist reads, instead of the footer's "Confidence: observed". |
 | Owner decision | Google catalogue. | `gemini` has never succeeded: HTTP 400 from every address this project can reach. Choose Vertex AI with a billed service account, route around the block, or accept OpenRouter as the Google source. |
 | Owner decision | Vercel AI Gateway. | Has never succeeded. Decide whether the incomplete upstream response is worth another parser or should be removed. |
 | Owner decision | Provider catalogue keys. | `xai`, `moonshot`, `mistral` and `groq` catalogues are implemented and waiting on keys; Artificial Analysis is implemented and blocked by its own IP filter. |
@@ -109,6 +112,12 @@ Kept because the reasoning cost real observation and is easy to re-litigate from
   have carried a permanently wrong count because confirmation arrived a median 8.2 hours after the
   message was already sent and cards are not edited. Source-derived confidence already separates
   rumour from fact and is correct from the first second; it only needs plainer wording.
+- **The reader channels are routed correctly.** New, Codenames, Evidence and Changes carry 12, 9,
+  16 and 63 cards a day respectively, and each carries what its name promises: Evidence is
+  documentation diffs and package versions, and leaderboard churn is already in Changes. An earlier
+  reading that made Evidence 89% leaderboard counted events that were members of a delivered batch
+  rather than events the destination actually rendered — a batch is filtered again per destination,
+  and any measurement that skips `batch_events.signal` overstates every channel.
 - **Site pages are not early warning.** `pages:openai` leads by 0.1 hours: the page appears when
   everyone else sees it. Packages lead by 17.9 hours and are worth the enrichment.
 

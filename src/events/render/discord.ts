@@ -1,5 +1,5 @@
 import { sourceLabel } from "../../sources/labels.js";
-import { evidenceLabel, evidenceTypeFor } from "../confidence.js";
+import { evidenceLabel, evidenceTypeFor, readerStanding } from "../confidence.js";
 import { vendorOf } from "../interpretation.js";
 import type { Event, RecordData } from "../types.js";
 import { DESCRIPTION_CHARACTERS } from "./budget.js";
@@ -73,8 +73,17 @@ export function eventEmbed(event: Event, url: string, summary?: string): Record<
   const vendor = vendorOf(event, record);
   const facts = eventFacts(event).filter((line) => line.toLowerCase() !== `maker: ${vendor.toLowerCase()}`);
   const impact = readerImpact(event, record);
-  // One voice per line: the model's own summary, then what it means, then the evidence itself.
-  const description = [...(summary ? [`*${summary}*`] : []), ...(impact ? [impact] : []), ...facts]
+  // How solid this is, before what it means: a reader decides whether to believe a card before
+  // deciding whether to act on it. The footer keeps the machine-readable labels for anyone digging.
+  const standing = readerStanding(event);
+  // One voice per line: the model's own summary, then how solid it is, then what it means, then the
+  // evidence itself.
+  const description = [
+    ...(summary ? [`*${summary}*`] : []),
+    ...(standing ? [standing] : []),
+    ...(impact ? [impact] : []),
+    ...facts,
+  ]
     .join("\n")
     .slice(0, DESCRIPTION_CHARACTERS);
   const evidenceType = event.evidence_type ?? evidenceTypeFor(event.source, event.stream);

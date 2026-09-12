@@ -132,3 +132,47 @@ export function strongerConfidence(left: Confidence, right: Confidence): Confide
 export function eventConfidence(event: Pick<Event, "source" | "stream">): Confidence {
   return confidenceFor(event.source, event.stream);
 }
+
+/**
+ * How solid this is, in the words someone who does not work here would use.
+ *
+ * `observed`, `supported`, `confirmed` and `shipped` are accurate and mean nothing to a reader:
+ * the difference between a rumour and a fact was carried in a footer that read
+ * "Evidence: arena roster · Confidence: observed". The sentence is keyed on the evidence type
+ * because that is a source contract rather than a judgement, and it never claims more than the
+ * source proves — a reseller's catalogue is not the vendor saying so.
+ */
+const standings: Record<EvidenceType, string> = {
+  api_catalogue: "Listed in the provider's own API.",
+  availability_catalogue: "Seen in a reseller's catalogue, not announced by the maker.",
+  official_news: "The maker announced this themselves.",
+  arena_roster: "Spotted on a public arena. Nobody has said what it is yet.",
+  leaderboard: "Reported by a public leaderboard.",
+  web_diff: "Spotted as a change on the maker's own site, with no announcement.",
+  github_activity: "From the project's repository. Work in progress, not a release.",
+  package_release: "Published to the registry. You can install it now.",
+  open_weights: "Published to an open-weights registry. The files are downloadable.",
+  status_page: "From the provider's own status page.",
+  deprecation: "From the provider's own retirement notice.",
+  unknown: "",
+};
+
+const fallback: Record<Confidence, string> = {
+  observed: "Seen by one source, unconfirmed.",
+  supported: "Backed by the maker's own words.",
+  confirmed: "Confirmed by the provider directly.",
+  shipped: "Out now.",
+};
+
+/**
+ * One sentence about how much weight the observation carries, or null when it adds nothing.
+ *
+ * Discord cards only. The Telegram renderer's line offsets are read back by `needsSummary`, so an
+ * extra line there would quietly move the summarisation threshold for every event, and no Telegram
+ * destination is configured to benefit from it.
+ */
+export function readerStanding(event: Event): string | null {
+  const type = event.evidence_type ?? evidenceTypeFor(event.source, event.stream);
+  const sentence = standings[type] || fallback[event.confidence ?? "observed"];
+  return sentence || null;
+}

@@ -96,7 +96,11 @@ is never sent again automatically; verify the private channel before taking acti
 ## Reader message format
 
 Discord cards put the change type in the title, keep the source and vendor in the author line, and
-show confidence, evidence type, detection time, and reader impact in scan-friendly fields. The title
+lead the body with how solid the observation is before what it means — "Seen in a reseller's
+catalogue, not announced by the maker" rather than a footer reading "Confidence: observed". The
+sentence is keyed on evidence type, which is a source contract rather than a judgement, and it never
+claims more than the source proves. The footer keeps the machine-readable source, evidence type and
+confidence for anyone digging. The title
 opens the source evidence. Stories keep one card for a related cross-source timeline, with a short
 link for each independent source.
 
