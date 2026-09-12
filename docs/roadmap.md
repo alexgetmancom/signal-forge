@@ -81,7 +81,9 @@ current `main` branch with no known actionable issues.
 - The vendor map covers the makers Arena actually carries, and short patterns are anchored so `xai`
   cannot claim SpaceXAI.
 - Codex usage-limit resets are collected from the `codex-resets` tracker: the whole tracked history
-  lands as the first, silent baseline, and only a new announcement reaches Changes. Its scheduled
+  lands as the first, silent baseline, and only a new announcement speaks. A reset reads as a
+  number moving and behaves like a launch — usable now, for a few hours — so it travels with the
+  launches in New and carries the vendor role mention. Its scheduled
   reset and AI-classified watch forecast are retained as evidence and never become records, because
   the tracker's own documentation says neither implies a reset happened.
 

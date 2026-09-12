@@ -68,8 +68,14 @@ export function signalClass(event: Event): SignalClass {
   if (event.stream === "web") return "evidence";
   if (event.stream === "packages") return "evidence";
   if (event.stream === "incidents") return "change";
-  // Limits coming back is a number moving for everyone at once, not a release.
-  if (event.stream === "resets") return "change";
+
+  /**
+   * Limits coming back is the most direct "you can use this now" in the system: nothing was
+   * released, but a reader who ran out an hour ago can work again, and only for the next few
+   * hours. It reads as a number moving and behaves like a launch, so it travels with the
+   * launches — and, like them, it is worth a role mention, at a rate of roughly one a week.
+   */
+  if (event.stream === "resets") return "launch";
 
   if (event.stream === "github")
     return event.source.endsWith(":releases") && event.kind === "new" ? "launch" : "evidence";

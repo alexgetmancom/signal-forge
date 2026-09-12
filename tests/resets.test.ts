@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { readerStanding } from "../src/events/confidence.js";
-import { signalClass } from "../src/events/signals.js";
+import { pingWorthy, signalClass } from "../src/events/signals.js";
 import { collectCodexResets } from "../src/sources/resets.js";
 
 const announcement = {
@@ -68,7 +68,7 @@ test("a short or empty history is a failed read, never a history without resets"
   expect(collectCodexResets(short.fetcher)).rejects.toThrow("short");
 });
 
-test("a reset is a change, and never pings a role", () => {
+test("a reset travels with the launches", () => {
   const event = {
     id: 1,
     source: "codex-resets",
@@ -79,7 +79,8 @@ test("a reset is a change, and never pings a role", () => {
     after_json: JSON.stringify({ id: announcement.id, name: "Codex usage limits reset for everyone" }),
     detected_at: announcement.announced_at,
   };
-  expect(signalClass(event)).toBe("change");
+  expect(signalClass(event)).toBe("launch");
+  expect(pingWorthy(event)).toBe(true);
 });
 
 test("the card says how solid a reset is from the record, not from the stream", () => {
