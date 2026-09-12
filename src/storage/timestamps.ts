@@ -46,16 +46,3 @@ export const TIMESTAMP_COLUMNS: readonly (readonly [table: string, column: strin
  * keeps a local-time string with an offset out.
  */
 export const TIMESTAMP_GLOB = "[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]T[0-9][0-9]:[0-9][0-9]:[0-9][0-9]*Z";
-
-/** The trigger pair that rejects a badly shaped instant on the way in. */
-export function timestampTriggers(): string {
-  return TIMESTAMP_COLUMNS.flatMap(([table, column]) =>
-    (["insert", "update"] as const).map(
-      (operation) =>
-        `CREATE TRIGGER IF NOT EXISTS ${table}_${column}_shape_${operation}
-BEFORE ${operation === "insert" ? "INSERT" : `UPDATE OF ${column}`} ON ${table}
-WHEN NEW.${column} IS NOT NULL AND NEW.${column} NOT GLOB '${TIMESTAMP_GLOB}'
-BEGIN SELECT RAISE(ABORT, '${table}.${column} must be an ISO-8601 UTC instant'); END;`,
-    ),
-  ).join("\n\n");
-}

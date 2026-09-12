@@ -3,12 +3,7 @@ import type { AppConfig } from "./config.js";
 import { prepareDeliveries } from "./events/batching.js";
 import { identityFor } from "./events/identity.js";
 import { recordFor } from "./events/record.js";
-import {
-  type LifecycleReminderContext,
-  lifecycleReminderContextSchema,
-  renderLifecycleReminderEmbed,
-  renderLifecycleReminderText,
-} from "./events/render/lifecycle.js";
+import { type LifecycleReminderContext, lifecycleReminderContextSchema } from "./events/render/lifecycle.js";
 import type { Event, RecordData } from "./events/types.js";
 import { buildSourceRegistry } from "./sources/registry.js";
 import { text } from "./text.js";
@@ -354,5 +349,3 @@ export function scheduleLifecycleReminders(db: Database, config: AppConfig, now 
     return batches;
   })();
 }
-
-export { renderLifecycleReminderEmbed, renderLifecycleReminderText };

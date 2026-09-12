@@ -2,21 +2,6 @@ import type { Confidence, Event, EvidenceType, SourceAuthority } from "./types.j
 
 export const CONFIDENCE_LEVELS: readonly Confidence[] = ["observed", "supported", "confirmed", "shipped"];
 
-export const EVIDENCE_TYPES: readonly EvidenceType[] = [
-  "api_catalogue",
-  "availability_catalogue",
-  "official_news",
-  "arena_roster",
-  "leaderboard",
-  "web_diff",
-  "github_activity",
-  "package_release",
-  "open_weights",
-  "status_page",
-  "deprecation",
-  "unknown",
-];
-
 export const SOURCE_AUTHORITIES: readonly SourceAuthority[] = ["first_party", "vendor_owned", "third_party"];
 
 const evidenceLabels: Record<EvidenceType, string> = {
