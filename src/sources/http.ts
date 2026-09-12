@@ -2,7 +2,7 @@ import type { Fetch } from "../http-client.js";
 import { freshUntil, type HttpCache } from "../storage/httpCache.js";
 
 /** How long the channel is given to come back before an observation is called a failure. */
-const RETRY_DELAYS_MS = [3_000, 9_000];
+export const RETRY_DELAYS_MS = [3_000, 9_000];
 
 export class SourceHttpError extends Error {
   constructor(
@@ -38,7 +38,7 @@ function retryAt(headers: Headers, now = Date.now()): string | null {
  * Only transport failures and the server's own "try again" codes are retried. A 4xx is an answer,
  * and repeating a request the server already refused is how a collector earns a rate limit.
  */
-async function attempt(url: string, request: Fetch, init: RequestInit): Promise<Response> {
+async function attempt(url: string, request: Fetch, init: RequestInit, delays: readonly number[]): Promise<Response> {
   let last: unknown;
   for (let index = 0; ; index++) {
     try {
@@ -46,14 +46,14 @@ async function attempt(url: string, request: Fetch, init: RequestInit): Promise<
       // 429 is deliberately absent: it is the server saying "too many", and answering that with
       // another request three seconds later is the opposite of what it asked for. The per-source
       // backoff handles it by asking later instead.
-      if (![502, 503, 504].includes(response.status) || index >= RETRY_DELAYS_MS.length) return response;
+      if (![502, 503, 504].includes(response.status) || index >= delays.length) return response;
       await response.body?.cancel();
       last = new Error(`Source returned HTTP ${response.status}`);
     } catch (error) {
       last = error;
-      if (index >= RETRY_DELAYS_MS.length) break;
+      if (index >= delays.length) break;
     }
-    await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[index]));
+    await new Promise((resolve) => setTimeout(resolve, delays[index]));
   }
   throw last;
 }
@@ -68,6 +68,10 @@ export async function fetchText(
   // When a cache is supplied the request becomes conditional: a page that has not changed answers
   // 304 with no body, and an immutable asset is not requested at all.
   cache?: HttpCache,
+  // The retry schedule is a parameter so a test can measure the policy instead of the clock: what
+  // the retry rules promise is which failures are tried again and how often, never how long the
+  // waiting takes. Production never passes this.
+  retryDelaysMs: readonly number[] = RETRY_DELAYS_MS,
 ): Promise<string> {
   let response: Response | undefined;
   const origin = new URL(url).origin;
@@ -80,11 +84,16 @@ export async function fetchText(
   if (cached?.etag) conditional["if-none-match"] = cached.etag;
   else if (cached?.lastModified) conditional["if-modified-since"] = cached.lastModified;
   for (let hop = 0; hop < 4; hop++) {
-    response = await attempt(url, request, {
-      headers: { "User-Agent": "SignalForge/0.1", ...conditional, ...headers },
-      redirect: "manual",
-      ...(send ? { method: send.method, body: send.body } : {}),
-    });
+    response = await attempt(
+      url,
+      request,
+      {
+        headers: { "User-Agent": "SignalForge/0.1", ...conditional, ...headers },
+        redirect: "manual",
+        ...(send ? { method: send.method, body: send.body } : {}),
+      },
+      retryDelaysMs,
+    );
     // 304 shares the 3xx range but is an answer, not a redirect: it means the cached body stands.
     if (response.status >= 300 && response.status < 400 && response.status !== 304) {
       const location = response.headers.get("location");

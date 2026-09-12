@@ -15,7 +15,7 @@ import {
   parseOfficialFeed,
 } from "../src/sources/feeds.js";
 import { collectGithubCommits, summarizeDiff } from "../src/sources/github.js";
-import { fetchText, SourceHttpError } from "../src/sources/http.js";
+import { fetchText, RETRY_DELAYS_MS, SourceHttpError } from "../src/sources/http.js";
 import {
   parseAwsBedrockLifecycle,
   parseAzureFoundryLifecycle,
@@ -879,13 +879,16 @@ test("a body with no validator is not stored: it cannot save anything later", as
 });
 
 test("a dropped connection is retried, a refusal is not", async () => {
+  // The production schedule decides how many attempts there are; this collapses only the waiting
+  // between them, so the counts below are the real policy and the test does not sit out 24 seconds.
+  const instantly = RETRY_DELAYS_MS.map(() => 0);
   let calls = 0;
   const flaky = async () => {
     calls += 1;
     if (calls < 3) throw new Error("TLS connect error");
     return new Response("body", { status: 200 });
   };
-  expect(await fetchText("https://example.test/a", {}, flaky)).toBe("body");
+  expect(await fetchText("https://example.test/a", {}, flaky, undefined, undefined, instantly)).toBe("body");
   expect(calls).toBe(3);
 
   calls = 0;
@@ -893,7 +896,9 @@ test("a dropped connection is retried, a refusal is not", async () => {
     calls += 1;
     return new Response("no", { status: 403 });
   };
-  await expect(fetchText("https://example.test/b", {}, refusing)).rejects.toThrow("HTTP 403");
+  await expect(fetchText("https://example.test/b", {}, refusing, undefined, undefined, instantly)).rejects.toThrow(
+    "HTTP 403",
+  );
   // Repeating a request the server already refused is how a collector earns a rate limit.
   expect(calls).toBe(1);
 
@@ -902,9 +907,11 @@ test("a dropped connection is retried, a refusal is not", async () => {
     calls += 1;
     throw new Error("network is unreachable");
   };
-  await expect(fetchText("https://example.test/c", {}, failing)).rejects.toThrow("unreachable");
+  await expect(fetchText("https://example.test/c", {}, failing, undefined, undefined, instantly)).rejects.toThrow(
+    "unreachable",
+  );
   expect(calls).toBe(3);
-}, 30_000);
+});
 
 test("npm keeps the channels people install and drops the per-platform copies", () => {
   const payload = JSON.stringify({
