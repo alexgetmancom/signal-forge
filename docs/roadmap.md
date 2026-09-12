@@ -107,7 +107,9 @@ current `main` branch with no known actionable issues.
 - One collection cycle runs at a time, under a database lease that a crashed holder releases.
 - Every operator mutation is journalled with the surface it was run from.
 - `bun run check` also enforces English-only sources, that only `config.ts` reads `process.env`,
-  unused files and dependencies, and a high-severity dependency audit; `.githooks/pre-push` runs it.
+  the layer boundaries in `.dependency-cruiser.jsonc`, a clean knip report, and a high-severity
+  dependency audit. `scripts/check-steps.ts` is the list of what it runs. Lefthook runs it on
+  push, and on commit runs Biome over the staged files and gitleaks over the staged diff.
 - `scripts/rehearse-migration.ts` runs a migration against a copy of a real database and reports
   how many stored `records.body` values it moved.
 
