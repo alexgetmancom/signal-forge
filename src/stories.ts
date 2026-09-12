@@ -23,6 +23,10 @@ type StoryGroup = {
   firstEventId: number;
   firstDetectedAt: string;
   last: StoryEvent;
+  /** `last.detected_at` as a number. The fallback scan below compares it against every group on
+   * every event, and parsing the string there cost more than the rest of the projection put
+   * together. Set wherever `last` is set. */
+  lastTime: number;
   identity: ModelIdentity;
   terms: Set<string>;
   urls: Set<string>;
@@ -114,10 +118,11 @@ function similarTitle(left: Set<string>, right: Set<string>): boolean {
 }
 
 function withinCorrelationWindow(group: StoryGroup, event: Event): boolean {
-  const groupTime = Date.parse(group.last.detected_at);
   const eventTime = Date.parse(event.detected_at);
   return (
-    Number.isFinite(groupTime) && Number.isFinite(eventTime) && Math.abs(eventTime - groupTime) <= CORRELATION_WINDOW_MS
+    Number.isFinite(group.lastTime) &&
+    Number.isFinite(eventTime) &&
+    Math.abs(eventTime - group.lastTime) <= CORRELATION_WINDOW_MS
   );
 }
 
@@ -205,6 +210,37 @@ function isolatedCandidate(event: StoryEvent): boolean {
   return event.source === "discovery:huggingface-recent";
 }
 
+type MatchSubject = {
+  candidate: boolean;
+  vendor: string;
+  family: string;
+  canonical: string | null;
+  terms: string[];
+  url: string | null;
+  titles: Set<string>;
+};
+
+/** The last group this event can join, searched newest first. Same order and same first match as
+ * the scan it replaces; only the array copy and the repeated date parsing are gone. */
+function findLatestMatch(
+  projection: StoryProjection,
+  event: StoryEvent,
+  subject: MatchSubject,
+): StoryGroup | undefined {
+  const eventTime = Date.parse(event.detected_at);
+  if (!Number.isFinite(eventTime)) return undefined;
+  for (let index = projection.groups.length - 1; index >= 0; index -= 1) {
+    const group = projection.groups[index] as StoryGroup;
+    if (group.candidate !== subject.candidate) continue;
+    if (!Number.isFinite(group.lastTime) || Math.abs(eventTime - group.lastTime) > CORRELATION_WINDOW_MS) continue;
+    if (!compatibleVendor(group.vendor, subject.vendor)) continue;
+    if (contradictsFamilyIdentity(group, subject.family, subject.canonical, subject.terms)) continue;
+    if ((subject.url !== null && group.urls.has(subject.url)) || similarTitle(group.titleTerms, subject.titles))
+      return group;
+  }
+  return undefined;
+}
+
 function projectEvent(projection: StoryProjection, event: StoryEvent): StoryGroup {
   const record = recordFor(event);
   const identity = identityFor(event, record);
@@ -228,20 +264,10 @@ function projectEvent(projection: StoryProjection, event: StoryEvent): StoryGrou
     (currentMatch && currentMatch.candidate === candidate && withinCorrelationWindow(currentMatch, event)
       ? currentMatch
       : undefined) ??
-    [...projection.groups].reverse().find((group) => {
-      if (group.candidate !== candidate) return false;
-      const lastTime = Date.parse(group.last.detected_at);
-      const eventTime = Date.parse(event.detected_at);
-      if (
-        !Number.isFinite(lastTime) ||
-        !Number.isFinite(eventTime) ||
-        Math.abs(eventTime - lastTime) > CORRELATION_WINDOW_MS
-      )
-        return false;
-      if (!compatibleVendor(group.vendor, vendor)) return false;
-      if (contradictsFamilyIdentity(group, family, canonical, terms)) return false;
-      return (url !== null && group.urls.has(url)) || similarTitle(group.titleTerms, titles);
-    });
+    // Newest group first, walked in place. Copying and reversing the array here turned one boot's
+    // projection into 42 seconds: the copy is eleven thousand allocations of a ten-thousand-element
+    // array, and it happens before the first candidate is even looked at.
+    findLatestMatch(projection, event, { candidate, vendor, family, canonical, terms, url, titles });
   const last = previous?.last;
   if (!previous || !last || Date.parse(event.detected_at) - Date.parse(last.detected_at) > CORRELATION_WINDOW_MS) {
     const group = {
@@ -251,6 +277,7 @@ function projectEvent(projection: StoryProjection, event: StoryEvent): StoryGrou
       firstEventId: event.id,
       firstDetectedAt: event.detected_at,
       last: event,
+      lastTime: Date.parse(event.detected_at),
       identity,
       terms: new Set(terms),
       urls: new Set(url ? [url] : []),
@@ -265,6 +292,7 @@ function projectEvent(projection: StoryProjection, event: StoryEvent): StoryGrou
     return group;
   }
   previous.last = event;
+  previous.lastTime = Date.parse(event.detected_at);
   previous.identity = mergeIdentities(previous.identity, identity);
   rememberFamilyIdentity(previous, family, canonical, terms);
   projection.current.set(key, previous);
