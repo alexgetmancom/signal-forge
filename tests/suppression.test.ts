@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import type { Destination } from "../src/config.js";
 import { type Collection, prepareDeliveries, saveCollection } from "../src/events.js";
+import { suppressionEmbed } from "../src/status.js";
 import { openDatabase } from "../src/storage/database.js";
 
 const destination: Destination = { id: "changes", platform: "discord", channelId: "1", signals: ["change"] };
@@ -96,5 +97,19 @@ test("a title that gained punctuation is not an announcement", () => {
       destination_id: "changes",
     },
   ]);
+  db.close();
+});
+
+test("the board counts what was held back beside what actually spoke", () => {
+  const db = openDatabase(":memory:");
+  const start = Date.parse("2026-09-12T01:00:00.000Z");
+  saveCollection(db, catalogue("0.000001896"), [destination], new Date(start).toISOString());
+  saveCollection(db, catalogue("0.00000172"), [destination], new Date(start + 3_600_000).toISOString());
+  prepareDeliveries(db, start + 2 * 3_600_000);
+
+  const embed = suppressionEmbed(db, start + 2 * 3_600_000);
+  expect(embed.title).toBe("Filtered out, last 24 hours");
+  expect(String(embed.description)).toContain("**1** events held back · **0** reached a channel");
+  expect(String(embed.description)).toContain("**1** · no reader facing change");
   db.close();
 });

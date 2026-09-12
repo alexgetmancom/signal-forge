@@ -13,7 +13,7 @@ import { stopServerGracefully } from "./runtime/shutdown.js";
 import { RuntimeSupervisor } from "./runtime/supervisor.js";
 import { startIntervalWorker } from "./runtime/worker.js";
 import { buildSourceRegistry } from "./sources/registry.js";
-import { publishActivityBoard, publishPlatformBoard, publishStatus } from "./status.js";
+import { publishActivityBoard, publishPlatformBoard, publishStatus, publishSuppressionBoard } from "./status.js";
 import { openDatabase } from "./storage/database.js";
 import { HttpCache } from "./storage/httpCache.js";
 import { expireSnapshotBodies, pruneShadowCandidates, pruneSnapshots } from "./storage/retention.js";
@@ -55,6 +55,11 @@ supervisor.register(
       await publishPlatformBoard(db, config);
     } catch (error) {
       log("error", "Platform board probe failed", { error });
+    }
+    try {
+      await publishSuppressionBoard(db, config);
+    } catch (error) {
+      log("error", "Suppression board probe failed", { error });
     }
     try {
       await publishStatus(db, config);
