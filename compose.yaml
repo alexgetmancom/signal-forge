@@ -33,11 +33,12 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
-      # Measured on release f2877d1: the process needs 46 seconds between container start and
-      # "Signal Forge started", because it rebuilds every projection in one transaction before it
-      # listens. start_period has to cover that, or the 2s spacing below stops applying while the
-      # app is still booting and detection falls back to the 30s interval -- which is exactly what
-      # happened: ready at 22:53:05, reported healthy at 22:53:30.
+      # The process rebuilds every projection in one transaction before it listens, so it answers
+      # some seconds after the container starts: 46s when this was first measured, 9.6s since the
+      # story projection stopped copying an array per event. start_period has to cover that with
+      # room to spare, or the 2s spacing below stops applying while the app is still booting and
+      # detection falls back to the 30s interval -- which is what made one deployment wait 70
+      # seconds for a probe that answers in 110 ms.
       start_period: 90s
       # start_interval governs probe spacing until the first success, but only within start_period
       # above. Without it the first probe waits a full interval; with it, readiness is noticed
