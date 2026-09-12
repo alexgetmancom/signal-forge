@@ -18,7 +18,7 @@
     "check-architecture": "bun scripts/check-architecture.ts",
     "check-language": "bun scripts/check-language.ts",
     "check-audit": "bun audit --audit-level=high",
-    "check-dead-code": "knip-bun --include files,dependencies,unlisted,binaries",
+    "check-dead-code": "knip-bun",
     "rehearse-migration": "bun scripts/rehearse-migration.ts",
     "install-hooks": "lefthook install",
     "check-migrations": "bun scripts/check-migrations.ts",
