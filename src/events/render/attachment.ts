@@ -1,3 +1,4 @@
+import { slug } from "../../text.js";
 import type { Event, RecordData } from "../types.js";
 import { webStringChanges } from "./common.js";
 
@@ -12,15 +13,6 @@ export type Attachment = { filename: string; content: string };
 /** Below this, everything already fits in the card and a file would be ceremony. */
 const MIN_CHANGES_TO_ATTACH = 12;
 const MAX_ATTACHMENT_BYTES = 1_000_000;
-
-function slug(value: string): string {
-  return (
-    value
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-|-$/g, "") || "evidence"
-  );
-}
 
 export function eventAttachment(event: Event): Attachment | null {
   if (event.stream !== "web" || event.kind !== "changed") return null;
@@ -47,5 +39,5 @@ export function eventAttachment(event: Event): Attachment | null {
   ]
     .join("\n")
     .slice(0, MAX_ATTACHMENT_BYTES);
-  return { filename: `${slug(name)}-${event.id}.txt`, content };
+  return { filename: `${slug(name) || "evidence"}-${event.id}.txt`, content };
 }
