@@ -29,7 +29,7 @@ const schema = z.object({
     .min(1),
 });
 
-export function parseArtificialAnalysis(payload: string): Collection {
+function parseArtificialAnalysis(payload: string): Collection {
   const raw: unknown = JSON.parse(payload);
   const data = schema.parse(raw);
   return {

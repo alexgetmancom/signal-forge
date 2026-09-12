@@ -5,15 +5,15 @@ import { slug } from "../text.js";
 import { htmlText } from "./html.js";
 import { fetchText } from "./http.js";
 
-export const GEMINI_DEPRECATIONS_URL = "https://ai.google.dev/gemini-api/docs/deprecations?hl=en";
-export const VERTEX_DEPRECATIONS_URL = "https://docs.cloud.google.com/vertex-ai/generative-ai/docs/release-notes";
-export const AWS_BEDROCK_LIFECYCLE_URL =
+const GEMINI_DEPRECATIONS_URL = "https://ai.google.dev/gemini-api/docs/deprecations?hl=en";
+const VERTEX_DEPRECATIONS_URL = "https://docs.cloud.google.com/vertex-ai/generative-ai/docs/release-notes";
+const AWS_BEDROCK_LIFECYCLE_URL =
   "https://docs.aws.amazon.com/en_en/bedrock/latest/userguide/model-lifecycle-legacy.html";
-export const AZURE_FOUNDRY_LIFECYCLE_URL =
+const AZURE_FOUNDRY_LIFECYCLE_URL =
   "https://learn.microsoft.com/en-us/azure/foundry/concepts/model-lifecycle-retirement?view=azureml-api-2";
-export const GROQ_DEPRECATIONS_URL = "https://console.groq.com/docs/deprecations";
-export const COHERE_DEPRECATIONS_URL = "https://docs.cohere.com/docs/deprecations.md";
-export const XAI_DEPRECATIONS_URL = "https://docs.x.ai/developers/migration/may-15-retirement";
+const GROQ_DEPRECATIONS_URL = "https://console.groq.com/docs/deprecations";
+const COHERE_DEPRECATIONS_URL = "https://docs.cohere.com/docs/deprecations.md";
+const XAI_DEPRECATIONS_URL = "https://docs.x.ai/developers/migration/may-15-retirement";
 
 const lifecycleRecord = z
   .object({

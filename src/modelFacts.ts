@@ -43,7 +43,7 @@ export type ModelFactsView = {
 export type ModelFactsQuery = { limit?: number | undefined };
 
 /** Evidence authority is intentionally separate from confidence semantics. */
-export const MODEL_FACT_AUTHORITY_RANK: Record<EvidenceType, number> = {
+const MODEL_FACT_AUTHORITY_RANK: Record<EvidenceType, number> = {
   api_catalogue: 5,
   deprecation: 5,
   official_news: 4,

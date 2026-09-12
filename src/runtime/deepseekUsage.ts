@@ -4,11 +4,11 @@ import { round } from "../numbers.js";
 
 export const DEEPSEEK_SUMMARY_MODEL = "deepseek-v4-flash";
 export const DEEPSEEK_SUMMARY_ENDPOINT = "https://api.deepseek.com/v1/chat/completions";
-export const DEEPSEEK_SUMMARY_OPERATION = "summary.fillSummaries";
+const DEEPSEEK_SUMMARY_OPERATION = "summary.fillSummaries";
 export const DEEPSEEK_SUMMARY_MAX_INPUT_CHARS = 6_000;
 export const DEEPSEEK_SUMMARY_MAX_OUTPUT_TOKENS = 90;
 export const DEEPSEEK_SUMMARY_DAILY_ATTEMPT_LIMIT = 300;
-export const DEEPSEEK_PRICING_VERSION = "deepseek-flash-2026-08-16";
+const DEEPSEEK_PRICING_VERSION = "deepseek-flash-2026-08-16";
 
 export type DeepSeekPricingPeriod = "peak" | "off_peak";
 export type DeepSeekCostBasis = "exact" | "estimated" | "unknown";
@@ -35,7 +35,7 @@ export type DeepSeekCost = {
   pricingPeriod: DeepSeekPricingPeriod;
 };
 
-export const DEEPSEEK_PRICING = {
+const DEEPSEEK_PRICING = {
   currency: "USD",
   unit: "per 1M tokens",
   version: DEEPSEEK_PRICING_VERSION,
@@ -43,7 +43,7 @@ export const DEEPSEEK_PRICING = {
   offPeak: { cacheHit: 0.003, cacheMiss: 0.15, output: 0.6 },
 } as const;
 
-export const DEEPSEEK_CODE_PATHS = [
+const DEEPSEEK_CODE_PATHS = [
   {
     operation: DEEPSEEK_SUMMARY_OPERATION,
     path: "src/summary.ts",
@@ -96,7 +96,7 @@ function dateOf(value: Date | string | number): Date {
   return Number.isNaN(date.getTime()) ? new Date(0) : date;
 }
 
-export function pricingPeriod(attemptedAt: Date | string | number): DeepSeekPricingPeriod {
+function pricingPeriod(attemptedAt: Date | string | number): DeepSeekPricingPeriod {
   const date = dateOf(attemptedAt);
   const weekday = date.getUTCDay();
   const hour = date.getUTCHours();

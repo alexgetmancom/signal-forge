@@ -122,7 +122,7 @@ export function webStringChanges(before: unknown, after: unknown) {
 }
 
 /** A small catalogue price drift is evidence, but not subscriber-facing news. */
-export const MIN_PRICE_CHANGE_PER_MILLION = 1;
+const MIN_PRICE_CHANGE_PER_MILLION = 1;
 export const MIN_PRICE_CHANGE_RATIO = 0.1;
 
 type PriceUnit = "per-token" | "per-million";

@@ -139,7 +139,7 @@ function isDateTail(words: string[]): boolean {
  * One identity term with packaging removed, so that the same model written two ways meets itself.
  * Returns the term unchanged when nothing is stripped, and never strips it down to nothing.
  */
-export function baseIdentity(value: string): string {
+function baseIdentity(value: string): string {
   const words = normalizeIdentity(value).split(" ").filter(Boolean);
   while (words.length > 1) {
     const last = words.at(-1) ?? "";

@@ -7,11 +7,11 @@ import { slug } from "../text.js";
 import { htmlText } from "./html.js";
 import { fetchText } from "./http.js";
 
-export const CLAUDE_CODE_CHANGELOG_URL = "https://code.claude.com/docs/en/changelog.md";
-export const ANTHROPIC_SDK_RELEASES_URL = "https://platform.claude.com/docs/en/release-notes/overview.md";
-export const OPENAI_CODEX_CHANGELOG_URL = "https://developers.openai.com/codex/changelog";
+const CLAUDE_CODE_CHANGELOG_URL = "https://code.claude.com/docs/en/changelog.md";
+const ANTHROPIC_SDK_RELEASES_URL = "https://platform.claude.com/docs/en/release-notes/overview.md";
+const OPENAI_CODEX_CHANGELOG_URL = "https://developers.openai.com/codex/changelog";
 const OPENAI_CODEX_CHANGELOG_FEED_URL = "https://learn.chatgpt.com/docs/changelog/rss.xml";
-export const HUGGINGFACE_BLOG_FEED_URL = "https://huggingface.co/blog/feed.xml";
+const HUGGINGFACE_BLOG_FEED_URL = "https://huggingface.co/blog/feed.xml";
 
 const xmlTextSchema = z.union([z.string(), z.object({ "#text": z.string() }).passthrough()]);
 

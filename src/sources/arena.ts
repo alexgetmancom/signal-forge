@@ -3,7 +3,7 @@ import type { Collection } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
 import { fetchText } from "./http.js";
 
-export function nextData(html: string, key: string): unknown {
+function nextData(html: string, key: string): unknown {
   let stream = "";
   for (const match of html.matchAll(/self\.__next_f\.push\((\[.*?\])\)<\/script>/g)) {
     const chunk: unknown = JSON.parse(match[1] ?? "null");

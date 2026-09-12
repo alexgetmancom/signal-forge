@@ -86,7 +86,7 @@ const responseSchema = z
  * truncated — a 30 KB commit diff and a one-line version bump can render to the same three lines,
  * and it is exactly the collapsed one that needs a sentence.
  */
-export function needsSummary(event: Event, url: string): boolean {
+function needsSummary(event: Event, url: string): boolean {
   if (event.kind === "removed") return false;
   if (!hasNotificationContent(event)) return false;
   const material = (event.before_json?.length ?? 0) + (event.after_json?.length ?? 0);

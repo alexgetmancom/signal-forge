@@ -6,7 +6,7 @@ export type WorkerHandle = {
   stop: () => Promise<void>;
 };
 
-export const WORKER_HEARTBEAT_INTERVAL_MS = 60_000;
+const WORKER_HEARTBEAT_INTERVAL_MS = 60_000;
 
 type WorkerState = {
   state: "running" | "idle" | "failed" | "stopped";

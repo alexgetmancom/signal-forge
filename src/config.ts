@@ -19,7 +19,7 @@ export const streamSchema = z.enum([
   "resets",
 ]);
 export type Stream = z.infer<typeof streamSchema>;
-export const sourceModeSchema = z.enum(["active", "shadow"]);
+const sourceModeSchema = z.enum(["active", "shadow"]);
 export type SourceMode = z.infer<typeof sourceModeSchema>;
 /**
  * A destination subscribes to what its readers came for, not to the sources that happen to

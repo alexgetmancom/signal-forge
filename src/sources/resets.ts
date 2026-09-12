@@ -88,7 +88,7 @@ function announcement(entry: Reset): string {
   return entry.source.type === "x_post" ? `Posted by @${entry.source.author} on X` : "Observed without an announcement";
 }
 
-export function resetRecords(entries: Reset[], pending: Scheduled | null = null): Collection["records"] {
+function resetRecords(entries: Reset[], pending: Scheduled | null = null): Collection["records"] {
   const records = new Map<string, Collection["records"][number]>();
   for (const entry of [...entries, ...(pending ? [pending] : [])]) {
     const applied = entry.id !== pending?.id;

@@ -37,7 +37,7 @@ function eyebrow(event: Event): string {
  * kind of surface and the first line of the body says what it means, so a card that also spells
  * out "Model availability updated" spends a reader's attention on grammar rather than on the name.
  */
-export function eventHeadline(event: Event, record: RecordData | null): string {
+function eventHeadline(event: Event, record: RecordData | null): string {
   const name = String(record?.name ?? event.entity_id);
   if (event.stream === "deprecations" && event.kind === "new") return `⚠️ Action required · ${name}`;
   return `${KIND_ICONS[event.kind]} ${name}`;

@@ -10,7 +10,7 @@
 export const OPERATION_SECTIONS = ["health", "delivery", "evidence", "sources", "host"] as const;
 export type OperationSection = (typeof OPERATION_SECTIONS)[number];
 
-export const SECTION_SUMMARIES: Record<OperationSection, string> = {
+const SECTION_SUMMARIES: Record<OperationSection, string> = {
   health: "Is this deployment collecting, delivering and backed up, and what is wrong with it.",
   delivery: "One message to subscribers: whether it arrived, and how to settle it when that is unclear.",
   evidence: "What was observed, what it was correlated into, and what each claim rests on.",

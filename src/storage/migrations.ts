@@ -10,7 +10,7 @@ export type Migration = {
   sql: string;
 };
 
-export function migrationDirectory(): string {
+function migrationDirectory(): string {
   return fileURLToPath(new URL("./migrations/", import.meta.url));
 }
 

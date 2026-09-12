@@ -15,7 +15,7 @@ import { fetchText } from "./http.js";
  * Tag spellings differ between projects — `v2.1.269` here, `rust-v0.154.0` there — so the version
  * is matched inside the tag rather than assumed to be the tag.
  */
-export const PACKAGE_REPOSITORIES: Record<string, string> = {
+const PACKAGE_REPOSITORIES: Record<string, string> = {
   "npm:@openai/codex": "openai/codex",
   "npm:@anthropic-ai/claude-code": "anthropics/claude-code",
   "npm:@google/gemini-cli": "google-gemini/gemini-cli",

@@ -6,14 +6,14 @@ import { slug } from "../text.js";
 import { attribute, htmlText } from "./html.js";
 import { fetchText } from "./http.js";
 
-export const OPENAI_CHATGPT_RELEASE_NOTES_URL = "https://help.openai.com/en/articles/6825453-chatgpt-release-notes";
+const OPENAI_CHATGPT_RELEASE_NOTES_URL = "https://help.openai.com/en/articles/6825453-chatgpt-release-notes";
 const OPENAI_CHATGPT_RELEASE_NOTES_FETCH_URL = `${OPENAI_CHATGPT_RELEASE_NOTES_URL}.json`;
-export const OPENAI_API_CHANGELOG_URL = "https://developers.openai.com/api/docs/changelog";
+const OPENAI_API_CHANGELOG_URL = "https://developers.openai.com/api/docs/changelog";
 const OPENAI_API_CHANGELOG_FETCH_URL = `${OPENAI_API_CHANGELOG_URL}.md`;
-export const GEMINI_API_CHANGELOG_URL = "https://ai.google.dev/gemini-api/docs/changelog";
-export const XAI_RELEASE_NOTES_URL = "https://docs.x.ai/developers/release-notes";
-export const MISTRAL_RELEASE_NOTES_URL = "https://docs.mistral.ai/resources/release-notes";
-export const GROQ_CHANGELOG_URL = "https://console.groq.com/docs/changelog";
+const GEMINI_API_CHANGELOG_URL = "https://ai.google.dev/gemini-api/docs/changelog";
+const XAI_RELEASE_NOTES_URL = "https://docs.x.ai/developers/release-notes";
+const MISTRAL_RELEASE_NOTES_URL = "https://docs.mistral.ai/resources/release-notes";
+const GROQ_CHANGELOG_URL = "https://console.groq.com/docs/changelog";
 
 const releaseRecordSchema = z
   .object({

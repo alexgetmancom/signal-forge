@@ -7,10 +7,9 @@ import { slug } from "../text.js";
 import { attribute, htmlText } from "./html.js";
 import { fetchText } from "./http.js";
 
-export const DEEPSEEK_UPDATES_URL = "https://api-docs.deepseek.com/updates";
-export const DEEPSEEK_PRICING_URL =
-  "https://api-docs.deepseek.com/quick_start/pricing/?article_id=article_1779470751466_8";
-export const DEEPSEEK_MODELS_URL = "https://api.deepseek.com/models";
+const DEEPSEEK_UPDATES_URL = "https://api-docs.deepseek.com/updates";
+const DEEPSEEK_PRICING_URL = "https://api-docs.deepseek.com/quick_start/pricing/?article_id=article_1779470751466_8";
+const DEEPSEEK_MODELS_URL = "https://api.deepseek.com/models";
 
 const modelsSchema = z.object({
   object: z.literal("list"),

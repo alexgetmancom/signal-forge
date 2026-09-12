@@ -8,7 +8,7 @@ import type { Event } from "./types.js";
  * The reason is the rule that stopped it, so the reasons can be counted; the detail is the same
  * decision in the words a reader would use, so a single row answers the question without a replay.
  */
-export const SUPPRESSION_REASONS = [
+const SUPPRESSION_REASONS = [
   "no_reader_facing_change",
   "scheduled_pricing_rotation",
   "oscillating",
@@ -20,7 +20,7 @@ export const SUPPRESSION_REASONS = [
 
 export type SuppressionReason = (typeof SUPPRESSION_REASONS)[number];
 
-export function suppressionDetail(event: Event, reason: SuppressionReason): string {
+function suppressionDetail(event: Event, reason: SuppressionReason): string {
   switch (reason) {
     case "no_reader_facing_change":
       return notificationBlock(event) ?? "Nothing a reader would act on";
