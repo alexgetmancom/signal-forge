@@ -8,7 +8,7 @@ import { extname, join, relative, resolve } from "node:path";
 
 const root = resolve(import.meta.dir, "..");
 const roots = ["src", "scripts", "tests", "docs"];
-const extensions = new Set([".ts", ".sql", ".md", ".sh", ".json"]);
+const extensions = new Set([".ts", ".sql", ".md", ".sh", ".json", ".jsonc"]);
 /** Cyrillic, including the supplement: the alphabet this repository keeps writing itself in. */
 const cyrillic = /[\u0400-\u04ff\u0500-\u052f]/;
 

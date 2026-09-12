@@ -1,0 +1,75 @@
+/* Layer boundaries, checked on the local import graph.
+ *
+ * This is the only place layer rules live. scripts/check-architecture.ts reads this file, resolves
+ * every relative import in src/ and reports the edges a rule forbids. The dependency-cruiser
+ * config shape is used on purpose: the rules stay readable to the tool if this repository ever
+ * grows into needing it, and they read the same way as the ones in the sibling repository.
+ *
+ * .jsonc rather than the tool's usual .cjs config: the language gate wants comments, and the
+ * repository ships no JavaScript. The comments are the point -- a rule whose reason is not written
+ * down is a rule that gets deleted by whoever first finds it inconvenient.
+ */
+{
+  "forbidden": [
+    {
+      "name": "no-circular",
+      "comment": "A cycle means neither module can be read, tested or moved on its own, and the import order that happens to work today is an accident of which file the runtime loaded first.",
+      "from": {},
+      "to": { "circular": true }
+    },
+    {
+      "name": "collectors-do-not-deliver",
+      "comment": "A collector's whole job is to come back with a catalog or to fail loudly. If it can reach delivery it can also decide to send, and the decision to notify a subscriber would then live in the one place that has no view of snapshots, events or suppression.",
+      "from": { "path": "^src/sources/" },
+      "to": { "path": "^src/delivery\\.ts$" }
+    },
+    {
+      "name": "collectors-do-not-render",
+      "comment": "What a collector returns is evidence, not a card. A collector that formats is a collector whose output cannot be diffed against the previous snapshot, which is how a changed record is detected at all.",
+      "from": { "path": "^src/sources/" },
+      "to": { "path": "^src/events/render/" }
+    },
+    {
+      "name": "storage-does-not-collect",
+      "comment": "Storage is called inside the transaction that commits snapshots, events and delivery jobs together. An import of a collector puts a network read on that path, where it can only turn a slow upstream into a held write lock.",
+      "from": { "path": "^src/storage/" },
+      "to": { "path": "^src/sources/" }
+    },
+    {
+      "name": "storage-does-not-speak-transport",
+      "comment": "Same transaction, other end: persistence that can call delivery or the HTTP server can send before the commit it is part of has landed, which is how something is delivered twice or announced and then rolled back.",
+      "from": { "path": "^src/storage/" },
+      "to": { "path": "^src/(delivery|http)\\.ts$" }
+    },
+    {
+      "name": "event-persistence-does-not-render",
+      "comment": "store.ts writes the event; how it reads on Discord or Telegram is a later decision. Rendering here would put subscriber-facing wording into the row, where records.body is compared byte for byte and a reworded string becomes a \"changed\" event for every record carrying it.",
+      "from": { "path": "^src/events/store\\.ts$" },
+      "to": { "path": "^src/events/render/" }
+    },
+    {
+      "name": "renderers-do-not-collect",
+      "comment": "A renderer draws what the pipeline already decided. Reaching into a collector makes rendering depend on a live upstream, so a card's text would differ depending on whether a fetch succeeded while it was being drawn. sources/labels.ts is exempt: it is the naming vocabulary a card needs to say which source spoke, not a collector.",
+      "from": { "path": "^src/events/render/" },
+      "to": { "path": "^src/sources/", "pathNot": "^src/sources/labels\\.ts$" }
+    },
+    {
+      "name": "renderers-do-not-deliver",
+      "comment": "Rendering produces a payload and hands it back. A renderer that can send is a renderer that can retry, and a delivery with an uncertain outcome must stay ambiguous rather than be retried by whatever was drawing it.",
+      "from": { "path": "^src/events/render/" },
+      "to": { "path": "^src/delivery\\.ts$" }
+    },
+    {
+      "name": "delivery-does-not-collect",
+      "comment": "Delivery works from the jobs the transaction wrote. Collecting at send time would mean the thing being announced is read again, separately, after the evidence for announcing it was already stored.",
+      "from": { "path": "^src/delivery\\.ts$" },
+      "to": { "path": "^src/sources/" }
+    },
+    {
+      "name": "event-core-does-not-import-the-web-framework",
+      "comment": "The event pipeline is driven by the poller, the CLI and the HTTP server alike. A Hono import inside it would make one of those three the shape every caller has to pretend to be.",
+      "from": { "path": "^src/events/" },
+      "to": { "path": "^src/http\\.ts$" }
+    }
+  ]
+}
