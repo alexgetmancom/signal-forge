@@ -76,6 +76,8 @@ current `main` branch with no known actionable issues.
 - Minor incidents speak only on start and resolution; severe and resolved incidents bypass the digest.
 - A changed field whose value survives normalization to letters and digits is not reported.
 - Package releases are enriched with their upstream release notes before the card is rendered.
+- `scripts/restore-drill.sh` restores the newest archive into a throwaway instance with no network,
+  checks integrity and provenance, boots it, rebuilds every derived view and destroys the copy.
 - Discord cards say how solid an observation is in a sentence keyed on evidence type, above the
   line saying what it means. The footer keeps the machine-readable labels.
 - The vendor map covers the makers Arena actually carries, and short patterns are anchored so `xai`
@@ -97,7 +99,6 @@ priority.
 
 | Priority | Task | Definition of done |
 |---|---|---|
-| Next | Run a real restore drill. | Restore a verified archive into a stopped test instance, run `integrity_check`, start it, and compare event counts and health reports. |
 | Next | A last-reset board. | One status message, edited in place, naming when each tracked vendor last reset usage limits. Worth building when a second vendor's resets are collected; with one row it is a card that already exists. |
 | Next | Preserve outage start time. | Store `failure_started_at` separately from the latest observation so issue duration is accurate. |
 | Owner decision | Google catalogue. | `gemini` has never succeeded: HTTP 400 from every address this project can reach. Choose Vertex AI with a billed service account, route around the block, or accept OpenRouter as the Google source. |
@@ -132,6 +133,26 @@ Kept because the reasoning cost real observation and is easy to re-litigate from
   and any measurement that skips `batch_events.signal` overstates every channel.
 - **Site pages are not early warning.** `pages:openai` leads by 0.1 hours: the page appears when
   everyone else sees it. Packages lead by 17.9 hours and are worth the enrichment.
+
+## Ideas
+
+Not scheduled and not started. Written down so they stop being re-derived from scratch, with what
+is already known about each.
+
+- **ModelScope verdict.** Keep or remove on measured lead time. It has produced no first sighting
+  worth a card so far; `lead-time 7` decides it once the source has a full week behind it.
+- **Welcome channel.** One message explaining the channel map, what the standing sentences mean and
+  how to follow a single vendor. More useful now that a card says "Seen in a reseller's catalogue"
+  rather than "Confidence: observed".
+- **Incident cards edited in place across stages.** An incident currently posts a card per stage;
+  the status boards already show that editing one message reads better than a growing log.
+- **Shorter snapshot body lifetime for the two heavy sources.** `claude-web` and `npm:@openai/codex`
+  dominate snapshot bytes. Fourteen days for those two, ninety for everything else, instead of the
+  size cap and receipt design that was deferred.
+- **Hugging Face model-card metadata**, **OpenRouter trending** (needs a stable public endpoint) and
+  **Hacker News** (digest-only, never sufficient for `confirmed`), all from the competitor audit.
+- **Regional lifecycle schedules.** A deprecation with different dates per region is stored as one
+  record with one date, which understates the ones that matter most.
 
 ## Deferred
 
