@@ -35,7 +35,9 @@ test("health is public, operational state requires token, MCP lists matching sch
   expect(tools).not.toContain("poll");
   expect(tools).not.toContain("clear_credential_circuit");
   expect(tools).not.toContain("guide");
+  expect(tools).not.toContain("sync_publications");
   expect(tools).toEqual([
+    "publications",
     "doctor",
     "status",
     "issues",

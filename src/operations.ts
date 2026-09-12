@@ -19,6 +19,7 @@ import { leadTime } from "./leadTime.js";
 import { listLifecycleDeadlines } from "./lifecycle.js";
 import { getModelFacts, listModelFacts } from "./modelFacts.js";
 import { pollSources } from "./poller.js";
+import { listPublications, syncPublications } from "./publications.js";
 import { deepSeekUsage } from "./runtime/deepseekUsage.js";
 import { codeAnalytics } from "./runtime/metrics.js";
 import { signalQuality } from "./signalQuality.js";
@@ -106,6 +107,26 @@ const identifier = z.coerce.number().int().positive();
 
 export function operations(db: Database, config: AppConfig): OperationMap {
   const defs: OperationMap = {
+    publications: {
+      section: "evidence",
+      summary: "Published text and target outcomes read from Solo Publisher, with archive coverage and freshness.",
+      startHere: "what has been published through Solo Publisher",
+      mutates: false,
+      agent: true,
+      schema: z.object({ limit: count(100, 20) }),
+      cli: { args: [{ name: "limit", optional: true }] },
+      http: { method: "get", path: "/api/publications" },
+      handler: ({ limit }: { limit: number }) => listPublications(db, config, limit),
+    },
+    sync_publications: {
+      section: "host",
+      summary: "Refresh the recent Solo Publisher archive without publishing or changing anything in Studio.",
+      mutates: true,
+      agent: false,
+      schema: z.object({}),
+      cli: {},
+      handler: () => syncPublications(db, config),
+    },
     guide: {
       section: "health",
       summary: "The command catalog, the symptom index and what to do when the database is unusable.",

@@ -7,6 +7,7 @@ import { rebuildLifecycleDeadlines, scheduleLifecycleReminders } from "./lifecyc
 import { configureLogger, log } from "./logger.js";
 import { rebuildModelFacts } from "./modelFacts.js";
 import { pollSources } from "./poller.js";
+import { syncPublications } from "./publications.js";
 import { pruneCodeMetrics } from "./runtime/metrics.js";
 import { logMemoryUsage, recordRuntimeStart, recordRuntimeStop } from "./runtime/observability.js";
 import { stopServerGracefully } from "./runtime/shutdown.js";
@@ -35,6 +36,13 @@ recoverInterruptedDeliveries(db);
 recoverInterruptedAlerts(db);
 const server = Bun.serve({ hostname: config.BIND_HOST, port: config.PORT, fetch: createHttpApp(config, db).fetch });
 const supervisor = new RuntimeSupervisor();
+if (config.SOLO_PUBLISHER_MCP_URL) {
+  supervisor.register(
+    startIntervalWorker(db, "publications", 900_000, async () => {
+      await syncPublications(db, config);
+    }),
+  );
+}
 supervisor.register(
   startIntervalWorker(db, "lifecycle", 300_000, () => {
     scheduleLifecycleReminders(db, config);

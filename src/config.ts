@@ -47,6 +47,18 @@ const envSchema = z.object({
   CONFIG_PATH: z.string().default("./signal-forge.json"),
   /** Where the nightly backup job leaves its archives and the marker it writes after verifying one. */
   BACKUP_DIRECTORY: z.string().default("./backups"),
+  SOLO_PUBLISHER_MCP_URL: z.preprocess(
+    (v) => (v === "" ? undefined : v),
+    z
+      .string()
+      .url()
+      .refine((value) => {
+        const url = new URL(value);
+        return url.protocol === "https:" && !url.username && !url.password && !url.search && !url.hash;
+      }, "Solo Publisher requires an HTTPS URL without credentials, query or fragment")
+      .optional(),
+  ),
+  SOLO_PUBLISHER_MCP_TOKEN: optionalSecret,
   MCP_TOKEN: z.preprocess((v) => (v === "" ? undefined : v), z.string().min(32).optional()),
   TELEGRAM_BOT_TOKEN: optionalSecret,
   DISCORD_BOT_TOKEN: optionalSecret,
@@ -118,6 +130,8 @@ export const settingsSchema = z
   });
 export function loadConfig(env: Record<string, string | undefined> = process.env) {
   const config = envSchema.parse(env);
+  if (Boolean(config.SOLO_PUBLISHER_MCP_URL) !== Boolean(config.SOLO_PUBLISHER_MCP_TOKEN))
+    throw new Error("SOLO_PUBLISHER_MCP_URL and SOLO_PUBLISHER_MCP_TOKEN must be configured together");
   const settings = settingsSchema.parse(JSON.parse(readFileSync(config.CONFIG_PATH, "utf8")));
   for (const d of settings.destinations) {
     if (d.platform === "telegram" && !config.TELEGRAM_BOT_TOKEN)

@@ -82,7 +82,8 @@ function unversionedBaseline(db: Database): number | null {
         if (!triggerExists(db, "events_detected_at_shape_insert")) return 20;
         if (!tableExists(db, "credential_circuits")) return 21;
         if (!tableExists(db, "operator_journal")) return 22;
-        return sourceColumns.has("failure_started_at") ? 24 : 23;
+        if (!sourceColumns.has("failure_started_at")) return 23;
+        return tableExists(db, "publications") ? 25 : 24;
       }
       if (tableExists(db, "alert_attempts")) return 16;
       if (tableExists(db, "deepseek_usage")) return 15;

@@ -263,6 +263,14 @@ The system distinguishes between unavailable credentials, intentionally disabled
 
 Story views expose event IDs, `canonicalId`, `identityStatus`, and aliases so downstream publication workflows can fetch and evaluate the underlying evidence. Arena codenames remain unresolved until another source supplies a canonical identity.
 
+## Publication archive
+
+Signal Forge can read published text and platform outcomes from Solo Publisher every 15 minutes.
+Set `SOLO_PUBLISHER_MCP_URL` and `SOLO_PUBLISHER_MCP_TOKEN`, then inspect `bun src/cli.ts publications`.
+The initial window is the latest 50 text publications; previously observed posts remain stored.
+These rows do not create signal events or notifications. See [the workflow](docs/agent-workflow.md)
+for coverage and authorization details.
+
 ## Reliability
 
 Signal Forge is designed around external systems that fail in different ways.

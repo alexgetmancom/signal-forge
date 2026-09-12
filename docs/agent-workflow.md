@@ -1,7 +1,29 @@
-# Signal Forge to Solo Publisher workflow
+# Signal Forge and Solo Publisher workflow
 
-Signal Forge and Solo Publisher remain independent. An agent is the boundary between them; neither
-project imports the other, reads the other's database, or stores the other's credentials.
+Signal Forge and Solo Publisher remain independent; neither imports the other or reads its database.
+
+## Publication archive
+
+Signal Forge reads Solo Publisher's existing `ops_recent` and `ops_post_text` MCP operations every
+15 minutes. Configure `SOLO_PUBLISHER_MCP_URL` (HTTPS `/api/mcp`) and
+`SOLO_PUBLISHER_MCP_TOKEN` together in the deployment environment. The token is a Studio credential;
+the reader calls only these two read operations, but the credential itself is not read-only.
+No endpoint or authoring change is required in Solo Publisher.
+
+Run `bun src/cli.ts publications 20` or `GET /api/publications?limit=20` to read the stored copy,
+target links, per-target outcomes, last successful check and coverage. `sync-publications` refreshes
+it explicitly and changes only Signal Forge's local archive. Routine refresh runs under the runtime
+supervisor; failures appear in `issues` and leave the last complete snapshot in place.
+
+The upstream operation returns at most 50 text publications. Each refresh updates that window and
+retains previously seen rows; absence is not deletion. Older history, video publications and changes
+to posts that have left the window are not covered. Loss of overlap with a full next window marks a
+persistent coverage gap: do not calculate complete conversion across that gap. `publishedAt` is the
+Studio's publication date, not a verified per-platform send timestamp.
+
+These are editorial outcomes, never corroborating signal evidence. This connection does not match
+stories, calculate conversion, create drafts or send subscriber notifications. The draft workflow
+below remains an explicit agent action.
 
 ## Evidence-first flow
 
