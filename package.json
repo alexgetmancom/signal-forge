@@ -18,12 +18,11 @@
     "check-architecture": "bun scripts/check-architecture.ts",
     "check-language": "bun scripts/check-language.ts",
     "check-audit": "bun audit --audit-level=high",
-    "check-dead-code": "knip-bun --config knip.json --include files,dependencies,unlisted,binaries",
-    "knip": "knip-bun --config knip.json",
+    "check-dead-code": "knip-bun --include files,dependencies,unlisted,binaries",
     "rehearse-migration": "bun scripts/rehearse-migration.ts",
-    "install-hooks": "git config core.hooksPath .githooks",
+    "install-hooks": "lefthook install",
     "check-migrations": "bun scripts/check-migrations.ts",
-    "check": "bun run lint && bun run typecheck && bun run test && bun run check-migrations && bun run check-architecture && bun run check-language && bun run check-dead-code && bun run check-audit && bun run build",
+    "check": "bun scripts/check.ts",
     "poll": "bun src/cli.ts poll",
     "status": "bun src/cli.ts status",
     "events": "bun src/cli.ts events",
@@ -38,6 +37,7 @@
     "@biomejs/biome": "^2.5.7",
     "@types/bun": "^1.3.14",
     "knip": "^6.35.1",
+    "lefthook": "^2.1.12",
     "typescript": "^7.0.2"
   }
 }

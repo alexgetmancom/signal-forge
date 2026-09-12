@@ -1,0 +1,17 @@
+# Two gates, each sized to what it can afford. Commit time is for what must never enter history at
+# all; push time is for the full check. Install with `bun run install-hooks`.
+pre-commit:
+  commands:
+    biome:
+      glob: "*.{ts,json,jsonc,md,yml,yaml}"
+      run: bunx biome check --write --no-errors-on-unmatched {staged_files}
+      stage_fixed: true
+    gitleaks:
+      # Credentials and the URLs carrying them are never logged; a commit is a log that cannot be
+      # rotated. --redact keeps the finding itself out of the terminal scrollback.
+      run: gitleaks protect --staged --redact --no-banner
+
+pre-push:
+  commands:
+    quality:
+      run: bun run check --parallel

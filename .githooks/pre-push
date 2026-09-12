@@ -1,4 +1,0 @@
-#!/usr/bin/env bash
-# The gate runs before the push, not after somebody remembers. Install with `bun run install-hooks`.
-set -euo pipefail
-exec bun run check
