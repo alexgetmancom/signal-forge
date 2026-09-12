@@ -70,10 +70,19 @@ values and never change confidence, which remains source-derived.
 ## Backups
 
 The scheduled backup runs `scripts/backup.sh` with `SIGNAL_FORGE_DIR` set to the private deployment
-directory and a separate memory budget. It uses SQLite's
-`VACUUM INTO`, compresses the copy, reads it back, runs `PRAGMA integrity_check`, verifies the event
-count, and retains the configured number of recent archives. A failed verification must fail the
-backup job rather than produce a trusted-looking archive.
+directory and a separate memory budget. It uses SQLite's `VACUUM INTO`, reads the copy back, runs
+`PRAGMA integrity_check`, verifies the event count, compresses it, and retains the configured number
+of recent archives. A failed verification must fail the backup job rather than produce a
+trusted-looking archive.
+
+The script takes those steps in two phases so a deployment need not wait for the slow one.
+`backup.sh snapshot` makes the verified copy and leaves it uncompressed, which takes about three
+seconds; `backup.sh archive` compresses every uncompressed snapshot it finds, checks the archive as
+a stream and rotates. With no argument it runs both, which is what the schedule wants and what it
+has always done. `scripts/deploy.sh` takes the snapshot before it stops the application -- that
+copy is its rollback point, restored with `cp` rather than decompressed -- and runs the archive
+phase after production is healthy again. An uncompressed snapshot left behind by a deployment that
+died between the phases needs no attention: the next archive phase finds it by the same glob.
 
 After a successful verification the job writes `last-verified.json` into the backup directory. That
 marker is the only thing the service can see of a job that runs outside it: `doctor` reads it, and
@@ -99,7 +108,8 @@ event for every record carrying it. Migrate with the collector stopped.
 Restore only while the service is stopped:
 
 1. Stop the application.
-2. Decompress the selected archive into the configured database directory.
+2. Decompress the selected archive into the configured database directory, or copy it there
+   directly if you are restoring an uncompressed snapshot a deployment left behind.
 3. Remove stale `-wal` and `-shm` sidecars.
 4. Start the application and wait for readiness.
 5. Run `issues`, `signal-quality 7` and the delivery verification report.

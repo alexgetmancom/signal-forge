@@ -58,7 +58,9 @@ rollback() {
     docker compose --project-directory "$DEPLOY_DIR" -f "$failed_compose" down --remove-orphans || true
     if [[ -n "$BACKUP" && -f "$BACKUP" ]]; then
       rm -f "$DEPLOY_DIR/data/app.db" "$DEPLOY_DIR/data/app.db-wal" "$DEPLOY_DIR/data/app.db-shm"
-      gzip -dc "$BACKUP" > "$DEPLOY_DIR/data/app.db"
+      # The rollback point is the verified snapshot itself, not an archive of it: a copy, with
+      # nothing to decompress in the one moment when this has to work.
+      cp "$BACKUP" "$DEPLOY_DIR/data/app.db"
     fi
     if [[ -f "$PREVIOUS_COMPOSE" ]]; then
       mv -f "$PREVIOUS_COMPOSE" "$COMPOSE_FILE"
@@ -83,9 +85,15 @@ install -m 0644 "$REPOSITORY_DIR/compose.yaml" "$NEXT_COMPOSE"
 SIGNAL_FORGE_IMAGE=$RELEASE_IMAGE docker compose --project-directory "$DEPLOY_DIR" \
   --env-file "$DEPLOY_DIR/.env" -f "$NEXT_COMPOSE" config --quiet
 
+# Only the snapshot half runs here: VACUUM INTO and a read-back, about three seconds. Compressing
+# it takes four times as long and nothing about this deployment depends on the archive existing, so
+# that half runs after production is serving again.
 SIGNAL_FORGE_DIR=$DEPLOY_DIR SIGNAL_FORGE_BACKUP_IMAGE=$ROLLBACK_IMAGE \
-  bash "$REPOSITORY_DIR/scripts/backup.sh"
-BACKUP=$(find "$DEPLOY_DIR/backups" -maxdepth 1 -type f -name 'app-*.db.gz' -printf '%T@ %p\n' | sort -nr | head -n 1 | cut -d' ' -f2-)
+  bash "$REPOSITORY_DIR/scripts/backup.sh" snapshot
+# The newest uncompressed snapshot is the one just taken: the archive phase leaves none behind, and
+# one left by an interrupted run is necessarily older. Found rather than captured from the script's
+# output, so the verification line it prints still reaches the deployment log.
+BACKUP=$(find "$DEPLOY_DIR/backups" -maxdepth 1 -type f -name 'app-*.db' -printf '%T@ %p\n' | sort -nr | head -n 1 | cut -d' ' -f2-)
 if [[ -z "$BACKUP" || ! -f "$BACKUP" ]]; then
   echo "Pre-deployment backup was not created" >&2
   exit 1
@@ -141,3 +149,10 @@ while IFS= read -r stale; do
 done < <(stale_releases)
 trap - EXIT
 echo "Production is healthy on release $DEPLOY_RELEASE"
+
+# Past this line the release is live and the rollback trap is gone on purpose: compressing a backup
+# is not a reason to take production down. A failure here still fails the job, because an
+# unarchived snapshot is a backup outside the rotation and somebody should hear about it, and the
+# next run's archive phase picks it up by the same glob.
+SIGNAL_FORGE_DIR=$DEPLOY_DIR SIGNAL_FORGE_BACKUP_IMAGE=$RELEASE_IMAGE \
+  bash "$REPOSITORY_DIR/scripts/backup.sh" archive
