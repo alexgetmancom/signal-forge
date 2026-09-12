@@ -11,6 +11,15 @@ export type CacheEntry = { etag: string | null; lastModified: string | null; fre
 /** Bodies not read for this long are dropped; a rebuilt bundle renames every file it ships. */
 const KEEP_MS = 14 * 24 * 3_600_000;
 
+/**
+ * What the cache may weigh. Two weeks of bundles from the sites being watched came to 335 MB —
+ * more than every compressed evidence payload in the database put together, for rows that exist
+ * only to save a download. Age alone does not bound that, because the volume depends on how much
+ * those sites ship, so the cache is bounded by construction: past this, the least recently used
+ * entries go until it fits. Nothing here is evidence; a dropped entry costs one more request.
+ */
+const BUDGET_BYTES = 150 * 1024 * 1024;
+
 export class HttpCache {
   constructor(private readonly db: Database) {}
 
@@ -39,7 +48,34 @@ export class HttpCache {
   }
 
   prune(now = Date.now()): number {
-    return this.db.query("DELETE FROM http_cache WHERE used_at < ?").run(now - KEEP_MS).changes;
+    const expired = this.db.query("DELETE FROM http_cache WHERE used_at < ?").run(now - KEEP_MS).changes;
+    return expired + this.evictToBudget();
+  }
+
+  /** Drops least recently used entries until the cache fits its budget. */
+  private evictToBudget(): number {
+    const total =
+      this.db.query<{ bytes: number | null }, []>("SELECT SUM(LENGTH(body)) AS bytes FROM http_cache").get()?.bytes ??
+      0;
+    if (total <= BUDGET_BYTES) return 0;
+    let dropped = 0;
+    let remaining = total;
+    // Oldest use first, in batches, so one eviction pass never holds the whole cache in memory.
+    while (remaining > BUDGET_BYTES) {
+      const victims = this.db
+        .query<{ url: string; size: number }, []>(
+          "SELECT url, LENGTH(body) AS size FROM http_cache ORDER BY used_at LIMIT 50",
+        )
+        .all();
+      if (!victims.length) return dropped;
+      for (const victim of victims) {
+        this.db.query("DELETE FROM http_cache WHERE url=?").run(victim.url);
+        remaining -= victim.size;
+        dropped++;
+        if (remaining <= BUDGET_BYTES) break;
+      }
+    }
+    return dropped;
   }
 }
 

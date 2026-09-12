@@ -1,19 +1,16 @@
 import { canonical } from "../src/events/canonical.js";
 import { leaderboardRecordsFromRaw } from "../src/sources/arena.js";
 import { openDatabase } from "../src/storage/database.js";
+import { readLatestSnapshot } from "../src/storage/snapshots.js";
 
 const db = openDatabase("/app/data/app.db");
-const snapshot = db
-  .query<{ raw_json: string }, []>(
-    "SELECT raw_json FROM snapshots WHERE source='arena-leaderboards' ORDER BY id DESC LIMIT 1",
-  )
-  .get();
+const snapshot = readLatestSnapshot(db, "arena-leaderboards");
 
 if (!snapshot) {
   console.log("No Arena leaderboard snapshot found; no backfill required");
   db.close();
 } else {
-  const records = leaderboardRecordsFromRaw(JSON.parse(snapshot.raw_json));
+  const records = leaderboardRecordsFromRaw(JSON.parse(snapshot));
   let updated = 0;
   db.transaction(() => {
     db.query("DELETE FROM change_candidates WHERE source='arena-leaderboards'").run();

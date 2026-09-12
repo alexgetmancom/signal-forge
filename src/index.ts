@@ -12,10 +12,11 @@ import { logMemoryUsage, recordRuntimeStart, recordRuntimeStop } from "./runtime
 import { stopServerGracefully } from "./runtime/shutdown.js";
 import { RuntimeSupervisor } from "./runtime/supervisor.js";
 import { startIntervalWorker } from "./runtime/worker.js";
+import { buildSourceRegistry } from "./sources/registry.js";
 import { publishActivityBoard, publishPlatformBoard, publishStatus } from "./status.js";
 import { openDatabase } from "./storage/database.js";
 import { HttpCache } from "./storage/httpCache.js";
-import { pruneSnapshots } from "./storage/retention.js";
+import { expireSnapshotBodies, pruneShadowCandidates, pruneSnapshots } from "./storage/retention.js";
 import { rebuildStories, rememberStoryProjection } from "./stories.js";
 
 const config = loadConfig();
@@ -67,6 +68,13 @@ supervisor.register(
     }
     pruneCodeMetrics(db);
     pruneSnapshots(db);
+    expireSnapshotBodies(db);
+    pruneShadowCandidates(
+      db,
+      buildSourceRegistry(db, config)
+        .filter((source) => source.mode === "shadow")
+        .map((source) => source.id),
+    );
     // Cached bodies for files nobody links to any more; a rebuilt bundle renames everything.
     new HttpCache(db).prune();
   }),

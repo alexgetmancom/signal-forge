@@ -5,6 +5,7 @@ import { saveCollection } from "../src/events.js";
 import { PLATFORMS, parsePlatformStatus } from "../src/sources/platforms.js";
 import { activityEmbed, platformEmbed, publishStatus, sourceHealth, statusEmbed } from "../src/status.js";
 import { openDatabase } from "../src/storage/database.js";
+import { storeSnapshot } from "../src/storage/snapshots.js";
 
 const config = loadConfig({
   CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname,
@@ -387,7 +388,8 @@ test("an interrupted alert advances the durable state before a changed next cycl
 
 test("the platform board reads the stored observation and names the open incidents", () => {
   const db = openDatabase(":memory:");
-  db.query("INSERT INTO snapshots(source,collected_at,raw_json) VALUES(?,?,?)").run(
+  storeSnapshot(
+    db,
     "status:openai",
     "2026-09-08T12:00:00.000Z",
     JSON.stringify({
@@ -412,7 +414,8 @@ test("the platform board uses the highest indicator severity", () => {
     ["status:anthropic", "critical"],
   ];
   for (const [source, indicator] of statuses)
-    db.query("INSERT INTO snapshots(source,collected_at,raw_json) VALUES(?,?,?)").run(
+    storeSnapshot(
+      db,
       source,
       "2026-09-08T12:00:00.000Z",
       JSON.stringify({ headline: indicator, indicator, incidents: [] }),

@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { Destination } from "../config.js";
+import { storeSnapshot } from "../storage/snapshots.js";
 import { canonical } from "./canonical.js";
 import { authorityForSource, confidenceFor, evidenceTypeFor } from "./confidence.js";
 import { isRoutine } from "./interpretation.js";
@@ -136,22 +137,7 @@ export function persistCollection(
   const initialized = db.query("SELECT last_success FROM sources WHERE id=?").get(c.source) as {
     last_success: string | null;
   } | null;
-  const raw = JSON.stringify(c.raw);
-  const latest = db
-    .query<{ id: number; raw_json: string }, [string]>(
-      "SELECT id,raw_json FROM snapshots WHERE source=? ORDER BY id DESC LIMIT 1",
-    )
-    .get(c.source);
-  const snapshotRow =
-    latest?.raw_json === raw
-      ? latest
-      : db
-          .query<{ id: number }, [string, string, string]>(
-            "INSERT INTO snapshots(source,collected_at,raw_json) VALUES(?,?,?) RETURNING id",
-          )
-          .get(c.source, now, raw);
-  if (!snapshotRow) throw new Error("Snapshot insert failed");
-  const snapshot = snapshotRow.id;
+  const snapshot = storeSnapshot(db, c.source, now, JSON.stringify(c.raw)).id;
   const old = db
     .query<{ id: string; body: string; missing_count: number }, [string]>(
       "SELECT id,body,missing_count FROM records WHERE source=?",

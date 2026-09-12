@@ -57,3 +57,73 @@ export function pruneSnapshots(db: Database, now = Date.now()): number {
   }
   return removed;
 }
+
+/**
+ * How long a payload's bytes are worth keeping. Ninety days is far past the point where anybody
+ * opens the raw document behind a card, and a service that reports what is new has no use for the
+ * exact HTML of a page from last spring.
+ *
+ * What is released is only the body. The row keeps the source, the time, the hash of the bytes and
+ * their original size, which is a receipt that the evidence existed and what it was; the event
+ * keeps its own before and after state, which is what every card is actually drawn from.
+ */
+const BODY_LIFETIME_DAYS = 90;
+
+export function expireSnapshotBodies(db: Database, now = Date.now()): number {
+  const cutoff = new Date(now - BODY_LIFETIME_DAYS * 24 * 3_600_000).toISOString();
+  try {
+    return db
+      .query<{ expired: number }, [string, string, number]>(
+        `UPDATE snapshots SET body=NULL, expired_at=?
+         WHERE id IN (SELECT id FROM snapshots WHERE body IS NOT NULL AND collected_at < ? LIMIT ?)
+         RETURNING 1 AS expired`,
+      )
+      .all(new Date(now).toISOString(), cutoff, CHUNK * MAX_CHUNKS).length;
+  } catch (error) {
+    log("warn", "Snapshot body expiry failed", { errorType: error instanceof Error ? error.message : "unknown" });
+    return 0;
+  }
+}
+
+/**
+ * Shadow sources scan everything a registry publishes to find the few uploads worth watching.
+ * Those rows are candidates, not evidence: they were never sent to anybody and never corroborated
+ * anything. Six thousand of them accumulated in four days, and the ones nothing ever referred to
+ * are the only rows here that can be deleted without losing an answer to a question.
+ */
+const CANDIDATE_LIFETIME_DAYS = 30;
+
+export function pruneShadowCandidates(db: Database, shadowSources: readonly string[], now = Date.now()): number {
+  if (!shadowSources.length) return 0;
+  const cutoff = new Date(now - CANDIDATE_LIFETIME_DAYS * 24 * 3_600_000).toISOString();
+  const marks = shadowSources.map(() => "?").join(",");
+  try {
+    const removed = db
+      .query<{ removed: number }, (string | number)[]>(
+        `DELETE FROM events WHERE id IN (
+           SELECT e.id FROM events e
+           WHERE e.source IN (${marks}) AND e.detected_at < ?
+             AND NOT EXISTS (SELECT 1 FROM batch_events be WHERE be.event_id = e.id)
+           LIMIT ?
+         ) RETURNING 1 AS removed`,
+      )
+      .all(...shadowSources, cutoff, CHUNK * MAX_CHUNKS).length;
+    // A story whose every event has gone is not a story any more.
+    db.query(
+      "DELETE FROM stories WHERE NOT EXISTS (SELECT 1 FROM story_events se WHERE se.story_id = stories.id)",
+    ).run();
+    return removed;
+  } catch (error) {
+    log("warn", "Shadow candidate cleanup failed", { errorType: error instanceof Error ? error.message : "unknown" });
+    return 0;
+  }
+}
+
+/** What the database weighs now, and what it weighed a day ago, so growth is a number not a surprise. */
+export function databaseSize(db: Database): { bytes: number; snapshotBytes: number } {
+  const pages = db.query<{ page_count: number }, []>("PRAGMA page_count").get()?.page_count ?? 0;
+  const pageSize = db.query<{ page_size: number }, []>("PRAGMA page_size").get()?.page_size ?? 0;
+  const snapshotBytes =
+    db.query<{ total: number | null }, []>("SELECT SUM(LENGTH(body)) AS total FROM snapshots").get()?.total ?? 0;
+  return { bytes: pages * pageSize, snapshotBytes };
+}

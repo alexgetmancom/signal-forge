@@ -7,6 +7,7 @@ import type { Fetch } from "./http-client.js";
 import { log } from "./logger.js";
 import { PLATFORMS } from "./sources/platforms.js";
 import { buildSourceRegistry } from "./sources/registry.js";
+import { readLatestSnapshot } from "./storage/snapshots.js";
 
 /**
  * A source can be silent for several different reasons, and a status board that calls all of them
@@ -344,14 +345,12 @@ export function platformEmbed(db: Database, now = Date.now()): Record<string, un
   const lines: string[] = [];
   let worst = "none";
   for (const platform of PLATFORMS) {
-    const row = db
-      .query<{ raw_json: string }, [string]>("SELECT raw_json FROM snapshots WHERE source=? ORDER BY id DESC LIMIT 1")
-      .get(`status:${platform.id}`);
-    if (!row) {
+    const payload = readLatestSnapshot(db, `status:${platform.id}`);
+    if (!payload) {
       lines.push(`⚪ **${platform.name}** — not read yet`);
       continue;
     }
-    const raw = JSON.parse(row.raw_json) as {
+    const raw = JSON.parse(payload) as {
       headline?: string;
       indicator?: string;
       incidents?: { name: string; status: string; impact: string }[];

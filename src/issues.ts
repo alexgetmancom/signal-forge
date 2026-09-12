@@ -2,6 +2,14 @@ import type { Database } from "bun:sqlite";
 import { capabilityReport } from "./capabilities.js";
 import type { AppConfig } from "./config.js";
 import { sourceHealth } from "./status.js";
+import { databaseSize } from "./storage/retention.js";
+
+/** Where growth stops being normal and becomes something to look at, rather than to discover. */
+const DATABASE_SIZE_BUDGET = 5 * 1024 ** 3;
+
+function gigabytes(bytes: number): string {
+  return (bytes / 1024 ** 3).toFixed(1);
+}
 
 export type IssueKind =
   | "source_failed"
@@ -12,7 +20,8 @@ export type IssueKind =
   | "worker_failed"
   | "worker_stale"
   | "restart_loop"
-  | "capability_missing";
+  | "capability_missing"
+  | "database_oversized";
 export type IssueSeverity = "warning" | "error" | "critical";
 
 export type ActionableIssue = {
@@ -151,6 +160,23 @@ export function listActionableIssues(db: Database, config: AppConfig, now = Date
       updatedAt,
       message: `Delivery ${delivery.id} to ${delivery.destination_id} has been sending for more than five minutes`,
       hint: "Inspect the provider and process before deciding whether this delivery needs manual verification; do not retry it automatically.",
+    });
+  }
+
+  // Growth was invisible until somebody went looking, by which time the database was a gigabyte
+  // and the payloads behind two thirds of it had already been deleted by hand.
+  const size = databaseSize(db);
+  if (size.bytes > DATABASE_SIZE_BUDGET) {
+    const seenAt = new Date(now).toISOString();
+    issues.push({
+      id: "database:size",
+      kind: "database_oversized",
+      severity: "warning",
+      entity: "database",
+      firstSeenAt: seenAt,
+      updatedAt: seenAt,
+      message: `The database holds ${gigabytes(size.bytes)} GB, of which ${gigabytes(size.snapshotBytes)} GB is compressed raw payloads`,
+      hint: "Check which sources serve the largest payloads before widening retention; deleting a payload an event points at destroys its evidence.",
     });
   }
 
