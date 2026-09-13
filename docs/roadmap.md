@@ -189,16 +189,31 @@ Kept because the reasoning cost real observation and is easy to re-litigate from
   reading that made Evidence 89% leaderboard counted events that were members of a delivered batch
   rather than events the destination actually rendered — a batch is filtered again per destination,
   and any measurement that skips `batch_events.signal` overstates every channel.
-- **Four reader channels, split by what the reader came for.** `🚀launches` and `🕵codenames` were
-  going to be merged into one `signals` channel, on the reasoning that both ping and a channel earns
-  its place only when a reader would set a different notification level on it. Rejected: the ping is
-  the same but the trust is not, and a person who came for released models does not want arena
-  sightings arriving with the same weight. Lumina, the closest competitor, keeps `official-ai-news`
-  and `codenames` apart for the same reason. `🔍traces` stays separate from `📊price-and-ranks`
-  despite matching it on notification, because it is searched rather than read: 16 documentation
-  cards a day would be unfindable under 63 price moves. Competitors all split by source instead
-  (`api-models`, `arena`, `subpages`, `app-diffs`); with thirteen streams that is a dozen channels,
-  it scatters the mentions, and it defeats the cross-source story grouping that they do not have.
+- **One public channel, one invited one.** The four reader channels became `🚀signals` (public;
+  `launch` and `change`) and `🕵scouts` (invited; `codename`, `release`, `article`, `evidence`),
+  with `📡status` behind an opt-in role. Reasoning: an audience arrives for models, so the public
+  wire carries models and the numbers attached to them, and everything early or small goes to a room
+  of invited readers who came for exactly that. `🔍traces` and `📊price-and-ranks` were deleted by
+  hand; their history is gone. The classes stayed independent of the channels -- eight of them
+  behind three destinations -- because routing is a line in `signal-forge.json` and reversing a
+  channel decision must never need a deployment.
+- **A newsroom post is never a launch.** `openai-news`, `anthropic-news` and `huggingface-blog-feed`
+  are `article` whatever they announce. The alternative was parsing OpenAI's feed category, measured
+  on 2026-09-13 across 1192 items: `category` is present on 1031 of them and `Product` (163) and
+  `Release` (7) are cleanly releases, while `API`, `ChatGPT` and the 161 uncategorised items are
+  customer stories. It would have worked, and it was not needed: a model a reader can use appears in
+  the vendor catalogue, so the post is commentary. Anthropic could not have been fixed that way at
+  all -- nine of its ten visible posts carry the subject "Announcements", including a board
+  appointment and a policy position. Skipping it also skipped a `records.body` migration.
+- **`launch` and `codename` stay separate classes.** They were going to be merged, on the reasoning
+  that both ping and a channel earns its place only when a reader would set a different notification
+  level on it. Rejected: the ping is the same but the trust is not, and a person who came for
+  released models does not want arena sightings arriving with the same weight. Lumina, the closest
+  competitor, keeps `official-ai-news` and `codenames` apart for the same reason. The separation now
+  carries more than notification: it is the line between the public wire and the invited room.
+  Competitors all split by source instead (`api-models`, `arena`, `subpages`, `app-diffs`); with
+  thirteen streams that is a dozen channels, it scatters the mentions, and it defeats the
+  cross-source story grouping that they do not have.
 - **No welcome channel.** The channel map lives in each channel's Discord topic, which is where a
   reader already looks and costs no sixth entry in the sidebar. A fifth status board carrying the
   same text was considered and rejected as clutter in a channel that exists to be glanced at.

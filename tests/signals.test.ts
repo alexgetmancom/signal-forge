@@ -15,12 +15,10 @@ const event = (
   ...overrides,
 });
 
-test("a reader who came for new things gets catalogue arrivals and announcements", () => {
+test("a reader who came for new models gets catalogue arrivals and withdrawals", () => {
   expect(signalClass(event({ stream: "openrouter", kind: "new" }))).toBe("launch");
   expect(signalClass(event({ stream: "api-models", kind: "new", source: "openai" }))).toBe("launch");
   expect(signalClass(event({ stream: "weights", kind: "new", source: "huggingface:openai" }))).toBe("launch");
-  expect(signalClass(event({ stream: "news", kind: "new", source: "openai-news" }))).toBe("launch");
-  expect(signalClass(event({ stream: "github", kind: "new", source: "github:openai/codex:releases" }))).toBe("launch");
   // A withdrawal is the same question answered the other way: can a reader still use it.
   expect(signalClass(event({ stream: "openrouter", kind: "removed" }))).toBe("launch");
 });
@@ -59,7 +57,23 @@ test("a number that moved is a change, whatever produced it", () => {
   expect(signalClass(event({ stream: "openrouter", kind: "changed" }))).toBe("change");
   expect(signalClass(event({ stream: "api-models", kind: "changed", source: "openai" }))).toBe("change");
   expect(signalClass(event({ stream: "leaderboards", kind: "changed", source: "designarena:website" }))).toBe("change");
-  expect(signalClass(event({ stream: "news", kind: "changed", source: "openai-news" }))).toBe("change");
+  expect(signalClass(event({ stream: "news", kind: "changed", source: "groq-changelog" }))).toBe("change");
+});
+
+test("software shipped around the models is a release and never interrupts", () => {
+  expect(signalClass(event({ stream: "apps", kind: "new", source: "app:ios:chatgpt" }))).toBe("release");
+  expect(signalClass(event({ stream: "apps", kind: "changed", source: "app:ios:claude" }))).toBe("release");
+  expect(signalClass(event({ stream: "news", kind: "new", source: "claude-code-changelog" }))).toBe("release");
+  expect(signalClass(event({ stream: "github", kind: "new", source: "github:openai/codex:releases" }))).toBe("release");
+  expect(pingWorthy(event({ stream: "apps", kind: "new", source: "app:ios:chatgpt" }))).toBe(false);
+});
+
+test("a newsroom post is what the vendor said, not a model a reader can use", () => {
+  expect(signalClass(event({ stream: "news", kind: "new", source: "openai-news" }))).toBe("article");
+  expect(signalClass(event({ stream: "news", kind: "changed", source: "anthropic-news" }))).toBe("article");
+  expect(pingWorthy(event({ stream: "news", kind: "new", source: "openai-news" }))).toBe(false);
+  // The launch itself is observed in the catalogue, which still interrupts.
+  expect(pingWorthy(event({ stream: "api-models", kind: "new", source: "openai" }))).toBe(true);
 });
 
 test("only an outage the vendor calls severe reaches a reader, and it reaches the launches", () => {

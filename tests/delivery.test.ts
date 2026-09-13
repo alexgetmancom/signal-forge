@@ -26,9 +26,14 @@ const destinations: Destination[] = [
     platform: "telegram",
     chatId: "-100123",
     topicId: 42,
-    signals: ["launch", "codename", "evidence", "change"],
+    signals: ["launch", "codename", "release", "evidence", "change"],
   },
-  { id: "dc", platform: "discord", channelId: "123456", signals: ["launch", "codename", "evidence", "change"] },
+  {
+    id: "dc",
+    platform: "discord",
+    channelId: "123456",
+    signals: ["launch", "codename", "release", "evidence", "change"],
+  },
 ];
 afterEach(() =>
   db.exec(

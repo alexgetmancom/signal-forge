@@ -11,7 +11,16 @@ import type { Event } from "./types.js";
  * is the weakest evidence in the system and the most interesting thing in it; a first-party
  * retirement date shift is the strongest evidence and the least interesting.
  */
-export const SIGNAL_CLASSES = ["launch", "codename", "evidence", "change", "incident", "reminder"] as const;
+export const SIGNAL_CLASSES = [
+  "launch",
+  "codename",
+  "release",
+  "article",
+  "evidence",
+  "change",
+  "incident",
+  "reminder",
+] as const;
 export type SignalClass = (typeof SIGNAL_CLASSES)[number];
 
 /**
@@ -21,6 +30,12 @@ export type SignalClass = (typeof SIGNAL_CLASSES)[number];
  *   entry appearing or disappearing, a published release.
  * `codename`: something on its way. An arena sighting, an entry listed but not yet selectable, a
  *   new leaderboard key, a retirement notice that names a successor.
+ * `release`: software shipped around the models. A mobile or desktop app version, a CLI or SDK
+ *   release, an entry in a tool's changelog. Real news to whoever uses that tool and nothing at
+ *   all to whoever came for models, so it never interrupts.
+ * `article`: what a vendor chose to say. Research, policy, hiring, customer stories, engineering
+ *   write-ups. A model becoming usable is observed in the catalogue, not in the newsroom, so a
+ *   post is commentary on an event rather than the event.
  * `evidence`: the raw trail for a reader who digs. Documentation and interface diffs, repository
  *   activity, package versions, a retirement notice with no successor named.
  * `change`: a number that moved. Pricing, context, ranks, availability flags, edited
@@ -30,6 +45,9 @@ export type SignalClass = (typeof SIGNAL_CLASSES)[number];
  *   the board keeps counting them.
  * `reminder`: derived operator work rather than an observation, such as a deadline reminder.
  */
+/** The sources that publish prose rather than a changelog. */
+const NEWSROOMS = new Set(["openai-news", "anthropic-news", "huggingface-blog-feed"]);
+
 export function signalClass(event: Event): SignalClass {
   const record = recordFor(event);
   const listedButUnusable = record?.selectable === false;
@@ -44,10 +62,17 @@ export function signalClass(event: Event): SignalClass {
     return text(record?.replacement) ? "codename" : "evidence";
   }
 
-  if (event.stream === "news") return event.kind === "new" ? "launch" : "change";
+  /**
+   * A newsroom is not a release feed. Every vendor mixes releases with research, policy and
+   * customer stories under one heading, and Anthropic grades nine posts out of ten as
+   * "Announcements", so the source cannot be asked which is which. It does not have to be: a model
+   * a reader can use appears in the vendor's own catalogue, which is where the launch is observed.
+   * The post is what the vendor said about it.
+   */
+  if (event.stream === "news")
+    return NEWSROOMS.has(event.source) ? "article" : event.kind === "new" ? "release" : "change";
 
-  // A released app version is the most direct "you can use this now" there is.
-  if (event.stream === "apps") return "launch";
+  if (event.stream === "apps") return "release";
 
   // A page appearing on a vendor site before any announcement is the same kind of tell as an
   // unreleased model on an arena. A page that leaves is evidence, not a signal to wake anyone.
@@ -71,7 +96,7 @@ export function signalClass(event: Event): SignalClass {
   if (event.stream === "resets") return "launch";
 
   if (event.stream === "github")
-    return event.source.endsWith(":releases") && event.kind === "new" ? "launch" : "evidence";
+    return event.source.endsWith(":releases") && event.kind === "new" ? "release" : "evidence";
 
   if (["api-models", "openrouter", "weights"].includes(event.stream)) {
     if (event.kind === "new") return listedButUnusable ? "codename" : "launch";

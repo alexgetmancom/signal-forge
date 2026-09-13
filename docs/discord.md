@@ -38,12 +38,21 @@ it. Every event carries one class, derived from the same evidence its card is re
 
 | Class | What it means | Examples |
 | --- | --- | --- |
-| `launch` | A reader can now use it, or can no longer use it | Official announcement, catalogue entry appearing or withdrawn, published release, mobile app release |
+| `launch` | A reader can now use a model, or can no longer use it | Catalogue entry appearing or withdrawn, weights published, usage limits coming back, an outage the vendor calls severe |
 | `codename` | Something on its way, identity often unknown | Arena sighting, entry listed but not selectable, new page on a vendor site, new leaderboard key, retirement notice naming its successor |
+| `release` | Software shipped around the models | Mobile and desktop app versions, CLI and SDK releases, entries in a tool's changelog |
+| `article` | What a vendor chose to say | Research, policy, hiring, customer stories, engineering write-ups |
 | `evidence` | The raw trail for a reader who digs | Documentation and interface diffs, repository activity, package versions, a retirement notice with no successor |
 | `change` | A number moved | Pricing, context, ranks, availability flags, edited announcements, shifting deadlines |
 | `incident` | An outage the vendor did not grade severe | Everything the Platform health board already shows |
 | `reminder` | Derived operator work, not an observation | Lifecycle deadline reminders |
+
+A newsroom is not a release feed, so a vendor's post is an `article` whatever it announces: every
+vendor mixes releases with research, policy and customer stories under one heading, and Anthropic
+grades nine posts out of ten as "Announcements". Nothing is lost by not reading the prose, because a
+model a reader can use appears in the vendor's own catalogue, and that is where the launch is
+observed. The remaining eleven sources in the `news` stream are changelogs, where a new entry does
+mean something shipped, and they are `release`.
 
 Only `launch` and `codename` carry a role mention. A message mentions the vendor roles its cards
 are about, and `allSignalsRole` beside them for readers who follow everything rather than one
@@ -56,12 +65,17 @@ everything else that has to interrupt.
 
 ## Reader channels and status
 
-The server keeps four reader-facing channels plus Status in one `Trackers` category: `🚀launches`
-(`launch`), `🕵codenames` (`codename`), `🔍traces` (`evidence`) and `📊price-and-ranks` (`change`),
-with `📡status` above them. Only the first two carry a role mention, and the names say which:
-`🚀launches` and `🕵codenames` are read as they arrive, `🔍traces` is where a reader digs after
-hearing a rumour, and `📊price-and-ranks` is skimmed.
-The private `Signal Problem` channel is separate and is not a reader feed.
+One channel is public and one is not. `🚀signals` (`launch`, `change`) is the wire: a model
+becoming available, usage limits coming back and a severe outage arrive within a poll and mention
+the vendor's role, while prices and ranks travel in the hourly digest without waking anyone.
+`🕵scouts` (`codename`, `release`, `article`, `evidence`) is open to invited readers only and
+carries what is early or small: arena sightings, pages that appear before an announcement, app and
+CLI versions, vendor posts, documentation diffs and package versions. `📡status` is opt-in through
+a role, and `Signal Problem` stays private.
+
+The split is what a reader is owed rather than what a collector produced. A public channel that
+also carried arena rumours and iOS point releases would be muted within a week, and the mention
+that matters would go with it.
 
 Four messages in Status are edited in place instead of being reposted, so the channel holds current
 state rather than a growing log. They are rewritten only when their content actually changes.
