@@ -45,7 +45,9 @@ function counts(db: Database): Record<string, number> {
 
 try {
   copyFileSync(source, copy);
-  const before = new Database(copy, { readonly: true, strict: true });
+  // The copy is a throwaway, and a read-only connection to a WAL database cannot create the -shm
+  // file it needs, so the reading pass opens it read-write like the migrating one does.
+  const before = new Database(copy, { create: false, strict: true });
   const startingVersion = before.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version ?? 0;
   const beforeCounts = counts(before);
   const beforeBodies = fingerprints(before);

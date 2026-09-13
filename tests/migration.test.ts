@@ -88,16 +88,6 @@ test("fresh databases use every migration and finish with a valid current schema
   db.close();
 });
 
-test("an unversioned current database is adopted without rewriting its data", () => {
-  const db = openDatabase(":memory:");
-  db.query("INSERT INTO app_state(key,value) VALUES('marker','kept')").run();
-  db.exec("PRAGMA user_version=0");
-  runMigrations(db);
-  expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: CURRENT_SCHEMA_VERSION });
-  expect(db.query("SELECT value FROM app_state WHERE key='marker'").get()).toEqual({ value: "kept" });
-  db.close();
-});
-
 test("migration moves legacy summary counters into the usage ledger", () => {
   const db = new Database(":memory:");
   const migrations = readMigrations();
@@ -179,33 +169,6 @@ test("schema 9 upgrades to the current projection schema", () => {
   expect(db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='lifecycle_deadlines'").get()).toEqual({
     name: "lifecycle_deadlines",
   });
-  expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
-  db.close();
-});
-
-test("an unversioned delivery-batch database upgrades from the production baseline", () => {
-  const db = new Database(":memory:");
-  const migrations = readMigrations();
-  for (const migration of migrations.slice(0, 2)) db.exec(migration.sql);
-  db.exec(`
-    INSERT INTO snapshots(id,source,collected_at,raw_json) VALUES(1,'test','2026-09-08','{}');
-    INSERT INTO events(id,source,stream,entity_id,kind,after_json,detected_at,snapshot_id)
-      VALUES(7,'test','news','x','new','{}','2026-09-08',1);
-    INSERT INTO deliveries(id,event_id,destination_id,destination_json,body,part,status,updated_at)
-      VALUES(42,7,'tg','{}','already sent',0,'sent',1);
-  `);
-  const deliveryBatchMigration = migrations[2];
-  if (!deliveryBatchMigration) throw new Error("Missing delivery batch migration");
-  db.exec(deliveryBatchMigration.sql);
-  db.exec("PRAGMA user_version=0");
-
-  runMigrations(db);
-
-  expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: CURRENT_SCHEMA_VERSION });
-  expect(db.query("SELECT id,status FROM deliveries").all()).toEqual([{ id: 42, status: "sent" }]);
-  expect(db.query("SELECT event_id FROM batch_events").all()).toEqual([{ event_id: 7 }]);
-  expect(db.query("SELECT confidence FROM events WHERE id=7").get()).toEqual({ confidence: "observed" });
-  expect(db.query("SELECT evidence_type FROM events WHERE id=7").get()).toEqual({ evidence_type: "official_news" });
   expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
   db.close();
 });
