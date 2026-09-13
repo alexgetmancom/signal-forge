@@ -4,16 +4,21 @@ import { openDatabase } from "../src/storage/database.js";
 import { runMigrations } from "../src/storage/migrationRunner.js";
 import { CURRENT_SCHEMA_VERSION, readMigrations, validateMigrationSequence } from "../src/storage/migrations.js";
 
-test("migration files form one strict journal", () => {
+test("migration files form one journal ending at the current version", () => {
   const migrations = readMigrations();
+  const baseline = migrations[0];
+  if (!baseline) throw new Error("Missing baseline migration");
+  expect(migrations[migrations.length - 1]?.version).toBe(CURRENT_SCHEMA_VERSION);
   expect(migrations.map((migration) => migration.version)).toEqual(
-    Array.from({ length: CURRENT_SCHEMA_VERSION }, (_, index) => index + 1),
+    migrations.map((_, index) => baseline.version + index),
   );
-  const first = migrations[0];
-  if (!first) throw new Error("Missing initial migration");
-  expect(() => validateMigrationSequence([first, first])).toThrow("Duplicate migration number");
-  expect(() => validateMigrationSequence([{ ...first, version: 2 }])).toThrow("gap or wrong order");
+  expect(() => validateMigrationSequence([baseline, baseline])).toThrow("Duplicate migration number");
+  expect(() => validateMigrationSequence([baseline, { ...baseline, version: baseline.version + 2 }])).toThrow(
+    "gap or wrong order",
+  );
   expect(() => validateMigrationSequence([])).toThrow("No migrations found");
+  // The baseline is numbered for the version it produces, not for being first.
+  expect(() => validateMigrationSequence([{ ...baseline, version: 1 }])).toThrow("does not match files");
 });
 
 test("fresh databases use every migration and finish with a valid current schema", () => {
@@ -83,6 +88,17 @@ test("fresh databases use every migration and finish with a valid current schema
       .map((column) => column.name),
   ).toEqual(["id", "source", "digest", "ready_at", "sealed", "kind", "context_json"]);
   expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
+  db.close();
+});
+
+test("a database already at the baseline version is left alone", () => {
+  // The case that failed a deployment: production holds the version the baseline produces, so the
+  // runner has nothing to do and must not treat that version as newer than the schema it knows.
+  const db = openDatabase(":memory:");
+  db.query("INSERT INTO app_state(key,value) VALUES('marker','kept')").run();
+  expect(() => runMigrations(db)).not.toThrow();
+  expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: CURRENT_SCHEMA_VERSION });
+  expect(db.query("SELECT value FROM app_state WHERE key='marker'").get()).toEqual({ value: "kept" });
   db.close();
 });
 

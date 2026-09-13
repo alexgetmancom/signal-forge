@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-export const CURRENT_SCHEMA_VERSION = 1;
+export const CURRENT_SCHEMA_VERSION = 25;
 
 export type Migration = {
   version: number;
@@ -32,15 +32,21 @@ export function readMigrations(directory = migrationDirectory()): Migration[] {
   return migrations;
 }
 
+/**
+ * The journal is a baseline file and the migrations that came after it. It does not start at 1:
+ * the baseline is numbered for the version it produces, so a database already holding that version
+ * has nothing to run, and a new one reaches it in a single step.
+ */
 export function validateMigrationSequence(migrations: readonly Migration[]): void {
   if (!migrations.length) throw new Error("No migrations found");
-  const seen = new Set<number>();
   migrations.forEach((migration, index) => {
-    if (seen.has(migration.version)) throw new Error(`Duplicate migration number: ${migration.version}`);
-    seen.add(migration.version);
-    const expected = index + 1;
-    if (migration.version !== expected)
-      throw new Error(`Migration sequence has a gap or wrong order: expected ${expected}, got ${migration.version}`);
+    const previous = migrations[index - 1];
+    if (!previous) return;
+    if (migration.version === previous.version) throw new Error(`Duplicate migration number: ${migration.version}`);
+    if (migration.version !== previous.version + 1)
+      throw new Error(
+        `Migration sequence has a gap or wrong order: expected ${previous.version + 1}, got ${migration.version}`,
+      );
   });
   const latest = migrations[migrations.length - 1]?.version;
   if (latest !== CURRENT_SCHEMA_VERSION)

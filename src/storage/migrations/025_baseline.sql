@@ -1,10 +1,13 @@
 -- The whole schema, as one statement list.
 --
--- Migrations 001 to 025 were squashed into this file once the only database had reached the end of
--- that journal: replaying twenty-five steps to arrive at a shape no database was ever going to
--- start from again was history, and history lives in the git log. A database that is not already
--- this shape does not exist; if one is ever restored from a backup older than the squash, check it
--- out at the commit that introduced this file and migrate it there first.
+-- Migrations 001 to 025 were squashed into this file once production had reached the end of that
+-- journal: replaying twenty-five steps to arrive at a shape no database was ever going to start
+-- from again was history, and history lives in the git log.
+--
+-- It is numbered 025 because that is the version it produces. Production already holds that
+-- version and so has nothing to run; a new database runs this one file and arrives there directly.
+-- An archive older than the squash carries a lower version, and this file cannot walk it forward:
+-- check it out at the commit before the squash, migrate it there, and come back.
 --
 -- Timestamps are UTC ISO-8601 strings, and the triggers below are what enforce that.
 
