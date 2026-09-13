@@ -1,6 +1,6 @@
 # Roadmap
 
-Updated 2026-09-12 UTC. This is the current backlog and implementation record; `docs/competitors/`
+Updated 2026-09-13 UTC. This is the current backlog and implementation record; `docs/competitors/`
 records what the competitor audit already settled and is not a second source of truth.
 
 ## Current state
@@ -12,6 +12,14 @@ events and delivers only changes that pass the notification policy.
 
 Production health and readiness checks are passing. The full automated test suite passes on the
 current `main` branch with no known actionable issues.
+
+The Moonshot source is still wired to the legacy `https://api.moonshot.ai/v1/models` catalogue.
+The production `MOONSHOT_API_KEY` is accepted there and currently exposes only `kimi-k2.6` and
+`kimi-k2.7-code`. The current Kimi API uses `https://api.moonshot.cn/v1` with a key created on
+`platform.kimi.com`; its catalogue includes `kimi-k3`, `kimi-k2.7-code`,
+`kimi-k2.7-code-highspeed` and `kimi-k2.6`. Kimi Code exposes K2.8 Preview as
+`kimi-for-coding` through the separate `https://api.kimi.com/coding/v1` membership API. This is
+an integration gap, not evidence that those models are unavailable.
 
 - Story reads are read-only; GitHub commit, pull request and release events are not merged into one
   repository-wide story.
@@ -131,10 +139,12 @@ priority.
 | Next | A last-reset board. | One status message, edited in place, naming when each tracked vendor last reset usage limits. Worth building when a second vendor's resets are collected; with one row it is a card that already exists. |
 | Owner decision | Google catalogue. | `gemini` has never succeeded because of geography, established 2026-09-13 with the configured key from the production container: `generativelanguage.googleapis.com` answers `FAILED_PRECONDITION`, `User location is not supported for the API use`. Probing the same endpoint with a deliberately invalid key returns `API key not valid` instead, so the key is checked before the region and only a real key reveals the refusal -- an earlier read of that first message as "nothing is blocked" was wrong. The refusal stands on every house exit: Google reports `RU` through all four tunnels, including two whose addresses geolocate to Germany. Choose between Vertex AI with a billed service account, an exit Google reads as outside Russia, and accepting OpenRouter as the Google source. |
 | Owner decision | Vercel AI Gateway. | Has never succeeded. Decide whether the incomplete upstream response is worth another parser or should be removed. |
-| Owner decision | Provider catalogue keys. | `xai`, `moonshot`, `mistral` and `groq` catalogues are implemented and waiting on keys. Artificial Analysis is implemented and waiting on a key too: measured 2026-09-13, its API answers `401` through the house tunnels rather than refusing the address, so it is reachable and unauthenticated, not IP-filtered as recorded here before. Nothing is to be connected until the key is supplied. |
+| Next | Kimi API migration and provider catalogue credentials. | Replace the legacy Moonshot endpoint and key path with `https://api.moonshot.cn/v1` and a key from `platform.kimi.com`, then verify that `kimi-k3`, `kimi-k2.7-code`, `kimi-k2.7-code-highspeed` and `kimi-k2.6` appear in `models`. Add a separate Kimi Code source with its own credential only if K2.8 Preview (`kimi-for-coding`) belongs in coverage. Production now contains credentials for the existing xAI, Moonshot, Mistral and Groq collectors; verify each source's next successful poll. Artificial Analysis remains the only configured catalogue capability missing a credential. |
+| Later | Wire newly supplied provider credentials. | `MINIMAX_API_KEY`, `DASHSCOPE_API_KEY` and `CEREBRAS_API_KEY` are present in production but are not registered capabilities or collectors. `OPENROUTER_API_KEY` is also present, while the current OpenRouter source does not require it. Add each provider only with a concrete source, validated response and a passing production status; an environment variable alone is not an integration. |
 | Later | More reset sources. | Add Z.ai, xAI and Meta reset surfaces once each has one address that can be read and validated; each arrives as its own source with its own authority, never merged into the Codex tracker's family. |
 | Later | An evidence type for resets. | `events.evidence_type` carries a CHECK constraint, so a new member needs a rebuild of a table a dozen others reference. Resets store `unknown` and say what they are in the card's own words until that rebuild is worth one move. |
-| Later | Add a welcome channel. | Explain the channel map, event types, confidence labels and how readers can use the feed. |
+| Next | A mention should mean a launch. | `signalClass()` classifies every new `news` event as `launch`, so a customer story and an engineering article interrupt a vendor role exactly as a release does: on 2026-09-12 New pinged OpenAI for a Habitat engineering article and for Cognition and Perplexity customer stories, while two Schematron catalogue arrivals said nothing. Done when the class is derived from what the source actually says a post is -- its feed category or explicit semantics, not a keyword list or an importance score -- product availability keeps the mention, stories and articles stay readable in a quiet channel, and the promised-versus-applied Codex reset exception is untouched. Tests assert destination, immediate-or-digest and mention policy, not only the returned class. Any reworded `records.body` needs a rehearsed migration with collection stopped. |
+| Next | Shutdown dates that reach the reminder engine. | The reminder engine, `lifecycle_deadlines` and idempotent 30/7/1-day reminders already exist; the extraction does not. `parseOpenAIDeprecations()` keeps the prose but extracts no shutdown or replacement field, and the `lifecycle.ts` fallback reads ISO dates, not `October 1, 2026`. Event 9163 announced the GPT-5.4-Cyber shutdown and its replacement in `summary` alone and left `lifecycle_deadlines` at nine rows. Done when announcement, deprecation and shutdown dates are told apart from the source's own structure, an ambiguous multi-model or multi-date notice stays unprojected rather than guessing, affected stored records are migrated and projections rebuilt in the same move, and event 9163 yields the right date and successor. Routing `reminder` to a destination and an upcoming-shutdown block in `status` are a separate owner decision, not part of the parsing. |
 | Later | ModelScope verdict. | Keep or remove on measured lead time once it has produced a week of first sightings. |
 | Later | More repositories. | Add only repositories with a clear reader benefit and one explicit configuration entry each. |
 | Later | History commands. | Add `/latest` and `/search` only after the event and identity model remains useful in daily use. |
@@ -171,12 +181,27 @@ Kept because the reasoning cost real observation and is easy to re-litigate from
   have carried a permanently wrong count because confirmation arrived a median 8.2 hours after the
   message was already sent and cards are not edited. Source-derived confidence already separates
   rumour from fact and is correct from the first second; it only needs plainer wording.
-- **The reader channels are routed correctly.** New, Codenames, Evidence and Changes carry 12, 9,
-  16 and 63 cards a day respectively, and each carries what its name promises: Evidence is
-  documentation diffs and package versions, and leaderboard churn is already in Changes. An earlier
+- **The reader channels are routed correctly.** `🚀launches`, `🕵codenames`, `🔍traces` and
+  `📊price-and-ranks` -- renamed from New, Codenames, Evidence and Changes, same four classes --
+  carry 12, 9, 16 and 63 cards a day respectively, and each carries what its name promises:
+  `🔍traces` is documentation diffs and package versions, and leaderboard churn is already in
+  `📊price-and-ranks`. An earlier
   reading that made Evidence 89% leaderboard counted events that were members of a delivered batch
   rather than events the destination actually rendered — a batch is filtered again per destination,
   and any measurement that skips `batch_events.signal` overstates every channel.
+- **Four reader channels, split by what the reader came for.** `🚀launches` and `🕵codenames` were
+  going to be merged into one `signals` channel, on the reasoning that both ping and a channel earns
+  its place only when a reader would set a different notification level on it. Rejected: the ping is
+  the same but the trust is not, and a person who came for released models does not want arena
+  sightings arriving with the same weight. Lumina, the closest competitor, keeps `official-ai-news`
+  and `codenames` apart for the same reason. `🔍traces` stays separate from `📊price-and-ranks`
+  despite matching it on notification, because it is searched rather than read: 16 documentation
+  cards a day would be unfindable under 63 price moves. Competitors all split by source instead
+  (`api-models`, `arena`, `subpages`, `app-diffs`); with thirteen streams that is a dozen channels,
+  it scatters the mentions, and it defeats the cross-source story grouping that they do not have.
+- **No welcome channel.** The channel map lives in each channel's Discord topic, which is where a
+  reader already looks and costs no sixth entry in the sidebar. A fifth status board carrying the
+  same text was considered and rejected as clutter in a channel that exists to be glanced at.
 - **Site pages are not early warning.** `pages:openai` leads by 0.1 hours: the page appears when
   everyone else sees it. Packages lead by 17.9 hours and are worth the enrichment.
 
@@ -187,16 +212,42 @@ is already known about each.
 
 - **ModelScope verdict.** Keep or remove on measured lead time. It has produced no first sighting
   worth a card so far; `lead-time 7` decides it once the source has a full week behind it.
-- **Welcome channel.** One message explaining the channel map, what the standing sentences mean and
-  how to follow a single vendor. More useful now that a card says "Seen in a reseller's catalogue"
-  rather than "Confidence: observed".
-- **Incident cards edited in place across stages.** An incident currently posts a card per stage;
-  the status boards already show that editing one message reads better than a growing log.
+- **Incident cards edited in place across stages.** A severe incident posts a card per stage in
+  `🚀launches`; the status boards already show that editing one message reads better than a growing
+  log. Everything the vendor grades below severe is class `incident`, which no destination
+  subscribes to, so it now lives only on the Platform health board.
 - **Shorter snapshot body lifetime for the two heavy sources.** `claude-web` and `npm:@openai/codex`
   dominate snapshot bytes. Fourteen days for those two, ninety for everything else, instead of the
   size cap and receipt design that was deferred.
 - **Hugging Face model-card metadata**, **OpenRouter trending** (needs a stable public endpoint) and
   **Hacker News** (digest-only, never sufficient for `confirmed`), all from the competitor audit.
+- **Cross-channel repetition of one publication.** `repeatsDeliveredStory()` restricts previous
+  deliveries to the same `destination_id`, so a page discovery and the news post about it can speak
+  in both Codenames and New. Observed once, on 2026-09-12: Cognition's news at 00:08:56 (event 8672)
+  and its page at 00:13:10 (8677), Perplexity's page at 00:13:10 (8676) and its news at 00:23:59
+  (8690), delivered as three mentioned messages by deliveries 371-373. One case over 43 sent
+  messages in three days is not yet a measured rate, and this edits the path that decides whether a
+  message is withheld, where a mistake loses a signal silently. Measure how often it happens before
+  changing it. Whatever is built must match the publication by normalized source URL, keep a later
+  substantive update speaking as a continuation, base suppression on what each destination actually
+  rendered rather than on batch membership, and never let a pending or ambiguous send authorise a
+  duplicate. Simply dropping the destination condition suppresses delivery to unrelated audiences.
+- **A compact significant-change summary.** Real material exists -- Qwen3.8 27B input $0.42 to
+  $0.21 per million, DeepSeek V4 Flash 0731 output $0.28 to $0.08, Kimi Latest output $7.70 to
+  $11.90, Mistral Small 3.2 context 131K to 256K. But hourly digests, thresholds, oscillation
+  filtering and comparison against the last reader-visible baseline already exist and are not to be
+  reimplemented, a persisted daily summary needs a new `batches.kind` member and an explicit
+  period-and-destination identity, and Changes carrying what its name promises is already settled by
+  measurement. No second sender and no independent cron. A universal top-five ranking is not wanted.
+- **Links from an Arena continuation back to the original sighting.** Renames, maker transitions and
+  the rename-and-revert case (`spicy-mayo` to `instant-ramen` and back, so a rename is not an
+  identity reveal) already render from `render/facts.ts`; only the link to the earlier Discord
+  message is missing. `deliveries.external_id` exists but nothing maps an event to a message part,
+  so this needs a `delivery_events(delivery_id, event_id)` table populated while paginating payloads.
+  Approximate backfill from batch membership is worse than no link at all.
+- **`selectable: false -> true` in an API catalogue classifies as `change`.** Possibly worth making
+  a codename instead, but production history to 2026-09-12 contained no such API transition: all six
+  observed transitions were Arena events. A code improvement, not a production-proven defect.
 - **Regional lifecycle schedules.** A deprecation with different dates per region is stored as one
   record with one date, which understates the ones that matter most.
 
