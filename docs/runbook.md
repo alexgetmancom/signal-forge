@@ -92,6 +92,10 @@ read back is a file, not a backup.
 
 ## Migrations
 
+Production is the database the deployment opens on the production host, not the `data/app.db` in a
+development checkout. That copy has its own history and its own row counts, and a version stamped
+onto it proves nothing about the one subscribers depend on.
+
 Rehearse on a copy of the database the migration will actually run against:
 
 ```sh
