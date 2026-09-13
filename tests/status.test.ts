@@ -333,7 +333,7 @@ test("interrupted alert sends become ambiguous before the next cycle", async () 
   db.query("INSERT INTO app_state(key,value) VALUES('alert_strikes',?)").run('{"openrouter":2}');
   db.query(
     "INSERT INTO alert_attempts(state_version,from_state_json,to_state_json,body,status,attempts,created_at,updated_at) VALUES(1,'[]','[\"openrouter\"]','{}','sending',1,?,?)",
-  ).run(now, now);
+  ).run(new Date(now).toISOString(), new Date(now).toISOString());
   recoverInterruptedAlerts(db);
   let attempts = 0;
   await publishAlerts(
@@ -364,7 +364,7 @@ test("an interrupted alert advances the durable state before a changed next cycl
   db.query("INSERT INTO app_state(key,value) VALUES('alert_strikes',?)").run('{"openrouter":2}');
   db.query(
     "INSERT INTO alert_attempts(state_version,from_state_json,to_state_json,body,status,attempts,created_at,updated_at) VALUES(1,'[]','[\"openrouter\"]','{}','sending',1,?,?)",
-  ).run(now, now);
+  ).run(new Date(now).toISOString(), new Date(now).toISOString());
   recoverInterruptedAlerts(db);
   db.query("UPDATE sources SET last_error=NULL,last_success=?,checked_at=? WHERE id='openrouter'").run(
     new Date(now).toISOString(),

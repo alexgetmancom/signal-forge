@@ -26,7 +26,7 @@ export function storeSnapshot(db: Database, source: string, collectedAt: string,
   const bytes = Buffer.byteLength(raw);
   const stored = db
     .query<{ id: number }, [string, string, Uint8Array, string, number]>(
-      "INSERT INTO snapshots(source,collected_at,raw_json,body,hash,bytes) VALUES(?,?,'',?,?,?) RETURNING id",
+      "INSERT INTO snapshots(source,collected_at,body,hash,bytes) VALUES(?,?,?,?,?) RETURNING id",
     )
     .get(source, collectedAt, Bun.gzipSync(Buffer.from(raw)), hash, bytes);
   if (!stored) throw new Error("Snapshot insert failed");

@@ -67,12 +67,12 @@ test("rate limits each destination lane and retries only after requested delay",
   });
   expect(calls).toBe(2);
   const row = db
-    .query<{ status: string; next_attempt: number }, []>(
-      "SELECT status,next_attempt FROM deliveries ORDER BY id LIMIT 1",
+    .query<{ status: string; next_attempt_at: string }, []>(
+      "SELECT status,next_attempt_at FROM deliveries ORDER BY id LIMIT 1",
     )
     .get();
   expect(row?.status).toBe("pending");
-  expect(row?.next_attempt).toBeGreaterThan(Date.now() + 50000);
+  expect(Date.parse(String(row?.next_attempt_at))).toBeGreaterThan(Date.now() + 50000);
 });
 test("rate limit does not block an independent destination", async () => {
   const local = openDatabase(":memory:");
@@ -88,10 +88,14 @@ test("rate limit does not block an independent destination", async () => {
     channelId: "2",
     signals: ["launch", "codename", "evidence", "change"],
   };
-  local.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'test',0,1),(2,'test',0,1)").run();
   local
     .query(
-      "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,updated_at) VALUES(1,1,'tg',?,'tg',0,0),(2,2,'dc',?,'dc',0,0)",
+      "INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'test','1970-01-01T00:00:00.000Z',1),(2,'test','1970-01-01T00:00:00.000Z',1)",
+    )
+    .run();
+  local
+    .query(
+      "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,updated_at) VALUES(1,1,'tg',?,'tg',0,'1970-01-01T00:00:00.000Z'),(2,2,'dc',?,'dc',0,'1970-01-01T00:00:00.000Z')",
     )
     .run(JSON.stringify(telegram), JSON.stringify(discord));
   await deliverPending(local, config, async (url) =>
@@ -99,12 +103,12 @@ test("rate limit does not block an independent destination", async () => {
       ? Response.json({ parameters: { retry_after: 60 } }, { status: 429 })
       : Response.json({ id: "999" }),
   );
-  expect(local.query("SELECT status,next_attempt FROM deliveries WHERE id=1").get()).toMatchObject({
+  expect(local.query("SELECT status,next_attempt_at FROM deliveries WHERE id=1").get()).toMatchObject({
     status: "pending",
   });
-  expect(local.query("SELECT status,next_attempt FROM deliveries WHERE id=2").get()).toEqual({
+  expect(local.query("SELECT status,next_attempt_at FROM deliveries WHERE id=2").get()).toEqual({
     status: "sent",
-    next_attempt: 0,
+    next_attempt_at: "1970-01-01T00:00:00.000Z",
   });
   local.close();
 });
@@ -122,10 +126,14 @@ test("a rate limit does not block another destination on the same platform", asy
     chatId: "2",
     signals: ["launch", "codename", "evidence", "change"],
   };
-  local.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'test',0,1),(2,'test',0,1)").run();
   local
     .query(
-      "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,updated_at) VALUES(1,1,'tg-1',?,'one',0,0),(2,2,'tg-2',?,'two',0,0)",
+      "INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'test','1970-01-01T00:00:00.000Z',1),(2,'test','1970-01-01T00:00:00.000Z',1)",
+    )
+    .run();
+  local
+    .query(
+      "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,updated_at) VALUES(1,1,'tg-1',?,'one',0,'1970-01-01T00:00:00.000Z'),(2,2,'tg-2',?,'two',0,'1970-01-01T00:00:00.000Z')",
     )
     .run(JSON.stringify(first), JSON.stringify(second));
   await deliverPending(local, config, async (_url, init) => {
@@ -146,10 +154,10 @@ test("preflight delivery failures are failed without making a provider request",
     chatId: "1",
     signals: ["launch", "codename", "evidence", "change"],
   };
-  local.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'test',0,1)").run();
+  local.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'test','1970-01-01T00:00:00.000Z',1)").run();
   local
     .query(
-      "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,updated_at) VALUES(1,1,'tg',?,'body',0,0),(2,1,'bad','{','body',1,0)",
+      "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,updated_at) VALUES(1,1,'tg',?,'body',0,'1970-01-01T00:00:00.000Z'),(2,1,'bad','{','body',1,'1970-01-01T00:00:00.000Z')",
     )
     .run(JSON.stringify(telegram));
   let calls = 0;
@@ -197,12 +205,12 @@ test("a later multipart part waits behind an ambiguous earlier part", async () =
     channelId: "123456",
     signals: ["launch", "codename", "evidence", "change"],
   };
-  local.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'test',0,1)").run();
+  local.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'test','1970-01-01T00:00:00.000Z',1)").run();
   const insert = local.query(
     "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,status,updated_at) VALUES(?,?,?,?,?,?,?,?)",
   );
-  insert.run(1, 1, destination.id, JSON.stringify(destination), "part 0", 0, "ambiguous", 0);
-  insert.run(2, 1, destination.id, JSON.stringify(destination), "part 1", 1, "pending", 0);
+  insert.run(1, 1, destination.id, JSON.stringify(destination), "part 0", 0, "ambiguous", "1970-01-01T00:00:00.000Z");
+  insert.run(2, 1, destination.id, JSON.stringify(destination), "part 1", 1, "pending", "1970-01-01T00:00:00.000Z");
   let calls = 0;
   await deliverPending(local, config, async () => {
     calls++;
@@ -223,12 +231,16 @@ test("an unresolved delivery blocks only later parts in its own batch", async ()
     channelId: "123456",
     signals: ["launch", "codename", "evidence", "change"],
   };
-  local.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'test',0,1),(2,'test',0,1)").run();
+  local
+    .query(
+      "INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'test','1970-01-01T00:00:00.000Z',1),(2,'test','1970-01-01T00:00:00.000Z',1)",
+    )
+    .run();
   const insert = local.query(
     "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,status,updated_at) VALUES(?,?,?,?,?,?,?,?)",
   );
-  insert.run(1, 1, destination.id, JSON.stringify(destination), "old", 0, "failed", 0);
-  insert.run(2, 2, destination.id, JSON.stringify(destination), "new", 0, "pending", 0);
+  insert.run(1, 1, destination.id, JSON.stringify(destination), "old", 0, "failed", "1970-01-01T00:00:00.000Z");
+  insert.run(2, 2, destination.id, JSON.stringify(destination), "new", 0, "pending", "1970-01-01T00:00:00.000Z");
   let calls = 0;
   await deliverPending(local, config, async () => {
     calls++;
@@ -259,10 +271,10 @@ test("a Telegram application error is a failed delivery, not an ambiguous send",
     chatId: "1",
     signals: ["launch", "codename", "evidence", "change"],
   };
-  local.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'test',0,1)").run();
+  local.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'test','1970-01-01T00:00:00.000Z',1)").run();
   local
     .query(
-      "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,updated_at) VALUES(1,1,'tg',?,'body',0,0)",
+      "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,updated_at) VALUES(1,1,'tg',?,'body',0,'1970-01-01T00:00:00.000Z')",
     )
     .run(JSON.stringify(telegram));
   await deliverPending(local, config, async () =>
@@ -283,9 +295,9 @@ test("discord sends suppress the link unfurl", async () => {
     channelId: "1",
     signals: ["launch", "codename", "evidence", "change"],
   };
-  db.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'openrouter',0,1)").run();
+  db.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'openrouter','1970-01-01T00:00:00.000Z',1)").run();
   db.query(
-    "INSERT INTO deliveries(batch_id,destination_id,destination_json,body,part,updated_at) VALUES(1,'d',?,'text',0,0)",
+    "INSERT INTO deliveries(batch_id,destination_id,destination_json,body,part,updated_at) VALUES(1,'d',?,'text',0,'1970-01-01T00:00:00.000Z')",
   ).run(JSON.stringify(destination));
 
   let sent: Record<string, unknown> = {};
@@ -305,7 +317,7 @@ test("a message built from embeds is not sent with the embed-suppressing flag", 
     return new Response(JSON.stringify({ id: "1" }), { status: 200 });
   };
   const local = openDatabase(":memory:");
-  local.query("INSERT INTO batches(id,source,digest,ready_at) VALUES(0,'test',0,0)").run();
+  local.query("INSERT INTO batches(id,source,digest,ready_at) VALUES(0,'test',0,'1970-01-01T00:00:00.000Z')").run();
   const destination = {
     id: "d",
     platform: "discord" as const,
@@ -315,7 +327,7 @@ test("a message built from embeds is not sent with the embed-suppressing flag", 
   const queue = (body: string) =>
     local
       .query(
-        "INSERT INTO deliveries(batch_id,destination_id,destination_json,body,part,updated_at) VALUES(0,?,?,?,0,0)",
+        "INSERT INTO deliveries(batch_id,destination_id,destination_json,body,part,updated_at) VALUES(0,?,?,?,0,'1970-01-01T00:00:00.000Z')",
       )
       .run(destination.id, JSON.stringify(destination), body);
   queue(JSON.stringify({ content: "Header", embeds: [{ title: "One" }] }));
@@ -403,17 +415,17 @@ test("a long evidence list travels as a file instead of ending at a truncation n
 test("a message turned away for hours becomes a failure an operator can see", async () => {
   const local = openDatabase(":memory:");
   const discord = { id: "dc", platform: "discord" as const, channelId: "2", signals: ["launch"] };
-  local.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'test',0,1)").run();
+  local.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'test','1970-01-01T00:00:00.000Z',1)").run();
   local
     .query(
-      "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,updated_at) VALUES(1,1,'dc',?,'dc',0,0)",
+      "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,updated_at) VALUES(1,1,'dc',?,'dc',0,'1970-01-01T00:00:00.000Z')",
     )
     .run(JSON.stringify(discord));
 
   let attempts = 0;
   for (let round = 0; round < 12; round++) {
     // Each round happens after the delay the platform asked for.
-    local.query("UPDATE deliveries SET next_attempt=0 WHERE status='pending'").run();
+    local.query("UPDATE deliveries SET next_attempt_at='1970-01-01T00:00:00.000Z' WHERE status='pending'").run();
     await deliverPending(local, config, async () => {
       attempts++;
       return Response.json({ parameters: { retry_after: 60 } }, { status: 429 });

@@ -33,7 +33,7 @@ function studio(
     const result =
       body.params.name === "ops_recent"
         ? { posts: rows }
-        : { ref: brokenRef ?? ref, postId: Number(ref.split(":")[1]), at: rows[0]?.at, ru: text, en: null };
+        : { ref: brokenRef ?? ref, postId: Number(ref.split(":")[1]), at: rows[0]?.at, en: text };
     return Response.json({
       jsonrpc: "2.0",
       id: body.id,
@@ -49,7 +49,7 @@ test("sync retains full copy and delivery outcomes without evidence or delivery 
     await syncPublications(db, config(), studio([post(2)], "Edited copy"));
     const report = listPublications(db, config());
     expect(report.total).toBe(2);
-    expect(report.publications[0]?.textRu).toBe("Edited copy");
+    expect(report.publications[0]?.textEn).toBe("Edited copy");
     expect(report.publications[0]?.publishedAt).toBe("2026-09-12T07:00:00.000Z");
     expect(report.publications[0]?.targets[0]?.url).toBe("https://t.me/example/2");
     for (const table of ["events", "snapshots", "deliveries"])

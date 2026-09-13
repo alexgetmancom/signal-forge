@@ -468,7 +468,7 @@ test("official developer feeds validate RSS and Atom and retain tool release evi
   expect(rss.records[0]).toMatchObject({ name: "Codex skill update", published: "2026-09-09T10:00:00.000Z" });
   expect(rss.records[0]?.description).toBe("Full release details.");
   const atom = parseOfficialFeed(
-    `<feed xmlns="http://www.w3.org/2005/Atom"><entry><title>CUDA AI</title><link rel="alternate" href="https://example.test/atom"/><id>x</id><updated>2026-09-09T10:00:00Z</updated><summary>GPU model</summary></entry></feed>`,
+    `<feed xmlns="http://www.w3.org/2005/Atom"><entry><title>CUDA AI</title><link rel="alternate" href="https://example.test/atom"/><id>x</id><updated>2026-09-09T10:00:00.000Z</updated><summary>GPU model</summary></entry></feed>`,
     { source: "atom-test", maker: "Example Vendor", url: "https://example.test/feed.atom" },
   );
   expect(atom.records[0]?.url).toBe("https://example.test/atom");
@@ -668,7 +668,7 @@ test("Codex PR monitor suppresses outsiders and distinguishes merges from releas
     state: "open",
     draft: false,
     merged_at: null as string | null,
-    updated_at: "2026-09-08T01:00:00Z",
+    updated_at: "2026-09-08T01:00:00.000Z",
     author_association: "MEMBER",
     user: { login: "maintainer" },
     head: { sha: "a".repeat(40) },
@@ -680,7 +680,7 @@ test("Codex PR monitor suppresses outsiders and distinguishes merges from releas
         : [pr],
     );
   saveCollection(db, await collectGithubPulls(db, config, watch, request), []);
-  pr.updated_at = "2026-09-08T02:00:00Z";
+  pr.updated_at = "2026-09-08T02:00:00.000Z";
   pr.state = "closed";
   pr.merged_at = pr.updated_at;
   const merged = await collectGithubPulls(db, config, watch, request);
@@ -689,7 +689,7 @@ test("Codex PR monitor suppresses outsiders and distinguishes merges from releas
   saveCollection(db, merged, []);
   pr.number = 10;
   pr.author_association = "NONE";
-  pr.updated_at = "2026-09-08T03:00:00Z";
+  pr.updated_at = "2026-09-08T03:00:00.000Z";
   expect((await collectGithubPulls(db, config, watch, request)).silentIds).toContain("10");
   db.close();
 });

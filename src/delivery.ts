@@ -9,6 +9,9 @@ import { fillSummaries } from "./summary.js";
 
 type Job = { id: number; destination_json: string; body: string; attempts: number };
 
+/** Retry clocks and send times are stored as instants, like everything else in this database. */
+const instant = (epochMs: number): string => new Date(epochMs).toISOString();
+
 /**
  * How many times one message may be turned away by a rate limit before it is given up on. Each
  * attempt already waits for the delay the platform asks for, so reaching this means the lane has
@@ -51,7 +54,7 @@ function multipart(prepared: PreparedDelivery): FormData {
 export function recoverInterruptedDeliveries(db: Database): void {
   db.query(
     "UPDATE deliveries SET status='ambiguous',error='Process stopped during send; verify destination before retrying',updated_at=? WHERE status='sending'",
-  ).run(Date.now());
+  ).run(instant(Date.now()));
 }
 
 export async function deliverPending(db: Database, config: AppConfig, request: Fetch = fetch): Promise<void> {
@@ -62,10 +65,10 @@ export async function deliverPending(db: Database, config: AppConfig, request: F
   })();
 
   const destinationIds = db
-    .query<{ destination_id: string }, [number]>(
-      "SELECT destination_id FROM deliveries WHERE status='pending' AND next_attempt<=? GROUP BY destination_id ORDER BY MIN(id)",
+    .query<{ destination_id: string }, [string]>(
+      "SELECT destination_id FROM deliveries WHERE status='pending' AND next_attempt_at<=? GROUP BY destination_id ORDER BY MIN(id)",
     )
-    .all(Date.now())
+    .all(instant(Date.now()))
     .map((row) => row.destination_id);
   const budget = { remaining: 20 };
 
@@ -76,11 +79,11 @@ export async function deliverPending(db: Database, config: AppConfig, request: F
       while (budget.remaining > 0) {
         const now = Date.now();
         const job = db
-          .query<Job, [number, string, number]>(`UPDATE deliveries SET status='sending',attempts=attempts+1,updated_at=?
-          WHERE id=(SELECT d.id FROM deliveries d WHERE d.destination_id=? AND d.status='pending' AND d.next_attempt<=?
+          .query<Job, [string, string, string]>(`UPDATE deliveries SET status='sending',attempts=attempts+1,updated_at=?
+          WHERE id=(SELECT d.id FROM deliveries d WHERE d.destination_id=? AND d.status='pending' AND d.next_attempt_at<=?
             AND NOT EXISTS(SELECT 1 FROM deliveries earlier WHERE earlier.batch_id=d.batch_id AND earlier.destination_id=d.destination_id AND earlier.part<d.part AND earlier.status<>'sent')
             ORDER BY d.id LIMIT 1) AND status='pending' RETURNING id,destination_json,body,attempts`)
-          .get(now, destinationId, now);
+          .get(instant(now), destinationId, instant(now));
         if (!job) return;
         budget.remaining -= 1;
 
@@ -197,13 +200,13 @@ export async function deliverPending(db: Database, config: AppConfig, request: F
         }
 
         db.query(
-          "UPDATE deliveries SET status=?,external_id=?,error=?,next_attempt=?,updated_at=? WHERE id=? AND status='sending'",
-        ).run(status, externalId, error, retryAt, Date.now(), job.id);
+          "UPDATE deliveries SET status=?,external_id=?,error=?,next_attempt_at=?,updated_at=? WHERE id=? AND status='sending'",
+        ).run(status, externalId, error, instant(retryAt), instant(Date.now()), job.id);
         log(status === "sent" ? "info" : "warn", "Delivery settled", { deliveryId: job.id, status });
         if (status === "failed" || status === "ambiguous") {
           db.query(
             "UPDATE deliveries SET status='failed',error='Earlier message part was not confirmed',updated_at=? WHERE batch_id=(SELECT batch_id FROM deliveries WHERE id=?) AND destination_id=(SELECT destination_id FROM deliveries WHERE id=?) AND part>(SELECT part FROM deliveries WHERE id=?) AND status='pending'",
-          ).run(Date.now(), job.id, job.id, job.id);
+          ).run(instant(Date.now()), job.id, job.id, job.id);
         }
         if (status === "pending") {
           return;

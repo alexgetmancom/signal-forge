@@ -140,15 +140,20 @@ test("signal quality attributes a shared story digest to every contributing sour
     raw: [],
     records: [{ id: "gpt-5", name: "GPT-5", maker: "OpenAI", context: 128000 }],
   };
-  saveCollection(db, router, destinations, "2026-09-08T00:00:00Z");
-  saveCollection(db, api, destinations, "2026-09-08T00:05:00Z");
+  saveCollection(db, router, destinations, "2026-09-08T00:00:00.000Z");
+  saveCollection(db, api, destinations, "2026-09-08T00:05:00.000Z");
   router.records = [{ id: "gpt-5", name: "GPT-5", maker: "OpenAI", pricing: { prompt: "2" } }];
   api.records = [{ id: "gpt-5", name: "GPT-5", maker: "OpenAI", context: 256000 }];
-  saveCollection(db, router, destinations, "2026-09-08T01:00:00Z");
-  saveCollection(db, api, destinations, "2026-09-08T01:05:00Z");
-  prepareDeliveries(db, Date.parse("2026-09-08T02:00:00Z"));
+  saveCollection(db, router, destinations, "2026-09-08T01:00:00.000Z");
+  saveCollection(db, api, destinations, "2026-09-08T01:05:00.000Z");
+  prepareDeliveries(db, Date.parse("2026-09-08T02:00:00.000Z"));
 
-  const report = signalQuality(db, { ...config, OPENAI_API_KEY: "test-key" }, 7, Date.parse("2026-09-08T02:00:00Z"));
+  const report = signalQuality(
+    db,
+    { ...config, OPENAI_API_KEY: "test-key" },
+    7,
+    Date.parse("2026-09-08T02:00:00.000Z"),
+  );
   for (const id of ["openrouter", "openai"]) {
     expect(report.sources.find((source) => source.id === id)).toMatchObject({
       digestDeliveries: 1,
@@ -182,15 +187,15 @@ test("signal quality counts a shared digest only for subscribed signal classes",
     raw: [],
     records: [{ id: "leaderboard-model", name: "Leaderboard model", rank: 2, score: 1 }],
   };
-  saveCollection(db, router, destinations, "2026-09-08T09:00:00Z");
-  saveCollection(db, leaderboard, destinations, "2026-09-08T09:05:00Z");
+  saveCollection(db, router, destinations, "2026-09-08T09:00:00.000Z");
+  saveCollection(db, leaderboard, destinations, "2026-09-08T09:05:00.000Z");
   router.records = [{ id: "router-model", name: "Router model", pricing: { prompt: "2" } }];
   leaderboard.records = [{ id: "leaderboard-model", name: "Leaderboard model", rank: 1, score: 2 }];
-  saveCollection(db, router, destinations, "2026-09-08T10:00:00Z");
-  saveCollection(db, leaderboard, destinations, "2026-09-08T10:05:00Z");
-  prepareDeliveries(db, Date.parse("2026-09-08T11:00:00Z"));
+  saveCollection(db, router, destinations, "2026-09-08T10:00:00.000Z");
+  saveCollection(db, leaderboard, destinations, "2026-09-08T10:05:00.000Z");
+  prepareDeliveries(db, Date.parse("2026-09-08T11:00:00.000Z"));
 
-  const report = signalQuality(db, config, 7, Date.parse("2026-09-08T12:00:00Z"));
+  const report = signalQuality(db, config, 7, Date.parse("2026-09-08T12:00:00.000Z"));
   expect(report.sources.find((source) => source.id === "openrouter")).toMatchObject({ digestDeliveries: 1 });
   expect(report.sources.find((source) => source.id === "arena-leaderboards")).toMatchObject({
     immediateDeliveries: 1,
@@ -216,28 +221,28 @@ test("signal quality measures independent first signals, confirmed lead time and
     appendOnly: true,
     records,
   });
-  saveCollection(db, make("openrouter", "openrouter", []), [], "2026-09-10T08:59:00Z");
-  saveCollection(db, make("openrouter", "openrouter", [modelOne]), [], "2026-09-10T09:00:00Z");
-  saveCollection(db, make("discovery:github-ai", "github", []), [], "2026-09-10T09:29:00Z");
+  saveCollection(db, make("openrouter", "openrouter", []), [], "2026-09-10T08:59:00.000Z");
+  saveCollection(db, make("openrouter", "openrouter", [modelOne]), [], "2026-09-10T09:00:00.000Z");
+  saveCollection(db, make("discovery:github-ai", "github", []), [], "2026-09-10T09:29:00.000Z");
   saveCollection(
     db,
     make("discovery:github-ai", "github", [{ id: "openai/model-one", name: "openai/model-one", owner: "openai" }]),
     [],
-    "2026-09-10T09:30:00Z",
+    "2026-09-10T09:30:00.000Z",
   );
-  saveCollection(db, make("openai-news", "news", []), [], "2026-09-10T09:44:00Z");
+  saveCollection(db, make("openai-news", "news", []), [], "2026-09-10T09:44:00.000Z");
   saveCollection(
     db,
     make("openai-news", "news", [{ id: "model-one-news", name: "Model One", maker: "OpenAI" }]),
     [],
-    "2026-09-10T09:45:00Z",
+    "2026-09-10T09:45:00.000Z",
   );
-  saveCollection(db, make("openai", "api-models", []), [], "2026-09-10T09:59:00Z");
-  saveCollection(db, make("openai", "api-models", [modelOne]), [], "2026-09-10T10:00:00Z");
-  saveCollection(db, make("openrouter", "openrouter", [modelOne, modelTwo]), [], "2026-09-10T11:00:00Z");
-  saveCollection(db, make("openai", "api-models", [modelOne, modelTwo]), [], "2026-09-10T12:30:00Z");
+  saveCollection(db, make("openai", "api-models", []), [], "2026-09-10T09:59:00.000Z");
+  saveCollection(db, make("openai", "api-models", [modelOne]), [], "2026-09-10T10:00:00.000Z");
+  saveCollection(db, make("openrouter", "openrouter", [modelOne, modelTwo]), [], "2026-09-10T11:00:00.000Z");
+  saveCollection(db, make("openai", "api-models", [modelOne, modelTwo]), [], "2026-09-10T12:30:00.000Z");
 
-  const report = signalQuality(db, measuredConfig, 7, Date.parse("2026-09-10T13:00:00Z"));
+  const report = signalQuality(db, measuredConfig, 7, Date.parse("2026-09-10T13:00:00.000Z"));
   const openrouter = report.sources.find((source) => source.id === "openrouter");
   expect(openrouter).toMatchObject({
     eventsCreated: 2,
@@ -264,13 +269,13 @@ test("signal quality counts suppressed shadow events without delivery batches", 
     trackChanges: true,
     records: [{ id: "openai/repo", name: "openai/repo", owner: "openai", updated }],
   });
-  saveCollection(db, make("2026-09-10T09:00:00Z"), [], "2026-09-10T09:00:00Z");
-  saveCollection(db, make("2026-09-10T10:00:00Z"), [], "2026-09-10T10:00:00Z");
+  saveCollection(db, make("2026-09-10T09:00:00.000Z"), [], "2026-09-10T09:00:00.000Z");
+  saveCollection(db, make("2026-09-10T10:00:00.000Z"), [], "2026-09-10T10:00:00.000Z");
   const source = signalQuality(
     db,
     { ...config, GITHUB_TOKEN: "test-github-token" },
     7,
-    Date.parse("2026-09-10T11:00:00Z"),
+    Date.parse("2026-09-10T11:00:00.000Z"),
   ).sources.find((entry) => entry.id === "discovery:github-ai");
   expect(source).toMatchObject({ eventsCreated: 1, suppressedEvents: 1, immediateDeliveries: 0, digestDeliveries: 0 });
   expect(db.query("SELECT COUNT(*) AS count FROM batch_events").get()).toEqual({ count: 0 });

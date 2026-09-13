@@ -139,8 +139,8 @@ export function persistCollection(
   } | null;
   const snapshot = storeSnapshot(db, c.source, now, JSON.stringify(c.raw)).id;
   const old = db
-    .query<{ id: string; body: string; missing_count: number }, [string]>(
-      "SELECT id,body,missing_count FROM records WHERE source=?",
+    .query<{ id: string; body: string; missing_count: number; candidate_body: string | null }, [string]>(
+      "SELECT id,body,missing_count,candidate_body FROM records WHERE source=?",
     )
     .all(c.source);
   const previous = new Map(old.map((row) => [row.id, row]));
@@ -190,25 +190,23 @@ export function persistCollection(
       (!c.appendOnly || c.trackChanges) &&
       !c.silentIds?.includes(record.id)
     ) {
+      // A source that flickers must show the same new body twice before it is believed. The
+      // pending body waits on the record it belongs to, and every path below that writes the
+      // record clears it.
       if (c.confirmChanges) {
-        const candidate = db
-          .query<{ body: string; observations: number }, [string, string]>(
-            "SELECT body,observations FROM change_candidates WHERE source=? AND id=?",
-          )
-          .get(c.source, record.id);
-        if (candidate?.body === comparableBody && candidate.observations >= 1) {
-          emit(record.id, "changed", before.body, body);
-          db.query("DELETE FROM change_candidates WHERE source=? AND id=?").run(c.source, record.id);
-        } else {
-          db.query(
-            "INSERT INTO change_candidates(source,id,body,observations) VALUES(?,?,?,1) ON CONFLICT(source,id) DO UPDATE SET body=excluded.body,observations=1",
-          ).run(c.source, record.id, comparableBody);
+        if (before.candidate_body === comparableBody) emit(record.id, "changed", before.body, body);
+        else {
+          db.query("UPDATE records SET candidate_body=? WHERE source=? AND id=?").run(
+            comparableBody,
+            c.source,
+            record.id,
+          );
           continue;
         }
       } else emit(record.id, "changed", before.body, body);
-    } else db.query("DELETE FROM change_candidates WHERE source=? AND id=?").run(c.source, record.id);
+    }
     db.query(
-      "INSERT INTO records(source,id,body,stream,observed_at) VALUES(?,?,?,?,?) ON CONFLICT(source,id) DO UPDATE SET body=excluded.body,stream=excluded.stream,observed_at=excluded.observed_at,missing_count=0",
+      "INSERT INTO records(source,id,body,stream,observed_at) VALUES(?,?,?,?,?) ON CONFLICT(source,id) DO UPDATE SET body=excluded.body,stream=excluded.stream,observed_at=excluded.observed_at,missing_count=0,candidate_body=NULL",
     ).run(c.source, record.id, body, c.stream, now);
   }
   if (!c.appendOnly || c.resolveMissing)
@@ -238,7 +236,6 @@ export function persistCollection(
       }
       if (row.missing_count >= 1) {
         emit(row.id, "removed", row.body, null);
-        db.query("DELETE FROM change_candidates WHERE source=? AND id=?").run(c.source, row.id);
         db.query("DELETE FROM records WHERE source=? AND id=?").run(c.source, row.id);
       } else db.query("UPDATE records SET missing_count=missing_count+1 WHERE source=? AND id=?").run(c.source, row.id);
     }
@@ -247,11 +244,11 @@ export function persistCollection(
     const present = new Set(events.map((event) => signalClass(event)));
     const targets = destinations.filter((destination) => destination.signals.some((signal) => present.has(signal)));
     if (!events.length || !targets.length) continue;
-    const readyAt = digest ? (Math.floor(Date.parse(now) / 3_600_000) + 1) * 3_600_000 : Date.parse(now);
+    const readyAt = digest ? new Date((Math.floor(Date.parse(now) / 3_600_000) + 1) * 3_600_000).toISOString() : now;
     const batchSource = digest ? "story-digest" : c.source;
     const existing = digest
       ? db
-          .query<{ id: number }, [string, number]>(
+          .query<{ id: number }, [string, string]>(
             "SELECT id FROM batches WHERE source=? AND digest=1 AND ready_at=? AND sealed=0",
           )
           .get(batchSource, readyAt)
@@ -259,7 +256,7 @@ export function persistCollection(
     const batch =
       existing ??
       db
-        .query<{ id: number }, [string, number, number]>(
+        .query<{ id: number }, [string, number, string]>(
           "INSERT INTO batches(source,digest,ready_at) VALUES(?,?,?) RETURNING id",
         )
         .get(batchSource, Number(digest), readyAt);

@@ -30,21 +30,21 @@ const thirdRecord = { id: "secret-codename", name: "Secret Model", maker: "OpenA
 
 test("one weak source or repeated source family does not create a hypothesis", () => {
   const oneSource = openDatabase(":memory:");
-  introduce(oneSource, "arena", "arena", arenaRecord, "2026-09-10T00:00:00Z");
+  introduce(oneSource, "arena", "arena", arenaRecord, "2026-09-10T00:00:00.000Z");
   expect(listHypotheses(oneSource)).toEqual([]);
   oneSource.close();
 
   const sameFamily = openDatabase(":memory:");
-  introduce(sameFamily, "discovery:github-ai", "github", githubRecord, "2026-09-10T00:00:00Z");
-  introduce(sameFamily, "discovery:github-llm", "github", githubRecord, "2026-09-10T01:00:00Z");
+  introduce(sameFamily, "discovery:github-ai", "github", githubRecord, "2026-09-10T00:00:00.000Z");
+  introduce(sameFamily, "discovery:github-llm", "github", githubRecord, "2026-09-10T01:00:00.000Z");
   expect(listHypotheses(sameFamily)).toEqual([]);
   sameFamily.close();
 });
 
 test("two independent weak families form an emerging hypothesis and a third strengthens it", () => {
   const db = openDatabase(":memory:");
-  const firstEvent = introduce(db, "arena", "arena", arenaRecord, "2026-09-10T00:00:00Z");
-  const secondEvent = introduce(db, "discovery:github-ai", "github", githubRecord, "2026-09-10T01:00:00Z");
+  const firstEvent = introduce(db, "arena", "arena", arenaRecord, "2026-09-10T00:00:00.000Z");
+  const secondEvent = introduce(db, "discovery:github-ai", "github", githubRecord, "2026-09-10T01:00:00.000Z");
   let hypothesis = listHypotheses(db)[0];
   expect(hypothesis).toMatchObject({
     status: "emerging",
@@ -53,7 +53,7 @@ test("two independent weak families form an emerging hypothesis and a third stre
   });
   expect(hypothesis?.events.map((event) => event.eventId)).toEqual([firstEvent, secondEvent]);
 
-  const thirdEvent = introduce(db, "openrouter", "openrouter", thirdRecord, "2026-09-10T02:00:00Z");
+  const thirdEvent = introduce(db, "openrouter", "openrouter", thirdRecord, "2026-09-10T02:00:00.000Z");
   hypothesis = listHypotheses(db)[0];
   expect(hypothesis).toMatchObject({ status: "strengthening", independentSourceCount: 3 });
   expect(hypothesis?.events.map((event) => event.eventId)).toEqual([firstEvent, secondEvent, thirdEvent]);
@@ -62,14 +62,14 @@ test("two independent weak families form an emerging hypothesis and a third stre
 
 test("a confirmed event resolves a hypothesis and is linked as resolution evidence", () => {
   const db = openDatabase(":memory:");
-  introduce(db, "arena", "arena", arenaRecord, "2026-09-10T00:00:00Z");
-  introduce(db, "discovery:github-ai", "github", githubRecord, "2026-09-10T01:00:00Z");
+  introduce(db, "arena", "arena", arenaRecord, "2026-09-10T00:00:00.000Z");
+  introduce(db, "discovery:github-ai", "github", githubRecord, "2026-09-10T01:00:00.000Z");
   const confirmedEvent = introduce(
     db,
     "openai",
     "api-models",
     { id: "secret-codename", name: "Secret Model", owner: "OpenAI" },
-    "2026-09-10T02:00:00Z",
+    "2026-09-10T02:00:00.000Z",
   );
   const hypothesis = listHypotheses(db)[0];
   expect(hypothesis).toMatchObject({ status: "confirmed", resolutionEventId: confirmedEvent });
@@ -86,24 +86,24 @@ test("confirmation before two weak families never creates a hypothesis", () => {
     "openai",
     "api-models",
     { id: "secret-codename", name: "Secret Model", owner: "OpenAI" },
-    "2026-09-10T00:00:00Z",
+    "2026-09-10T00:00:00.000Z",
   );
-  introduce(db, "arena", "arena", arenaRecord, "2026-09-10T01:00:00Z");
-  introduce(db, "discovery:github-ai", "github", githubRecord, "2026-09-10T02:00:00Z");
+  introduce(db, "arena", "arena", arenaRecord, "2026-09-10T01:00:00.000Z");
+  introduce(db, "discovery:github-ai", "github", githubRecord, "2026-09-10T02:00:00.000Z");
   expect(listHypotheses(db)).toEqual([]);
   db.close();
 });
 
 test("unresolved hypotheses become stale after fourteen days and preserve IDs on rebuild", () => {
   const db = openDatabase(":memory:");
-  introduce(db, "arena", "arena", arenaRecord, "2026-09-01T00:00:00Z");
-  introduce(db, "discovery:github-ai", "github", githubRecord, "2026-09-01T01:00:00Z");
-  rebuildHypotheses(db, Date.parse("2026-09-20T00:00:00Z"));
+  introduce(db, "arena", "arena", arenaRecord, "2026-09-01T00:00:00.000Z");
+  introduce(db, "discovery:github-ai", "github", githubRecord, "2026-09-01T01:00:00.000Z");
+  rebuildHypotheses(db, Date.parse("2026-09-20T00:00:00.000Z"));
   const before = listHypotheses(db)[0];
   if (!before) throw new Error("Expected a stale hypothesis");
   expect(before?.status).toBe("stale");
   const count = db.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM events").get()?.count;
-  rebuildHypotheses(db, Date.parse("2026-09-20T00:00:00Z"));
+  rebuildHypotheses(db, Date.parse("2026-09-20T00:00:00.000Z"));
   const after = getHypothesis(db, before.id);
   expect(after?.id).toBe(before.id);
   expect(db.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM events").get()?.count).toBe(count);

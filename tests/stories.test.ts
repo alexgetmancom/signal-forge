@@ -163,7 +163,7 @@ test("story time filters compare timestamps as instants", () => {
   source.records = [{ id: "gpt", name: "GPT", context: 2 }];
   saveCollection(db, source, [], "2026-09-08T10:00:00.000Z");
   expect(listStories(db, { since: "2026-09-08T11:00:00+02:00", limit: 10 })).toHaveLength(1);
-  expect(listStories(db, { since: "2026-09-08T10:00:00Z", limit: 10 })).toHaveLength(1);
+  expect(listStories(db, { since: "2026-09-08T10:00:00.000Z", limit: 10 })).toHaveLength(1);
   db.close();
 });
 

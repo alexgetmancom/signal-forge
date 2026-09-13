@@ -36,13 +36,13 @@ export function requireDeliveryVerification(db: Database, id: number, now = Date
 
   const next = row.verification_attempts + 1;
   const changed = db
-    .query<{ verification_attempts: number }, [number, string, number, number]>(
+    .query<{ verification_attempts: number }, [number, string, string, number]>(
       `UPDATE deliveries
        SET status='verification_required',verification_attempts=?,last_verification_error=?,verification_source='manual',updated_at=?
        WHERE id=? AND status IN ('ambiguous','verification_required')
        RETURNING verification_attempts`,
     )
-    .get(next, MANUAL_VERIFICATION, now, id);
+    .get(next, MANUAL_VERIFICATION, new Date(now).toISOString(), id);
   if (!changed) throw new Error(`Delivery ${id} changed before verification could be recorded`);
   return {
     id,
@@ -68,19 +68,19 @@ export function resolveDeliveryVerification(
   const changed = db
     .query<
       { destination_id: string; attempts: number },
-      [string, string | null, string | null, string, number, number]
+      [string, string | null, string | null, string, string, number]
     >(
       `UPDATE deliveries
        SET status=?,external_id=COALESCE(?,external_id),error=?,verification_source='manual',verified_at=?,last_verification_error=NULL,updated_at=?
        WHERE id=? AND status IN ('ambiguous','verification_required')
        RETURNING destination_id,attempts`,
     )
-    .get(outcome, externalId ?? null, outcome === "sent" ? null : message, verifiedAt, now, id);
+    .get(outcome, externalId ?? null, outcome === "sent" ? null : message, verifiedAt, verifiedAt, id);
   if (!changed) throw new Error(`Delivery ${id} is not awaiting manual verification`);
   if (outcome === "failed")
     db.query(
       "UPDATE deliveries SET status='failed',error='Earlier message part was not confirmed',updated_at=? WHERE batch_id=(SELECT batch_id FROM deliveries WHERE id=?) AND destination_id=(SELECT destination_id FROM deliveries WHERE id=?) AND part>(SELECT part FROM deliveries WHERE id=?) AND status='pending'",
-    ).run(now, id, id, id);
+    ).run(verifiedAt, id, id, id);
   return {
     id,
     status: outcome,

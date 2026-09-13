@@ -20,11 +20,14 @@ const publication = z.object({
   targets: z.array(target),
 });
 const recent = z.object({ posts: z.array(publication).max(50) });
+/**
+ * The archive keeps the English copy and nothing else: every word this service stores is English,
+ * and a post whose English text has not been written yet is stored without one.
+ */
 const copy = z.object({
   ref: z.string(),
   postId: z.number().int().positive(),
   at: instant.nullable(),
-  ru: z.string().nullable(),
   en: z.string().nullable(),
 });
 const envelope = z.object({
@@ -96,7 +99,7 @@ export async function syncPublications(db: Database, config: AppConfig, request:
       throw new Error("Solo Publisher returned duplicate publications");
     if (!rows.length && previous?.windowRefs.length)
       throw new Error("Solo Publisher returned an unexpected empty publication window");
-    const values: (z.infer<typeof publication> & { ru: string | null; en: string | null })[] = [];
+    const values: (z.infer<typeof publication> & { en: string | null })[] = [];
     for (const row of rows) {
       let text: z.infer<typeof copy>;
       try {
@@ -106,7 +109,7 @@ export async function syncPublications(db: Database, config: AppConfig, request:
       }
       if (text.ref !== row.ref || text.postId !== row.postId || row.ref !== `post:${row.postId}`)
         throw new Error("Solo Publisher publication text belongs to a different post");
-      values.push({ ...row, ru: text.ru, en: text.en });
+      values.push({ ...row, en: text.en });
     }
     const gapDetected = Boolean(
       previous?.gapDetected ||
@@ -123,9 +126,9 @@ export async function syncPublications(db: Database, config: AppConfig, request:
         .get(STATE_KEY);
       if (lease?.holder !== lockHolder("publications")) throw new Error("Solo Publisher synchronization lease expired");
       const upsert =
-        db.query(`INSERT INTO publications(ref,post_id,published_at,status,headline,text_ru,text_en,targets_json,checked_at)
-        VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(ref) DO UPDATE SET published_at=excluded.published_at,status=excluded.status,
-        headline=excluded.headline,text_ru=excluded.text_ru,text_en=excluded.text_en,targets_json=excluded.targets_json,checked_at=excluded.checked_at`);
+        db.query(`INSERT INTO publications(ref,post_id,published_at,status,headline,text_en,targets_json,checked_at)
+        VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(ref) DO UPDATE SET published_at=excluded.published_at,status=excluded.status,
+        headline=excluded.headline,text_en=excluded.text_en,targets_json=excluded.targets_json,checked_at=excluded.checked_at`);
       for (const row of values)
         upsert.run(
           row.ref,
@@ -133,7 +136,6 @@ export async function syncPublications(db: Database, config: AppConfig, request:
           row.at,
           row.status,
           row.headline,
-          row.ru,
           row.en,
           JSON.stringify(row.targets),
           checkedAt,
@@ -159,7 +161,6 @@ export function listPublications(db: Database, config: AppConfig, limit = 20) {
         published_at: string | null;
         status: string;
         headline: string;
-        text_ru: string | null;
         text_en: string | null;
         targets_json: string;
         checked_at: string;
@@ -181,7 +182,6 @@ export function listPublications(db: Database, config: AppConfig, limit = 20) {
       publishedAt: row.published_at,
       status: row.status,
       headline: row.headline,
-      textRu: row.text_ru,
       textEn: row.text_en,
       targets: z.array(target).parse(JSON.parse(row.targets_json)),
       checkedAt: row.checked_at,

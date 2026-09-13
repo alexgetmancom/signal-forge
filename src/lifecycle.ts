@@ -324,10 +324,10 @@ export function scheduleLifecycleReminders(db: Database, config: AppConfig, now 
       };
       lifecycleReminderContextSchema.parse(context);
       const batch = db
-        .query<{ id: number }, [string, number, number, string]>(
+        .query<{ id: number }, [string, number, string, string]>(
           "INSERT INTO batches(source,digest,ready_at,kind,context_json) VALUES(?,?,?,'lifecycle_reminder',?) RETURNING id",
         )
-        .get(reminder.source, 0, now, JSON.stringify(context));
+        .get(reminder.source, 0, new Date(now).toISOString(), JSON.stringify(context));
       if (!batch) throw new Error("Lifecycle reminder batch insert failed");
       db.query("INSERT INTO batch_events(batch_id,event_id,url,signal) VALUES(?,?,?,'reminder')").run(
         batch.id,

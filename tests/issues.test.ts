@@ -38,8 +38,8 @@ test("actionable issues use stable identities across source, delivery, worker an
     "INSERT INTO sources(id,last_error,checked_at,failures) VALUES('openrouter','HTTP 500','2026-09-08T11:59:00.000Z',1)",
   ).run();
   db.exec(
-    "INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'openrouter',0,1);" +
-      "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,status,updated_at) VALUES(7,1,'dc','{}','body',0,'ambiguous',1725796740000);" +
+    "INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'openrouter','1970-01-01T00:00:00.000Z',1);" +
+      "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,status,updated_at) VALUES(7,1,'dc','{}','body',0,'ambiguous','2024-09-08T11:59:00.000Z');" +
       'INSERT INTO app_state(key,value) VALUES(\'worker:sources\',\'{"state":"failed","lastFinishedAt":"2026-09-08T11:58:00.000Z"}\');' +
       'INSERT INTO app_state(key,value) VALUES(\'runtime\',\'{"uncleanRestarts":["2026-09-08T11:40:00.000Z","2026-09-08T11:50:00.000Z","2026-09-08T11:59:00.000Z"]}\')',
   );
@@ -89,10 +89,10 @@ test("stale workers and sending deliveries are actionable without automatic retr
   const db = openDatabase(":memory:");
   const config = loadConfig({ CONFIG_PATH: configPath });
   const now = Date.parse("2026-09-08T12:00:00.000Z");
-  db.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'test',0,1)").run();
+  db.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'test','1970-01-01T00:00:00.000Z',1)").run();
   db.query(
     "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,status,updated_at) VALUES(8,1,'dc','{}','body',0,'sending',?)",
-  ).run(now - 6 * 60 * 1000);
+  ).run(new Date(now - 6 * 60 * 1000).toISOString());
   db.query("INSERT INTO app_state(key,value) VALUES(?,?)").run(
     "worker:status",
     JSON.stringify({

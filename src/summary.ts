@@ -230,7 +230,7 @@ export async function fillSummaries(
 ): Promise<number> {
   if (!config.DEEPSEEK_API_KEY) return 0;
   const pending = db
-    .query<Event & { url: string }, [number]>(
+    .query<Event & { url: string }, [string]>(
       `SELECT e.*, COALESCE(NULLIF(json_extract(e.after_json,'$.url'),''),NULLIF(json_extract(e.before_json,'$.url'),''),be.url) AS url FROM batches b
        JOIN batch_events be ON be.batch_id = b.id
        JOIN events e ON e.id = be.event_id
@@ -240,7 +240,7 @@ export async function fillSummaries(
          AND NOT EXISTS (SELECT 1 FROM deepseek_usage u WHERE u.event_id=e.id)
        ORDER BY e.id LIMIT 20`,
     )
-    .all(now.getTime());
+    .all(now.toISOString());
   let written = 0;
   for (const event of pending) {
     if (deepSeekAttemptsToday(db, now) >= DEEPSEEK_SUMMARY_DAILY_ATTEMPT_LIMIT) {

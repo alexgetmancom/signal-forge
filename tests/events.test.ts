@@ -14,7 +14,7 @@ import { openDatabase } from "../src/storage/database.js";
 const db = openDatabase(":memory:");
 afterEach(() =>
   db.exec(
-    "DELETE FROM deliveries; DELETE FROM lifecycle_reminders; DELETE FROM hypothesis_events; DELETE FROM model_fact_conflicts; DELETE FROM model_fact_fields; DELETE FROM model_facts; DELETE FROM hypotheses; DELETE FROM lifecycle_deadlines; DELETE FROM batch_targets; DELETE FROM batch_events; DELETE FROM batches; DELETE FROM summaries; DELETE FROM events; DELETE FROM change_candidates; DELETE FROM records; DELETE FROM snapshots; DELETE FROM sources;",
+    "DELETE FROM deliveries; DELETE FROM lifecycle_reminders; DELETE FROM hypothesis_events; DELETE FROM model_fact_conflicts; DELETE FROM model_fact_fields; DELETE FROM model_facts; DELETE FROM hypotheses; DELETE FROM lifecycle_deadlines; DELETE FROM batch_targets; DELETE FROM batch_events; DELETE FROM batches; DELETE FROM summaries; DELETE FROM events; DELETE FROM records; DELETE FROM snapshots; DELETE FROM sources;",
   ),
 );
 const targets: Destination[] = [
@@ -171,7 +171,7 @@ test("Telegram copy displays readable prices and only changed parameters", async
       pricing: { prompt: "0.0000002275" },
       parameters: ["tools", "structured_outputs"],
     }),
-    detected_at: "2026-09-08T02:00:00Z",
+    detected_at: "2026-09-08T02:00:00.000Z",
   };
   const text = renderEvent(event, "https://openrouter.ai");
   expect(text).toContain("Input price: $0.12 → $0.23 / 1M tokens");
@@ -217,7 +217,7 @@ test("documentation diffs normalize Markdown and suppress boilerplate-only chang
 
 test("multiple changes form one message and hourly digest survives until due", async () => {
   const { prepareDeliveries } = await import("../src/events/batching.js");
-  const now = "2026-09-08T10:15:00Z";
+  const now = "2026-09-08T10:15:00.000Z";
   saveCollection(db, collection(["a"]), targets, now);
   saveCollection(db, collection(["a", "b", "c"]), targets, now);
   expect(db.query("SELECT COUNT(*) AS n FROM deliveries").get()).toEqual({ n: 2 });
@@ -231,8 +231,8 @@ test("multiple changes form one message and hourly digest survives until due", a
   c.records.push({ id: "d", name: "d" });
   saveCollection(db, c, targets, now);
   expect(db.query("SELECT COUNT(*) AS n FROM deliveries").get()).toEqual({ n: 4 });
-  prepareDeliveries(db, Date.parse("2026-09-08T11:00:00Z"));
-  prepareDeliveries(db, Date.parse("2026-09-08T11:00:00Z"));
+  prepareDeliveries(db, Date.parse("2026-09-08T11:00:00.000Z"));
+  prepareDeliveries(db, Date.parse("2026-09-08T11:00:00.000Z"));
   expect(db.query("SELECT COUNT(*) AS n FROM deliveries").get()).toEqual({ n: 6 });
 });
 
@@ -256,17 +256,17 @@ test("one story becomes one cross-source digest with every evidence link", () =>
     raw: [],
     records: [{ id: "gpt-5", name: "GPT-5", maker: "OpenAI", context: 128000 }],
   };
-  saveCollection(local, router, destinations, "2026-09-08T09:00:00Z");
-  saveCollection(local, api, destinations, "2026-09-08T09:05:00Z");
+  saveCollection(local, router, destinations, "2026-09-08T09:00:00.000Z");
+  saveCollection(local, api, destinations, "2026-09-08T09:05:00.000Z");
   router.records = [{ id: "gpt-5", name: "GPT-5", maker: "OpenAI", pricing: { prompt: "2" } }];
   api.records = [{ id: "gpt-5", name: "GPT-5", maker: "OpenAI", context: 256000 }];
-  saveCollection(local, router, destinations, "2026-09-08T10:00:00Z");
-  saveCollection(local, api, destinations, "2026-09-08T10:05:00Z");
+  saveCollection(local, router, destinations, "2026-09-08T10:00:00.000Z");
+  saveCollection(local, api, destinations, "2026-09-08T10:05:00.000Z");
 
   expect(local.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM batches WHERE digest=1").get()).toEqual({
     count: 1,
   });
-  prepareDeliveries(local, Date.parse("2026-09-08T11:00:00Z"));
+  prepareDeliveries(local, Date.parse("2026-09-08T11:00:00.000Z"));
   expect(local.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM deliveries").get()).toEqual({ count: 2 });
 
   const telegram = local
@@ -411,16 +411,16 @@ test("a cross-stream digest stays scoped to each destination", () => {
     raw: [],
     records: [{ id: "leaderboard-model", name: "Leaderboard model", rank: 2, score: 1 }],
   };
-  saveCollection(local, router, destinations, "2026-09-08T09:00:00Z");
-  saveCollection(local, leaderboard, destinations, "2026-09-08T09:05:00Z");
+  saveCollection(local, router, destinations, "2026-09-08T09:00:00.000Z");
+  saveCollection(local, leaderboard, destinations, "2026-09-08T09:05:00.000Z");
   router.records = [{ id: "router-model", name: "Router model", pricing: { prompt: "2" } }];
   // A board key appearing is a codename signal; the price move is a change signal. One digest
   // batch holds both, and each destination renders only the class it asked for.
   leaderboard.records.push({ id: "newcomer", name: "Newcomer model", rank: 3, score: 1 });
-  saveCollection(local, router, destinations, "2026-09-08T10:00:00Z");
-  saveCollection(local, leaderboard, destinations, "2026-09-08T10:05:00Z");
+  saveCollection(local, router, destinations, "2026-09-08T10:00:00.000Z");
+  saveCollection(local, leaderboard, destinations, "2026-09-08T10:05:00.000Z");
 
-  prepareDeliveries(local, Date.parse("2026-09-08T11:00:00Z"));
+  prepareDeliveries(local, Date.parse("2026-09-08T11:00:00.000Z"));
   const rows = local
     .query<{ destination_id: string; body: string }, []>(
       "SELECT destination_id,body FROM deliveries ORDER BY destination_id",
@@ -522,9 +522,9 @@ test("a single Telegram delivery retains the exact source and record link", () =
     raw: records,
     records,
   };
-  saveCollection(db, source, [destination], "2026-09-08T10:00:00Z");
+  saveCollection(db, source, [destination], "2026-09-08T10:00:00.000Z");
   records.push({ id: "gpt-6-mini", name: "GPT-6 mini", url: "https://platform.openai.com/docs/models" });
-  saveCollection(db, source, [destination], "2026-09-08T10:05:00Z");
+  saveCollection(db, source, [destination], "2026-09-08T10:05:00.000Z");
   const delivery = db.query<{ body: string }, []>("SELECT body FROM deliveries WHERE destination_id='single'").get();
   expect(delivery?.body).toContain("🆕 New · OpenAI API");
   expect(delivery?.body).toContain("https://platform.openai.com/docs/models");

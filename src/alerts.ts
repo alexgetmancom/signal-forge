@@ -75,9 +75,12 @@ type AlertAttempt = {
   body: string;
   status: AlertAttemptStatus;
   attempts: number;
-  next_attempt: number;
+  next_attempt_at: string;
   error: string | null;
 };
+
+/** The alert clock is stored as an instant, like every other instant in this database. */
+const instant = (epochMs: number): string => new Date(epochMs).toISOString();
 
 export type AlertOutcome = { down: string[]; recovered: string[]; posted: boolean };
 
@@ -140,7 +143,7 @@ export function recoverInterruptedAlerts(db: Database): void {
     for (const attempt of interrupted) {
       db.query(
         "UPDATE alert_attempts SET status='ambiguous',error='Process stopped during alert send; verify the alert channel before retrying',updated_at=? WHERE status='sending' AND state_version=?",
-      ).run(now, attempt.state_version);
+      ).run(instant(now), attempt.state_version);
       const active = parseAlertState(attempt.to_state_json);
       if (active) writeAlertStateRows(db, JSON.stringify([...active].sort()), attempt.state_version);
     }
@@ -158,14 +161,14 @@ function attemptForState(
   db.transaction(() => {
     db.query(
       `INSERT INTO alert_attempts(
-         state_version,from_state_json,to_state_json,body,status,attempts,next_attempt,created_at,updated_at
-       ) VALUES(?,?,?,?, 'pending',0,0,?,?)
+         state_version,from_state_json,to_state_json,body,status,attempts,created_at,updated_at
+       ) VALUES(?,?,?,?, 'pending',0,?,?)
        ON CONFLICT(state_version) DO NOTHING`,
-    ).run(version, fromState, toState, body, now, now);
+    ).run(version, fromState, toState, body, instant(now), instant(now));
   })();
   const attempt = db
     .query<AlertAttempt, [number]>(
-      "SELECT id,state_version,from_state_json,to_state_json,body,status,attempts,next_attempt,error FROM alert_attempts WHERE state_version=?",
+      "SELECT id,state_version,from_state_json,to_state_json,body,status,attempts,next_attempt_at,error FROM alert_attempts WHERE state_version=?",
     )
     .get(version);
   if (!attempt || attempt.from_state_json !== fromState || attempt.to_state_json !== toState)
@@ -175,13 +178,13 @@ function attemptForState(
 
 function claimAlertAttempt(db: Database, id: number, now: number): AlertAttempt | null {
   return db
-    .query<AlertAttempt, [number, number, number]>(
+    .query<AlertAttempt, [string, number, string]>(
       `UPDATE alert_attempts
        SET status='sending',attempts=attempts+1,updated_at=?
-       WHERE id=? AND status IN ('pending','failed') AND next_attempt<=?
-       RETURNING id,state_version,from_state_json,to_state_json,body,status,attempts,next_attempt,error`,
+       WHERE id=? AND status IN ('pending','failed') AND next_attempt_at<=?
+       RETURNING id,state_version,from_state_json,to_state_json,body,status,attempts,next_attempt_at,error`,
     )
-    .get(now, id, now);
+    .get(instant(now), id, instant(now));
 }
 
 function settleAlertAttempt(
@@ -194,12 +197,9 @@ function settleAlertAttempt(
   now: number,
 ): void {
   db.transaction(() => {
-    db.query("UPDATE alert_attempts SET status=?,error=?,next_attempt=0,updated_at=? WHERE id=?").run(
-      status,
-      error,
-      now,
-      attempt.id,
-    );
+    db.query(
+      "UPDATE alert_attempts SET status=?,error=?,next_attempt_at='1970-01-01T00:00:00.000Z',updated_at=? WHERE id=?",
+    ).run(status, error, instant(now), attempt.id);
     if (status === "sent" || status === "ambiguous") {
       const value = JSON.stringify([...active].sort());
       writeAlertStateRows(db, value, version);
@@ -208,11 +208,9 @@ function settleAlertAttempt(
 }
 
 function retryAlertAttempt(db: Database, attempt: AlertAttempt, now: number): void {
-  db.query("UPDATE alert_attempts SET status='failed',error=?,next_attempt=0,updated_at=? WHERE id=?").run(
-    "Alert channel rejected the message",
-    now,
-    attempt.id,
-  );
+  db.query(
+    "UPDATE alert_attempts SET status='failed',error=?,next_attempt_at='1970-01-01T00:00:00.000Z',updated_at=? WHERE id=?",
+  ).run("Alert channel rejected the message", instant(now), attempt.id);
 }
 
 function alertLine(issue: ActionableIssue | undefined, id: string, recovered: boolean): string {

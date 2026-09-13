@@ -126,7 +126,7 @@ export function listActionableIssues(db: Database, config: AppConfig, now = Date
         id: number;
         destination_id: string;
         status: "failed" | "ambiguous" | "verification_required";
-        updated_at: number;
+        updated_at: string;
         error: string | null;
       },
       []
@@ -135,7 +135,7 @@ export function listActionableIssues(db: Database, config: AppConfig, now = Date
     )
     .all();
   for (const delivery of deliveries) {
-    const updatedAt = issueTime(new Date(delivery.updated_at).toISOString(), now);
+    const updatedAt = issueTime(delivery.updated_at, now);
     const ambiguous = delivery.status !== "failed";
     issues.push({
       id: `delivery:${delivery.id}`,
@@ -153,12 +153,12 @@ export function listActionableIssues(db: Database, config: AppConfig, now = Date
   }
 
   const stuckDeliveries = db
-    .query<{ id: number; destination_id: string; updated_at: number }, [number]>(
+    .query<{ id: number; destination_id: string; updated_at: string }, [string]>(
       "SELECT id,destination_id,updated_at FROM deliveries WHERE status='sending' AND updated_at<? ORDER BY updated_at",
     )
-    .all(now - STUCK_DELIVERY_MS);
+    .all(new Date(now - STUCK_DELIVERY_MS).toISOString());
   for (const delivery of stuckDeliveries) {
-    const updatedAt = issueTime(new Date(delivery.updated_at).toISOString(), now);
+    const updatedAt = issueTime(delivery.updated_at, now);
     issues.push({
       id: `delivery:${delivery.id}:stuck`,
       kind: "delivery_stuck",

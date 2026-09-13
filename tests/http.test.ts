@@ -16,7 +16,7 @@ test("health is public, operational state requires token, MCP lists matching sch
   expect((await app.request("/readyz")).status).toBe(200);
   expect((await app.request("/reports/1")).status).toBe(401);
   expect((await app.request("/reports/1", { headers: auth })).status).toBe(404);
-  db.exec(`INSERT INTO snapshots(id,source,collected_at,raw_json) VALUES(1,'web','2026-09-08T00:00:00.000Z','{}');
+  db.exec(`INSERT INTO snapshots(id,source,collected_at) VALUES(1,'web','2026-09-08T00:00:00.000Z');
     INSERT INTO events(id,source,stream,entity_id,kind,before_json,after_json,detected_at,snapshot_id)
     VALUES(1,'web','web','<script>','changed','{"strings":[]}','{"strings":["Claude Code"]}','2026-09-08T00:00:00.000Z',1)`);
   const report = await app.request("/reports/1", { headers: auth });
@@ -82,10 +82,12 @@ test("health is public, operational state requires token, MCP lists matching sch
   expect((await app.request("/api/deliveries", { headers: auth })).status).toBe(200);
   expect((await app.request("/api/deliveries/verification", { headers: auth })).status).toBe(200);
   const resolutionDb = openDatabase(":memory:");
-  resolutionDb.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(7,'test',0,1)").run();
+  resolutionDb
+    .query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(7,'test','1970-01-01T00:00:00.000Z',1)")
+    .run();
   resolutionDb
     .query(
-      "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,status,updated_at) VALUES(7,7,'dc',?,'body',0,'ambiguous',0)",
+      "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,status,updated_at) VALUES(7,7,'dc',?,'body',0,'ambiguous','1970-01-01T00:00:00.000Z')",
     )
     .run(
       JSON.stringify({
@@ -139,12 +141,12 @@ test("model, hypothesis and deadline HTTP routes use the authenticated operation
     appendOnly: true,
     records,
   });
-  saveCollection(db, collect("openrouter", "openrouter", []), [], "2026-09-10T00:00:00Z");
+  saveCollection(db, collect("openrouter", "openrouter", []), [], "2026-09-10T00:00:00.000Z");
   saveCollection(
     db,
     collect("openrouter", "openrouter", [{ id: "openai/gpt-6", name: "GPT-6", maker: "OpenAI" }]),
     [],
-    "2026-09-10T00:01:00Z",
+    "2026-09-10T00:01:00.000Z",
   );
   const app = createHttpApp(config, db);
   expect((await app.request("/api/models", { headers: auth })).status).toBe(200);

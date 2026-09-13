@@ -14,9 +14,9 @@ const config = loadConfig({
 
 function seedAmbiguousDelivery() {
   const db = openDatabase(":memory:");
-  db.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'test',0,1)").run();
+  db.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'test','1970-01-01T00:00:00.000Z',1)").run();
   db.query(
-    "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,status,updated_at) VALUES(7,1,'dc',?,'already attempted',0,'ambiguous',100)",
+    "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,status,updated_at) VALUES(7,1,'dc',?,'already attempted',0,'ambiguous','1970-01-01T00:00:00.100Z')",
   ).run(
     JSON.stringify({
       id: "dc",
@@ -85,7 +85,7 @@ test("verification-required deliveries remain visible and never become sent", ()
 test("manual verification records the outcome and releases the same batch", async () => {
   const db = seedAmbiguousDelivery();
   db.query(
-    "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,status,updated_at) VALUES(8,1,'dc',?,'part 1',1,'pending',100)",
+    "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,status,updated_at) VALUES(8,1,'dc',?,'part 1',1,'pending','1970-01-01T00:00:00.100Z')",
   ).run(
     JSON.stringify({
       id: "dc",

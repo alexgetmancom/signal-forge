@@ -52,7 +52,7 @@ test("early observations become a hypothesis, facts and lead-time evidence witho
     "arena",
     "arena",
     [{ id: "model-x", name: "Model X", model: "model-x", maker: "OpenAI" }],
-    "2026-09-10T09:12:00Z",
+    "2026-09-10T09:12:00.000Z",
     [destination],
   );
   const githubEvent = observe(
@@ -60,7 +60,7 @@ test("early observations become a hypothesis, facts and lead-time evidence witho
     "discovery:github-ai",
     "github",
     [{ id: "openai/model-x", name: "openai/model-x", owner: "openai", description: "An AI model" }],
-    "2026-09-10T09:26:00Z",
+    "2026-09-10T09:26:00.000Z",
     [],
   );
   expect(listHypotheses(db)[0]).toMatchObject({ status: "emerging", independentSourceCount: 2 });
@@ -78,7 +78,7 @@ test("early observations become a hypothesis, facts and lead-time evidence witho
         pricing: { prompt: "1" },
       },
     ],
-    "2026-09-10T10:04:00Z",
+    "2026-09-10T10:04:00.000Z",
     [destination],
   );
   expect(listHypotheses(db)[0]).toMatchObject({ status: "strengthening", independentSourceCount: 3 });
@@ -87,7 +87,7 @@ test("early observations become a hypothesis, facts and lead-time evidence witho
     "openai",
     "api-models",
     [{ id: "openai/model-x", name: "Model X", owner: "OpenAI", context: 128000 }],
-    "2026-09-10T11:31:00Z",
+    "2026-09-10T11:31:00.000Z",
     [destination],
   );
   const newsEvent = observe(
@@ -95,7 +95,7 @@ test("early observations become a hypothesis, facts and lead-time evidence witho
     "openai-news",
     "news",
     [{ id: "model-x-announcement", name: "Model X", maker: "OpenAI", summary: "Official announcement" }],
-    "2026-09-10T12:02:00Z",
+    "2026-09-10T12:02:00.000Z",
     [destination],
   );
 
@@ -117,7 +117,7 @@ test("early observations become a hypothesis, facts and lead-time evidence witho
     eventId: providerApiEvent,
     confidence: "confirmed",
     evidenceType: "api_catalogue",
-    observedAt: "2026-09-10T11:31:00Z",
+    observedAt: "2026-09-10T11:31:00.000Z",
   });
   expect(facts?.facts["availableOnOpenRouter:openrouter"]).toMatchObject({
     value: true,
@@ -141,7 +141,7 @@ test("early observations become a hypothesis, facts and lead-time evidence witho
   });
   expect(db.query("SELECT COUNT(*) AS count FROM deliveries").get()).toEqual({ count: 1 });
 
-  const quality = signalQuality(db, config, 7, Date.parse("2026-09-10T13:00:00Z"));
+  const quality = signalQuality(db, config, 7, Date.parse("2026-09-10T13:00:00.000Z"));
   expect(quality.sources.find((source) => source.id === "arena")).toMatchObject({
     firstSourceWins: 1,
     laterConfirmed: 1,
@@ -162,8 +162,8 @@ test("early observations become a hypothesis, facts and lead-time evidence witho
     db.transaction(() => {
       rebuildStories(db);
       rebuildModelFacts(db);
-      rebuildHypotheses(db, Date.parse("2026-09-10T13:00:00Z"));
-      rebuildLifecycleDeadlines(db, Date.parse("2026-09-10T13:00:00Z"));
+      rebuildHypotheses(db, Date.parse("2026-09-10T13:00:00.000Z"));
+      rebuildLifecycleDeadlines(db, Date.parse("2026-09-10T13:00:00.000Z"));
     })();
   };
   const eventCount = db.query("SELECT COUNT(*) AS count FROM events").get();
@@ -193,26 +193,26 @@ test("early observations become a hypothesis, facts and lead-time evidence witho
         url: "https://platform.claude.com/docs/en/about-claude/model-deprecations",
       },
     ],
-    "2026-09-10T12:30:00Z",
+    "2026-09-10T12:30:00.000Z",
     [destination],
   );
   expect(lifecycleEvent).toBe(6);
-  expect(listLifecycleDeadlines(db, 365, Date.parse("2026-09-10T13:00:00Z"))).toHaveLength(1);
+  expect(listLifecycleDeadlines(db, 365, Date.parse("2026-09-10T13:00:00.000Z"))).toHaveLength(1);
   const deliveriesBeforeReminder = db
     .query<{ count: number }, []>("SELECT COUNT(*) AS count FROM deliveries")
     .get()?.count;
   expect(
-    scheduleLifecycleReminders(db, { ...config, destinations: [destination] }, Date.parse("2026-09-14T00:00:00Z")),
+    scheduleLifecycleReminders(db, { ...config, destinations: [destination] }, Date.parse("2026-09-14T00:00:00.000Z")),
   ).toBe(1);
   expect(
-    scheduleLifecycleReminders(db, { ...config, destinations: [destination] }, Date.parse("2026-09-14T00:00:00Z")),
+    scheduleLifecycleReminders(db, { ...config, destinations: [destination] }, Date.parse("2026-09-14T00:00:00.000Z")),
   ).toBe(0);
   expect(db.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM deliveries").get()?.count).toBe(
     (deliveriesBeforeReminder ?? 0) + 1,
   );
   rebuild();
   expect(
-    scheduleLifecycleReminders(db, { ...config, destinations: [destination] }, Date.parse("2026-09-14T00:00:00Z")),
+    scheduleLifecycleReminders(db, { ...config, destinations: [destination] }, Date.parse("2026-09-14T00:00:00.000Z")),
   ).toBe(0);
   expect(db.query("SELECT COUNT(*) AS count FROM events").get()).toEqual({ count: 6 });
   expect(db.query("SELECT COUNT(*) AS count FROM batches WHERE kind='lifecycle_reminder'").get()).toEqual({ count: 1 });

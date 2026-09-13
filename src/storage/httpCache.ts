@@ -8,6 +8,13 @@ import type { Database } from "bun:sqlite";
  */
 export type CacheEntry = { etag: string | null; lastModified: string | null; freshUntil: number; body: string };
 
+/**
+ * Freshness is arithmetic - a deadline in milliseconds from now - but what gets stored is an
+ * instant like every other instant in this database, so the two representations meet here and
+ * nowhere else.
+ */
+const instant = (epochMs: number): string => new Date(epochMs).toISOString();
+
 /** Bodies not read for this long are dropped; a rebuilt bundle renames every file it ships. */
 const KEEP_MS = 14 * 24 * 3_600_000;
 
@@ -25,30 +32,37 @@ export class HttpCache {
 
   get(url: string): CacheEntry | null {
     const row = this.db
-      .query<{ etag: string | null; last_modified: string | null; fresh_until: number; body: string }, [string]>(
-        "SELECT etag,last_modified,fresh_until,body FROM http_cache WHERE url=?",
+      .query<{ etag: string | null; last_modified: string | null; fresh_until_at: string; body: string }, [string]>(
+        "SELECT etag,last_modified,fresh_until_at,body FROM http_cache WHERE url=?",
       )
       .get(url);
     if (!row) return null;
-    return { etag: row.etag, lastModified: row.last_modified, freshUntil: row.fresh_until, body: row.body };
+    return {
+      etag: row.etag,
+      lastModified: row.last_modified,
+      freshUntil: Date.parse(row.fresh_until_at),
+      body: row.body,
+    };
   }
 
   put(url: string, entry: CacheEntry, now = Date.now()): void {
     this.db
       .query(
-        `INSERT INTO http_cache(url,etag,last_modified,fresh_until,body,used_at) VALUES(?,?,?,?,?,?)
+        `INSERT INTO http_cache(url,etag,last_modified,fresh_until_at,body,used_at) VALUES(?,?,?,?,?,?)
          ON CONFLICT(url) DO UPDATE SET etag=excluded.etag,last_modified=excluded.last_modified,
-           fresh_until=excluded.fresh_until,body=excluded.body,used_at=excluded.used_at`,
+           fresh_until_at=excluded.fresh_until_at,body=excluded.body,used_at=excluded.used_at`,
       )
-      .run(url, entry.etag, entry.lastModified, entry.freshUntil, entry.body, now);
+      .run(url, entry.etag, entry.lastModified, instant(entry.freshUntil), entry.body, instant(now));
   }
 
   touch(url: string, freshUntil: number, now = Date.now()): void {
-    this.db.query("UPDATE http_cache SET fresh_until=?,used_at=? WHERE url=?").run(freshUntil, now, url);
+    this.db
+      .query("UPDATE http_cache SET fresh_until_at=?,used_at=? WHERE url=?")
+      .run(instant(freshUntil), instant(now), url);
   }
 
   prune(now = Date.now()): number {
-    const expired = this.db.query("DELETE FROM http_cache WHERE used_at < ?").run(now - KEEP_MS).changes;
+    const expired = this.db.query("DELETE FROM http_cache WHERE used_at < ?").run(instant(now - KEEP_MS)).changes;
     return expired + this.evictToBudget();
   }
 

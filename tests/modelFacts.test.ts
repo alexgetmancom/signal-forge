@@ -49,8 +49,20 @@ const model = (fields: Record<string, unknown> = {}) => ({
 
 test("higher confidence replaces weaker Model Facts with exact provenance", () => {
   const db = openDatabase(":memory:");
-  introduce(db, "openrouter", "openrouter", [model({ context: 128000, name: "GPT-6 weak" })], "2026-09-10T00:00:00Z");
-  introduce(db, "openai", "api-models", [model({ context: 256000, name: "GPT-6 official" })], "2026-09-10T01:00:00Z");
+  introduce(
+    db,
+    "openrouter",
+    "openrouter",
+    [model({ context: 128000, name: "GPT-6 weak" })],
+    "2026-09-10T00:00:00.000Z",
+  );
+  introduce(
+    db,
+    "openai",
+    "api-models",
+    [model({ context: 256000, name: "GPT-6 official" })],
+    "2026-09-10T01:00:00.000Z",
+  );
 
   const view = getModelFacts(db, "openai/gpt-6");
   expect(view?.facts.displayName).toMatchObject({
@@ -68,12 +80,12 @@ test("higher confidence replaces weaker Model Facts with exact provenance", () =
 
 test("weaker evidence cannot overwrite stronger facts and newer equal evidence wins", () => {
   const db = openDatabase(":memory:");
-  introduce(db, "openai", "api-models", [model({ context: 256000 })], "2026-09-10T00:00:00Z");
-  introduce(db, "openrouter", "openrouter", [model({ context: 128000 })], "2026-09-10T01:00:00Z");
+  introduce(db, "openai", "api-models", [model({ context: 256000 })], "2026-09-10T00:00:00.000Z");
+  introduce(db, "openrouter", "openrouter", [model({ context: 128000 })], "2026-09-10T01:00:00.000Z");
   expect(getModelFacts(db, "openai/gpt-6")?.facts.contextWindow).toMatchObject({ value: 256000, source: "openai" });
 
-  introduce(db, "catalogue-a", "api-models", [model({ context: 128000 })], "2026-09-10T02:00:00Z");
-  introduce(db, "catalogue-b", "api-models", [model({ context: 192000 })], "2026-09-10T03:00:00Z");
+  introduce(db, "catalogue-a", "api-models", [model({ context: 128000 })], "2026-09-10T02:00:00.000Z");
+  introduce(db, "catalogue-b", "api-models", [model({ context: 192000 })], "2026-09-10T03:00:00.000Z");
   expect(getModelFacts(db, "openai/gpt-6")?.facts.contextWindow).toMatchObject({
     value: 192000,
     source: "catalogue-b",
@@ -84,8 +96,8 @@ test("weaker evidence cannot overwrite stronger facts and newer equal evidence w
 
 test("equal-strength disagreement is retained as a conflict", () => {
   const db = openDatabase(":memory:");
-  introduce(db, "catalogue-a", "api-models", [model({ context: 128000 })], "2026-09-10T00:00:00Z");
-  introduce(db, "catalogue-b", "api-models", [model({ context: 256000 })], "2026-09-10T01:00:00Z");
+  introduce(db, "catalogue-a", "api-models", [model({ context: 128000 })], "2026-09-10T00:00:00.000Z");
+  introduce(db, "catalogue-b", "api-models", [model({ context: 256000 })], "2026-09-10T01:00:00.000Z");
   expect(getModelFacts(db, "openai/gpt-6")?.conflicts).toEqual([
     {
       field: "contextWindow",
@@ -100,8 +112,8 @@ test("equal-strength disagreement is retained as a conflict", () => {
 test("a later value from the same source is history, not a conflict", () => {
   const db = openDatabase(":memory:");
   const options = { trackChanges: true };
-  introduce(db, "openai", "api-models", [model({ context: 128000 })], "2026-09-10T00:00:00Z", options);
-  introduce(db, "openai", "api-models", [model({ context: 256000 })], "2026-09-10T01:00:00Z", options);
+  introduce(db, "openai", "api-models", [model({ context: 128000 })], "2026-09-10T00:00:00.000Z", options);
+  introduce(db, "openai", "api-models", [model({ context: 256000 })], "2026-09-10T01:00:00.000Z", options);
   expect(getModelFacts(db, "openai/gpt-6")?.facts.contextWindow).toMatchObject({
     value: 256000,
     source: "openai",
@@ -118,9 +130,9 @@ test("OpenRouter array output becomes modalities and numeric output becomes max 
     "openrouter",
     "openrouter",
     [model({ input: ["text"], output: ["image", "text"] })],
-    "2026-09-10T00:00:00Z",
+    "2026-09-10T00:00:00.000Z",
   );
-  introduce(db, "vercel-gateway", "api-models", [model({ output: 4096 })], "2026-09-10T01:00:00Z");
+  introduce(db, "vercel-gateway", "api-models", [model({ output: 4096 })], "2026-09-10T01:00:00.000Z");
   const facts = getModelFacts(db, "openai/gpt-6")?.facts;
   expect(facts?.outputModalities).toMatchObject({ value: ["image", "text"], source: "openrouter" });
   expect(facts?.maxOutputTokens).toMatchObject({ value: 4096, source: "vercel-gateway" });
@@ -130,10 +142,10 @@ test("OpenRouter array output becomes modalities and numeric output becomes max 
 
 test("provider API availability comes only from first-party catalogues", () => {
   const db = openDatabase(":memory:");
-  introduce(db, "vercel-gateway", "api-models", [model()], "2026-09-10T00:00:00Z");
+  introduce(db, "vercel-gateway", "api-models", [model()], "2026-09-10T00:00:00.000Z");
   expect(getModelFacts(db, "openai/gpt-6")?.facts.availableInProviderApi).toBeUndefined();
 
-  introduce(db, "openai", "api-models", [model()], "2026-09-10T01:00:00Z");
+  introduce(db, "openai", "api-models", [model()], "2026-09-10T01:00:00.000Z");
   expect(getModelFacts(db, "openai/gpt-6")?.facts["availableInProviderApi:openai"]).toMatchObject({
     value: true,
     source: "openai",
@@ -148,7 +160,7 @@ test("baseline records create facts without inventing an event", () => {
     "openrouter",
     "openrouter",
     [model({ pricing: { prompt: "0.000001" }, access: "public" })],
-    "2026-09-10T00:00:00Z",
+    "2026-09-10T00:00:00.000Z",
   );
   const facts = getModelFacts(db, "openai/gpt-6")?.facts;
   expect(facts?.displayName).toMatchObject({ value: "GPT-6", eventId: null, source: "openrouter" });
@@ -162,8 +174,8 @@ test("a field removed from the current catalogue does not retain stale history",
   const db = openDatabase(":memory:");
   const first = { ...model({ context: 128000 }), id: "openai/gpt-6" };
   const second = { ...model(), id: "openai/gpt-6" };
-  observe(db, "openrouter", "openrouter", [first], "2026-09-10T00:00:00Z", { appendOnly: false });
-  observe(db, "openrouter", "openrouter", [second], "2026-09-10T01:00:00Z", { appendOnly: false });
+  observe(db, "openrouter", "openrouter", [first], "2026-09-10T00:00:00.000Z", { appendOnly: false });
+  observe(db, "openrouter", "openrouter", [second], "2026-09-10T01:00:00.000Z", { appendOnly: false });
   expect(getModelFacts(db, "openai/gpt-6")?.facts.contextWindow).toBeUndefined();
   expect(getModelFacts(db, "openai/gpt-6")?.facts.displayName).toMatchObject({ value: "GPT-6", eventId: 1 });
   db.close();
@@ -187,7 +199,7 @@ test("lifecycle sources contribute status and dates to Model Facts", () => {
         retirement: "2026-10-01",
       }),
     ],
-    "2026-09-10T00:00:00Z",
+    "2026-09-10T00:00:00.000Z",
   );
   const facts = getModelFacts(db, "gemini-2.0-flash")?.facts;
   expect(facts?.status).toMatchObject({ value: "Deprecated", source: "gemini-deprecations" });
@@ -203,7 +215,7 @@ test("known source vendor wins over a raw provider owner", () => {
     "openai",
     "api-models",
     [model({ owner: "internal-api-owner", maker: undefined })],
-    "2026-09-10T00:00:00Z",
+    "2026-09-10T00:00:00.000Z",
   );
   expect(getModelFacts(db, "openai/gpt-6")?.facts.provider).toMatchObject({ value: "OpenAI", source: "openai" });
   db.close();
@@ -218,9 +230,9 @@ test("removing a model from OpenRouter sets availability false", () => {
     raw: records,
     records,
   });
-  saveCollection(db, collection([model(), { id: "keep", name: "Keep" }]), [], "2026-09-10T00:00:00Z");
-  saveCollection(db, collection([{ id: "keep", name: "Keep" }]), [], "2026-09-10T01:00:00Z");
-  saveCollection(db, collection([{ id: "keep", name: "Keep" }]), [], "2026-09-10T02:00:00Z");
+  saveCollection(db, collection([model(), { id: "keep", name: "Keep" }]), [], "2026-09-10T00:00:00.000Z");
+  saveCollection(db, collection([{ id: "keep", name: "Keep" }]), [], "2026-09-10T01:00:00.000Z");
+  saveCollection(db, collection([{ id: "keep", name: "Keep" }]), [], "2026-09-10T02:00:00.000Z");
   expect(getModelFacts(db, "openai/gpt-6")?.facts["availableOnOpenRouter:openrouter"]).toMatchObject({
     value: false,
     eventId: 1,
@@ -231,7 +243,7 @@ test("removing a model from OpenRouter sets availability false", () => {
 
 test("rebuilding Model Facts twice is deterministic and creates no events", () => {
   const db = openDatabase(":memory:");
-  introduce(db, "openai", "api-models", [model({ context: 256000 })], "2026-09-10T00:00:00Z");
+  introduce(db, "openai", "api-models", [model({ context: 256000 })], "2026-09-10T00:00:00.000Z");
   const eventCount = db.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM events").get()?.count;
   const rebuild = () => {
     db.transaction(() => {

@@ -133,7 +133,7 @@ test("shadow candidates nobody ever used are dropped, delivered evidence is not"
   const old = event("discovery:huggingface-recent", 40);
   const recent = event("discovery:huggingface-recent", 5);
   const delivered = event("discovery:huggingface-recent", 40);
-  db.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'test',0,1)").run();
+  db.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'test','1970-01-01T00:00:00.000Z',1)").run();
   db.query("INSERT INTO batch_events(batch_id,event_id,url) VALUES(1,?,'')").run(delivered?.id ?? 0);
 
   expect(pruneShadowCandidates(db, ["discovery:huggingface-recent"], now)).toBe(1);

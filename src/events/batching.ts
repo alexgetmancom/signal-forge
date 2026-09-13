@@ -92,9 +92,9 @@ export function prepareDeliveries(
   const batches = db
     .query<
       { id: number; digest: number; source: string; kind: "event" | "lifecycle_reminder"; context_json: string | null },
-      [number]
+      [string]
     >("SELECT id,digest,source,kind,context_json FROM batches WHERE sealed=0 AND ready_at<=? ORDER BY id")
-    .all(now);
+    .all(new Date(now).toISOString());
   for (const batch of batches) {
     let hasSpeakingEvents = false;
     const events = db
@@ -139,7 +139,7 @@ export function prepareDeliveries(
             target.destination_json,
             JSON.stringify({ content: "", embeds: [renderLifecycleReminderEmbed(context, event)] }),
             0,
-            now,
+            new Date(now).toISOString(),
           );
         } else {
           splitMessage(renderLifecycleReminderText(context, event), 3900).forEach((body, part) => {
@@ -147,7 +147,7 @@ export function prepareDeliveries(
               `INSERT INTO deliveries(batch_id,destination_id,destination_json,body,part,updated_at) VALUES(?,?,?,?,?,?)
                ON CONFLICT(batch_id,destination_id,part) DO UPDATE SET destination_json=excluded.destination_json,body=excluded.body,updated_at=excluded.updated_at
                WHERE deliveries.status='pending' AND deliveries.attempts=0`,
-            ).run(batch.id, target.destination_id, target.destination_json, body, part, now);
+            ).run(batch.id, target.destination_id, target.destination_json, body, part, new Date(now).toISOString());
           });
         }
       }
@@ -238,7 +238,7 @@ export function prepareDeliveries(
              ON CONFLICT(batch_id,destination_id,part) DO UPDATE SET destination_json=excluded.destination_json,body=excluded.body,updated_at=excluded.updated_at
              WHERE deliveries.status='pending' AND deliveries.attempts=0`,
           )
-          .run(batch.id, target.destination_id, target.destination_json, payload, part, now);
+          .run(batch.id, target.destination_id, target.destination_json, payload, part, new Date(now).toISOString());
 
       if (destination.platform === "discord") {
         const pinged = batch.digest ? [] : speaking.filter(pingWorthy);

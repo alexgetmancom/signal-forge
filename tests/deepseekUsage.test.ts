@@ -31,9 +31,7 @@ test("DeepSeek cost uses UTC peak and off-peak rates", () => {
 test("usage report keeps token cost, outcomes and code path visible", () => {
   const db = openDatabase(":memory:");
   const attemptedAt = new Date("2026-09-09T12:00:00.000Z");
-  db.query("INSERT INTO snapshots(id,source,collected_at,raw_json) VALUES(1,'openrouter',?, '{}')").run(
-    attemptedAt.toISOString(),
-  );
+  db.query("INSERT INTO snapshots(id,source,collected_at) VALUES(1,'openrouter',?)").run(attemptedAt.toISOString());
   db.query(
     "INSERT INTO events(id,source,stream,entity_id,kind,after_json,detected_at,snapshot_id) VALUES(1,'openrouter','api-models','m','changed','{}',?,1)",
   ).run(attemptedAt.toISOString());
