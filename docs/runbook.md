@@ -103,6 +103,12 @@ stored `records.body` values the migration moved. A subscriber-facing string liv
 and is compared byte for byte, so a body that changed without a deliberate rewrite is a "changed"
 event for every record carrying it. Migrate with the collector stopped.
 
+Migrations 001 to 025 were squashed into a single `001_initial.sql` on 2026-09-13, once the only
+database had reached the end of that journal. The steps themselves are in the git log. An archive
+taken before that date carries `user_version = 25` and this code will refuse it as newer than the
+schema it knows; restore such an archive by checking out the commit before the squash, migrating it
+there, and stamping `PRAGMA user_version = 1`.
+
 ## Restore
 
 Restore only while the service is stopped:
