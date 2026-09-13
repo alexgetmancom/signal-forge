@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import type { Destination } from "../config.js";
+import { weeklyRecapContextSchema } from "../recap.js";
 import { sourceLabel } from "../sources/labels.js";
 import { splitMessage } from "./canonical.js";
 import { CONFIDENCE_LEVELS } from "./confidence.js";
@@ -15,6 +16,8 @@ import {
   parseLifecycleReminderContext,
   renderLifecycleReminderEmbed,
   renderLifecycleReminderText,
+  renderWeeklyRecapEmbed,
+  renderWeeklyRecapLines,
 } from "./render/lifecycle.js";
 import { renderStoryText, type StoryRenderEvent, storyEmbed } from "./render/story.js";
 import { renderEvent } from "./render/telegram.js";
@@ -127,7 +130,13 @@ export function prepareDeliveries(
 ): void {
   const batches = db
     .query<
-      { id: number; digest: number; source: string; kind: "event" | "lifecycle_reminder"; context_json: string | null },
+      {
+        id: number;
+        digest: number;
+        source: string;
+        kind: "event" | "lifecycle_reminder" | "weekly_recap";
+        context_json: string | null;
+      },
       [string]
     >("SELECT id,digest,source,kind,context_json FROM batches WHERE sealed=0 AND ready_at<=? ORDER BY id")
     .all(new Date(now).toISOString());
@@ -155,6 +164,24 @@ export function prepareDeliveries(
         "SELECT destination_id,destination_json FROM batch_targets WHERE batch_id=? ORDER BY rowid",
       )
       .all(batch.id);
+    if (batch.kind === "weekly_recap") {
+      const context = weeklyRecapContextSchema.parse(JSON.parse(batch.context_json ?? "{}"));
+      for (const target of targets) {
+        const destination = JSON.parse(target.destination_json) as Destination;
+        const body =
+          destination.platform === "discord"
+            ? JSON.stringify({ content: "", embeds: [renderWeeklyRecapEmbed(context)] })
+            : renderWeeklyRecapLines(context).join("\n");
+        db.query(
+          `INSERT INTO deliveries(batch_id,destination_id,destination_json,body,part,updated_at) VALUES(?,?,?,?,0,?)
+           ON CONFLICT(batch_id,destination_id,part) DO UPDATE SET body=excluded.body,updated_at=excluded.updated_at
+           WHERE deliveries.status='pending' AND deliveries.attempts=0`,
+        ).run(batch.id, target.destination_id, target.destination_json, body, new Date(now).toISOString());
+      }
+      db.query("UPDATE batches SET sealed=1 WHERE id=?").run(batch.id);
+      hasSpeakingEvents = true;
+      continue;
+    }
     if (batch.kind === "lifecycle_reminder") {
       const event = events[0];
       if (!event || !batch.context_json) {

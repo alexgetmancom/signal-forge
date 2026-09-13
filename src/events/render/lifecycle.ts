@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { WeeklyRecapContext } from "../../recap.js";
 import { sourceLabel } from "../../sources/labels.js";
 import { evidenceLabel, evidenceTypeFor } from "../confidence.js";
 import type { Event } from "../types.js";
@@ -68,5 +69,36 @@ export function renderLifecycleReminderEmbed(context: LifecycleReminderContext, 
     description: body.slice(1, -1).join("\n").slice(0, 4000),
     url: context.url,
     footer: { text: `Evidence: ${evidenceLabel(evidenceType)} · event #${event.id}` },
+  };
+}
+
+/**
+ * The week, in the order a reader would ask about it: what can I use now, what got cheaper, and
+ * what did the people watching early see before anybody announced it.
+ */
+export function renderWeeklyRecapLines(context: WeeklyRecapContext): string[] {
+  const day = (at: string) =>
+    new Date(at).toLocaleDateString("en-GB", { day: "numeric", month: "long", timeZone: "UTC" });
+  const lines = [`**${day(context.from)} – ${day(context.to)}**`, ""];
+  lines.push(
+    context.arrivalCount
+      ? `🚀 **${context.arrivalCount} ${context.arrivalCount === 1 ? "model" : "models"} arrived** · ${context.arrivals.join(", ")}`
+      : "🚀 **No new models this week.**",
+  );
+  for (const move of context.priceMoves)
+    lines.push(`📊 ${move.name} · ${move.cheaper ? "down" : "up"} ${Math.round(move.percent * 100)}%`);
+  if (context.codenameCount)
+    lines.push(
+      `🕵 **${context.codenameCount} early ${context.codenameCount === 1 ? "sighting" : "sightings"}** in scouts, before any announcement`,
+    );
+  return lines;
+}
+
+export function renderWeeklyRecapEmbed(context: WeeklyRecapContext): Record<string, unknown> {
+  return {
+    author: { name: "THE WEEK IN MODELS" },
+    title: "Weekly recap",
+    description: renderWeeklyRecapLines(context).join("\n").slice(0, 4000),
+    footer: { text: "Everything here was posted as it happened · scouts saw the early half first" },
   };
 }

@@ -105,6 +105,20 @@ A blocked source is not a broken one. `gemini` answers everywhere except the add
 project can reach, so it shows as restricted with its cause instead of counting against the
 headline. A board that calls every silence an outage teaches people to ignore it.
 
+## The weekly recap
+
+One message a week in `🚀signals`, posted after the most recent Sunday 18:00 UTC: what arrived, the
+three steepest price moves, and how many early sightings the scouts saw before any announcement.
+Late enough that Sunday is over in the Americas, early enough to be there for Monday morning in
+Asia.
+
+It is a batch with its own kind rather than a second sender, so it is rendered, delivered, retried
+and verified by the same machinery as every card. Its identity is the period it covers -- one row
+per week, enforced by a unique index -- so a cycle that runs twice cannot post it twice, and a week
+in which nothing arrived, nothing moved and nothing was sighted produces no message at all.
+
+The invited room does not get one. Scouts see every one of these events as it happens.
+
 ## Operational alerts
 
 `alertChannelId` points to the private `Signal Problem` channel. It receives one message when a

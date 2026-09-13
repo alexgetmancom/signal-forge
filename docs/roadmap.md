@@ -247,6 +247,9 @@ is already known about each.
   size cap and receipt design that was deferred.
 - **Hugging Face model-card metadata**, **OpenRouter trending** (needs a stable public endpoint) and
   **Hacker News** (digest-only, never sufficient for `confirmed`), all from the competitor audit.
+- **A weekly recap in the public channel.** Done. One message per week, its own `batches.kind`,
+  identity is the period it covers. What is not there yet: the lead the scouts had on each arrival,
+  which needs the resolution links below.
 - **A compact significant-change summary.** Partly answered: a move of a quarter or more now
   arrives on sight. What remains is the summary of everything smaller. Real material exists -- Qwen3.8 27B input $0.42 to
   $0.21 per million, DeepSeek V4 Flash 0731 output $0.28 to $0.08, Kimi Latest output $7.70 to
