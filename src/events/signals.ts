@@ -57,8 +57,14 @@ export function signalClass(event: Event): SignalClass {
 
   if (event.stream === "leaderboards") return event.kind === "new" ? "codename" : "change";
 
+  /**
+   * A retirement is read by whoever runs the model being retired, and that is a small, attentive
+   * audience rather than the public one: the readers who came for what is new do not need a date
+   * on a model they never called. A notice that names its successor is the earliest word on the
+   * model replacing it, which is the same reason it belongs beside the codenames.
+   */
   if (event.stream === "deprecations") {
-    if (event.kind !== "new") return "change";
+    if (event.kind !== "new") return "evidence";
     return text(record?.replacement) ? "codename" : "evidence";
   }
 

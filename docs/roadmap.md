@@ -125,6 +125,12 @@ an integration gap, not evidence that those models are unavailable.
   so a rule cannot stop holding quietly. `scripts/check-steps.ts` is the list of what it runs, in
   groups that run at once; the whole gate is about three seconds. Lefthook runs it on push, and on
   commit runs Biome over the staged files and gitleaks over the staged diff.
+- A mention means a model. `launch` covers catalogues, weights, usage limits coming back and
+  severe outages; software around the models is `release` and a vendor's prose is `article`, and
+  neither interrupts. Newsroom posts are never launches, so no feed category is parsed and no
+  `records.body` migration was needed.
+- A price move of a quarter or more is delivered on sight; smaller ones stay in the hourly digest,
+  and moves under the publication threshold are still suppressed entirely.
 - `scripts/rehearse-migration.ts` runs a migration against a copy of a real database and reports
   how many stored `records.body` values it moved.
 
@@ -143,8 +149,7 @@ priority.
 | Later | Wire newly supplied provider credentials. | `MINIMAX_API_KEY`, `DASHSCOPE_API_KEY` and `CEREBRAS_API_KEY` are present in production but are not registered capabilities or collectors. `OPENROUTER_API_KEY` is also present, while the current OpenRouter source does not require it. Add each provider only with a concrete source, validated response and a passing production status; an environment variable alone is not an integration. |
 | Later | More reset sources. | Add Z.ai, xAI and Meta reset surfaces once each has one address that can be read and validated; each arrives as its own source with its own authority, never merged into the Codex tracker's family. |
 | Later | An evidence type for resets. | `events.evidence_type` carries a CHECK constraint, so a new member needs a rebuild of a table a dozen others reference. Resets store `unknown` and say what they are in the card's own words until that rebuild is worth one move. |
-| Next | A mention should mean a launch. | `signalClass()` classifies every new `news` event as `launch`, so a customer story and an engineering article interrupt a vendor role exactly as a release does: on 2026-09-12 New pinged OpenAI for a Habitat engineering article and for Cognition and Perplexity customer stories, while two Schematron catalogue arrivals said nothing. Done when the class is derived from what the source actually says a post is -- its feed category or explicit semantics, not a keyword list or an importance score -- product availability keeps the mention, stories and articles stay readable in a quiet channel, and the promised-versus-applied Codex reset exception is untouched. Tests assert destination, immediate-or-digest and mention policy, not only the returned class. Any reworded `records.body` needs a rehearsed migration with collection stopped. |
-| Next | Shutdown dates that reach the reminder engine. | The reminder engine, `lifecycle_deadlines` and idempotent 30/7/1-day reminders already exist; the extraction does not. `parseOpenAIDeprecations()` keeps the prose but extracts no shutdown or replacement field, and the `lifecycle.ts` fallback reads ISO dates, not `October 1, 2026`. Event 9163 announced the GPT-5.4-Cyber shutdown and its replacement in `summary` alone and left `lifecycle_deadlines` at nine rows. Done when announcement, deprecation and shutdown dates are told apart from the source's own structure, an ambiguous multi-model or multi-date notice stays unprojected rather than guessing, affected stored records are migrated and projections rebuilt in the same move, and event 9163 yields the right date and successor. Routing `reminder` to a destination and an upcoming-shutdown block in `status` are a separate owner decision, not part of the parsing. |
+| Later | Shutdown dates that reach the reminder engine. | Deprecations are `🕵scouts` material: a retirement is read by whoever runs the model being retired, and the public wire is for what a reader can start using. That caps the value of this work, which is why it moved from Next to Later. The reminder engine, `lifecycle_deadlines` and idempotent 30/7/1-day reminders already exist; the extraction does not. `parseOpenAIDeprecations()` keeps the prose but extracts no shutdown or replacement field, and the `lifecycle.ts` fallback reads ISO dates, not `October 1, 2026`. Event 9163 announced the GPT-5.4-Cyber shutdown and its replacement in `summary` alone and left `lifecycle_deadlines` at nine rows. Done when announcement, deprecation and shutdown dates are told apart from the source's own structure, an ambiguous multi-model or multi-date notice stays unprojected rather than guessing, affected stored records are migrated and projections rebuilt in the same move, and event 9163 yields the right date and successor. Routing `reminder` to a destination and an upcoming-shutdown block in `status` are a separate owner decision, not part of the parsing. |
 | Later | ModelScope verdict. | Keep or remove on measured lead time once it has produced a week of first sightings. |
 | Later | More repositories. | Add only repositories with a clear reader benefit and one explicit configuration entry each. |
 | Later | History commands. | Add `/latest` and `/search` only after the event and identity model remains useful in daily use. |
@@ -214,6 +219,12 @@ Kept because the reasoning cost real observation and is easy to re-litigate from
   Competitors all split by source instead (`api-models`, `arena`, `subpages`, `app-diffs`); with
   thirteen streams that is a dozen channels, it scatters the mentions, and it defeats the
   cross-source story grouping that they do not have.
+- **Cross-source repetition settled itself when the channels changed.** A page discovery and the
+  news post about it used to speak in both Codenames and New, because `repeatsDeliveredStory()`
+  only looks at previous deliveries to the same destination. Both classes now land in `🕵scouts`,
+  one destination, where that check already works and the two events render as one story. A repeat
+  between `🚀signals` and `🕵scouts` remains possible and is wanted: the public channel and the
+  invited room are different audiences, and each is owed the story once.
 - **No welcome channel.** The channel map lives in each channel's Discord topic, which is where a
   reader already looks and costs no sixth entry in the sidebar. A fifth status board carrying the
   same text was considered and rejected as clutter in a channel that exists to be glanced at.
@@ -236,18 +247,8 @@ is already known about each.
   size cap and receipt design that was deferred.
 - **Hugging Face model-card metadata**, **OpenRouter trending** (needs a stable public endpoint) and
   **Hacker News** (digest-only, never sufficient for `confirmed`), all from the competitor audit.
-- **Cross-channel repetition of one publication.** `repeatsDeliveredStory()` restricts previous
-  deliveries to the same `destination_id`, so a page discovery and the news post about it can speak
-  in both Codenames and New. Observed once, on 2026-09-12: Cognition's news at 00:08:56 (event 8672)
-  and its page at 00:13:10 (8677), Perplexity's page at 00:13:10 (8676) and its news at 00:23:59
-  (8690), delivered as three mentioned messages by deliveries 371-373. One case over 43 sent
-  messages in three days is not yet a measured rate, and this edits the path that decides whether a
-  message is withheld, where a mistake loses a signal silently. Measure how often it happens before
-  changing it. Whatever is built must match the publication by normalized source URL, keep a later
-  substantive update speaking as a continuation, base suppression on what each destination actually
-  rendered rather than on batch membership, and never let a pending or ambiguous send authorise a
-  duplicate. Simply dropping the destination condition suppresses delivery to unrelated audiences.
-- **A compact significant-change summary.** Real material exists -- Qwen3.8 27B input $0.42 to
+- **A compact significant-change summary.** Partly answered: a move of a quarter or more now
+  arrives on sight. What remains is the summary of everything smaller. Real material exists -- Qwen3.8 27B input $0.42 to
   $0.21 per million, DeepSeek V4 Flash 0731 output $0.28 to $0.08, Kimi Latest output $7.70 to
   $11.90, Mistral Small 3.2 context 131K to 256K. But hourly digests, thresholds, oscillation
   filtering and comparison against the last reader-visible baseline already exist and are not to be

@@ -258,7 +258,7 @@ test("one story becomes one cross-source digest with every evidence link", () =>
   };
   saveCollection(local, router, destinations, "2026-09-08T09:00:00.000Z");
   saveCollection(local, api, destinations, "2026-09-08T09:05:00.000Z");
-  router.records = [{ id: "gpt-5", name: "GPT-5", maker: "OpenAI", pricing: { prompt: "2" } }];
+  router.records = [{ id: "gpt-5", name: "GPT-5", maker: "OpenAI", pricing: { prompt: "1.05" } }];
   api.records = [{ id: "gpt-5", name: "GPT-5", maker: "OpenAI", context: 256000 }];
   saveCollection(local, router, destinations, "2026-09-08T10:00:00.000Z");
   saveCollection(local, api, destinations, "2026-09-08T10:05:00.000Z");
@@ -692,8 +692,10 @@ test("a price move waits for the digest while a new capability does not", () => 
     after_json: JSON.stringify(after),
     detected_at: "2026-09-08T10:00:00.000Z",
   });
-  expect(isRoutine(event({ pricing: { prompt: "1" } }, { pricing: { prompt: "2" } }))).toBe(true);
+  expect(isRoutine(event({ pricing: { prompt: "1" } }, { pricing: { prompt: "1.05" } }))).toBe(true);
   expect(isRoutine(event({ context: 100 }, { context: 200 }))).toBe(true);
+  // A price that halves is the news, not budget planning, and does not wait for the top of the hour.
+  expect(isRoutine(event({ pricing: { prompt: "1" } }, { pricing: { prompt: "0.5" } }))).toBe(false);
   // A model gaining a capability or leaving the picker is news the moment it happens.
   expect(isRoutine(event({ selectable: true }, { selectable: false }))).toBe(false);
   expect(isRoutine(event({ pricing: { prompt: "1" }, name: "A" }, { pricing: { prompt: "2" }, name: "B" }))).toBe(

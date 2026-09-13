@@ -33,14 +33,14 @@ test("signal quality reports collection outcomes, delivery modes and suppressed 
   );
   saveCollection(
     db,
-    collection("2026-09-08T00:10:00.000Z", [{ id: "a", name: "A", pricing: { prompt: "2" } }]),
+    collection("2026-09-08T00:10:00.000Z", [{ id: "a", name: "A", pricing: { prompt: "1.05" } }]),
     [destination],
     "2026-09-08T00:10:00.000Z",
   );
   saveCollection(
     db,
     collection("2026-09-08T00:15:00.000Z", [
-      { id: "a", name: "A", pricing: { prompt: "2" } },
+      { id: "a", name: "A", pricing: { prompt: "1.05" } },
       { id: "b", name: "B" },
     ]),
     [destination],
@@ -50,7 +50,7 @@ test("signal quality reports collection outcomes, delivery modes and suppressed 
   saveCollection(
     db,
     collection("2026-09-08T02:00:00.000Z", [
-      { id: "a", name: "A", pricing: { prompt: "2" }, updated: "2026-09-08T02:00:00.000Z" },
+      { id: "a", name: "A", pricing: { prompt: "1.05" }, updated: "2026-09-08T02:00:00.000Z" },
       { id: "b", name: "B" },
     ]),
     [destination],
@@ -142,7 +142,7 @@ test("signal quality attributes a shared story digest to every contributing sour
   };
   saveCollection(db, router, destinations, "2026-09-08T00:00:00.000Z");
   saveCollection(db, api, destinations, "2026-09-08T00:05:00.000Z");
-  router.records = [{ id: "gpt-5", name: "GPT-5", maker: "OpenAI", pricing: { prompt: "2" } }];
+  router.records = [{ id: "gpt-5", name: "GPT-5", maker: "OpenAI", pricing: { prompt: "1.05" } }];
   api.records = [{ id: "gpt-5", name: "GPT-5", maker: "OpenAI", context: 256000 }];
   saveCollection(db, router, destinations, "2026-09-08T01:00:00.000Z");
   saveCollection(db, api, destinations, "2026-09-08T01:05:00.000Z");
@@ -189,7 +189,7 @@ test("signal quality counts a shared digest only for subscribed signal classes",
   };
   saveCollection(db, router, destinations, "2026-09-08T09:00:00.000Z");
   saveCollection(db, leaderboard, destinations, "2026-09-08T09:05:00.000Z");
-  router.records = [{ id: "router-model", name: "Router model", pricing: { prompt: "2" } }];
+  router.records = [{ id: "router-model", name: "Router model", pricing: { prompt: "1.05" } }];
   leaderboard.records = [{ id: "leaderboard-model", name: "Leaderboard model", rank: 1, score: 2 }];
   saveCollection(db, router, destinations, "2026-09-08T10:00:00.000Z");
   saveCollection(db, leaderboard, destinations, "2026-09-08T10:05:00.000Z");

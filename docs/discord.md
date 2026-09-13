@@ -43,7 +43,7 @@ it. Every event carries one class, derived from the same evidence its card is re
 | `release` | Software shipped around the models | Mobile and desktop app versions, CLI and SDK releases, entries in a tool's changelog |
 | `article` | What a vendor chose to say | Research, policy, hiring, customer stories, engineering write-ups |
 | `evidence` | The raw trail for a reader who digs | Documentation and interface diffs, repository activity, package versions, a retirement notice with no successor |
-| `change` | A number moved | Pricing, context, ranks, availability flags, edited announcements, shifting deadlines |
+| `change` | A number moved | Pricing, context, ranks, availability flags, edited announcements |
 | `incident` | An outage the vendor did not grade severe | Everything the Platform health board already shows |
 | `reminder` | Derived operator work, not an observation | Lifecycle deadline reminders |
 
@@ -126,7 +126,8 @@ confidence for anyone digging. The title
 opens the source evidence. Stories keep one card for a related cross-source timeline, with a short
 link for each independent source.
 
-Routine changes arrive in an hourly digest. Vendor roles are mentioned only for immediate model
+Routine changes arrive in an hourly digest, except a price that moves by a quarter or more, which
+is the news rather than budget planning and is delivered on sight. Vendor roles are mentioned only for immediate model
 appearances or removals; digest messages never ping roles.
 
 ## Role mentions

@@ -1,5 +1,6 @@
 import { canonical } from "./canonical.js";
 import { incidentIsUrgent } from "./incidents.js";
+import { priceMoveRatio } from "./render/common.js";
 import type { Event, RecordData } from "./types.js";
 
 /**
@@ -92,5 +93,20 @@ export function isRoutine(event: Event): boolean {
   // Nobody reads a price at the moment it changes; they read it when working out a budget, and an
   // hourly "twelve models got cheaper" is that same information without twelve notifications.
   const budgetOnly = ["pricing", "context", "inputTokenLimit", "outputTokenLimit"];
-  return moved.length === 0 || moved.every((key) => budgetOnly.includes(key));
+  if (moved.length && !moved.every((key) => budgetOnly.includes(key))) return false;
+  // A price that halves is not budget planning, it is the news. The hourly digest exists for the
+  // fractions of a cent; a move this size is what a reader would have wanted a message about.
+  return !steepPriceMove(before, after, event.source);
+}
+
+/** The share of a price a move has to cross to be worth reading before the top of the hour. */
+const STEEP_PRICE_MOVE_RATIO = 0.25;
+
+function steepPriceMove(before: Record<string, unknown>, after: Record<string, unknown>, source: string): boolean {
+  const from = before.pricing && typeof before.pricing === "object" ? (before.pricing as Record<string, unknown>) : {};
+  const to = after.pricing && typeof after.pricing === "object" ? (after.pricing as Record<string, unknown>) : {};
+  return [...new Set([...Object.keys(from), ...Object.keys(to)])].some((key) => {
+    const ratio = priceMoveRatio(from[key], to[key], source);
+    return ratio !== null && ratio >= STEEP_PRICE_MOVE_RATIO;
+  });
 }

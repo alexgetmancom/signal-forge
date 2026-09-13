@@ -44,7 +44,8 @@ test("a retirement notice speaks only when it names the successor", () => {
   );
   expect(signalClass(named)).toBe("codename");
   expect(signalClass(unnamed)).toBe("evidence");
-  expect(signalClass({ ...named, kind: "changed" })).toBe("change");
+  // A shifted date is read by whoever runs the model being retired, which is the invited room.
+  expect(signalClass({ ...named, kind: "changed" })).toBe("evidence");
 });
 
 test("raw trails stay in the evidence class", () => {
