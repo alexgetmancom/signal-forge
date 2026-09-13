@@ -29,9 +29,15 @@ export type PollOutcome = { collected: boolean; sources: number; heldBy?: string
  * operator polls from the CLI while investigating a source; those are two processes against one
  * database file, and a source collected twice in the same second writes evidence that disagrees
  * with itself. The lease lives in the database because that is the only thing both of them share.
+ *
+ * Two minutes, renewed while the cycle runs: a live cycle holds the lock for as long as it needs,
+ * and a killed one blocks the next process for two minutes rather than for longer than it takes
+ * the sources it never reached to be reported stale.
  */
+const COLLECTION_LEASE_MS = 2 * 60_000;
+
 export async function pollSources(db: Database, config: AppConfig, force = false): Promise<PollOutcome> {
-  const outcome = await withActionLock(db, "collection", lockHolder("poller"), 15 * 60_000, () =>
+  const outcome = await withActionLock(db, "collection", lockHolder("poller"), COLLECTION_LEASE_MS, () =>
     collectDueSources(db, config, force),
   );
   if (outcome.acquired) return { collected: true, sources: outcome.result };

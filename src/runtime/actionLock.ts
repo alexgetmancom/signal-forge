@@ -7,6 +7,13 @@ import type { Database } from "bun:sqlite";
  *
  * A lease, not a mutex: a holder that is killed mid-cycle leaves its row behind, and nothing would
  * ever take the lock again. The expiry is what a crashed holder releases with.
+ *
+ * The lease is short and renewed while the work runs, rather than long enough to cover the slowest
+ * cycle. A lease long enough for that is also long enough for a crashed holder to hold every other
+ * process off past the point where sources are called stale: a fifteen-minute lease against a
+ * fifteen-minute staleness threshold turned one crash into a wave of "collector down" alerts for
+ * every source polled every five minutes. Renewal keeps a slow cycle safe without making a dead
+ * one expensive.
  */
 type ActionLease = {
   name: string;
@@ -54,11 +61,29 @@ export async function withActionLock<T>(
       heldBy: held ?? { name, holder: "unknown", acquiredAt: now, expiresAt: now },
     };
   }
+  const renewal = setInterval(() => {
+    try {
+      db.query("UPDATE action_locks SET expires_at=? WHERE name=? AND holder=?").run(
+        new Date(Date.now() + leaseMs).toISOString(),
+        name,
+        holder,
+      );
+    } catch {
+      // A renewal that cannot be written leaves the lease to expire on its own, which is the
+      // behaviour a crashed holder gets and is safe; the cycle itself is not worth failing for it.
+    }
+  }, renewalInterval(leaseMs));
   try {
     return { acquired: true, result: await run() };
   } finally {
+    clearInterval(renewal);
     db.query("DELETE FROM action_locks WHERE name=? AND holder=?").run(name, holder);
   }
+}
+
+/** Renew often enough that two missed renewals still leave the lease standing. */
+function renewalInterval(leaseMs: number): number {
+  return Math.max(1_000, Math.floor(leaseMs / 4));
 }
 
 /** Identifies the process holding a lease well enough to name it in an operator message. */
