@@ -76,8 +76,14 @@ export function splitStatements(sql: string): string[] {
     if (commented) {
       commented = character !== "\n";
     } else if (quoted) {
-      // '' inside a string is an escaped quote, not the end of one.
-      if (character === "'") quoted = sql[index + 1] === "'" ? (index++, true) : false;
+      // '' inside a string is an escaped quote, not the end of one, and both halves of it belong
+      // to the statement.
+      if (character === "'" && sql[index + 1] === "'") {
+        current += character;
+        index++;
+      } else if (character === "'") {
+        quoted = false;
+      }
     } else if (character === "'") {
       quoted = true;
     } else if (character === "-" && sql[index + 1] === "-") {

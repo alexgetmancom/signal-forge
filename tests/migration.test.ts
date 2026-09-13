@@ -126,6 +126,8 @@ test("a migration is split into statements, and a trigger body keeps its own sem
   ]);
   // A semicolon inside a string, inside a comment, and inside a trigger body is not a terminator.
   expect(splitStatements("INSERT INTO a VALUES('one;two');")).toEqual(["INSERT INTO a VALUES('one;two')"]);
+  // An escaped quote keeps both halves, and does not end the string it sits in.
+  expect(splitStatements("INSERT INTO a VALUES('it''s here;');")).toEqual(["INSERT INTO a VALUES('it''s here;')"]);
   expect(splitStatements("-- a comment; with a semicolon\nCREATE TABLE a(x TEXT);")).toHaveLength(1);
   expect(
     splitStatements(
