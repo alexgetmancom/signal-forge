@@ -37,6 +37,14 @@ test("source registry has unique IDs, valid streams, labels and consistent pacin
       enabled: true,
     });
   }
+  for (const id of ["status:openai", "status:anthropic", "status:deepseek", "status:moonshot"]) {
+    expect(definitions.find((definition) => definition.id === id)).toMatchObject({
+      authority: "first_party",
+      group: "Platform health",
+      stream: "incidents",
+      enabled: true,
+    });
+  }
   for (const id of [
     "google-ai-feed",
     "microsoft-ai-feed",
@@ -163,5 +171,7 @@ test("source labels cover generated families", () => {
   expect(sourceLabel("openai-chatgpt-release-notes")).toBe("OpenAI · ChatGPT release notes");
   expect(sourceLabel("openai-codex-changelog")).toBe("OpenAI · Codex changelog");
   expect(sourceLabel("openai-api-changelog")).toBe("OpenAI · API changelog");
+  expect(sourceLabel("status:deepseek")).toBe("DeepSeek · status");
+  expect(sourceLabel("status:moonshot")).toBe("Moonshot · status");
   expect(sourceLabel("unknown-source")).toBe("unknown-source");
 });

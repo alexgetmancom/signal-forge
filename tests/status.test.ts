@@ -423,6 +423,48 @@ test("the platform board uses the highest indicator severity", () => {
   expect((platformEmbed(db, now) as { color: number }).color).toBe(0xe74c3c);
   db.close();
 });
+
+test("the platform registry includes the readable DeepSeek and Moonshot status feeds", () => {
+  expect(PLATFORMS).toMatchObject([
+    {
+      id: "openai",
+      url: "https://status.openai.com/api/v2/summary.json",
+      page: "https://status.openai.com",
+    },
+    {
+      id: "anthropic",
+      url: "https://status.claude.com/api/v2/summary.json",
+      page: "https://status.claude.com",
+    },
+    {
+      id: "deepseek",
+      name: "DeepSeek",
+      url: "https://deepseek.statuspage.io/api/v2/summary.json",
+      page: "https://status.deepseek.com",
+    },
+    {
+      id: "moonshot",
+      name: "Moonshot",
+      url: "https://status.moonshot.cn/api/v2/summary.json",
+      page: "https://status.moonshot.cn",
+    },
+  ]);
+});
+
+test("the platform board renders DeepSeek and Moonshot observations", () => {
+  const db = openDatabase(":memory:");
+  for (const source of ["status:deepseek", "status:moonshot"])
+    storeSnapshot(
+      db,
+      source,
+      "2026-09-08T12:00:00.000Z",
+      JSON.stringify({ headline: "All Systems Operational", indicator: "none", incidents: [] }),
+    );
+  const embed = platformEmbed(db, now) as { description: string };
+  expect(embed.description).toContain("🟢 **DeepSeek** — All Systems Operational");
+  expect(embed.description).toContain("🟢 **Moonshot** — All Systems Operational");
+  db.close();
+});
 test("an incident becomes an event, and its resolution is a change rather than a deletion", () => {
   const open = {
     status: { description: "Partial System Degradation", indicator: "major" },

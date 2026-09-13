@@ -55,6 +55,22 @@ export const PLATFORMS: { id: string; name: string; url: string; page: string; i
     page: "https://status.claude.com",
     interval: 900,
   },
+  // DeepSeek's public page is custom-hosted, but its machine-readable Statuspage summary remains
+  // available on the original host. The payload links back to the official public page.
+  {
+    id: "deepseek",
+    name: "DeepSeek",
+    url: "https://deepseek.statuspage.io/api/v2/summary.json",
+    page: "https://status.deepseek.com",
+    interval: 900,
+  },
+  {
+    id: "moonshot",
+    name: "Moonshot",
+    url: "https://status.moonshot.cn/api/v2/summary.json",
+    page: "https://status.moonshot.cn",
+    interval: 900,
+  },
 ];
 
 export function parsePlatformStatus(payload: string, platform: (typeof PLATFORMS)[number]): Collection {

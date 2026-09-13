@@ -64,9 +64,9 @@ channel is fixed.
 be filtered from the reader feed or grouped into the hourly digest.
 
 **Platform health** (`platformBoardChannelId`, defaulting to the status channel) shows what
-OpenAI's and Anthropic's own status pages say, with their open incidents. Vendors that do not run
-Statuspage are absent on purpose: `status.x.ai` refuses its own API, and Google publishes a
-different document for the whole cloud.
+the OpenAI, Anthropic, DeepSeek and Moonshot status pages report, with their open incidents.
+Vendors that do not run Statuspage are absent on purpose: `status.x.ai` refuses its own API, and
+Google publishes a different document for the whole cloud.
 
 **Filtered out** (`platformBoardChannelId`, defaulting to the status channel) counts what the
 notification policy stopped in the last 24 hours, grouped by the rule that stopped it, beside the

@@ -33,6 +33,8 @@ const FIRST_PARTY_VENDOR_BY_SOURCE: Record<string, string> = {
   "anthropic-news": "Anthropic",
   "anthropic-deprecations": "Anthropic",
   "status:anthropic": "Anthropic",
+  "status:deepseek": "DeepSeek",
+  "status:moonshot": "Moonshot",
   "claude-code-changelog": "Anthropic",
   "anthropic-sdk-releases": "Anthropic",
   "claude-web": "Anthropic",

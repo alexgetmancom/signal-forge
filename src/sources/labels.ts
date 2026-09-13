@@ -33,6 +33,8 @@ const STATIC_LABELS: Record<string, string> = {
   "app:ios:deepseek": "App Store · DeepSeek",
   "status:openai": "OpenAI · status",
   "status:anthropic": "Anthropic · status",
+  "status:deepseek": "DeepSeek · status",
+  "status:moonshot": "Moonshot · status",
   "openai-deprecations": "OpenAI · deprecations",
   "anthropic-deprecations": "Anthropic · deprecations",
   "gemini-deprecations": "Gemini · deprecations",

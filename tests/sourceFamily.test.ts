@@ -23,5 +23,7 @@ test("independent confirmation collapses official surfaces from one vendor", () 
   expect(sourceIndependenceFamily("openai-codex-changelog", "news")).toBe("first-party:OpenAI");
   expect(sourceIndependenceFamily("openai-api-changelog", "news")).toBe("first-party:OpenAI");
   expect(sourceIndependenceFamily("status:openai", "incidents")).toBe("first-party:OpenAI");
+  expect(sourceIndependenceFamily("status:deepseek", "incidents")).toBe("first-party:DeepSeek");
+  expect(sourceIndependenceFamily("status:moonshot", "incidents")).toBe("first-party:Moonshot");
   expect(sourceIndependenceFamily("openrouter", "openrouter")).toBe("openrouter");
 });
