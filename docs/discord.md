@@ -121,7 +121,11 @@ Discord cards put the change type in the title, keep the source and vendor in th
 lead the body with how solid the observation is before what it means — "Seen in a reseller's
 catalogue, not announced by the maker" rather than a footer reading "Confidence: observed". The
 sentence is keyed on evidence type, which is a source contract rather than a judgement, and it never
-claims more than the source proves. The footer keeps the machine-readable source, evidence type and
+claims more than the source proves. When a different kind of source carried the same story first,
+the card opens with how long ago and which one -- "Traced 18 hours earlier · npm @openai/codex".
+Only another source family counts, so a collector seeing its own record twice never reads as a
+lead, and an hour is the floor because two sources polled minutes apart are simultaneous to a
+reader. The footer keeps the machine-readable source, evidence type and
 confidence for anyone digging. The title
 opens the source evidence. Stories keep one card for a related cross-source timeline, with a short
 link for each independent source.
