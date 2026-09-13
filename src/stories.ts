@@ -231,6 +231,16 @@ type MatchSubject = {
   titles: Set<string>;
 };
 
+/**
+ * How much work the last projection spent looking for a group to join.
+ *
+ * The fallback scan is the only part of correlation that grows with history, and its cost is
+ * invisible to every other check: a story count stays right while the scan quietly turns
+ * quadratic. Counted rather than timed, because a count is the same on a cold laptop as on a
+ * loaded one, and a budget over it fails on the change that caused it instead of on the weather.
+ */
+export const storyScanWork = { scans: 0, comparisons: 0 };
+
 /** The last group this event can join, searched newest first. Same order and same first match as
  * the scan it replaces; only the array copy and the repeated date parsing are gone. */
 function findLatestMatch(
@@ -241,9 +251,11 @@ function findLatestMatch(
   const eventTime = Date.parse(event.detected_at);
   if (!Number.isFinite(eventTime)) return undefined;
   const expiresBefore = eventTime - CORRELATION_WINDOW_MS;
+  storyScanWork.scans += 1;
   let expired = 0;
   for (let index = projection.active.length - 1; index >= 0; index -= 1) {
     const group = projection.active[index] as StoryGroup;
+    storyScanWork.comparisons += 1;
     if (!Number.isFinite(group.lastTime) || group.lastTime < expiresBefore) {
       expired += 1;
       continue;
