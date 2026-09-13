@@ -105,6 +105,20 @@ A blocked source is not a broken one. `gemini` answers everywhere except the add
 project can reach, so it shows as restricted with its cause instead of counting against the
 headline. A board that calls every silence an outage teaches people to ignore it.
 
+## Continuations
+
+A card that continues something this channel already reported is sent as a reply to the message that
+reported it, so a codename resolving into a real model carries a jump back to the sighting instead
+of repeating it. Two things count as a continuation: the same story, and the same record seen again
+-- `spicy-mayo` becoming `Gemini 4 Ultra` is a new subject and so a new story, while the arena entry
+it was observed in never changed.
+
+`delivery_events` records which message carried which event, written when a page is built rather
+than inferred afterwards from batch membership, which is wrong as soon as a batch pages into two
+messages. Only a message that was actually sent is referenced, and only the earliest one, so a
+thread grows from the first word rather than from the last. There is no backfill: a link to the
+wrong message is worse than no link.
+
 ## The weekly recap
 
 One message a week in `🚀signals`, posted after the most recent Sunday 18:00 UTC: what arrived, the

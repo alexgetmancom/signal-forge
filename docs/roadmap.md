@@ -258,12 +258,6 @@ is already known about each.
   reimplemented, a persisted daily summary needs a new `batches.kind` member and an explicit
   period-and-destination identity, and Changes carrying what its name promises is already settled by
   measurement. No second sender and no independent cron. A universal top-five ranking is not wanted.
-- **Links from an Arena continuation back to the original sighting.** Renames, maker transitions and
-  the rename-and-revert case (`spicy-mayo` to `instant-ramen` and back, so a rename is not an
-  identity reveal) already render from `render/facts.ts`; only the link to the earlier Discord
-  message is missing. `deliveries.external_id` exists but nothing maps an event to a message part,
-  so this needs a `delivery_events(delivery_id, event_id)` table populated while paginating payloads.
-  Approximate backfill from batch membership is worse than no link at all.
 - **`selectable: false -> true` in an API catalogue classifies as `change`.** Possibly worth making
   a codename instead, but production history to 2026-09-12 contained no such API transition: all six
   observed transitions were Arena events. A code improvement, not a production-proven defect.

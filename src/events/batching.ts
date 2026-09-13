@@ -63,6 +63,42 @@ function leadTimes(db: Database, storyIds: Map<number, number>, events: Event[])
   return leads;
 }
 
+/**
+ * The message this destination already used to tell the story these events belong to.
+ *
+ * The point is the payoff: a codename sighted on an arena means little until the day it resolves,
+ * and a reveal that hangs off the original sighting shows the reader the whole arc in one place.
+ * Only a message that was actually sent can be referenced, and only the earliest one, so the thread
+ * grows from the first word rather than from the last.
+ */
+function firstTelling(
+  db: Database,
+  events: Event[],
+  storyIds: Map<number, number>,
+  destinationId: string,
+): string | null {
+  const stories = [...new Set(events.map((event) => storyIds.get(event.id)).filter((id) => id !== undefined))];
+  // The same record seen again is the other continuation, and the one the arena renames travel on:
+  // `spicy-mayo` becoming `Gemini 4 Ultra` is a new subject and so a new story, while the entry it
+  // was observed in never changed.
+  const subjects = [...new Set(events.map((event) => `${event.source}\u0000${event.entity_id}`))];
+  if (stories.length > 1 || subjects.length !== 1) return null;
+  const [source, entityId] = (subjects[0] as string).split("\u0000");
+  const carried = new Set(events.map((event) => event.id));
+  const told = db
+    .query<{ external_id: string; event_id: number }, (string | number)[]>(
+      `SELECT d.external_id,de.event_id FROM delivery_events de
+       JOIN deliveries d ON d.id=de.delivery_id
+       JOIN events e ON e.id=de.event_id
+       LEFT JOIN story_events se ON se.event_id=e.id
+       WHERE d.destination_id=? AND d.status='sent' AND d.external_id IS NOT NULL
+         AND ((e.source=? AND e.entity_id=?) ${stories.length ? "OR se.story_id=?" : ""})
+       ORDER BY d.id`,
+    )
+    .all(...[destinationId, source as string, entityId as string, ...(stories.length ? [stories[0] as number] : [])]);
+  return told.find((row) => !carried.has(row.event_id))?.external_id ?? null;
+}
+
 function repeatsDeliveredStory(
   db: Database,
   event: Event,
@@ -297,14 +333,26 @@ export function prepareDeliveries(
           return [heading, compact, footer].filter(Boolean).join("\n");
         })
         .join("\n\n────────\n\n");
-      const store = (payload: string, part: number) =>
-        db
-          .query(
-            `INSERT INTO deliveries(batch_id,destination_id,destination_json,body,part,updated_at) VALUES(?,?,?,?,?,?)
+      const store = (payload: string, part: number, carried: StoryRenderEvent[] = []) => {
+        db.query(
+          `INSERT INTO deliveries(batch_id,destination_id,destination_json,body,part,updated_at) VALUES(?,?,?,?,?,?)
              ON CONFLICT(batch_id,destination_id,part) DO UPDATE SET destination_json=excluded.destination_json,body=excluded.body,updated_at=excluded.updated_at
              WHERE deliveries.status='pending' AND deliveries.attempts=0`,
+        ).run(batch.id, target.destination_id, target.destination_json, payload, part, new Date(now).toISOString());
+        // Which message carried which event, recorded where it is known exactly rather than
+        // inferred later from batch membership, which is wrong as soon as a batch pages.
+        const delivery = db
+          .query<{ id: number }, [number, string, number]>(
+            "SELECT id FROM deliveries WHERE batch_id=? AND destination_id=? AND part=?",
           )
-          .run(batch.id, target.destination_id, target.destination_json, payload, part, new Date(now).toISOString());
+          .get(batch.id, target.destination_id, part);
+        if (!delivery) return;
+        for (const event of carried)
+          db.query("INSERT OR IGNORE INTO delivery_events(delivery_id,event_id) VALUES(?,?)").run(
+            delivery.id,
+            event.id,
+          );
+      };
 
       if (destination.platform === "discord") {
         const pinged = batch.digest ? [] : speaking.filter(pingWorthy);
@@ -339,23 +387,32 @@ export function prepareDeliveries(
         // An embed and its evidence file travel together: the page an embed lands on decides
         // which message carries its attachment.
         const attachments = new Map<Record<string, unknown>, Attachment>();
+        const behind = new Map<Record<string, unknown>, StoryRenderEvent[]>();
         items.forEach((group, index) => {
           const file = group.length === 1 ? eventAttachment(group[0] as StoryRenderEvent) : null;
           const embed = embeds[index];
-          if (file && embed) attachments.set(embed, file);
+          if (!embed) return;
+          if (file) attachments.set(embed, file);
+          behind.set(embed, group);
         });
         const pages = pageEmbeds(embeds);
         pages.forEach((page, index) => {
           const content = index === 0 ? [header.trim(), mentions].filter(Boolean).join("\n") : "";
           const files = page.map((embed) => attachments.get(embed)).filter((file): file is Attachment => Boolean(file));
+          const carried = page.flatMap((embed) => behind.get(embed) ?? []);
+          // A page that continues one story hangs off the message that told it first, so the
+          // reveal of a codename carries a jump back to the sighting rather than repeating it.
+          const replyTo = index === 0 ? firstTelling(db, carried, storyIds, target.destination_id) : null;
           store(
             JSON.stringify({
               content,
               embeds: page,
               ...(files.length ? { files } : {}),
+              ...(replyTo ? { message_reference: { message_id: replyTo, fail_if_not_exists: false } } : {}),
               ...(index === 0 && roles.length ? { allowed_mentions: { parse: [], roles } } : {}),
             }),
             index,
+            carried,
           );
         });
         db.query(

@@ -1026,3 +1026,32 @@ test("a card says how long another kind of source had it first", () => {
   // The package registry spoke first, so only the catalogue card carries the lead.
   expect(bodies.match(/Traced/g)?.length).toBe(1);
 });
+
+test("the reveal of a codename hangs off the message that reported the sighting", () => {
+  const local = openDatabase(":memory:");
+  const destinations: Destination[] = [
+    { id: "dc", platform: "discord", channelId: "123", signals: ["launch", "codename", "evidence", "change"] },
+  ];
+  const arena: Collection = {
+    source: "arena",
+    stream: "arena",
+    url: "https://arena.example/leaderboard",
+    raw: [],
+    records: [{ id: "baseline", name: "Baseline" }],
+  };
+  saveCollection(local, arena, destinations, "2026-09-08T00:00:00.000Z");
+  arena.records.push({ id: "spicy-mayo", name: "spicy-mayo", selectable: false });
+  saveCollection(local, arena, destinations, "2026-09-08T01:00:00.000Z");
+  prepareDeliveries(local, Date.parse("2026-09-08T01:05:00.000Z"));
+  // The sighting has to have been sent before anything can point back at it.
+  local.query("UPDATE deliveries SET status='sent', external_id='777' WHERE external_id IS NULL").run();
+
+  arena.records[1] = { id: "spicy-mayo", name: "Gemini 4 Ultra", selectable: true, maker: "Google" };
+  saveCollection(local, arena, destinations, "2026-09-09T00:00:00.000Z");
+  prepareDeliveries(local, Date.parse("2026-09-09T00:05:00.000Z"));
+
+  const reveal = local
+    .query<{ body: string }, []>("SELECT body FROM deliveries WHERE external_id IS NULL ORDER BY id DESC")
+    .get()?.body;
+  expect(JSON.parse(String(reveal)).message_reference).toEqual({ message_id: "777", fail_if_not_exists: false });
+});
