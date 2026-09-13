@@ -3,7 +3,10 @@ services:
     build: .
     image: ${SIGNAL_FORGE_IMAGE:-signal-forge:latest}
     restart: unless-stopped
-    mem_limit: 512m
+    # Boot rebuilds every projection before the service listens, and the collection cycle runs on
+    # whatever is left. At 512m the boot footprint was 467m and the first cycle was OOM-killed
+    # roughly every fifteen minutes.
+    mem_limit: 1g
     stop_grace_period: 2m
     logging:
       driver: json-file

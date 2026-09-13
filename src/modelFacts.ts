@@ -153,7 +153,11 @@ function extractCandidates(event: EventRow, canonicalId: string, eventId: number
   return result;
 }
 
-function storyEvents(db: Database): StoryEventRow[] {
+/**
+ * Ordered by story so the caller can close one story's run of events before opening the next and
+ * never hold the whole join in memory; it read 13358 rows on the production database.
+ */
+function streamStoryEvents(db: Database): IterableIterator<StoryEventRow> {
   return db
     .query<StoryEventRow, []>(
       `SELECT s.id AS story_id,s.stable_key,s.first_seen_at,s.updated_at,
@@ -164,7 +168,7 @@ function storyEvents(db: Database): StoryEventRow[] {
        JOIN events e ON e.id=se.event_id
        ORDER BY s.id,e.detected_at,e.id`,
     )
-    .all();
+    .iterate() as IterableIterator<StoryEventRow>;
 }
 
 function currentEvent(row: CurrentRecordRow): EventRow {
@@ -258,18 +262,14 @@ function maxInstant(left: string, right: string): string {
 
 /** Rebuilds Model Facts from current records plus immutable event evidence; the caller owns the transaction. */
 export function rebuildModelFacts(db: Database): void {
-  const rows = storyEvents(db);
-  const byStory = new Map<number, StoryEventRow[]>();
-  for (const row of rows) byStory.set(row.story_id, [...(byStory.get(row.story_id) ?? []), row]);
-
   const models = new Map<string, ModelAggregate>();
   const historicalCandidates: Candidate[] = [];
-  for (const events of byStory.values()) {
+  const closeStory = (events: StoryEventRow[]): void => {
     const first = events[0];
-    if (!first) continue;
+    if (!first) return;
     let identity = emptyIdentity();
     for (const event of events) identity = mergeIdentities(identity, identityFor(event, recordFor(event)));
-    if (!identity.canonicalId) continue;
+    if (!identity.canonicalId) return;
     const canonicalId = identity.canonicalId;
     const key = normalizeIdentity(canonicalId);
     const existing = models.get(key);
@@ -282,13 +282,25 @@ export function rebuildModelFacts(db: Database): void {
       : { canonicalId, firstSeenAt: first.first_seen_at, updatedAt: first.updated_at };
     models.set(key, aggregate);
     for (const event of events) historicalCandidates.push(...extractCandidates(event, aggregate.canonicalId));
+  };
+
+  let storyId: number | null = null;
+  let run: StoryEventRow[] = [];
+  for (const row of streamStoryEvents(db)) {
+    if (row.story_id !== storyId) {
+      if (storyId !== null) closeStory(run);
+      storyId = row.story_id;
+      run = [];
+    }
+    run.push(row);
   }
+  if (storyId !== null) closeStory(run);
 
   const currentCandidates: Candidate[] = [];
   const currentFieldsByModel = new Map<string, Set<string>>();
   const currentRows = db
     .query<CurrentRecordRow, []>("SELECT source,id,body,stream,observed_at FROM records ORDER BY source,id")
-    .all();
+    .iterate() as IterableIterator<CurrentRecordRow>;
   for (const row of currentRows) {
     const event = currentEvent(row);
     const identity = identityFor(event, recordFor(event));

@@ -382,27 +382,65 @@ function linkEvent(db: Database, group: StoryGroup, event: StoryEvent): void {
   db.query("INSERT OR IGNORE INTO story_events(story_id,event_id) VALUES(?,?)").run(group.storyId, event.id);
 }
 
+const STORY_EVENT_COLUMNS =
+  "id,source,stream,entity_id,kind,before_json,after_json,detected_at,confidence,evidence_type,authority";
+
 function storyEvents(db: Database, afterId?: number): StoryEvent[] {
   return db
     .query<StoryEvent, number[] | []>(
-      `SELECT id,source,stream,entity_id,kind,before_json,after_json,detected_at,confidence,evidence_type,authority
+      `SELECT ${STORY_EVENT_COLUMNS}
        FROM events ${afterId === undefined ? "" : "WHERE id>?"} ORDER BY detected_at,id`,
     )
     .all(...(afterId === undefined ? [] : [afterId]));
 }
 
+const REBUILD_PAGE_SIZE = 1000;
+
+/**
+ * A full rebuild reads every event ever recorded and needs none of them after the row in front of
+ * it has been projected. Materialising the whole history first cost 232 MB of resident memory on
+ * the production database and was the larger half of a boot footprint that left the collection
+ * cycle too little room to run.
+ *
+ * Pages rather than one open cursor: the rebuild writes each group as it projects it, and
+ * bun:sqlite invalidates a statement being iterated when the same connection writes underneath it.
+ * The page after the last one read is addressed by its ordering key, so a page boundary cannot
+ * skip or repeat an event the way an offset would.
+ */
+function storyEventPage(db: Database, after: { detectedAt: string; id: number } | null): StoryEvent[] {
+  if (!after)
+    return db
+      .query<StoryEvent, [number]>(`SELECT ${STORY_EVENT_COLUMNS} FROM events ORDER BY detected_at,id LIMIT ?`)
+      .all(REBUILD_PAGE_SIZE);
+  return db
+    .query<StoryEvent, [string, string, number, number]>(
+      `SELECT ${STORY_EVENT_COLUMNS} FROM events
+       WHERE detected_at>? OR (detected_at=? AND id>?)
+       ORDER BY detected_at,id LIMIT ?`,
+    )
+    .all(after.detectedAt, after.detectedAt, after.id, REBUILD_PAGE_SIZE);
+}
+
 function rebuildProjection(db: Database): StoryProjection {
   const projection = emptyProjection();
-  const events = storyEvents(db);
   const existing = db.query<{ stable_key: string }, []>("SELECT stable_key FROM stories").all();
   db.exec("DELETE FROM story_events");
-  for (const event of events) {
-    const group = projectEvent(projection, event);
-    writeGroup(db, group);
-    linkEvent(db, group, event);
-    projection.lastDetectedAt = event.detected_at;
+  let lastEventId = 0;
+  let after: { detectedAt: string; id: number } | null = null;
+  for (;;) {
+    const page = storyEventPage(db, after);
+    if (!page.length) break;
+    for (const event of page) {
+      const group = projectEvent(projection, event);
+      writeGroup(db, group);
+      linkEvent(db, group, event);
+      projection.lastDetectedAt = event.detected_at;
+      if (event.id > lastEventId) lastEventId = event.id;
+      after = { detectedAt: event.detected_at, id: event.id };
+    }
+    if (page.length < REBUILD_PAGE_SIZE) break;
   }
-  projection.lastEventId = events.reduce((max, event) => Math.max(max, event.id), 0);
+  projection.lastEventId = lastEventId;
   const keys = new Set(projection.groups.map(storyKey));
   for (const row of existing)
     if (!keys.has(row.stable_key)) db.query("DELETE FROM stories WHERE stable_key=?").run(row.stable_key);
