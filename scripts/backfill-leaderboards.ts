@@ -13,7 +13,9 @@ if (!snapshot) {
   const records = leaderboardRecordsFromRaw(JSON.parse(snapshot));
   let updated = 0;
   db.transaction(() => {
-    db.query("DELETE FROM change_candidates WHERE source='arena-leaderboards'").run();
+    db.query(
+      "UPDATE records SET candidate_body=NULL WHERE source='arena-leaderboards' AND candidate_body IS NOT NULL",
+    ).run();
     for (const record of records) {
       const result = db
         .query("UPDATE records SET body=?,missing_count=0 WHERE source='arena-leaderboards' AND id=?")

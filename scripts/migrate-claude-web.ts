@@ -39,7 +39,7 @@ try {
       db.query("UPDATE records SET body=?,missing_count=0 WHERE source=? AND id=?").run(next, SOURCE, row.id);
       updated++;
     }
-    db.query("DELETE FROM change_candidates WHERE source=?").run(SOURCE);
+    db.query("UPDATE records SET candidate_body=NULL WHERE source=? AND candidate_body IS NOT NULL").run(SOURCE);
   })();
 
   console.log(`Normalized ${updated} Claude Web records`);
