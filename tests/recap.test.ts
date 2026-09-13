@@ -41,6 +41,24 @@ test("the week reads back as what arrived and what moved furthest", () => {
   expect(Math.round((context.priceMoves[0]?.percent ?? 0) * 100)).toBe(60);
 });
 
+test("early sightings are counted as subjects, not as observations", () => {
+  const db = openDatabase(":memory:");
+  const arena: Collection = {
+    source: "arena",
+    stream: "arena",
+    url: "https://arena.example",
+    raw: [],
+    records: [{ id: "baseline", name: "Baseline" }],
+  };
+  saveCollection(db, arena, [wire], "2026-09-08T00:00:00.000Z");
+  // The same entry, seen again and again all week, is one thing the scouts saw.
+  for (const [index, at] of ["2026-09-09", "2026-09-10", "2026-09-11"].entries()) {
+    arena.records[1] = { id: "spicy-mayo", name: "spicy-mayo", rank: index + 1 };
+    saveCollection(db, arena, [wire], `${at}T00:00:00.000Z`);
+  }
+  expect(weeklyRecapContext(db, "2026-09-13T18:00:00.000Z").codenameCount).toBe(1);
+});
+
 test("the recap is queued once for a period and never twice", () => {
   const db = openDatabase(":memory:");
   week(db);

@@ -88,7 +88,10 @@ export function weeklyRecapContext(db: Database, to: string): WeeklyRecapContext
     arrivals: [...new Set(arrivals)].slice(0, 8),
     arrivalCount: new Set(arrivals).size,
     priceMoves,
-    codenameCount: classified.filter(({ signal }) => signal === "codename").length,
+    // Distinct subjects, not events: the arena and the leaderboards are re-read all week, and
+    // counting every observation turns "the scouts saw ten things early" into five figures.
+    codenameCount: new Set(classified.filter(({ signal }) => signal === "codename").map(({ event }) => nameOf(event)))
+      .size,
     bestLead: null,
   });
 }
