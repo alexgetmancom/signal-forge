@@ -41,18 +41,26 @@ it. Every event carries one class, derived from the same evidence its card is re
 | `launch` | A reader can now use it, or can no longer use it | Official announcement, catalogue entry appearing or withdrawn, published release, mobile app release |
 | `codename` | Something on its way, identity often unknown | Arena sighting, entry listed but not selectable, new page on a vendor site, new leaderboard key, retirement notice naming its successor |
 | `evidence` | The raw trail for a reader who digs | Documentation and interface diffs, repository activity, package versions, a retirement notice with no successor |
-| `change` | A number moved | Pricing, context, ranks, availability flags, edited announcements, incident updates, shifting deadlines |
+| `change` | A number moved | Pricing, context, ranks, availability flags, edited announcements, shifting deadlines |
+| `incident` | An outage the vendor did not grade severe | Everything the Platform health board already shows |
 | `reminder` | Derived operator work, not an observation | Lifecycle deadline reminders |
 
 Only `launch` and `codename` carry a role mention. A message mentions the vendor roles its cards
 are about, and `allSignalsRole` beside them for readers who follow everything rather than one
 vendor. `change` reaches a reader through the hourly
-digest. `reminder` is delivered only to a destination that asks for it by name, because a deadline
-reminder is operator hygiene rather than news.
+digest. `reminder` and `incident` are delivered only to a destination that asks for them by name: a
+deadline reminder is operator hygiene rather than news, and a routine outage is already on the
+Platform health board. An outage the vendor itself calls major or critical is a `launch` instead,
+because it is the one incident a reader has to act on the moment it happens, and it travels with
+everything else that has to interrupt.
 
 ## Reader channels and status
 
-The server keeps four reader-facing channels plus Status: New, Codenames, Evidence, and Changes.
+The server keeps four reader-facing channels plus Status in one `Trackers` category: `🚀launches`
+(`launch`), `🕵codenames` (`codename`), `🔍traces` (`evidence`) and `📊price-and-ranks` (`change`),
+with `📡status` above them. Only the first two carry a role mention, and the names say which:
+`🚀launches` and `🕵codenames` are read as they arrive, `🔍traces` is where a reader digs after
+hearing a rumour, and `📊price-and-ranks` is skimmed.
 The private `Signal Problem` channel is separate and is not a reader feed.
 
 Four messages in Status are edited in place instead of being reposted, so the channel holds current

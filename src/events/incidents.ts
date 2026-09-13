@@ -56,3 +56,15 @@ export function incidentIsUrgent(event: Event): boolean {
   if (event.stream !== "incidents") return false;
   return SEVERE.has(impactOf(event)) || resolved(event);
 }
+
+/**
+ * Whether the vendor itself graded this outage severe.
+ *
+ * This is the whole reader-facing filter for incidents. The Platform health board already carries
+ * every open incident, read straight from the status page, so a feed that also repeats the minor
+ * ones says the same thing twice. What a board cannot do is interrupt: it is edited in place and
+ * notifies nobody, and a major outage is the one incident worth interrupting for.
+ */
+export function incidentIsSevere(event: Event): boolean {
+  return event.stream === "incidents" && SEVERE.has(impactOf(event));
+}

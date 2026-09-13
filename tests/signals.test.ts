@@ -60,7 +60,22 @@ test("a number that moved is a change, whatever produced it", () => {
   expect(signalClass(event({ stream: "api-models", kind: "changed", source: "openai" }))).toBe("change");
   expect(signalClass(event({ stream: "leaderboards", kind: "changed", source: "designarena:website" }))).toBe("change");
   expect(signalClass(event({ stream: "news", kind: "changed", source: "openai-news" }))).toBe("change");
-  expect(signalClass(event({ stream: "incidents", kind: "new", source: "status:openai" }))).toBe("change");
+});
+
+test("only an outage the vendor calls severe reaches a reader, and it reaches the launches", () => {
+  const incident = (impact: string) =>
+    event({
+      stream: "incidents",
+      kind: "new",
+      source: "status:openai",
+      after_json: JSON.stringify({ name: "OpenAI: Elevated errors", impact, stage: "investigating" }),
+    });
+  expect(signalClass(incident("major"))).toBe("launch");
+  expect(signalClass(incident("critical"))).toBe("launch");
+  expect(pingWorthy(incident("major"))).toBe(true);
+  // The Platform health board already shows these, and no destination subscribes to the class.
+  expect(signalClass(incident("minor"))).toBe("incident");
+  expect(signalClass(incident("none"))).toBe("incident");
 });
 
 test("only the two classes a reader subscribed for carry a role mention", () => {

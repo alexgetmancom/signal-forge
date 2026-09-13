@@ -1,4 +1,5 @@
 import { text } from "../text.js";
+import { incidentIsSevere } from "./incidents.js";
 import { recordFor } from "./record.js";
 import type { Event } from "./types.js";
 
@@ -10,7 +11,7 @@ import type { Event } from "./types.js";
  * is the weakest evidence in the system and the most interesting thing in it; a first-party
  * retirement date shift is the strongest evidence and the least interesting.
  */
-export const SIGNAL_CLASSES = ["launch", "codename", "evidence", "change", "reminder"] as const;
+export const SIGNAL_CLASSES = ["launch", "codename", "evidence", "change", "incident", "reminder"] as const;
 export type SignalClass = (typeof SIGNAL_CLASSES)[number];
 
 /**
@@ -23,7 +24,10 @@ export type SignalClass = (typeof SIGNAL_CLASSES)[number];
  * `evidence`: the raw trail for a reader who digs. Documentation and interface diffs, repository
  *   activity, package versions, a retirement notice with no successor named.
  * `change`: a number that moved. Pricing, context, ranks, availability flags, edited
- *   announcements, incident updates, shifting deadlines.
+ *   announcements, shifting deadlines.
+ * `incident`: an outage the vendor did not call severe. The Platform health board already shows
+ *   every open incident, so this class exists to keep the routine ones off the reader feed while
+ *   the board keeps counting them.
  * `reminder`: derived operator work rather than an observation, such as a deadline reminder.
  */
 export function signalClass(event: Event): SignalClass {
@@ -51,7 +55,10 @@ export function signalClass(event: Event): SignalClass {
 
   if (event.stream === "web") return "evidence";
   if (event.stream === "packages") return "evidence";
-  if (event.stream === "incidents") return "change";
+  // A major outage is the one incident that has to interrupt: it travels with the launches, which
+  // is where everything a reader must act on right now already goes. Everything else the vendors
+  // grade lower is on the board and nowhere else.
+  if (event.stream === "incidents") return incidentIsSevere(event) ? "launch" : "incident";
 
   /**
    * Limits coming back is the most direct "you can use this now" in the system: nothing was
