@@ -105,6 +105,33 @@ A blocked source is not a broken one. `gemini` answers everywhere except the add
 project can reach, so it shows as restricted with its cause instead of counting against the
 headline. A board that calls every silence an outage teaches people to ignore it.
 
+## Promotion from the invited room
+
+Everything in `🕵scouts` is early, and whether an unnamed arena entry deserves a public reader's
+attention is a judgement no rule here can make. The room makes it with reactions: `readerVotes`
+readers pressing `readerEmoji` carry a message into `🚀signals`, and one press of `ownerEmoji` by
+`ownerUserId` settles it alone.
+
+```json
+"promotion": {
+  "ownerUserId": "000000000000000000",
+  "ownerEmoji": "✅",
+  "readerEmoji": "👍",
+  "readerVotes": 3
+}
+```
+
+What travels is the message, not the event: the card was rendered when the observation was made,
+with the evidence and the standing sentence that were true then, and re-deriving it a day later
+against records that have moved would publish something nobody approved. A promotion never mentions
+a role -- the room has already decided, and the observation is still an early one.
+
+Reactions are read, never listened for. One request every five minutes lists the room's recent
+messages with their counts, and only a message that already carries the owner's emoji costs a second
+request to ask who pressed it, so somebody else pressing it is not the owner. Nothing listens on a
+port and no socket is held open. `promoted_deliveries` records what has travelled, so a vote counted
+twice cannot post twice.
+
 ## Continuations
 
 A card that continues something this channel already reported is sent as a reply to the message that

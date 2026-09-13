@@ -156,6 +156,14 @@ priority.
 
 ## Settled by measurement
 
+- **The scouts grade what a machine cannot.** Promotion by reaction is not a popularity contest
+  bolted onto the feed: source-derived confidence answers "can this be trusted", and it cannot
+  answer "is this worth a stranger's attention", which is the whole question an early sighting
+  raises. The room answers it, the owner overrides it, and the machine keeps deciding everything it
+  is actually able to decide. Reactions are polled over the REST API rather than listened for on a
+  gateway socket, which keeps the outbound-only boundary intact and costs one request per cycle.
+
+
 Kept because the reasoning cost real observation and is easy to re-litigate from intuition.
 
 - **The story correlation fallback is ordered by position on purpose, not by recency.** When an

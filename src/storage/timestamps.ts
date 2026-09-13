@@ -15,6 +15,7 @@ export const TIMESTAMP_COLUMNS: readonly (readonly [table: string, column: strin
   ["alert_attempts", "created_at"],
   ["alert_attempts", "updated_at"],
   ["batches", "ready_at"],
+  ["promoted_deliveries", "promoted_at"],
   ["code_metrics", "last_called_at"],
   ["code_metrics", "last_error_at"],
   ["credential_circuits", "opened_at"],

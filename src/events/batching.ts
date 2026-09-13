@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import type { Destination } from "../config.js";
+import { promotionContextSchema } from "../promotion.js";
 import { weeklyRecapContextSchema } from "../recap.js";
 import { sourceLabel } from "../sources/labels.js";
 import { splitMessage } from "./canonical.js";
@@ -170,7 +171,7 @@ export function prepareDeliveries(
         id: number;
         digest: number;
         source: string;
-        kind: "event" | "lifecycle_reminder" | "weekly_recap";
+        kind: "event" | "lifecycle_reminder" | "weekly_recap" | "promotion";
         context_json: string | null;
       },
       [string]
@@ -200,6 +201,40 @@ export function prepareDeliveries(
         "SELECT destination_id,destination_json FROM batch_targets WHERE batch_id=? ORDER BY rowid",
       )
       .all(batch.id);
+    if (batch.kind === "promotion") {
+      const context = promotionContextSchema.parse(JSON.parse(batch.context_json ?? "{}"));
+      const original = db
+        .query<{ body: string }, [number]>("SELECT body FROM deliveries WHERE id=?")
+        .get(context.deliveryId);
+      // The card the scouts approved, carried as it was written. Nothing is re-rendered, because a
+      // record that has moved since would publish something they never saw.
+      if (original)
+        for (const target of targets) {
+          const destination = JSON.parse(target.destination_json) as Destination;
+          if (destination.platform !== "discord") continue;
+          const payload = JSON.parse(original.body) as Record<string, unknown>;
+          const vouched =
+            context.reason === "owner"
+              ? "🔎 Vouched for by the tracker's owner, first seen by the scouts"
+              : `🔎 ${context.votes} scouts vouched for this, first seen in the invited room`;
+          db.query(
+            `INSERT INTO deliveries(batch_id,destination_id,destination_json,body,part,updated_at) VALUES(?,?,?,?,0,?)
+             ON CONFLICT(batch_id,destination_id,part) DO UPDATE SET body=excluded.body,updated_at=excluded.updated_at
+             WHERE deliveries.status='pending' AND deliveries.attempts=0`,
+          ).run(
+            batch.id,
+            target.destination_id,
+            target.destination_json,
+            // A promotion never pings: the room already decided, and a role mention would make the
+            // public channel louder than the observation deserves.
+            JSON.stringify({ ...payload, content: vouched, allowed_mentions: { parse: [] } }),
+            new Date(now).toISOString(),
+          );
+          hasSpeakingEvents = true;
+        }
+      db.query("UPDATE batches SET sealed=1 WHERE id=?").run(batch.id);
+      continue;
+    }
     if (batch.kind === "weekly_recap") {
       const context = weeklyRecapContextSchema.parse(JSON.parse(batch.context_json ?? "{}"));
       for (const target of targets) {

@@ -97,6 +97,21 @@ export const settingsSchema = z
     vendorRoles: z.record(z.string(), z.string().regex(/^\d+$/)).default({}),
     /** Channel holding the platform status board, edited in place. Defaults to the status channel. */
     platformBoardChannelId: z.string().regex(/^\d+$/).optional(),
+    /**
+     * Who may vouch for an early signal, and how many readers it takes without them.
+     *
+     * The scouts see what is unconfirmed; whether a stranger should be shown it is a judgement, and
+     * the room is what makes it. The owner's own reaction settles it alone, which is what an expert
+     * reader is for.
+     */
+    promotion: z
+      .object({
+        ownerUserId: z.string().regex(/^\d+$/),
+        ownerEmoji: z.string().min(1).default("✅"),
+        readerEmoji: z.string().min(1).default("👍"),
+        readerVotes: z.number().int().min(2).default(3),
+      })
+      .optional(),
     /** Private channel for operational alerts: collector outages, not model news. */
     alertChannelId: z.string().regex(/^\d+$/).optional(),
     github: z

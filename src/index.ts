@@ -7,6 +7,7 @@ import { rebuildLifecycleDeadlines, scheduleLifecycleReminders } from "./lifecyc
 import { configureLogger, log } from "./logger.js";
 import { rebuildModelFacts } from "./modelFacts.js";
 import { pollSources } from "./poller.js";
+import { promoteVouchedMessages } from "./promotion.js";
 import { syncPublications } from "./publications.js";
 import { scheduleWeeklyRecap } from "./recap.js";
 import { pruneCodeMetrics } from "./runtime/metrics.js";
@@ -51,6 +52,11 @@ supervisor.register(
   }),
 );
 supervisor.register(startIntervalWorker(db, "delivery", 1500, () => deliverPending(db, config)));
+supervisor.register(
+  startIntervalWorker(db, "promotion", 300_000, async () => {
+    await promoteVouchedMessages(db, config);
+  }),
+);
 supervisor.register(
   startIntervalWorker(db, "sources", 30_000, async () => {
     await pollSources(db, config);
