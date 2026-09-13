@@ -130,6 +130,9 @@ test("a retried board create reuses its Discord nonce after an unknown outcome",
   await expect(publishBoard(db, withStatus, "status", request, now)).rejects.toThrow("network failed after send");
   expect(await publishBoard(db, withStatus, "status", request, now)).toBe("created");
   expect(bodies[0]?.nonce).toBe(bodies[1]?.nonce);
+  // Discord rejects a nonce longer than 25 characters with a 400, which kept the two
+  // longest-named boards from ever being created.
+  expect(String(bodies[0]?.nonce).length).toBeLessThanOrEqual(25);
   expect(bodies[0]?.enforce_nonce).toBe(true);
   db.close();
 });

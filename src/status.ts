@@ -204,13 +204,21 @@ export function statusEmbed(health: SourceHealth[], now = Date.now()): Record<st
 
 export type BoardResult = "skipped" | "created" | "edited" | "unchanged";
 
+/**
+ * The idempotency key for posting a board, in the 25 characters Discord allows a nonce.
+ *
+ * The previous spelling wrote the board's name and, when recreating one, the id of the message it
+ * replaces -- twenty-nine characters for `suppressions` and about fifty once an id was appended, so
+ * Discord answered 400 and the two longest-named boards could never be created at all. Everything
+ * that identified the post still identifies it; it is hashed rather than spelled out.
+ */
 function boardNonce(key: string, comparable: string, previousMessageId: string | null): string {
   let hash = 2_166_136_261;
-  for (const character of `${key}\u0000${comparable}`) {
+  for (const character of `${key}\u0000${comparable}\u0000${previousMessageId ?? ""}`) {
     hash ^= character.codePointAt(0) ?? 0;
     hash = Math.imul(hash, 16_777_619) >>> 0;
   }
-  return `sf-board-${key}-${hash.toString(36)}${previousMessageId ? `-${previousMessageId}` : ""}`;
+  return `sf-board-${hash.toString(36)}`;
 }
 
 /**
