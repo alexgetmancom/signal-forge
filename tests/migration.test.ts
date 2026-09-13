@@ -109,6 +109,33 @@ test("a database already at the baseline version is left alone", () => {
   db.close();
 });
 
+test("a rebuilt table leaves nothing pointing at the name it was rebuilt from", () => {
+  // A rename is only a rename while legacy_alter_table says so. Without it, SQLite rewrites the
+  // REFERENCES clauses of child tables to the temporary name the migration is about to drop, and
+  // the schema survives the migration only to fail on the first insert. It did that on 3.53 and
+  // not on 3.51, so the version that finds it is whichever one CI happens to run.
+  const db = openDatabase(":memory:");
+  const names = new Set(
+    db
+      .query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type='table'")
+      .all()
+      .map((table) => table.name),
+  );
+  const dangling = db
+    .query<{ name: string; sql: string }, []>(
+      "SELECT name, COALESCE(sql,'') AS sql FROM sqlite_master WHERE sql LIKE '%REFERENCES%'",
+    )
+    .all()
+    .flatMap((object) =>
+      [...object.sql.matchAll(/REFERENCES\s+"?([A-Za-z_][A-Za-z0-9_]*)"?/g)]
+        .map((match) => match[1] ?? "")
+        .filter((target) => !names.has(target))
+        .map((target) => `${object.name} -> ${target}`),
+    );
+  expect(dangling).toEqual([]);
+  db.close();
+});
+
 test("a failed migration does not advance the schema version", () => {
   const db = new Database(":memory:");
   // A table the schema also creates: migration 001 fails partway, and the stamp it would have

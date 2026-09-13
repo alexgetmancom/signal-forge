@@ -13,6 +13,14 @@ function schemaVersion(db: Database): number {
  * `foreign_key_check` afterwards whether anything was actually broken - and because the pragma is
  * a no-op inside a transaction, it has to be set around the one the migration runs in.
  *
+ * `legacy_alter_table` is the other half, and it is not optional. A rename is supposed to be a
+ * rename, but since 3.25 SQLite also rewrites what points at the old name - including the
+ * REFERENCES clauses of child tables, which turns `events` into `events_old` in three of them
+ * and leaves them pointing at whatever the migration drops. Through 3.51 turning foreign keys
+ * off was enough to stop that; 3.53 rewrites regardless, so the schema survived on one SQLite
+ * and was quietly broken on the next. The pragma says the rename means only itself, on every
+ * version.
+ *
  * The statements go in one at a time rather than as one script, because a script hides exactly the
  * failure this schema can produce: see `splitStatements`.
  */
@@ -24,7 +32,7 @@ export function runMigrations(db: Database): void {
   const pending = migrations.filter((candidate) => candidate.version > version);
   if (pending.length) {
     const enforced = db.query<{ foreign_keys: number }, []>("PRAGMA foreign_keys").get()?.foreign_keys ?? 0;
-    db.exec("PRAGMA foreign_keys=OFF");
+    db.exec("PRAGMA foreign_keys=OFF; PRAGMA legacy_alter_table=ON");
     try {
       for (const migration of pending) {
         db.transaction(() => {
@@ -43,6 +51,7 @@ export function runMigrations(db: Database): void {
         version = migration.version;
       }
     } finally {
+      db.exec("PRAGMA legacy_alter_table=OFF");
       if (enforced) db.exec("PRAGMA foreign_keys=ON");
     }
   }
