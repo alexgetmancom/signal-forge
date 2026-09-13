@@ -102,6 +102,16 @@ Rehearse on a copy of the database the migration will actually run against:
 bun scripts/rehearse-migration.ts /path/to/app.db
 ```
 
+Rehearse on a copy taken with the write-ahead log folded in, or the copy is not the database:
+
+```sh
+sqlite3 /path/to/app.db 'PRAGMA wal_checkpoint(TRUNCATE);'
+```
+
+A plain file copy takes `app.db` and leaves `app.db-wal` behind, so the newest pages are missing and
+the rehearsal answers for a database that does not exist. The same applies to any archive taken by
+copying the file.
+
 It reports the schema versions, per-table row changes and — the case that matters here — how many
 stored `records.body` values the migration moved. A subscriber-facing string lives in those bodies
 and is compared byte for byte, so a body that changed without a deliberate rewrite is a "changed"
@@ -114,6 +124,16 @@ that version in one step. A migration added after the squash continues from 026.
 
 An archive taken before the squash carries a version below 25, and the baseline cannot walk it
 forward: check it out at the commit before the squash, migrate it there, and come back.
+
+Migration 026 drops `snapshots.raw_json`, and a payload collected before bodies were compressed
+lives only there. Release them first, on the stopped collector:
+
+```sh
+bun scripts/compress-snapshots.ts /path/to/app.db
+```
+
+The migration refuses to run while any payload is still only in `raw_json`, naming the script in the
+constraint it fails, so the order cannot be got wrong silently.
 
 ## Restore
 

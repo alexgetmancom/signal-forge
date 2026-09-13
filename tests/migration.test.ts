@@ -2,7 +2,12 @@ import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
 import { openDatabase } from "../src/storage/database.js";
 import { runMigrations } from "../src/storage/migrationRunner.js";
-import { CURRENT_SCHEMA_VERSION, readMigrations, validateMigrationSequence } from "../src/storage/migrations.js";
+import {
+  CURRENT_SCHEMA_VERSION,
+  readMigrations,
+  splitStatements,
+  validateMigrationSequence,
+} from "../src/storage/migrations.js";
 
 test("migration files form one journal ending at the current version", () => {
   const migrations = readMigrations();
@@ -111,5 +116,41 @@ test("a failed migration does not advance the schema version", () => {
   db.exec("CREATE TABLE sources(id TEXT PRIMARY KEY)");
   expect(() => runMigrations(db)).toThrow("table sources already exists");
   expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 0 });
+  db.close();
+});
+
+test("a migration is split into statements, and a trigger body keeps its own semicolons", () => {
+  expect(splitStatements("CREATE TABLE a(x TEXT);\nCREATE TABLE b(y TEXT);")).toEqual([
+    "CREATE TABLE a(x TEXT)",
+    "CREATE TABLE b(y TEXT)",
+  ]);
+  // A semicolon inside a string, inside a comment, and inside a trigger body is not a terminator.
+  expect(splitStatements("INSERT INTO a VALUES('one;two');")).toEqual(["INSERT INTO a VALUES('one;two')"]);
+  expect(splitStatements("-- a comment; with a semicolon\nCREATE TABLE a(x TEXT);")).toHaveLength(1);
+  expect(
+    splitStatements(
+      "CREATE TRIGGER t BEFORE INSERT ON a\nBEGIN SELECT RAISE(ABORT, 'no'); END;\nCREATE TABLE b(y TEXT);",
+    ),
+  ).toHaveLength(2);
+  // Trailing comments are text, not a statement to run.
+  expect(splitStatements("CREATE TABLE a(x TEXT);\n-- nothing after this")).toHaveLength(1);
+});
+
+test("a statement that fails a constraint mid-migration rolls the whole migration back", () => {
+  const db = new Database(":memory:");
+  db.exec("CREATE TABLE old_rows(id INTEGER PRIMARY KEY, at TEXT)");
+  db.exec("INSERT INTO old_rows VALUES(1,'not an instant')");
+  // The shape a table rebuild has: copy into the replacement, then drop the original. Handing all
+  // of it to one exec() would skip the refused copy, drop the original anyway and report success.
+  const rebuild = `CREATE TABLE new_rows(id INTEGER PRIMARY KEY, at TEXT NOT NULL CHECK(at GLOB '[0-9]*Z'));
+INSERT INTO new_rows SELECT id,at FROM old_rows;
+DROP TABLE old_rows;`;
+  expect(() =>
+    db.transaction(() => {
+      for (const statement of splitStatements(rebuild)) db.run(statement);
+    })(),
+  ).toThrow(/CHECK constraint failed/);
+  expect(db.query("SELECT count(*) AS n FROM old_rows").get()).toEqual({ n: 1 });
+  expect(db.query("SELECT name FROM sqlite_master WHERE name='new_rows'").all()).toEqual([]);
   db.close();
 });

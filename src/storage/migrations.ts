@@ -52,3 +52,56 @@ export function validateMigrationSequence(migrations: readonly Migration[]): voi
   if (latest !== CURRENT_SCHEMA_VERSION)
     throw new Error(`Migration journal version ${CURRENT_SCHEMA_VERSION} does not match files ${latest}`);
 }
+
+/**
+ * The statements of a migration, one at a time.
+ *
+ * Handing a whole script to `exec` is how a migration loses a table without saying so: a statement
+ * that fails a constraint at run time - a CHECK, a NOT NULL, a UNIQUE - is skipped rather than
+ * raised when any statement follows it, and every table rebuild here is a copy followed by a drop.
+ * The copy would be refused, the drop would take the original, and the migration would report
+ * success. Only a parse error stops a script. Run one statement at a time and every failure is a
+ * failure.
+ *
+ * Splitting respects the two places a semicolon means nothing: inside a quoted string, and after
+ * `--` on a line of its own.
+ */
+export function splitStatements(sql: string): string[] {
+  const statements: string[] = [];
+  let current = "";
+  let quoted = false;
+  let commented = false;
+  for (let index = 0; index < sql.length; index++) {
+    const character = sql[index] ?? "";
+    if (commented) {
+      commented = character !== "\n";
+    } else if (quoted) {
+      // '' inside a string is an escaped quote, not the end of one.
+      if (character === "'") quoted = sql[index + 1] === "'" ? (index++, true) : false;
+    } else if (character === "'") {
+      quoted = true;
+    } else if (character === "-" && sql[index + 1] === "-") {
+      commented = true;
+    } else if (character === ";" && !insideTriggerBody(current)) {
+      if (meaningful(current)) statements.push(current.trim());
+      current = "";
+      continue;
+    }
+    current += character;
+  }
+  if (meaningful(current)) statements.push(current.trim());
+  return statements;
+}
+
+/**
+ * A trigger body holds its own statements, so the semicolons inside it belong to the trigger and
+ * not to the journal. The body runs from `BEGIN` to the `END` that closes it, which is the one
+ * immediately before the terminating semicolon.
+ */
+function insideTriggerBody(statement: string): boolean {
+  return /\bCREATE\s+TRIGGER\b/i.test(statement) && /\bBEGIN\b/i.test(statement) && !/\bEND\s*$/i.test(statement);
+}
+
+function meaningful(statement: string): boolean {
+  return statement.split("\n").some((line) => line.trim() && !line.trim().startsWith("--"));
+}

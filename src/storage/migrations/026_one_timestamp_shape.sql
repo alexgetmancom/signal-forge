@@ -1,15 +1,15 @@
 -- One shape for every stored instant, and one place that says so.
 --
--- The shape is also exact now, where 001 allowed the fractional seconds to be missing. Two
+-- The shape is also exact now, where the baseline allowed the fractional seconds to be missing. Two
 -- spellings of one instant sort against each other the wrong way round - '...:00Z' is greater than
 -- '...:00.000Z', because 'Z' is greater than '.' - and these columns are compared as text to decide
 -- when a batch is due and when a retry may happen. `toISOString()` always writes the three digits;
 -- the constraint now says so.
 --
--- 001 enforced the ISO-8601 UTC shape with a pair of triggers per column: sixty-five of them, half the
--- schema file, all carrying the same GLOB. A CHECK constraint says the same thing in the column
--- definition and covers INSERT and UPDATE at once, so the triggers are gone and the rule is read
--- where the column is declared. The pairs had also drifted - `credential_circuits`, `action_locks`
+-- The baseline enforced the ISO-8601 UTC shape with a pair of triggers per column: sixty-five of
+-- them, half the schema file, all carrying the same GLOB. A CHECK constraint says the same thing
+-- in the column definition and covers INSERT and UPDATE at once, so the triggers are gone and the
+-- rule is read where the column is declared. The pairs had also drifted - `credential_circuits`, `action_locks`
 -- and `operator_journal` carried triggers nothing scanned, and `action_locks.expires_at` was
 -- guarded by neither.
 --
@@ -21,11 +21,10 @@
 --
 -- Also here, because each one is a duplicate the schema was carrying:
 --   * `snapshots.raw_json` - written empty and read by nothing since payloads became compressed
---     blobs in `body`. Run scripts/compress-snapshots.ts before this migration.
+--     blobs in `body`. Dropping it would take any payload that still lives only there, so the
+--     first statement below refuses the migration instead of trusting the operator to remember.
 --   * `change_candidates` - a second table keyed exactly like `records`, holding one pending body
 --     and a counter that was only ever 1. It is a column on `records` now.
---   * `deliveries.destination_json` - a verbatim copy of the `batch_targets` row the delivery was
---     built from, refreshed from it on every write. A foreign key reaches the original.
 --   * `publications.text_ru` - the archive keeps the English copy only.
 --   * `events(source, id)` - an index on the primary key with a prefix nothing queries by, while
 --     every real query filters on stream and detected_at.
@@ -35,6 +34,22 @@
 -- Tables are rebuilt by the rename-copy-drop route, which the migration runner makes safe by
 -- turning foreign key enforcement off around the transaction and asking `foreign_key_check` inside
 -- it whether anything ended up orphaned.
+
+-- Evidence first: `snapshots.raw_json` is dropped below, and a payload that was collected before
+-- bodies were compressed lives only there until scripts/compress-snapshots.ts has moved it. A
+-- released body is null with `expired_at` set and an empty `raw_json`, so it is not one of these.
+-- The constraint is named for the fix, because its name is what the failure prints.
+
+CREATE TABLE payload_release_guard (
+  payloads_still_only_in_raw_json INTEGER NOT NULL
+    CONSTRAINT run_scripts_compress_snapshots_ts_before_this_migration
+    CHECK(payloads_still_only_in_raw_json = 0)
+);
+
+INSERT INTO payload_release_guard
+SELECT COUNT(*) FROM snapshots WHERE raw_json <> '' AND body IS NULL;
+
+DROP TABLE payload_release_guard;
 
 DROP TRIGGER code_metrics_last_called_at_shape_insert;
 DROP TRIGGER code_metrics_last_called_at_shape_update;

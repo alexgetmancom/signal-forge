@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { CURRENT_SCHEMA_VERSION, readMigrations } from "./migrations.js";
+import { CURRENT_SCHEMA_VERSION, readMigrations, splitStatements } from "./migrations.js";
 
 function schemaVersion(db: Database): number {
   return db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version ?? 0;
@@ -12,6 +12,9 @@ function schemaVersion(db: Database): number {
  * at it. The documented way through is to turn enforcement off for the migration and ask
  * `foreign_key_check` afterwards whether anything was actually broken - and because the pragma is
  * a no-op inside a transaction, it has to be set around the one the migration runs in.
+ *
+ * The statements go in one at a time rather than as one script, because a script hides exactly the
+ * failure this schema can produce: see `splitStatements`.
  */
 export function runMigrations(db: Database): void {
   const migrations = readMigrations();
@@ -25,7 +28,7 @@ export function runMigrations(db: Database): void {
     try {
       for (const migration of pending) {
         db.transaction(() => {
-          db.exec(migration.sql);
+          for (const statement of splitStatements(migration.sql)) db.run(statement);
           // Inside the transaction, so a migration that orphans a row is rolled back rather than
           // reported after the fact.
           const violations = db.query<{ table: string }, []>("PRAGMA foreign_key_check").all();
