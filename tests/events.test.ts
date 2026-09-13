@@ -986,3 +986,43 @@ test("a failing source is asked less often, and a healthy one keeps its interval
   // A source never asked is always due.
   expect(due(null, 3600, 5, now)).toBe(true);
 });
+
+test("a card says how long another kind of source had it first", () => {
+  const local = openDatabase(":memory:");
+  const destinations: Destination[] = [
+    { id: "dc", platform: "discord", channelId: "123", signals: ["launch", "codename", "evidence", "change"] },
+  ];
+  const packages: Collection = {
+    source: "npm:@openai/codex",
+    stream: "packages",
+    url: "https://www.npmjs.com/package/@openai/codex",
+    raw: [],
+    records: [{ id: "latest", name: "GPT-6 Astra", maker: "OpenAI" }],
+  };
+  const catalogue: Collection = {
+    source: "openai",
+    stream: "api-models",
+    url: "https://api.openai.com/models/gpt-6-astra",
+    raw: [],
+    records: [{ id: "gpt-6-astra", name: "GPT-6 Astra", maker: "OpenAI" }],
+  };
+  // The first observation of a source is a quiet baseline, so each one starts with something else.
+  const quiet = (c: Collection, at: string) =>
+    saveCollection(local, { ...c, records: [{ id: "baseline", name: "Baseline" }] }, destinations, at);
+  quiet(packages, "2026-09-07T23:00:00.000Z");
+  quiet(catalogue, "2026-09-07T23:05:00.000Z");
+  packages.records.unshift({ id: "baseline", name: "Baseline" });
+  catalogue.records.unshift({ id: "baseline", name: "Baseline" });
+  saveCollection(local, packages, destinations, "2026-09-08T00:00:00.000Z");
+  saveCollection(local, catalogue, destinations, "2026-09-08T18:00:00.000Z");
+  prepareDeliveries(local, Date.parse("2026-09-08T19:00:00.000Z"));
+
+  const bodies = local
+    .query<{ body: string }, []>("SELECT body FROM deliveries")
+    .all()
+    .map((row) => row.body)
+    .join("\n");
+  expect(bodies).toContain("Traced 18 hours earlier");
+  // The package registry spoke first, so only the catalogue card carries the lead.
+  expect(bodies.match(/Traced/g)?.length).toBe(1);
+});

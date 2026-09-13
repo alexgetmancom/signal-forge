@@ -1,3 +1,4 @@
+import { sourceLabel } from "../../sources/labels.js";
 import { canonical } from "../canonical.js";
 import { identityFor } from "../identity.js";
 import type { Event, RecordData } from "../types.js";
@@ -57,12 +58,29 @@ function identityLine(event: Event, record: RecordData | null, title: string): s
   return `Also known as ${aliases.join(", ")}`;
 }
 
-export function eventFacts(event: Event, summary?: string): string[] {
+/**
+ * How long this story had already been visible somewhere else, and where.
+ *
+ * The whole point of watching eighty sources is that one of them speaks first, and a reader who is
+ * told "the catalogue has it" learns nothing about that. A card that says the package registry
+ * carried it seventeen hours earlier says what the service is for, in the only terms that can be
+ * checked. It is only ever set from a source in a different family, so a collector seeing its own
+ * record twice never reads as a lead.
+ */
+export type LeadTime = { hours: number; source: string };
+
+function leadLine(lead: LeadTime): string {
+  const amount = lead.hours < 48 ? `${Math.round(lead.hours)} hours` : `${Math.round(lead.hours / 24)} days`;
+  return `Traced ${amount} earlier · ${sourceLabel(lead.source)}`;
+}
+
+export function eventFacts(event: Event & { lead?: LeadTime }, summary?: string): string[] {
   const before = event.before_json ? (JSON.parse(event.before_json) as RecordData) : null;
   const after = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
   const record = after ?? before;
   const title = String(record?.name ?? event.entity_id);
   const lines: string[] = [];
+  if (event.lead) lines.push(leadLine(event.lead));
 
   if (event.stream === "web" && before && after && Array.isArray(before.strings) && Array.isArray(after.strings)) {
     const { added, removed, meaningfulAdded, meaningfulRemoved } = webStringChanges(before.strings, after.strings);

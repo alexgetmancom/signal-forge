@@ -4,9 +4,9 @@ import { vendorOf } from "../interpretation.js";
 import { recordFor } from "../record.js";
 import type { Event, RecordData } from "../types.js";
 import { utcStamp } from "./common.js";
-import { eventFacts } from "./facts.js";
+import { eventFacts, type LeadTime } from "./facts.js";
 
-export type StoryRenderEvent = Event & { url: string };
+export type StoryRenderEvent = Event & { url: string; lead?: LeadTime };
 
 const KIND_LABELS: Record<Event["kind"], string> = { new: "🆕", changed: "✏️", removed: "🗑️" };
 const KIND_COLORS: Record<Event["kind"], number> = { new: 0x2ecc71, changed: 0xf1c40f, removed: 0xe74c3c };

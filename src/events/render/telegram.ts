@@ -3,10 +3,10 @@ import { sourceLabel } from "../../sources/labels.js";
 import { evidenceLabel, evidenceTypeFor } from "../confidence.js";
 import type { Event, RecordData } from "../types.js";
 import { utcStamp } from "./common.js";
-import { eventFacts } from "./facts.js";
+import { eventFacts, type LeadTime } from "./facts.js";
 
 export function renderEvent(
-  event: Event,
+  event: Event & { lead?: LeadTime },
   url: string,
   platform: Destination["platform"] = "telegram",
   summary?: string,

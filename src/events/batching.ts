@@ -10,6 +10,7 @@ import { isOscillating, isReappearance, isScheduledPricingRotation } from "./osc
 import { type Attachment, eventAttachment } from "./render/attachment.js";
 import { pageEmbeds } from "./render/budget.js";
 import { eventEmbed } from "./render/discord.js";
+import type { LeadTime } from "./render/facts.js";
 import {
   parseLifecycleReminderContext,
   renderLifecycleReminderEmbed,
@@ -23,6 +24,41 @@ import { clearSuppression, recordSuppression, type SuppressionReason } from "./s
 import type { Event, RecordData } from "./types.js";
 
 const DUPLICATE_STORY_WINDOW_MS = 6 * 3_600_000;
+
+/**
+ * How long each of these events had already been visible through a different kind of source.
+ *
+ * Read once per batch from the story the event belongs to. Only an earlier event from another
+ * source family counts: a collector that sees its own record twice has not led anything, and an
+ * hour is the floor because two sources polled minutes apart are simultaneous in every sense a
+ * reader cares about.
+ */
+function leadTimes(db: Database, storyIds: Map<number, number>, events: Event[]): Map<number, LeadTime> {
+  const leads = new Map<number, LeadTime>();
+  const stories = [...new Set(storyIds.values())];
+  if (!stories.length) return leads;
+  const rows = db
+    .query<{ story_id: number; source: string; stream: string; detected_at: string }, number[]>(
+      `SELECT se.story_id,e.source,e.stream,e.detected_at FROM story_events se JOIN events e ON e.id=se.event_id
+       WHERE se.story_id IN (${stories.map(() => "?").join(",")})`,
+    )
+    .all(...stories);
+  for (const event of events) {
+    const storyId = storyIds.get(event.id);
+    if (storyId === undefined) continue;
+    const family = sourceFamily(event.source, event.stream);
+    const detectedAt = Date.parse(event.detected_at);
+    const earliest = rows
+      .filter((row) => row.story_id === storyId && sourceFamily(row.source, row.stream) !== family)
+      .map((row) => ({ at: Date.parse(row.detected_at), source: row.source }))
+      .filter((row) => Number.isFinite(row.at) && row.at < detectedAt)
+      .sort((one, other) => one.at - other.at)[0];
+    if (!earliest || !Number.isFinite(detectedAt)) continue;
+    const hours = (detectedAt - earliest.at) / 3_600_000;
+    if (hours >= 1) leads.set(event.id, { hours, source: earliest.source });
+  }
+  return leads;
+}
 
 function repeatsDeliveredStory(
   db: Database,
@@ -162,6 +198,7 @@ export function prepareDeliveries(
         .all(batch.id)
         .map((row) => [row.event_id, row.story_id] as const),
     );
+    const leads = leadTimes(db, storyIds, events);
     for (const target of targets) {
       const destination = JSON.parse(target.destination_json) as Destination;
       const subscribed = new Set<string>(destination.signals);
@@ -206,6 +243,8 @@ export function prepareDeliveries(
       hasSpeakingEvents = true;
       const grouped = new Map<string, StoryRenderEvent[]>();
       for (const event of speaking) {
+        const lead = leads.get(event.id);
+        if (lead) Object.assign(event, { lead });
         const key = storyIds.has(event.id) ? `story:${storyIds.get(event.id)}` : `event:${event.id}`;
         const group = grouped.get(key) ?? [];
         group.push(event);
