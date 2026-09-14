@@ -2,8 +2,8 @@
 
 Updated 2026-09-14 UTC. What is planned, what was decided and why, and nothing else. What is built
 is in the code, its tests, [README.md](../README.md) and [docs/discord.md](discord.md); this file
-stopped keeping a second copy of that on 2026-09-14. `docs/competitors/` records what the competitor
-audit already settled and is not a second backlog.
+stopped keeping a second copy of that on 2026-09-14, and so did the competitor audit that seeded the
+source list -- every one of its recommendations shipped, and what it still proposed is under Ideas.
 
 ## Current state
 
@@ -104,7 +104,7 @@ Not scheduled. Written down so they stop being re-derived from scratch.
 - **`selectable: false -> true` in an API catalogue as a codename** rather than a change. No
   production history for it: all six observed transitions to 2026-09-12 were Arena events.
 - **Hugging Face model-card metadata** and **Hacker News** (digest-only, never sufficient for
-  `confirmed`), from the competitor audit.
+  `confirmed`) -- the last two things the 2026-09-09 competitor audit proposed and this never built.
 
 ## Deferred
 
