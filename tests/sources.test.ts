@@ -3,6 +3,7 @@ import { loadConfig } from "../src/config.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import { selectMeaningfulWebStrings } from "../src/events/web.js";
 import { parseArena, parseLeaderboards } from "../src/sources/arena.js";
+import { parseSimpleBench, parseVoxelBench, parseWeirdMl } from "../src/sources/benchmarks.js";
 import { collectAnthropic, collectOpenAI, collectOpenRouter } from "../src/sources/catalogs.js";
 import { claudeAssetImports, extractStrings } from "../src/sources/claude.js";
 import { parseCursorChangelog, parseDesignArena } from "../src/sources/community.js";
@@ -25,6 +26,7 @@ import {
   parseVertexDeprecations,
   parseXaiDeprecations,
 } from "../src/sources/lifecycle.js";
+import { parseCohereChangelog } from "../src/sources/modelDocs.js";
 import { parseAnthropicNews, parseOpenAINews } from "../src/sources/news.js";
 import { collectHuggingFace, collectNpm, collectPypi, parseHuggingFace, parseNpm } from "../src/sources/registries.js";
 import {
@@ -32,6 +34,7 @@ import {
   collectOpenAIChatGPTReleaseNotes,
   parseGeminiApiChangelog,
   parseGroqChangelog,
+  parseKimiCodeChangelog,
   parseMistralReleaseNotes,
   parseOpenAIApiChangelog,
   parseOpenAIChatGPTReleaseNotes,
@@ -1005,4 +1008,132 @@ test("a rate limit carries the server's reset time to the scheduler", async () =
     expect(retryAt).toBeGreaterThanOrEqual(before + 120_000);
     expect(retryAt).toBeLessThanOrEqual(Date.now() + 122_000);
   }
+});
+
+const voxelbenchPayload = JSON.stringify({
+  leaderboard: [
+    {
+      rank: 1,
+      modelId: "a",
+      modelName: "GPT-6 Astra (Max)",
+      modelSlug: "gpt-6-astra",
+      rating: 2723,
+      gamesPlayed: 4376,
+    },
+    {
+      rank: 2,
+      modelId: "b",
+      modelName: "Claude Opus 5 (Max)",
+      modelSlug: "claude-opus-5",
+      rating: 2315,
+      gamesPlayed: 90,
+    },
+  ],
+});
+
+test("a VoxelBench reading keeps the score and drops the position", () => {
+  const collection = parseVoxelBench(voxelbenchPayload);
+  expect(collection.stream).toBe("leaderboards");
+  expect(collection.records).toHaveLength(2);
+  expect(collection.records[0]).toMatchObject({ id: "gpt-6-astra", score: 2723, votes: 4376 });
+  expect(collection.records[0]).not.toHaveProperty("rank");
+});
+
+test("an empty VoxelBench board is a failed read, never an empty board", () => {
+  expect(() => parseVoxelBench(JSON.stringify({ leaderboard: [] }))).toThrow();
+  expect(() => parseVoxelBench(JSON.stringify({ models: [] }))).toThrow();
+});
+
+const weirdmlCsv = [
+  "internal_model_name,display_name,model_slug,avg_acc,release_date",
+  "gpt-6-astra:max,gpt-6-astra (max),openai/gpt-6-astra,0.9327630718954248,2026-09-03",
+  'claude-fable-5.1:max,"claude-fable-5.1 (max)",anthropic/claude-fable-5-1,0.929,2026-09-01',
+  "",
+].join("\n");
+
+test("a WeirdML row becomes one percentage rather than eighteen task columns", () => {
+  const collection = parseWeirdMl(weirdmlCsv);
+  expect(collection.records).toHaveLength(2);
+  expect(collection.records[0]).toMatchObject({ id: "gpt-6-astra:max", score: 93.3, released: "2026-09-03" });
+  expect(collection.records[1]).toMatchObject({ name: "claude-fable-5.1 (max)", score: 92.9 });
+});
+
+test("WeirdML rejects a CSV whose accuracy column stopped being a number", () => {
+  expect(() => parseWeirdMl("internal_model_name,display_name,avg_acc\na,A,not-a-number\n")).toThrow();
+  expect(() => parseWeirdMl("internal_model_name,display_name\na,A\n")).toThrow();
+});
+
+const simplebenchScript = `const leaderboardData = [
+  { rank: "-",   model: "Highest Human Score*", score: "95.4%", organization: "",          dateAdded: null },
+  { rank: "1st", model: "Claude Fable 5.1",     score: "86.6%", organization: "Anthropic", dateAdded: "2026-09-03" },
+  { rank: "2nd", model: "GPT-6 Astra Pro",      score: "86.5%", organization: "OpenAI",    dateAdded: "2026-09-07" },
+];`;
+
+test("SimpleBench keeps the models and leaves the human reference lines out", () => {
+  const collection = parseSimpleBench(simplebenchScript);
+  expect(collection.records).toHaveLength(2);
+  expect(collection.records[0]).toMatchObject({ name: "Claude Fable 5.1", score: 86.6, maker: "Anthropic" });
+});
+
+test("SimpleBench fails when the page stops exposing its table", () => {
+  expect(() => parseSimpleBench("const other = [];")).toThrow("leaderboardData");
+});
+
+const cohereIndex = [
+  "> For clean Markdown of any page, append .md to the page URL.",
+  "",
+  "## Docs",
+  "",
+  "- [Meet Cohere Parse](https://docs.cohere.com/changelog/parse.md): Cohere's document parsing model.",
+  "- [Announcing Command A+](https://docs.cohere.com/changelog/command-a-plus-05-2026.md): The last Command A model.",
+].join("\n");
+
+test("a Cohere changelog entry is documentation evidence, not a dated release", () => {
+  const collection = parseCohereChangelog(cohereIndex);
+  expect(collection.stream).toBe("web");
+  expect(collection.records).toHaveLength(2);
+  expect(collection.records[0]).toMatchObject({
+    id: "/changelog/parse",
+    url: "https://docs.cohere.com/changelog/parse",
+    maker: "Cohere",
+  });
+  expect(collection.records[0]).not.toHaveProperty("published");
+});
+
+test("an empty Cohere index is a failed read", () => {
+  expect(() => parseCohereChangelog("## Docs\n\nnothing here\n")).toThrow();
+});
+
+const kimiChangelog = `
+<div class="wn-entry">
+  <div class="wn-meta">
+    <span class="wn-product">Kimi Code CLI</span>
+    <h2 id="v0-43-0"><span class="ignore-header">v0.43.0</span> <span class="wn-date">September 14, 2026</span></h2>
+  </div>
+  <div class="wn-content"><p>A title is generated automatically after the first turn.</p></div>
+</div>
+<div class="wn-entry">
+  <div class="wn-meta">
+    <span class="wn-product">Kimi Code CLI</span>
+    <h2 id="v0-1-0"><span class="ignore-header">v0.1.0</span> <span class="wn-date">May 2026</span></h2>
+  </div>
+  <div class="wn-content"><p>The first public build.</p></div>
+</div>
+`;
+
+test("a Kimi Code release is dated from its own entry, and a month without a day is left out", () => {
+  const collection = parseKimiCodeChangelog(kimiChangelog);
+  expect(collection.stream).toBe("news");
+  expect(collection.appendOnly).toBe(true);
+  expect(collection.records).toHaveLength(1);
+  expect(collection.records[0]).toMatchObject({
+    id: "kimi-code:2026-09-14:v0-43-0",
+    name: "Kimi Code CLI v0.43.0",
+    maker: "Moonshot",
+    published: "2026-09-14T00:00:00.000Z",
+  });
+});
+
+test("a Kimi Code page that stopped carrying dated entries is a failed read", () => {
+  expect(() => parseKimiCodeChangelog('<div class="wn-entry"></div>')).toThrow();
 });

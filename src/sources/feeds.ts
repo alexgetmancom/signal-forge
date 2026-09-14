@@ -12,6 +12,10 @@ const ANTHROPIC_SDK_RELEASES_URL = "https://platform.claude.com/docs/en/release-
 const OPENAI_CODEX_CHANGELOG_URL = "https://developers.openai.com/codex/changelog";
 const OPENAI_CODEX_CHANGELOG_FEED_URL = "https://learn.chatgpt.com/docs/changelog/rss.xml";
 const HUGGINGFACE_BLOG_FEED_URL = "https://huggingface.co/blog/feed.xml";
+const GOOGLE_AI_BLOG_FEED_URL = "https://blog.google/technology/ai/rss/";
+const GOOGLE_AI_BLOG_URL = "https://blog.google/technology/ai/";
+const DEEPMIND_BLOG_FEED_URL = "https://deepmind.google/blog/rss.xml";
+const DEEPMIND_BLOG_URL = "https://deepmind.google/blog/";
 
 const xmlTextSchema = z.union([z.string(), z.object({ "#text": z.string() }).passthrough()]);
 
@@ -215,5 +219,21 @@ export async function collectHuggingFaceBlogFeed(request: Fetch = fetch, cache?:
     source: "huggingface-blog-feed",
     maker: "Hugging Face",
     url: HUGGINGFACE_BLOG_FEED_URL,
+  });
+}
+
+export async function collectGoogleAiBlog(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
+  return parseOfficialFeed(await fetchText(GOOGLE_AI_BLOG_FEED_URL, {}, request, undefined, cache), {
+    source: "google-ai-blog",
+    maker: "Google",
+    url: GOOGLE_AI_BLOG_URL,
+  });
+}
+
+export async function collectDeepMindBlog(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
+  return parseOfficialFeed(await fetchText(DEEPMIND_BLOG_FEED_URL, {}, request, undefined, cache), {
+    source: "deepmind-blog",
+    maker: "Google",
+    url: DEEPMIND_BLOG_URL,
   });
 }

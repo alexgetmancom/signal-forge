@@ -14,6 +14,7 @@ const GEMINI_API_CHANGELOG_URL = "https://ai.google.dev/gemini-api/docs/changelo
 const XAI_RELEASE_NOTES_URL = "https://docs.x.ai/developers/release-notes";
 const MISTRAL_RELEASE_NOTES_URL = "https://docs.mistral.ai/resources/release-notes";
 const GROQ_CHANGELOG_URL = "https://console.groq.com/docs/changelog";
+const KIMI_CODE_CHANGELOG_URL = "https://www.kimi.com/code/docs/en/kimi-code/whats-new.html";
 
 const releaseRecordSchema = z
   .object({
@@ -379,4 +380,51 @@ export function parseGroqChangelog(html: string): Collection {
 
 export async function collectGroqChangelog(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
   return parseGroqChangelog(await fetchText(GROQ_CHANGELOG_URL, {}, request, undefined, cache));
+}
+
+/**
+ * Moonshot ships Kimi Code faster than it ships models, and the release notes are where a model
+ * reaches the product: a coding model is announced here under the alias the CLI calls, which is
+ * not the ID the Moonshot API answers to. This is evidence about the product, and never on its
+ * own evidence that a model ID has become callable.
+ *
+ * The page renders each release as one `wn-entry` block carrying its own product, version and
+ * date, so the entries are read as records rather than as one document that changed.
+ */
+export function parseKimiCodeChangelog(html: string): Collection {
+  const records = [
+    ...html.matchAll(/<div class="wn-entry">([\s\S]*?)<div class="wn-content">([\s\S]*?)<\/div>/g),
+  ].flatMap((match) => {
+    const meta = match[1] ?? "";
+    const version = htmlText(meta.match(/<span class="ignore-header">([\s\S]*?)<\/span>/)?.[1] ?? "");
+    const date = htmlText(meta.match(/<span class="wn-date">([\s\S]*?)<\/span>/)?.[1] ?? "");
+    const product = htmlText(meta.match(/<span class="wn-product">([\s\S]*?)<\/span>/)?.[1] ?? "Kimi Code");
+    const summary = contentBlocks(match[2] ?? "").slice(0, 1_200);
+    if (!version || !date || !summary) return [];
+    // One historical entry is dated to a month with no day. A publication date is not invented
+    // here; the entry is left out, and a wholesale format change empties the collection instead,
+    // which the collector reports as a failed read.
+    let published: string;
+    try {
+      published = publicationDate(date, "kimi-code-changelog");
+    } catch {
+      return [];
+    }
+    return [
+      {
+        id: `kimi-code:${published.slice(0, 10)}:${slug(version)}`,
+        name: `${product} ${version}`,
+        url: KIMI_CODE_CHANGELOG_URL,
+        maker: "Moonshot",
+        version,
+        published,
+        summary,
+      } satisfies RecordData,
+    ];
+  });
+  return releaseCollection("kimi-code-changelog", KIMI_CODE_CHANGELOG_URL, records);
+}
+
+export async function collectKimiCodeChangelog(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
+  return parseKimiCodeChangelog(await fetchText(KIMI_CODE_CHANGELOG_URL, {}, request, undefined, cache));
 }

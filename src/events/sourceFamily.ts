@@ -72,6 +72,10 @@ const FIRST_PARTY_VENDOR_BY_SOURCE: Record<string, string> = {
   "pages:zai": "Z.ai",
   "pages:claude-docs": "Anthropic",
   "pages:claude-support": "Anthropic",
+  "google-ai-blog": "Google",
+  "deepmind-blog": "Google",
+  "kimi-code-changelog": "Moonshot",
+  "cohere-changelog": "Cohere",
 };
 
 /** Independent confirmation must not count two official surfaces from the same vendor twice. */

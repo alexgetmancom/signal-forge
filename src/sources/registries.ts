@@ -48,6 +48,10 @@ export const HF_AUTHORS = [
   "zai-org",
   "microsoft",
   "xai-org",
+  // Meta publishes its newer models under a second organisation; meta-llama carries only Llama.
+  "meta-models",
+  "ibm-granite",
+  "tencent",
 ];
 
 export function parseHuggingFace(payload: string, author: string): Collection {

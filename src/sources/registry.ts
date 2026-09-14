@@ -8,6 +8,7 @@ import { HttpCache } from "../storage/httpCache.js";
 import { collectArtificialAnalysis } from "./analysis.js";
 import { APP_STORE_APPS, collectAppStore } from "./apps.js";
 import { collectArena, collectLeaderboards } from "./arena.js";
+import { collectSimpleBench, collectVoxelBench, collectWeirdMl } from "./benchmarks.js";
 import {
   collectAnthropic,
   collectGemini,
@@ -25,6 +26,8 @@ import { collectGithubDiscovery, collectHuggingFaceDiscovery, GITHUB_DISCOVERY_Q
 import {
   collectAnthropicSdkReleases,
   collectClaudeCodeChangelog,
+  collectDeepMindBlog,
+  collectGoogleAiBlog,
   collectHuggingFaceBlogFeed,
   collectOpenAICodexChangelog,
 } from "./feeds.js";
@@ -39,6 +42,7 @@ import {
   collectVertexDeprecations,
   collectXaiDeprecations,
 } from "./lifecycle.js";
+import { collectCohereChangelog } from "./modelDocs.js";
 import { collectModelScope } from "./modelscope.js";
 import { collectAnthropicNews, collectOpenAINews } from "./news.js";
 import { collectSitePages, WATCHED_SITES } from "./pages.js";
@@ -55,6 +59,7 @@ import {
 import {
   collectGeminiApiChangelog,
   collectGroqChangelog,
+  collectKimiCodeChangelog,
   collectMistralReleaseNotes,
   collectOpenAIApiChangelog,
   collectOpenAIChatGPTReleaseNotes,
@@ -507,6 +512,80 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
         enabled: requested(provider.id),
       }),
     ),
+    {
+      id: "google-ai-blog",
+      label: sourceLabel("google-ai-blog"),
+      authority: "first_party",
+      vendor: "Google",
+      group: "Official news",
+      stream: "news",
+      intervalSeconds: 1800,
+      collector: () => collectGoogleAiBlog(fetch, cache),
+      enabled: requested("google-ai-blog"),
+    },
+    {
+      id: "deepmind-blog",
+      label: sourceLabel("deepmind-blog"),
+      authority: "first_party",
+      vendor: "Google",
+      group: "Official news",
+      stream: "news",
+      intervalSeconds: 1800,
+      collector: () => collectDeepMindBlog(fetch, cache),
+      enabled: requested("deepmind-blog"),
+    },
+    {
+      id: "kimi-code-changelog",
+      label: sourceLabel("kimi-code-changelog"),
+      authority: "first_party",
+      vendor: "Moonshot",
+      group: "Official developer feeds",
+      stream: "news",
+      intervalSeconds: 1800,
+      collector: () => collectKimiCodeChangelog(fetch, cache),
+      enabled: requested("kimi-code-changelog"),
+    },
+    {
+      id: "cohere-changelog",
+      label: sourceLabel("cohere-changelog"),
+      authority: "first_party",
+      vendor: "Cohere",
+      group: "Web",
+      stream: "web",
+      intervalSeconds: 3600,
+      collector: () => collectCohereChangelog(fetch, cache),
+      enabled: requested("cohere-changelog"),
+    },
+    {
+      id: "voxelbench",
+      label: sourceLabel("voxelbench"),
+      authority: "third_party",
+      group: "Arena",
+      stream: "leaderboards",
+      intervalSeconds: 3600,
+      collector: () => collectVoxelBench(fetch, cache),
+      enabled: requested("voxelbench"),
+    },
+    {
+      id: "weirdml",
+      label: sourceLabel("weirdml"),
+      authority: "third_party",
+      group: "Arena",
+      stream: "leaderboards",
+      intervalSeconds: 3600,
+      collector: () => collectWeirdMl(fetch, cache),
+      enabled: requested("weirdml"),
+    },
+    {
+      id: "simplebench",
+      label: sourceLabel("simplebench"),
+      authority: "third_party",
+      group: "Arena",
+      stream: "leaderboards",
+      intervalSeconds: 3600,
+      collector: () => collectSimpleBench(fetch, cache),
+      enabled: requested("simplebench"),
+    },
     {
       id: "artificial-analysis",
       label: sourceLabel("artificial-analysis"),
