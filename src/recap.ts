@@ -95,6 +95,13 @@ function isRealArrival(event: Event, renamed: Set<number>): boolean {
   if (renamed.has(event.id)) return false;
   // Only a registry says what an artefact is; a catalogue row is a model by construction.
   if (event.stream === "weights" && isBesideTheRelease(record)) return false;
+  // A reseller's catalogue gains rows faster than the field gains models, and most of them are
+  // narrow developer tools: Inference.net's Schematron is a 3B model that turns HTML into JSON,
+  // which is a useful thing and not a week's news for anyone who is not parsing websites. Nothing
+  // else we collect has ever heard of it -- no benchmark, no arena, no maker's API -- so the only
+  // judgement available is whether the maker is one this tracker follows. Adding a maker to that
+  // table is how a new name gets in, and it is one line.
+  if (event.stream === "openrouter" && vendorOf(event, record) === "Unknown") return false;
   return !isModelVariant(name) && !isTrainingArtefact(name) && !isRepublished(event, record);
 }
 

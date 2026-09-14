@@ -251,3 +251,26 @@ test("a price that goes up and comes back down again is not a week's news", () =
   // The provider serving it changed and changed back. The week's net move is nothing.
   expect(weeklyRecapContext(db, "2026-09-13T18:00:00.000Z").priceMoves).toEqual([]);
 });
+
+test("a reseller's catalogue speaks for makers this tracker follows", () => {
+  const db = openDatabase(":memory:");
+  const catalogue: Collection = {
+    source: "openrouter",
+    stream: "openrouter",
+    url: "https://openrouter.ai",
+    raw: [],
+    records: [{ id: "openai/baseline", name: "OpenAI: Baseline" }],
+  };
+  saveCollection(db, catalogue, [wire], "2026-09-08T10:00:00.000Z");
+  catalogue.records.push(
+    { id: "sakana/fugu-max", name: "Sakana: Fugu Max" },
+    // A 3B model that turns HTML into JSON: a real model, a developer's tool, and nothing any
+    // benchmark, arena or maker's API we read has ever heard of.
+    { id: "inference-net/schematron-v2-turbo", name: "Inference.net: Schematron V2 Turbo" },
+  );
+  saveCollection(db, catalogue, [wire], "2026-09-09T10:00:00.000Z");
+
+  const context = weeklyRecapContext(db, "2026-09-13T18:00:00.000Z");
+  expect(context.arrivals).toEqual([{ vendor: "Sakana", names: ["Fugu Max"] }]);
+  expect(context.arrivalCount).toBe(1);
+});

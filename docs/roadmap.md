@@ -36,7 +36,8 @@ an integration gap, not evidence that those models are unavailable.
 - The recap reads a week back by maker, and counts as an arrival only what a maker offered: billing
   tiers, aliases, dated snapshots, numbered duplicate rows, third-party quantisations training
   checkpoints, artefacts a registry declares no pipeline for and somebody's fine-tune of a model
-  that already arrived are excluded. Price lines are the week's net move, read against the price charged
+  that already arrived are excluded, as is a row that exists only in a reseller's catalogue under a
+  maker this tracker does not follow. Price lines are the week's net move, read against the price charged
   before, skip cached-read rates, obey the rotation and dithering rules the cards already obey, and
   are withheld when a subject's rows or fields moved in both directions. They are spent only on
   models a benchmark, an arena or their own maker's API knows, and a rise soon after a row appears

@@ -185,6 +185,13 @@ is catalogue bookkeeping, and nothing in the data says which half was the week's
 went up and came back down produces nothing either, which is what a provider swap on a reseller
 looks like.
 
+A reseller's catalogue gains rows faster than the field gains models, and most of the new ones are
+narrow developer tools rather than releases -- a 3B model that turns HTML into JSON is a useful
+thing and not a week's news for anyone who is not parsing websites. Nothing else we collect has ever
+heard of those rows, so the only judgement available is whether the maker is one this tracker
+follows, and a catalogue-only arrival from an unknown maker is left out. Adding a maker to that
+table is how a new name gets in, and it is one line.
+
 Three lines a week is a small budget, so they are spent on models something other than a price list
 knows about: a benchmark ranks it, an arena serves it, or its own maker lists it in their API.
 Qwen3 14B, a small model from April 2025, moved 3.8 times on one catalogue because the cheapest
