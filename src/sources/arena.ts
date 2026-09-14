@@ -84,15 +84,36 @@ function scalarMetric(value: unknown): boolean {
   return typeof value === "number" && Number.isFinite(value);
 }
 
+/**
+ * A board position never becomes a metric, whatever the board calls it.
+ *
+ * The sweep below collects every numeric field the board did not name, which is how price and
+ * context length arrive without a parser change each time. It also carried `rankLower`,
+ * `rankUpper` and `rankStyleControl` straight back in, and those are positions: they move whenever
+ * anyone below moves, which is the reason a rank is not stored in the first place. Measured
+ * 2026-09-14 on production, 188 of 877 change events on this source were nothing but those bounds
+ * shifting. `RANKED_PLACES` and the interval-overlap test both read `rank` and `score`, so neither
+ * ever saw them.
+ */
+function rankMetric(key: string): boolean {
+  return /^rank/i.test(key);
+}
+
 function dynamicMetrics(entry: Record<string, unknown>): Record<string, number> {
   const metrics: Record<string, number> = {};
   for (const key of ["metrics", "dimensions", "scores"]) {
     const value = entry[key];
     if (!value || typeof value !== "object" || Array.isArray(value)) continue;
-    for (const [metric, score] of Object.entries(value)) if (scalarMetric(score)) metrics[metric] = score;
+    for (const [metric, score] of Object.entries(value))
+      if (scalarMetric(score) && !rankMetric(metric)) metrics[metric] = score;
   }
   for (const [key, value] of Object.entries(entry))
-    if (!LEADERBOARD_ENTRY_FIELDS.has(key) && !["metrics", "dimensions", "scores"].includes(key) && scalarMetric(value))
+    if (
+      !LEADERBOARD_ENTRY_FIELDS.has(key) &&
+      !["metrics", "dimensions", "scores"].includes(key) &&
+      !rankMetric(key) &&
+      scalarMetric(value)
+    )
       metrics[key] = value as number;
   return Object.fromEntries(Object.entries(metrics).sort(([left], [right]) => left.localeCompare(right)));
 }
@@ -121,9 +142,6 @@ function recordsFromBoards(data: LeaderboardBoard[]): Collection["records"] {
   );
 }
 
-export function leaderboardRecordsFromRaw(raw: unknown): Collection["records"] {
-  return recordsFromBoards(boards.parse(raw));
-}
 /** How far down a board a movement is still worth a message. */
 const RANKED_PLACES = 20;
 

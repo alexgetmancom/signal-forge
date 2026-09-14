@@ -99,6 +99,22 @@ test("the same bytes twice in a row are stored once", () => {
   db.close();
 });
 
+test("the two heavy payloads are released after a fortnight, the rest after ninety days", () => {
+  const db = openDatabase(":memory:");
+  const age = (days: number) => new Date(now - days * 24 * 3_600_000).toISOString();
+  // Twenty days old: past the fortnight the heavy sources get, far inside the ninety of everyone
+  // else. Together those two held 71% of every snapshot byte on production on 2026-09-14.
+  const heavy = storeSnapshot(db, "claude-web", age(20), '{"page":"heavy"}');
+  const codex = storeSnapshot(db, "npm:@openai/codex", age(20), '{"registry":"heavy"}');
+  const ordinary = storeSnapshot(db, "arena", age(20), '{"board":"small"}');
+
+  expect(expireSnapshotBodies(db, now)).toBe(2);
+  expect(readSnapshot(db, heavy.id)).toBeNull();
+  expect(readSnapshot(db, codex.id)).toBeNull();
+  expect(readSnapshot(db, ordinary.id)).toBe('{"board":"small"}');
+  db.close();
+});
+
 test("a payload past its lifetime leaves a receipt, not a hole", () => {
   const db = openDatabase(":memory:");
   const old = storeSnapshot(db, "claude-web", new Date(now - 100 * 24 * 3_600_000).toISOString(), '{"page":"old"}');

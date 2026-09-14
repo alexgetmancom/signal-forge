@@ -155,6 +155,21 @@ export type ProviderCatalogue = {
   apiUrl: string;
   url: string;
   key: keyof AppConfig;
+  /**
+   * The provider fills OpenAI's `created` with when it answered, not when the model appeared, so
+   * the field is not collected from it.
+   *
+   * Measured on production 2026-09-14. Mistral returns one identical value for all 46 models,
+   * equal to the collection time to the second; Moonshot returns one identical value for both of
+   * its models that drifts a couple of seconds an hour. Every neighbouring provider spreads
+   * genuine per-model dates across years, so this is theirs specifically and not the field being
+   * useless. Left in, it cost 8,996 change events in six days -- 92% of everything the `change`
+   * class saw -- and put the time of the last poll into `releaseDate` in Model Facts, which is a
+   * wrong fact about a real model. Nothing was ever delivered from them: `created` is a
+   * bookkeeping field in `notificationBlock`, which is the only reason this was quiet rather than
+   * visible.
+   */
+  createdIsResponseTime?: boolean;
 };
 
 export const PROVIDER_CATALOGUES: ProviderCatalogue[] = [
@@ -178,6 +193,7 @@ export const PROVIDER_CATALOGUES: ProviderCatalogue[] = [
     apiUrl: "https://api.moonshot.ai/v1/models",
     url: "https://platform.moonshot.ai/docs/pricing",
     key: "MOONSHOT_API_KEY",
+    createdIsResponseTime: true,
   },
   {
     id: "mistral",
@@ -185,6 +201,7 @@ export const PROVIDER_CATALOGUES: ProviderCatalogue[] = [
     apiUrl: "https://api.mistral.ai/v1/models",
     url: "https://docs.mistral.ai/getting-started/models/models_overview/",
     key: "MISTRAL_API_KEY",
+    createdIsResponseTime: true,
   },
   {
     id: "groq",
@@ -270,7 +287,9 @@ export async function collectProviderCatalogue(
       name: model.name ?? model.id,
       maker: provider.name,
       ...(model.owned_by ? { owner: model.owned_by } : {}),
-      ...(model.created ? { created: new Date(model.created * 1000).toISOString() } : {}),
+      ...(model.created && !provider.createdIsResponseTime
+        ? { created: new Date(model.created * 1000).toISOString() }
+        : {}),
       ...((model.context_window ?? model.max_context_length)
         ? { context: model.context_window ?? model.max_context_length }
         : {}),

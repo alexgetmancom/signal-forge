@@ -101,6 +101,34 @@ test("leaderboard preserves dynamic agent metrics as a keyed object", () => {
     metrics: { recovery: 0.7, steerability: 0.8, tool_hallucination: 0.1 },
   });
 });
+test("a board position never becomes a dynamic metric, whatever the board calls it", () => {
+  const board = {
+    arenaSlug: "text",
+    leaderboardSlug: "overall",
+    entries: [
+      {
+        modelKey: "a",
+        modelDisplayName: "A",
+        modelOrganization: "Maker",
+        rank: 1,
+        rating: 1400,
+        rankLower: 3,
+        rankUpper: 1,
+        inputPricePerMillion: 0.5,
+        metrics: { rankStyleControl: 2, tool_hallucination: 0.1 },
+      },
+    ],
+  };
+  const record = parseLeaderboards(nextPage({ leaderboards: [board] })).records[0] as {
+    rank?: number;
+    metrics?: Record<string, number>;
+  };
+  // The rank itself is kept for the leading places; its confidence bounds are positions too, and
+  // they move whenever anyone below moves. Swept into metrics they escaped every rank test there
+  // is and were 188 of 877 change events on production in a week.
+  expect(record.rank).toBe(1);
+  expect(record.metrics).toEqual({ inputPricePerMillion: 0.5, tool_hallucination: 0.1 });
+});
 test("RSS parses escaped titles and preserves article dates", () => {
   const c = parseOpenAINews(
     "<rss><channel><item><title>Codex &amp; tools</title><link>https://openai.com/index/codex</link><pubDate>Mon, 07 Sep 2026 10:00:00 GMT</pubDate></item></channel></rss>",

@@ -69,16 +69,41 @@ export function pruneSnapshots(db: Database, now = Date.now()): number {
  */
 const BODY_LIFETIME_DAYS = 90;
 
+/**
+ * Two sources carry a payload large enough that ninety days of them is most of the database, so
+ * their bytes are released after fourteen instead.
+ *
+ * Measured on production 2026-09-14: `claude-web` held 360.9 MB across 18 retained snapshots and
+ * `npm:@openai/codex` 244.8 MB across 17, which is 71% of every snapshot byte stored. Both are one
+ * enormous document re-fetched whole -- a rendered web bundle and a registry document carrying
+ * every version ever published -- and neither is a document anybody opens a fortnight later. The
+ * event keeps its own before and after state either way, so what a shorter life costs is the raw
+ * bytes behind a card nobody is still looking at.
+ */
+const HEAVY_BODY_LIFETIME_DAYS = 14;
+const HEAVY_BODY_SOURCES = ["claude-web", "npm:@openai/codex"];
+
 export function expireSnapshotBodies(db: Database, now = Date.now()): number {
-  const cutoff = new Date(now - BODY_LIFETIME_DAYS * 24 * 3_600_000).toISOString();
+  const marks = HEAVY_BODY_SOURCES.map(() => "?").join(",");
+  const cutoff = (days: number) => new Date(now - days * 24 * 3_600_000).toISOString();
   try {
     return db
-      .query<{ expired: number }, [string, string, number]>(
+      .query<{ expired: number }, (string | number)[]>(
         `UPDATE snapshots SET body=NULL, expired_at=?
-         WHERE id IN (SELECT id FROM snapshots WHERE body IS NOT NULL AND collected_at < ? LIMIT ?)
-         RETURNING 1 AS expired`,
+         WHERE id IN (
+           SELECT id FROM snapshots
+           WHERE body IS NOT NULL
+             AND collected_at < (CASE WHEN source IN (${marks}) THEN ? ELSE ? END)
+           LIMIT ?
+         ) RETURNING 1 AS expired`,
       )
-      .all(new Date(now).toISOString(), cutoff, CHUNK * MAX_CHUNKS).length;
+      .all(
+        new Date(now).toISOString(),
+        ...HEAVY_BODY_SOURCES,
+        cutoff(HEAVY_BODY_LIFETIME_DAYS),
+        cutoff(BODY_LIFETIME_DAYS),
+        CHUNK * MAX_CHUNKS,
+      ).length;
   } catch (error) {
     log("warn", "Snapshot body expiry failed", { errorType: error instanceof Error ? error.message : "unknown" });
     return 0;

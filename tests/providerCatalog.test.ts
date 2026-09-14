@@ -45,6 +45,35 @@ test("an empty catalogue is a failed read, never an empty catalogue", async () =
   ).rejects.toThrow();
 });
 
+test("a created that is only the time of the answer is not collected as a date", async () => {
+  const mistral = PROVIDER_CATALOGUES.find((provider) => provider.id === "mistral");
+  const answeredAt = Math.floor(Date.now() / 1000);
+  // What Mistral actually answers: one identical created for every model, equal to now. Stored, it
+  // was a change event per model per poll and a releaseDate of the last collection in Model Facts.
+  const collection = await collectProviderCatalogue(
+    mistral!,
+    { ...config, MISTRAL_API_KEY: "secret" },
+    async () =>
+      new Response(
+        JSON.stringify({
+          object: "list",
+          data: [
+            { id: "mistral-large-latest", object: "model", created: answeredAt, owned_by: "mistralai" },
+            { id: "codestral-latest", object: "model", created: answeredAt, owned_by: "mistralai" },
+          ],
+        }),
+      ),
+  );
+
+  expect(collection.records).toHaveLength(2);
+  for (const record of collection.records) expect(record).not.toHaveProperty("created");
+  // A provider that answers with real per-model dates keeps them.
+  expect((await collectProviderCatalogue(zai!, config, async () => new Response(payload))).records[1]).toHaveProperty(
+    "created",
+    "2026-02-10T16:00:00.000Z",
+  );
+});
+
 test("a provider with no key configured is not collected", async () => {
   const groq = PROVIDER_CATALOGUES.find((provider) => provider.id === "groq");
   expect(collectProviderCatalogue(groq!, config, async () => new Response(payload))).rejects.toThrow("GROQ_API_KEY");

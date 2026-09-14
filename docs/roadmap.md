@@ -25,7 +25,7 @@ that has since moved is not a priority.
 
 | Priority | Task | Definition of done |
 |---|---|---|
-| Next | Read the wire back in a week. | `channel_mix 7`, taken no earlier than 2026-09-21, says what the two channels carried after the routing changed: volume per class, the lead-time share, and whether the invited room ever promoted anything. Done when the numbers are written here with their date, and `change` is either returned to `🚀signals` or left in `🕵scouts` on that evidence. |
+| Next | Read the wire back in a week. | `channel_mix 7`, taken no earlier than 2026-09-21, says what the two channels carried after the routing changed: volume per class, the lead-time share, and whether the invited room ever promoted anything. Done when the numbers are written here with their date, and `change` is either returned to `🚀signals` or left in `🕵scouts` on that evidence. The window must start after 2026-09-14: until that day 8,948 of the 9,720 events in the `change` class were the Mistral and Moonshot timestamp defect below, so a reading taken over it answers about a bug rather than about the channel. |
 | Owner decision | Kimi: a key for the coding tier. | The Moonshot key answers with `kimi-k2.6` and `kimi-k2.7-code` and nothing newer, checked against production 2026-09-14, which is why the K2.8 Preview rollout of 11 September 2026 was invisible here. The coding tier is a separate host with a separate credential: `api.kimi.com/coding/v1/models` answers 401 to a key it does not accept while every neighbouring path answers 404, so the source is registered and correct ahead of the key. Set `KIMI_API_KEY` and it collects; the Kimi Code changelog already ships as its own source. |
 | Owner decision | Google catalogue. | `gemini` has never succeeded, and the reason is geography, established 2026-09-13 from the production container: `generativelanguage.googleapis.com` answers `FAILED_PRECONDITION`, `User location is not supported`. An invalid key returns `API key not valid` instead, so only a real key reveals the refusal. Google reports `RU` through all four house exits, including two that geolocate to Germany. Choose: Vertex AI with a billed service account, an exit Google reads as outside Russia, or accept OpenRouter as the Google source. |
 | Owner decision | Vercel AI Gateway. | Has never succeeded. Decide whether the incomplete upstream response is worth another parser or the source should be removed. |
@@ -55,6 +55,21 @@ Kept because the reasoning cost real observation and is easy to re-litigate from
   arena sightings arriving with the same weight. Lumina keeps them apart for the same reason.
   Competitors split by source instead (`api-models`, `arena`, `subpages`); with thirteen streams
   that is a dozen channels, and it defeats the cross-source story grouping they do not have.
+- **A `created` that equals the time of the answer is not collected.** Mistral fills OpenAI's
+  `created` with when it answered -- one identical value for all 46 models, equal to the collection
+  time to the second -- and Moonshot returns one shared value that drifts a couple of seconds an
+  hour. Measured on production 2026-09-14: those two produced 8,996 change events in six days,
+  100% of them `created`-only, while every other provider catalogue produced none at all and
+  spreads real per-model dates across years. It also wrote the time of the last poll into
+  `releaseDate` in Model Facts, which is a wrong fact about a real model. The field is declared per
+  provider, not sniffed: a timestamp near collection time is exactly what a model released minutes
+  ago looks like, so a threshold would throw away the launch it exists to catch.
+- **Rank confidence bounds are positions, not metrics.** `dynamicMetrics()` sweeps every numeric
+  field a board did not name, which is how price and context length arrive without a parser change;
+  it also carried `rankLower`, `rankUpper` and `rankStyleControl` back in behind the decision below.
+  188 of 877 change events on `arena-leaderboards` in the week to 2026-09-14 were nothing but those
+  bounds shifting, and neither `RANKED_PLACES` nor the interval-overlap test saw them, because both
+  read `rank` and `score`.
 - **A leaderboard position is not stored, only the score.** A board reorders whenever anyone below
   moves, so a stored rank emits a change for every model each time one of them is measured. The
   score is the reading and the rank follows from it.
@@ -106,8 +121,6 @@ Not scheduled. Written down so they stop being re-derived from scratch.
 
 - **Incident cards edited in place across stages**, the way the status boards already edit one
   message rather than growing a log.
-- **Shorter snapshot lifetime for the two heavy sources.** `claude-web` and `npm:@openai/codex`
-  dominate snapshot bytes: fourteen days for those two, ninety for the rest.
 - **A daily summary of the changes too small to speak.** The parts exist -- digests, thresholds,
   oscillation filtering, comparison against the last reader-visible baseline -- and must not be
   reimplemented; what is missing is a `batches.kind` member with a period-and-destination identity.
