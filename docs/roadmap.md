@@ -258,6 +258,14 @@ is already known about each.
 - **A weekly recap in the public channel.** Done. One message per week, its own `batches.kind`,
   identity is the period it covers. What is not there yet: the lead the scouts had on each arrival,
   which needs the resolution links below.
+- **A human verdict from the invited room.** A stealth model on an arena cannot be called by API,
+  so no benchmark of ours can reach it -- but the scouts can, by hand. A codename card carrying a
+  fixed prompt kit chosen from the arena's own modality flags (`output.image` against `output.web`
+  against text, already in the record), and a reaction rubric the promotion worker tallies, turns
+  the room into the evaluation. The verdict then travels with the reveal, which already links back
+  to the sighting, and gives two measurements nobody else has: which source produces signals people
+  confirm, and which scout is right most often. Not to be confused with `confidence`, which is
+  source-derived and true from the first second.
 - **A compact significant-change summary.** Partly answered: a move of a quarter or more now
   arrives on sight. What remains is the summary of everything smaller. Real material exists -- Qwen3.8 27B input $0.42 to
   $0.21 per million, DeepSeek V4 Flash 0731 output $0.28 to $0.08, Kimi Latest output $7.70 to

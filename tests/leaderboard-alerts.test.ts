@@ -9,7 +9,7 @@ const destination: Destination = {
   id: "discord",
   platform: "discord",
   channelId: "123",
-  signals: ["launch", "codename", "evidence", "change"],
+  signals: ["launch", "codename", "evidence", "rank", "change"],
 };
 
 function collection(records: Collection["records"]): Collection {

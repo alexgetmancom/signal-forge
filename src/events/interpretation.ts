@@ -3,52 +3,9 @@ import { incidentIsUrgent } from "./incidents.js";
 import { priceMoveRatio } from "./render/common.js";
 import type { Event, RecordData } from "./types.js";
 
-/**
- * The first pattern that matches wins, so a first-party maker is listed before any cloud that
- * merely resells it: an Anthropic model on Bedrock is Anthropic's news, not Amazon's.
- *
- * Patterns that are short or double as ordinary words are anchored on word boundaries. `xai`
- * without them claims SpaceXAI, and a maker recorded as exactly "Meta" went to Unknown for a week
- * because the pattern demanded a trailing slash.
- */
-const VENDORS: [RegExp, string][] = [
-  [/openai|gpt|codex|chatgpt|sora/i, "OpenAI"],
-  [/anthropic|claude/i, "Anthropic"],
-  [/google|gemini|deepmind|lyria|imagen|veo/i, "Google"],
-  [/\bx-ai\b|\bxai\b|grok/i, "xAI"],
-  [/deepseek/i, "DeepSeek"],
-  [/qwen|alibaba/i, "Qwen"],
-  [/meta-llama|llama|\bmeta\b/i, "Meta"],
-  [/mistral/i, "Mistral"],
-  [/groq/i, "Groq"],
-  [/moonshot|kimi/i, "Moonshot"],
-  [/minimax/i, "MiniMax"],
-  [/z-ai|zhipu|glm/i, "Z.ai"],
-  [/cohere/i, "Cohere"],
-  [/perplexity/i, "Perplexity"],
-  [/tencent|hunyuan/i, "Tencent"],
-  [/bytedance|doubao/i, "ByteDance"],
-  [/xiaomi|\bmimo\b/i, "Xiaomi"],
-  [/baidu|ernie/i, "Baidu"],
-  [/upstage|\bsolar\b/i, "Upstage"],
-  [/black[\s-]?forest|\bflux\b/i, "Black Forest Labs"],
-  [/\brunway\b/i, "Runway"],
-  [/\bkling\b/i, "Kling"],
-  [/recraft/i, "Recraft"],
-  [/\bluma\b/i, "Luma"],
-  [/\breve\b/i, "Reve"],
-  [/nvidia|nemotron/i, "NVIDIA"],
-  [/microsoft|azure|\bphi-\d/i, "Microsoft"],
-  [/amazon|\baws\b|bedrock/i, "Amazon"],
-];
+export { vendorOf } from "./vendors.js";
 
-/** The vendor an event is about, for role pings and presentation labels. */
-export function vendorOf(event: Event, record: RecordData | null): string {
-  const haystack = [record?.maker, record?.provider, record?.owner, event.entity_id, event.source]
-    .filter((value) => typeof value === "string")
-    .join(" ");
-  return VENDORS.find(([pattern]) => pattern.test(haystack))?.[1] ?? "Unknown";
-}
+import { isModelVariant } from "./variants.js";
 
 export function isRoutine(event: Event): boolean {
   if (event.source === "claude-web") return true;
@@ -103,6 +60,9 @@ export function isRoutine(event: Event): boolean {
 const STEEP_PRICE_MOVE_RATIO = 0.25;
 
 function steepPriceMove(before: Record<string, unknown>, after: Record<string, unknown>, source: string): boolean {
+  // A batch tier costing half of the standard one is not a price cut, and a catalogue rewriting a
+  // row of tiers at once sent six interruptions in a night saying so.
+  if (isModelVariant(String(after.name ?? before.name ?? ""))) return false;
   const from = before.pricing && typeof before.pricing === "object" ? (before.pricing as Record<string, unknown>) : {};
   const to = after.pricing && typeof after.pricing === "object" ? (after.pricing as Record<string, unknown>) : {};
   return [...new Set([...Object.keys(from), ...Object.keys(to)])].some((key) => {

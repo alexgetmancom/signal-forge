@@ -43,7 +43,8 @@ it. Every event carries one class, derived from the same evidence its card is re
 | `release` | Software shipped around the models | Mobile and desktop app versions, CLI and SDK releases, entries in a tool's changelog |
 | `article` | What a vendor chose to say | Research, policy, hiring, customer stories, engineering write-ups |
 | `evidence` | The raw trail for a reader who digs | Documentation and interface diffs, repository activity, package versions, a retirement notice with no successor |
-| `change` | A number moved | Pricing, context, ranks, availability flags, edited announcements |
+| `rank` | A place on a scoreboard moved | Leaderboard positions and scores |
+| `change` | A number moved | Pricing, context, availability flags, edited announcements |
 | `incident` | An outage the vendor did not grade severe | Everything the Platform health board already shows |
 | `reminder` | Derived operator work, not an observation | Lifecycle deadline reminders |
 
@@ -132,6 +133,17 @@ request to ask who pressed it, so somebody else pressing it is not the owner. No
 port and no socket is held open. `promoted_deliveries` records what has travelled, so a vote counted
 twice cannot post twice.
 
+## Tiers, aliases and republished weights
+
+A catalogue lists one model many times: a batch tier, a free tier, a `latest` alias that follows the
+newest build, and a dated snapshot of the build it followed yesterday. Each arrives as its own
+record with its own price, and counted as launches they turned a week with nine models in it into a
+week with thirty-seven. `variants.ts` reads what the catalogue itself called the entry and sets
+those aside, folds the same model seen by three collectors into one, and leaves a republished
+quantisation -- `nvidia/Qwen3.8-27B-NVFP4` is Alibaba's model, not NVIDIA's launch -- out of the
+count. A name that says nothing about its maker is left alone rather than guessed at, because a
+wrong call there deletes a real launch from the week.
+
 ## Continuations
 
 A card that continues something this channel already reported is sent as a reply to the message that
@@ -185,8 +197,10 @@ confidence for anyone digging. The title
 opens the source evidence. Stories keep one card for a related cross-source timeline, with a short
 link for each independent source.
 
-Routine changes arrive in an hourly digest, except a price that moves by a quarter or more, which
-is the news rather than budget planning and is delivered on sight. Vendor roles are mentioned only for immediate model
+Routine changes arrive in an hourly digest, capped at five stories a message with the rest counted
+in the header: ten cards is what Discord allows in one message, not what a person reads. A price
+that moves by a quarter or more is delivered on sight instead -- unless the row is a tier rather
+than a model, because a batch tier costing half the standard one is not a price cut. Vendor roles are mentioned only for immediate model
 appearances or removals; digest messages never ping roles.
 
 ## Role mentions

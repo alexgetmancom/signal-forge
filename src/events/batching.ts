@@ -28,6 +28,8 @@ import { clearSuppression, recordSuppression, type SuppressionReason } from "./s
 import type { Event, RecordData } from "./types.js";
 
 const DUPLICATE_STORY_WINDOW_MS = 6 * 3_600_000;
+/** How many stories an hourly digest shows before it stops being read at all. */
+const DIGEST_STORIES = 5;
 
 /**
  * How long each of these events had already been visible through a different kind of source.
@@ -348,10 +350,14 @@ export function prepareDeliveries(
         group.push(event);
         grouped.set(key, group);
       }
-      const items = [...grouped.values()];
+      // Ten embeds is what Discord allows in a message, not what a person reads in one. A digest
+      // that arrives as a wall is skipped whole, which loses the two cards in it that mattered.
+      const all = [...grouped.values()];
+      const items = batch.digest ? all.slice(0, DIGEST_STORIES) : all;
+      const withheld = all.length - items.length;
       const source = sourceLabel(batch.source);
       const header = batch.digest
-        ? `🗞 Hourly digest · ${items.length} ${items.length === 1 ? "story" : "stories"}\n\n`
+        ? `🗞 Hourly digest · ${all.length} ${all.length === 1 ? "story" : "stories"}${withheld ? ` · showing ${items.length}` : ""}\n\n`
         : speaking.length > 1
           ? `📡 ${source} · ${speaking.length} updates\n\n`
           : "";

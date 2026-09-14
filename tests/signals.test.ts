@@ -57,7 +57,8 @@ test("raw trails stay in the evidence class", () => {
 test("a number that moved is a change, whatever produced it", () => {
   expect(signalClass(event({ stream: "openrouter", kind: "changed" }))).toBe("change");
   expect(signalClass(event({ stream: "api-models", kind: "changed", source: "openai" }))).toBe("change");
-  expect(signalClass(event({ stream: "leaderboards", kind: "changed", source: "designarena:website" }))).toBe("change");
+  // A scoreboard moving is its own class: the model it ranks did not change.
+  expect(signalClass(event({ stream: "leaderboards", kind: "changed", source: "designarena:website" }))).toBe("rank");
   expect(signalClass(event({ stream: "news", kind: "changed", source: "groq-changelog" }))).toBe("change");
 });
 

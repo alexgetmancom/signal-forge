@@ -4,6 +4,8 @@ import type { AppConfig, Destination } from "./config.js";
 import { priceMoveRatio } from "./events/render/common.js";
 import { signalClass } from "./events/signals.js";
 import type { Event, RecordData } from "./events/types.js";
+import { arrivalWeight, displayName, isModelVariant, isRepublished, modelSubject } from "./events/variants.js";
+import { vendorOfName } from "./events/vendors.js";
 
 /**
  * A week, summarised once, in the channel that otherwise only says what is happening now.
@@ -19,6 +21,8 @@ import type { Event, RecordData } from "./events/types.js";
  */
 const RECAP_SOURCE = "weekly-recap";
 const WEEK_MS = 7 * 24 * 3_600_000;
+/** Where a thing shows up before anyone announces it. */
+const EARLY_STREAMS = new Set(["arena", "pages"]);
 
 export const weeklyRecapContextSchema = z.object({
   from: z.string(),
@@ -44,10 +48,25 @@ export function lastRecapPeriod(now: number): string {
   return end.toISOString();
 }
 
-function nameOf(event: Event): string {
+function recordOf(event: Event): RecordData | null {
   const body = event.after_json ?? event.before_json;
-  const record = body ? (JSON.parse(body) as RecordData) : null;
-  return String(record?.name ?? event.entity_id);
+  return body ? (JSON.parse(body) as RecordData) : null;
+}
+
+function nameOf(event: Event): string {
+  return String(recordOf(event)?.name ?? event.entity_id);
+}
+
+/**
+ * Is this arrival a model, or another way of listing one?
+ *
+ * A batch tier, a free tier, a `latest` alias, a dated snapshot and somebody else's quantisation
+ * are all real records and none of them is a release. Counting them is how the first recap reported
+ * thirty-seven models in a week that had nine, and led with a batch tier of a model from July.
+ */
+function isRealArrival(event: Event): boolean {
+  const record = recordOf(event);
+  return !isModelVariant(String(record?.name ?? event.entity_id)) && !isRepublished(event, record);
 }
 
 function steepestMove(event: Event): { percent: number; cheaper: boolean } | null {
@@ -71,11 +90,25 @@ export function weeklyRecapContext(db: Database, to: string): WeeklyRecapContext
     .query<Event, [string, string]>("SELECT * FROM events WHERE detected_at>=? AND detected_at<? ORDER BY id")
     .all(from, to);
   const classified = events.map((event) => ({ event, signal: signalClass(event) }));
-  const arrivals = classified
-    .filter(({ event, signal }) => signal === "launch" && event.kind === "new")
-    .map(({ event }) => nameOf(event));
+  // One model however many collectors saw it, and the maker's own word ahead of a reseller's.
+  const bySubject = new Map<string, { name: string; weight: number }>();
+  for (const { event, signal } of classified) {
+    if (signal !== "launch" || event.kind !== "new" || !isRealArrival(event)) continue;
+    const weight = arrivalWeight(event);
+    const held = bySubject.get(modelSubject(nameOf(event)));
+    if (!held || weight > held.weight) bySubject.set(modelSubject(nameOf(event)), { name: nameOf(event), weight });
+  }
+  // Weight first, then a maker a reader has heard of: a research artefact published as weights
+  // outranks a catalogue row on paper and is not what the week was about.
+  const arrivals = [...bySubject.values()]
+    .sort(
+      (one, other) =>
+        other.weight - one.weight ||
+        Number(vendorOfName(other.name) !== "Unknown") - Number(vendorOfName(one.name) !== "Unknown"),
+    )
+    .map((one) => displayName(one.name));
   const priceMoves = classified
-    .filter(({ signal }) => signal === "change")
+    .filter(({ event, signal }) => signal === "change" && !isModelVariant(nameOf(event)))
     .flatMap(({ event }) => {
       const move = steepestMove(event);
       return move ? [{ name: nameOf(event), percent: move.percent, cheaper: move.cheaper }] : [];
@@ -85,13 +118,21 @@ export function weeklyRecapContext(db: Database, to: string): WeeklyRecapContext
   return weeklyRecapContextSchema.parse({
     from,
     to,
-    arrivals: [...new Set(arrivals)].slice(0, 8),
-    arrivalCount: new Set(arrivals).size,
+    arrivals: arrivals.slice(0, 8),
+    arrivalCount: arrivals.length,
     priceMoves,
     // Distinct subjects, not events: the arena and the leaderboards are re-read all week, and
     // counting every observation turns "the scouts saw ten things early" into five figures.
-    codenameCount: new Set(classified.filter(({ signal }) => signal === "codename").map(({ event }) => nameOf(event)))
-      .size,
+    // What the scouts actually saw early: something unannounced showing up where it should not be
+    // yet. A model taking a place on one more scoreboard is a `codename` by class and is not that.
+    codenameCount: new Set(
+      classified
+        .filter(
+          ({ event, signal }) =>
+            signal === "codename" && EARLY_STREAMS.has(event.stream) && !event.source.startsWith("discovery:"),
+        )
+        .map(({ event }) => modelSubject(nameOf(event))),
+    ).size,
     bestLead: null,
   });
 }

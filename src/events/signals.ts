@@ -17,6 +17,7 @@ export const SIGNAL_CLASSES = [
   "release",
   "article",
   "evidence",
+  "rank",
   "change",
   "incident",
   "reminder",
@@ -38,8 +39,9 @@ export type SignalClass = (typeof SIGNAL_CLASSES)[number];
  *   post is commentary on an event rather than the event.
  * `evidence`: the raw trail for a reader who digs. Documentation and interface diffs, repository
  *   activity, package versions, a retirement notice with no successor named.
- * `change`: a number that moved. Pricing, context, ranks, availability flags, edited
- *   announcements, shifting deadlines.
+ * `change`: a number that moved. Pricing, context, availability flags, edited announcements,
+ *   shifting deadlines.
+ * `rank`: a place on a scoreboard moved. The model did not change and nobody has to act on it.
  * `incident`: an outage the vendor did not call severe. The Platform health board already shows
  *   every open incident, so this class exists to keep the routine ones off the reader feed while
  *   the board keeps counting them.
@@ -55,7 +57,12 @@ export function signalClass(event: Event): SignalClass {
   if (event.stream === "arena") return "codename";
   if (event.source.startsWith("discovery:")) return "codename";
 
-  if (event.stream === "leaderboards") return event.kind === "new" ? "codename" : "change";
+  /**
+   * A place on a board moving is not a number a reader budgets with. Ten of them arrive in one
+   * digest message and read as a wall, and the model they are about did not change: `change` is for
+   * what a vendor did, `rank` for what a scoreboard did.
+   */
+  if (event.stream === "leaderboards") return event.kind === "new" ? "codename" : "rank";
 
   /**
    * A retirement is read by whoever runs the model being retired, and that is a small, attentive

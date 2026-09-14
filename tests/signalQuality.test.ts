@@ -12,7 +12,7 @@ const destination: Destination = {
   id: "dc",
   platform: "discord",
   channelId: "123",
-  signals: ["launch", "codename", "evidence", "change"],
+  signals: ["launch", "codename", "evidence", "rank", "change"],
 };
 
 const collection = (_at: string, records: Collection["records"]): Collection => ({
@@ -124,7 +124,7 @@ test("signal quality counts persisted role mentions without another schema table
 test("signal quality attributes a shared story digest to every contributing source", () => {
   const db = openDatabase(":memory:");
   const destinations: Destination[] = [
-    { id: "dc", platform: "discord", channelId: "123", signals: ["launch", "codename", "evidence", "change"] },
+    { id: "dc", platform: "discord", channelId: "123", signals: ["launch", "codename", "evidence", "rank", "change"] },
   ];
   const router: Collection = {
     source: "openrouter",
@@ -171,7 +171,7 @@ test("signal quality counts a shared digest only for subscribed signal classes",
   const db = openDatabase(":memory:");
   const destinations: Destination[] = [
     { id: "models", platform: "discord", channelId: "123", signals: ["change"] },
-    { id: "benchmarks", platform: "discord", channelId: "456", signals: ["codename"] },
+    { id: "benchmarks", platform: "discord", channelId: "456", signals: ["codename", "rank"] },
   ];
   const router: Collection = {
     source: "openrouter",
