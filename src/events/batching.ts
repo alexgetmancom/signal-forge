@@ -27,7 +27,14 @@ import { pingWorthy, type SignalClass } from "./signals.js";
 import { sourceFamily } from "./sourceFamily.js";
 import { clearSuppression, recordSuppression, type SuppressionReason } from "./suppression.js";
 import type { Event, RecordData } from "./types.js";
-import { isAliasRow, isAnotherServing, isLabelOnlyChange, isMinorBoardMove, knownModelNames } from "./worth.js";
+import {
+  isAboutTheCompanyNotAModel,
+  isAliasRow,
+  isAnotherServing,
+  isLabelOnlyChange,
+  isMinorBoardMove,
+  knownModelNames,
+} from "./worth.js";
 
 const DUPLICATE_STORY_WINDOW_MS = 6 * 3_600_000;
 /** How many stories an hourly digest shows before it stops being read at all. */
@@ -305,7 +312,9 @@ export function prepareDeliveries(
     // arrived. Found once per batch, because the answer does not depend on the destination.
     const renamed = renamedEvents(db, events);
     // Read once per batch: the question is about the event, not about the destination.
-    const known = events.some((event) => event.stream === "arena") ? knownModelNames(db) : [];
+    const known = events.some((event) => event.stream === "arena" || event.signal === "article")
+      ? knownModelNames(db)
+      : [];
     for (const target of targets) {
       const destination = JSON.parse(target.destination_json) as Destination;
       const subscribed = new Set<string>(destination.signals);
@@ -334,6 +343,8 @@ export function prepareDeliveries(
           if (renamed.has(event.id)) return quiet(event, "renamed_by_the_source");
           if (isMinorBoardMove(event)) return quiet(event, "below_the_top_of_the_board");
           if (isAnotherServing(event, known)) return quiet(event, "another_serving_of_a_known_model");
+          if (event.signal === "article" && isAboutTheCompanyNotAModel(event, known))
+            return quiet(event, "a_post_about_the_company_not_a_model");
           if (isLabelOnlyChange(event)) return quiet(event, "display_label_only");
           if (isAliasRow(event)) return quiet(event, "alias_of_another_row");
           if (isScheduledPricingRotation(event)) return quiet(event, "scheduled_pricing_rotation");

@@ -113,3 +113,49 @@ test("an alias row and a retitled row carry no card", () => {
   expect(db.query("SELECT COUNT(*) AS n FROM deliveries").get()).toEqual({ n: 0 });
   db.close();
 });
+
+test("a newsroom speaks about models and stays quiet about the company", () => {
+  const db = openDatabase(":memory:");
+  const catalogue: Collection = {
+    source: "openrouter",
+    stream: "openrouter",
+    url: "https://openrouter.ai",
+    raw: [],
+    records: [{ id: "openai/gpt-6-astra", name: "OpenAI: GPT-6 Astra" }],
+  };
+  saveCollection(db, catalogue, [wire], "2026-09-14T00:00:00.000Z");
+
+  // Real headlines from the week to 2026-09-14. The dashes in "GPT‑6" are the non-breaking ones the
+  // newsroom actually publishes, which is why matching normalizes before it compares.
+  const news: Collection = {
+    source: "openai-news",
+    stream: "news",
+    url: "https://openai.com/news",
+    raw: [],
+    records: [{ id: "baseline", name: "Introducing an earlier post" }],
+  };
+  // The first reading of a source is a baseline and speaks for nothing.
+  saveCollection(db, news, [wire], "2026-09-14T00:30:00.000Z");
+  news.records = [
+    ...news.records,
+    ...[
+      { id: "astra", name: "GPT‑6 Astra: The next generation in intelligence for work" },
+      { id: "agents", name: "Introducing the Agents API" },
+      { id: "board", name: "Paul Christiano joins OpenAI Foundation Board" },
+      { id: "policy", name: "The AI policy window is open. We need to act." },
+      { id: "storage", name: "Rapidly scaling online storage to serve over 1 billion ChatGPT users" },
+    ],
+  ];
+  saveCollection(db, news, [wire], "2026-09-14T01:00:00.000Z");
+  prepareDeliveries(db, Date.parse("2026-09-14T02:00:00.000Z"));
+
+  const reasons = suppressed(db);
+  // Named a model the catalogue knows, or the vendor introduced something itself.
+  expect(reasons.astra).toBeUndefined();
+  expect(reasons.agents).toBeUndefined();
+  // A board appointment, an essay and an infrastructure writeup are about the company.
+  expect(reasons.board).toBe("a_post_about_the_company_not_a_model");
+  expect(reasons.policy).toBe("a_post_about_the_company_not_a_model");
+  expect(reasons.storage).toBe("a_post_about_the_company_not_a_model");
+  db.close();
+});

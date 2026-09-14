@@ -138,3 +138,29 @@ export function isAliasRow(event: Event): boolean {
   const name = String(record(event)?.name ?? event.entity_id);
   return /[:\s/-]latest$/i.test(name.trim()) || event.entity_id.startsWith("~");
 }
+
+/**
+ * A vendor's newsroom is not a release feed: the same heading carries a model launch, a board
+ * appointment, a policy essay and a customer profile, and the source cannot be asked which is
+ * which. Two things a post itself can be asked, though.
+ *
+ * It can be asked whether it names a model this deployment already knows from a catalogue, and
+ * whether the vendor introduced something in its own title. Measured over the twenty-two newsroom
+ * posts of the week to 2026-09-14: twelve are cut, and not one of them is an announcement --
+ * journalism grants, a Millennium Prize essay, a board appointment, a storage-scaling writeup. Ten
+ * speak, including every launch of the week, and four of those ten are customer stories that name
+ * a real model, which is the price of not losing the launches.
+ *
+ * This is a filter on the card, never on the collection: the post is stored either way, and the
+ * suppression carries its reason.
+ */
+const ANNOUNCES = /^\s*(introducing|announcing|launching|meet)\s/i;
+
+export function isAboutTheCompanyNotAModel(event: Event, known: readonly string[][]): boolean {
+  if (event.stream !== "news") return false;
+  const body = record(event);
+  const title = String(body?.name ?? "");
+  if (ANNOUNCES.test(title)) return false;
+  const haystack = normalizeIdentity([title, body?.summary, body?.description].filter(Boolean).join(" "));
+  return !known.some((words) => haystack.includes(words.join(" ")));
+}

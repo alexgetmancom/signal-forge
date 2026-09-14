@@ -21,6 +21,7 @@ const SUPPRESSION_REASONS = [
   "another_serving_of_a_known_model",
   "display_label_only",
   "alias_of_another_row",
+  "a_post_about_the_company_not_a_model",
 ] as const;
 
 export type SuppressionReason = (typeof SUPPRESSION_REASONS)[number];
@@ -49,6 +50,8 @@ function suppressionDetail(event: Event, reason: SuppressionReason): string {
       return "A model already identified here, listed again under the way it is served";
     case "display_label_only":
       return "Nothing changed but the title the source displays";
+    case "a_post_about_the_company_not_a_model":
+      return "A newsroom post naming no model this deployment knows, and announcing none";
     case "alias_of_another_row":
       return "A row that points at whichever build is newest, not a model of its own";
   }
