@@ -111,7 +111,6 @@ run_release() {
 }
 
 run_release bun -e 'const { openDatabase } = await import("./dist/src/storage/database.js"); openDatabase(process.env.DATABASE_URL).close()'
-run_release bun dist/scripts/backfill-leaderboards.js
 
 mv -f "$NEXT_COMPOSE" "$COMPOSE_FILE"
 printf 'SIGNAL_FORGE_IMAGE=%s\n' "$RELEASE_IMAGE" > "$IMAGE_ENV.next"
