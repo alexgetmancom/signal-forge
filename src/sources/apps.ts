@@ -17,6 +17,15 @@ export const APP_STORE_APPS: readonly WatchedApp[] = [
   { id: "gemini", name: "Gemini", vendor: "Google", appStoreId: "6477489729" },
   { id: "grok", name: "Grok", vendor: "xAI", appStoreId: "6670324846" },
   { id: "deepseek", name: "DeepSeek", vendor: "DeepSeek", appStoreId: "6737597349" },
+  { id: "perplexity", name: "Perplexity", vendor: "Perplexity", appStoreId: "1668000334" },
+  { id: "kimi", name: "Kimi", vendor: "Moonshot", appStoreId: "6474233312" },
+  // Mistral's assistant is listed as "Vibe by Mistral"; the App Store name is the vendor's, and
+  // the id here stays the product this feed already calls Mistral everywhere else.
+  { id: "mistral", name: "Mistral", vendor: "Mistral", appStoreId: "6740410176" },
+  // Renamed to Gemini Notebook on the store while the product is still NotebookLM elsewhere.
+  { id: "notebooklm", name: "NotebookLM", vendor: "Google", appStoreId: "6737527615" },
+  { id: "meta-ai", name: "Meta AI", vendor: "Meta", appStoreId: "1558240027" },
+  { id: "suno", name: "Suno", vendor: "Suno", appStoreId: "6480136315" },
 ];
 
 const lookupSchema = z.object({

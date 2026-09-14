@@ -73,6 +73,9 @@ const envSchema = z.object({
   MOONSHOT_API_KEY: optionalSecret,
   MISTRAL_API_KEY: optionalSecret,
   GROQ_API_KEY: optionalSecret,
+  MINIMAX_API_KEY: optionalSecret,
+  DASHSCOPE_API_KEY: optionalSecret,
+  CEREBRAS_API_KEY: optionalSecret,
   ARTIFICIAL_ANALYSIS_API_KEY: optionalSecret,
 });
 export const settingsSchema = z

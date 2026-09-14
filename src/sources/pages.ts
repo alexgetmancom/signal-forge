@@ -82,6 +82,33 @@ export const WATCHED_SITES: readonly WatchedSite[] = [
       "company",
     ],
   },
+  // The API reference is where a capability is documented before it is announced: the September
+  // 2026 MCP tunnel and usage-report endpoints appeared here first. docs.claude.com redirects to
+  // this origin, and the fetcher refuses a cross-origin redirect, so the final address is used.
+  {
+    id: "claude-docs",
+    name: "Claude Docs",
+    vendor: "Anthropic",
+    sitemap: "https://platform.claude.com/sitemap.xml",
+    ignoreSections: ["settings", "logs", "usage", "playground"],
+  },
+  // A help-centre article is written when a feature is about to reach subscribers. The sitemap
+  // carries the same articles in twelve languages; every locale but English is one page repeated.
+  {
+    id: "claude-support",
+    name: "Claude Support",
+    vendor: "Anthropic",
+    sitemap: "https://support.claude.com/sitemap.xml",
+    ignoreSections: ["de", "es", "fr", "id", "it", "ja", "ko", "pt", "ru", "zh-CN", "zh-TW"],
+  },
+  // Google announces developer-facing model and tooling work here rather than on the product blog.
+  // Every entry is a post at the root, so there is no section worth ignoring.
+  {
+    id: "google-devs",
+    name: "Google Developers Blog",
+    vendor: "Google",
+    sitemap: "https://developers.googleblog.com/sitemap.xml",
+  },
 ];
 
 /** One collection follows at most this many child sitemaps of an index, newest sections first. */

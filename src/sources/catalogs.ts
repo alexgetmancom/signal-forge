@@ -193,6 +193,31 @@ export const PROVIDER_CATALOGUES: ProviderCatalogue[] = [
     url: "https://console.groq.com/docs/models",
     key: "GROQ_API_KEY",
   },
+  {
+    id: "minimax",
+    name: "MiniMax",
+    apiUrl: "https://api.minimax.io/v1/models",
+    url: "https://platform.minimax.io/docs/api-reference/text-anthropic-api",
+    key: "MINIMAX_API_KEY",
+  },
+  // Alibaba's model studio carries the Qwen catalogue, and lists third-party models it hosts as
+  // well; the international host is the one the configured key belongs to.
+  {
+    id: "dashscope",
+    name: "Alibaba Model Studio",
+    apiUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/models",
+    url: "https://www.alibabacloud.com/help/en/model-studio/models",
+    key: "DASHSCOPE_API_KEY",
+  },
+  // Cerebras serves open-weight models it did not train, so a new id here is availability rather
+  // than a release; it is the first place a hosted open model becomes callable.
+  {
+    id: "cerebras",
+    name: "Cerebras",
+    apiUrl: "https://api.cerebras.ai/v1/models",
+    url: "https://inference-docs.cerebras.ai/models/overview",
+    key: "CEREBRAS_API_KEY",
+  },
 ];
 
 const providerSchema = z.object({

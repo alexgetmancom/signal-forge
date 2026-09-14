@@ -31,6 +31,12 @@ const STATIC_LABELS: Record<string, string> = {
   "app:ios:gemini": "App Store · Gemini",
   "app:ios:grok": "App Store · Grok",
   "app:ios:deepseek": "App Store · DeepSeek",
+  "app:ios:perplexity": "App Store · Perplexity",
+  "app:ios:kimi": "App Store · Kimi",
+  "app:ios:mistral": "App Store · Mistral",
+  "app:ios:notebooklm": "App Store · NotebookLM",
+  "app:ios:meta-ai": "App Store · Meta AI",
+  "app:ios:suno": "App Store · Suno",
   "status:openai": "OpenAI · status",
   "status:anthropic": "Anthropic · status",
   "status:deepseek": "DeepSeek · status",
@@ -51,6 +57,9 @@ const STATIC_LABELS: Record<string, string> = {
   "openrouter-usage": "OpenRouter · usage",
   mistral: "Mistral API",
   groq: "Groq API",
+  minimax: "MiniMax API",
+  dashscope: "Alibaba Model Studio API",
+  cerebras: "Cerebras API",
 };
 
 /** Pure source naming used by both the registry and transport-neutral renderers. */
