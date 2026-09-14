@@ -500,11 +500,16 @@ test("an incident becomes an event, and its resolution is a change rather than a
   saveCollection(db, parsePlatformStatus(calm, platform), [], "2026-09-08T10:15:00.000Z");
   expect(db.query("SELECT kind FROM events ORDER BY id").all()).toEqual([{ kind: "new" }, { kind: "changed" }]);
   const resolution = db.query<{ after_json: string }, []>("SELECT after_json FROM events WHERE kind='changed'").get();
+  // The vendor stopped publishing it; it never said the incident was resolved, and the card must
+  // not say so either.
   expect(JSON.parse(resolution?.after_json ?? "{}")).toMatchObject({
     id: "abc",
-    stage: "resolved",
+    stage: "unlisted",
     summary: "Incident no longer listed by the status page.",
   });
+  // And an incident already gone is not reported gone a second time.
+  saveCollection(db, parsePlatformStatus(calm, platform), [], "2026-09-08T10:20:00.000Z");
+  expect(db.query("SELECT COUNT(*) AS n FROM events").get()).toEqual({ n: 2 });
   db.close();
 });
 

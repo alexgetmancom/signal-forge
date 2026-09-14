@@ -105,20 +105,28 @@ function eventUrl(event: Event, fallback: string): string {
   return recordUrl(event.after_json, recordUrl(event.before_json, fallback));
 }
 
-function resolvedRecord(body: string): string {
+const ENDED = /^(?:resolved|closed|complete|unlisted)$/i;
+
+/**
+ * An incident that has left the status page has ended as far as anyone can tell, but the vendor did
+ * not say so: it stopped publishing. Writing `resolved` there states something the page never
+ * stated, and the card then read "identified -> resolved" above the sentence admitting the stage
+ * was our inference. `unlisted` is what actually happened, and it is what the reader is told.
+ */
+function unlistedRecord(body: string): string {
   const record = JSON.parse(body) as Record<string, unknown>;
-  if (typeof record.stage === "string" && /^(?:resolved|closed|complete)$/i.test(record.stage)) return body;
+  if (typeof record.stage === "string" && ENDED.test(record.stage)) return body;
   return canonical({
     ...record,
-    stage: "resolved",
+    stage: "unlisted",
     summary: "Incident no longer listed by the status page.",
   });
 }
 
-function isResolvedRecord(body: string): boolean {
+function hasEnded(body: string): boolean {
   try {
     const record = JSON.parse(body) as Record<string, unknown>;
-    return typeof record.stage === "string" && /^(?:resolved|closed|complete)$/i.test(record.stage);
+    return typeof record.stage === "string" && ENDED.test(record.stage);
   } catch {
     return false;
   }
@@ -212,7 +220,7 @@ export function persistCollection(
   if (!c.appendOnly || c.resolveMissing)
     for (const row of previous.values()) {
       if (c.resolveMissing) {
-        if (isResolvedRecord(row.body)) {
+        if (hasEnded(row.body)) {
           db.query("UPDATE records SET stream=?,observed_at=?,missing_count=0 WHERE source=? AND id=?").run(
             c.stream,
             now,
@@ -220,7 +228,7 @@ export function persistCollection(
             row.id,
           );
         } else if (row.missing_count >= 1) {
-          const after = resolvedRecord(row.body);
+          const after = unlistedRecord(row.body);
           emit(row.id, "changed", row.body, after);
           db.query("UPDATE records SET body=?,stream=?,observed_at=?,missing_count=0 WHERE source=? AND id=?").run(
             after,

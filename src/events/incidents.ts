@@ -29,10 +29,15 @@ function stage(value: unknown): string {
   return typeof value === "string" ? value.toLowerCase() : "";
 }
 
-/** True once an incident is over, whichever way the source spells it. */
+/**
+ * True once an incident is over, whichever way the source spells it. `unlisted` is the vendor
+ * having stopped publishing it rather than having announced an end, which is the same thing to a
+ * reader and the honest word for it on the card.
+ */
+const ENDED = new Set(["resolved", "completed", "unlisted"]);
 function resolved(event: Event): boolean {
   const current = stage((event.after_json ? (JSON.parse(event.after_json) as RecordData) : null)?.stage);
-  return current === "resolved" || current === "completed" || event.kind === "removed";
+  return ENDED.has(current) || event.kind === "removed";
 }
 
 /** Why this incident event says nothing to a subscriber, or null when it does. */
