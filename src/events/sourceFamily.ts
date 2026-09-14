@@ -62,6 +62,7 @@ const FIRST_PARTY_VENDOR_BY_SOURCE: Record<string, string> = {
   xai: "xAI",
   zai: "Z.ai",
   moonshot: "Moonshot",
+  kimi: "Moonshot",
   mistral: "Mistral",
   groq: "Groq",
   minimax: "MiniMax",

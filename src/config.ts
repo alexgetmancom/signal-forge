@@ -71,6 +71,7 @@ const envSchema = z.object({
   XAI_API_KEY: optionalSecret,
   ZAI_API_KEY: optionalSecret,
   MOONSHOT_API_KEY: optionalSecret,
+  KIMI_API_KEY: optionalSecret,
   MISTRAL_API_KEY: optionalSecret,
   GROQ_API_KEY: optionalSecret,
   MINIMAX_API_KEY: optionalSecret,

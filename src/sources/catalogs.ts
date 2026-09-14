@@ -193,6 +193,18 @@ export const PROVIDER_CATALOGUES: ProviderCatalogue[] = [
     url: "https://console.groq.com/docs/models",
     key: "GROQ_API_KEY",
   },
+  // Moonshot serves its coding tier from a separate host with its own key: the general Moonshot
+  // key answers with kimi-k2.6 and kimi-k2.7-code and never sees the coding-tier catalogue, which
+  // is where a model such as kimi-for-coding is actually listed. Verified 2026-09-14: the address
+  // answers 401 to a key it does not accept, so it is the catalogue and not a guess. The source
+  // stays uncollected until KIMI_API_KEY is configured.
+  {
+    id: "kimi",
+    name: "Kimi",
+    apiUrl: "https://api.kimi.com/coding/v1/models",
+    url: "https://www.kimi.com/code/docs/kimi-code/models.html",
+    key: "KIMI_API_KEY",
+  },
   {
     id: "minimax",
     name: "MiniMax",

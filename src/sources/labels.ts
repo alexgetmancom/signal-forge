@@ -61,6 +61,7 @@ const STATIC_LABELS: Record<string, string> = {
   xai: "xAI API",
   zai: "Z.ai API",
   moonshot: "Moonshot API",
+  kimi: "Kimi API",
   "openrouter-usage": "OpenRouter · usage",
   mistral: "Mistral API",
   groq: "Groq API",
