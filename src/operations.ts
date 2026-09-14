@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import { capabilityReport } from "./capabilities.js";
+import { channelMix } from "./channelMix.js";
 import type { AppConfig } from "./config.js";
 import { clearCredentialCircuit, openCredentialCircuits } from "./credentials.js";
 import { requireDeliveryVerification, resolveDeliveryVerification } from "./deliveryVerification.js";
@@ -443,6 +444,17 @@ export function operations(db: Database, config: AppConfig): OperationMap {
       cli: { args: [{ name: "days", optional: true }] },
       http: { method: "get", path: "/api/lead-time" },
       handler: (input: { days: number }) => leadTime(db, input.days),
+    },
+    channel_mix: {
+      section: "sources",
+      summary: "What each destination actually carried: signal classes delivered, lead-time share and promotions.",
+      startHere: "what the public channel is really full of",
+      mutates: false,
+      agent: true,
+      schema: z.object({ days: count(90, 7) }),
+      cli: { args: [{ name: "days", optional: true }] },
+      http: { method: "get", path: "/api/channel-mix" },
+      handler: (input: { days: number }) => channelMix(db, input.days),
     },
     signal_quality: {
       section: "sources",

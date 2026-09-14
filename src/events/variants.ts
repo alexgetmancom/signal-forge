@@ -17,11 +17,39 @@ import { vendorOfName } from "./vendors.js";
 const VARIANT_SUFFIX = /\((batch|free|beta|preview|alpha|experimental|self[- ]moderated|extended|thinking)\)\s*$/i;
 const ALIAS_SUFFIX = /[:\s-](latest|preview)$/i;
 const DATED_SNAPSHOT = /[-:]\d{4}-\d{2}-\d{2}$/;
+/**
+ * A row the collector had to disambiguate, which means the catalogue already carries this model.
+ *
+ * DeepSeek re-keyed its pricing table on 10 September: `deepseek-flash (1)` and `deepseek-v4-pro (2)`
+ * arrived as new entries and the original ids were dropped half an hour later. One of those was a
+ * genuine launch that the weights had already announced; the other was a model from the spring. A
+ * numbered row is a second way of writing something present, never a release.
+ */
+const DUPLICATE_ROW = /\(\d+\)\s*$/;
+/**
+ * Stages of making a model, published as weights beside it.
+ *
+ * `Nemotron-3-Labs-Ultra-Math-RL` and `-SFT` are two checkpoints of one training run. They are real
+ * artefacts and they are not releases, and a recap that lists them spends its most-read line on
+ * research bookkeeping.
+ */
+const TRAINING_ARTEFACT =
+  /[-_.\s](sft|rl|rlhf|dpo|ppo|grpo|rm|reward|base|pretrain|lora|adapter|checkpoint|ckpt|distill|distilled)$/i;
 
 /** True when this entry is another way of selling a model the catalogue already lists. */
 export function isModelVariant(name: string): boolean {
   const trimmed = name.trim();
-  return VARIANT_SUFFIX.test(trimmed) || ALIAS_SUFFIX.test(trimmed) || DATED_SNAPSHOT.test(trimmed);
+  return (
+    VARIANT_SUFFIX.test(trimmed) ||
+    ALIAS_SUFFIX.test(trimmed) ||
+    DATED_SNAPSHOT.test(trimmed) ||
+    DUPLICATE_ROW.test(trimmed)
+  );
+}
+
+/** True when this entry is a step in training a model rather than a model offered to anyone. */
+export function isTrainingArtefact(name: string): boolean {
+  return TRAINING_ARTEFACT.test(name.trim());
 }
 
 /**

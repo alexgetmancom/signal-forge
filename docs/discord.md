@@ -170,13 +170,26 @@ and verified by the same machinery as every card. Its identity is the period it 
 per week, enforced by a unique index -- so a cycle that runs twice cannot post it twice, and a week
 in which nothing arrived, nothing moved and nothing was sighted produces no message at all.
 
+Arrivals are read back by maker rather than as a list of handles: one line per vendor, up to six
+makers, the rest counted. What counts as an arrival is narrower than what counts as an event -- a
+billing tier, a `latest` alias, a dated snapshot, a numbered row the collector had to disambiguate,
+somebody else's quantisation and a training checkpoint published beside the model it trained are all
+real records and none of them is a release. Names are printed the way a reader says them: a
+catalogue handle such as `gpt-image-2.5-flare` is read back as GPT Image 2.5 Flare, while an Arena
+codename and a repository id keep their exact characters, because those are what somebody searches
+for.
+
 The invited room does not get one. Scouts see every one of these events as it happens.
 
 ## Operational alerts
 
 `alertChannelId` points to the private `Signal Problem` channel. It receives one message when a
 collector, worker, or delivery problem becomes actionable and one when it recovers, never a repeat
-while the same problem continues. The alert includes the next diagnostic action and does not go to
+while the same problem continues. A delivery that failed or came back ambiguous is one of those: it
+is never retried automatically, so without an alert a message that will never reach the channel
+looks exactly like a quiet week -- which is how a 403 on the public channel went unnoticed for a
+day. The alert carries the platform's own words, so "403 Missing Permissions" points at the
+channel's permissions rather than at the database. The alert includes the next diagnostic action and does not go to
 a reader feed channel.
 A known channel rejection leaves the transition failed, so the next cycle retries rather than losing
 it. A transport failure or an unconfirmable response is recorded as an ambiguous alert outcome and

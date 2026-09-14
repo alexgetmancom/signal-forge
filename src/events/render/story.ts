@@ -1,6 +1,7 @@
 import { sourceLabel } from "../../sources/labels.js";
 import { evidenceLabel, evidenceTypeFor } from "../confidence.js";
 import { vendorOf } from "../interpretation.js";
+import { displayTitle } from "../naming.js";
 import { recordFor } from "../record.js";
 import type { Event, RecordData } from "../types.js";
 import { utcStamp } from "./common.js";
@@ -23,7 +24,7 @@ function storyTitle(events: StoryRenderEvent[]): string {
   const latest = events.at(-1) ?? events[0];
   if (!latest) return "Related updates";
   const record = recordFor(latest);
-  return String(record?.name ?? latest.entity_id);
+  return displayTitle(String(record?.name ?? latest.entity_id), latest.stream, latest.source);
 }
 
 function latestEvent(events: StoryRenderEvent[]): StoryRenderEvent {

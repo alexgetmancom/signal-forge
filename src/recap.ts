@@ -1,11 +1,12 @@
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { AppConfig, Destination } from "./config.js";
+import { readableName } from "./events/naming.js";
 import { priceMoveRatio } from "./events/render/common.js";
 import { signalClass } from "./events/signals.js";
 import type { Event, RecordData } from "./events/types.js";
-import { arrivalWeight, displayName, isModelVariant, isRepublished, modelSubject } from "./events/variants.js";
-import { vendorOfName } from "./events/vendors.js";
+import { arrivalWeight, isModelVariant, isRepublished, isTrainingArtefact, modelSubject } from "./events/variants.js";
+import { vendorOf, vendorOfName } from "./events/vendors.js";
 
 /**
  * A week, summarised once, in the channel that otherwise only says what is happening now.
@@ -23,11 +24,17 @@ const RECAP_SOURCE = "weekly-recap";
 const WEEK_MS = 7 * 24 * 3_600_000;
 /** Where a thing shows up before anyone announces it. */
 const EARLY_STREAMS = new Set(["arena", "pages"]);
+/** Makers named in the recap itself; the rest are counted. */
+const ARRIVAL_GROUPS = 6;
+
+function escapeForPattern(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
 
 export const weeklyRecapContextSchema = z.object({
   from: z.string(),
   to: z.string(),
-  arrivals: z.array(z.string()),
+  arrivals: z.array(z.object({ vendor: z.string(), names: z.array(z.string()) })),
   arrivalCount: z.number(),
   priceMoves: z.array(z.object({ name: z.string(), percent: z.number(), cheaper: z.boolean() })),
   codenameCount: z.number(),
@@ -66,7 +73,25 @@ function nameOf(event: Event): string {
  */
 function isRealArrival(event: Event): boolean {
   const record = recordOf(event);
-  return !isModelVariant(String(record?.name ?? event.entity_id)) && !isRepublished(event, record);
+  const name = String(record?.name ?? event.entity_id);
+  return !isModelVariant(name) && !isTrainingArtefact(name) && !isRepublished(event, record);
+}
+
+/**
+ * Who a reader would say published this.
+ *
+ * The maker table answers for anything it recognises. Everything else names itself in the shape of
+ * its own handle -- `Sakana: Fugu Max` from a catalogue, `google/gnm-v3` from a registry -- and
+ * reading that is better than filing a real launch under "Other" because the maker is new.
+ */
+function arrivalVendor(event: Event, record: RecordData | null, name: string): string {
+  const known = vendorOf(event, record);
+  if (known !== "Unknown") return known;
+  const labelled = /^([^:]{2,30}):\s/.exec(name);
+  if (labelled?.[1]) return labelled[1];
+  const id = String(record?.id ?? event.entity_id);
+  const namespace = id.includes("/") ? (id.split("/")[0] ?? "") : "";
+  return namespace || "Other";
 }
 
 function steepestMove(event: Event): { percent: number; cheaper: boolean } | null {
@@ -91,35 +116,47 @@ export function weeklyRecapContext(db: Database, to: string): WeeklyRecapContext
     .all(from, to);
   const classified = events.map((event) => ({ event, signal: signalClass(event) }));
   // One model however many collectors saw it, and the maker's own word ahead of a reseller's.
-  const bySubject = new Map<string, { name: string; weight: number }>();
+  const bySubject = new Map<string, { name: string; vendor: string; weight: number }>();
   for (const { event, signal } of classified) {
     if (signal !== "launch" || event.kind !== "new" || !isRealArrival(event)) continue;
+    const record = recordOf(event);
+    const name = nameOf(event);
+    const subject = modelSubject(name);
     const weight = arrivalWeight(event);
-    const held = bySubject.get(modelSubject(nameOf(event)));
-    if (!held || weight > held.weight) bySubject.set(modelSubject(nameOf(event)), { name: nameOf(event), weight });
+    const held = bySubject.get(subject);
+    if (!held || weight > held.weight)
+      bySubject.set(subject, { name, vendor: arrivalVendor(event, record, name), weight });
   }
   // Weight first, then a maker a reader has heard of: a research artefact published as weights
   // outranks a catalogue row on paper and is not what the week was about.
-  const arrivals = [...bySubject.values()]
-    .sort(
-      (one, other) =>
-        other.weight - one.weight ||
-        Number(vendorOfName(other.name) !== "Unknown") - Number(vendorOfName(one.name) !== "Unknown"),
-    )
-    .map((one) => displayName(one.name));
+  const ranked = [...bySubject.values()].sort(
+    (one, other) =>
+      other.weight - one.weight ||
+      Number(vendorOfName(other.name) !== "Unknown") - Number(vendorOfName(one.name) !== "Unknown"),
+  );
+  // Grouped by maker, because that is the shape of the question a reader is asking. Eight names in
+  // a row says a week happened; "OpenAI three, DeepSeek one" says what happened in it.
+  const byVendor = new Map<string, string[]>();
+  for (const arrival of ranked) {
+    const names = byVendor.get(arrival.vendor) ?? [];
+    // The maker's name is already the heading; repeating it inside every entry is noise.
+    names.push(readableName(arrival.name).replace(new RegExp(`^${escapeForPattern(arrival.vendor)}:\\s*`, "i"), ""));
+    byVendor.set(arrival.vendor, names);
+  }
+  const arrivals = [...byVendor.entries()].map(([vendor, names]) => ({ vendor, names }));
   const priceMoves = classified
     .filter(({ event, signal }) => signal === "change" && !isModelVariant(nameOf(event)))
     .flatMap(({ event }) => {
       const move = steepestMove(event);
-      return move ? [{ name: nameOf(event), percent: move.percent, cheaper: move.cheaper }] : [];
+      return move ? [{ name: readableName(nameOf(event)), percent: move.percent, cheaper: move.cheaper }] : [];
     })
     .sort((one, other) => other.percent - one.percent)
     .slice(0, 3);
   return weeklyRecapContextSchema.parse({
     from,
     to,
-    arrivals: arrivals.slice(0, 8),
-    arrivalCount: arrivals.length,
+    arrivals: arrivals.slice(0, ARRIVAL_GROUPS),
+    arrivalCount: ranked.length,
     priceMoves,
     // Distinct subjects, not events: the arena and the leaderboards are re-read all week, and
     // counting every observation turns "the scouts saw ten things early" into five figures.

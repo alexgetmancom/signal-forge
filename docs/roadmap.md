@@ -29,6 +29,18 @@ an integration gap, not evidence that those models are unavailable.
 
 ## Completed
 
+- Cards and the weekly recap print the name of a thing, not the catalogue key for it, while an
+  Arena codename and a repository id keep their exact characters.
+- The recap reads a week back by maker, and counts as an arrival only what a maker offered: billing
+  tiers, aliases, dated snapshots, numbered duplicate rows, third-party quantisations and training
+  checkpoints are excluded.
+- A delivery that failed or came back ambiguous raises an alert in the private problem channel,
+  carrying the platform's own words. Nothing retries those, so they were previously invisible.
+- The nightly backup copies `signal-forge.json` beside the database snapshot and rotates it with the
+  archives.
+- `channel_mix` reports what each destination actually carried: events and delivered events per
+  signal class, the share of sent messages that could say another source saw it first, and how many
+  promotions the invited room produced.
 - Lifecycle events preserve `new`, `removed` and `changed` semantics with field-level before/after
   evidence.
 - Events carry source, URL, provider, observed time, evidence type and normalized model identity.
@@ -150,6 +162,7 @@ priority.
 | Later | More reset sources. | Add Z.ai, xAI and Meta reset surfaces once each has one address that can be read and validated; each arrives as its own source with its own authority, never merged into the Codex tracker's family. |
 | Later | An evidence type for resets. | `events.evidence_type` carries a CHECK constraint, so a new member needs a rebuild of a table a dozen others reference. Resets store `unknown` and say what they are in the card's own words until that rebuild is worth one move. |
 | Later | Shutdown dates that reach the reminder engine. | Deprecations are `🕵scouts` material: a retirement is read by whoever runs the model being retired, and the public wire is for what a reader can start using. That caps the value of this work, which is why it moved from Next to Later. The reminder engine, `lifecycle_deadlines` and idempotent 30/7/1-day reminders already exist; the extraction does not. `parseOpenAIDeprecations()` keeps the prose but extracts no shutdown or replacement field, and the `lifecycle.ts` fallback reads ISO dates, not `October 1, 2026`. Event 9163 announced the GPT-5.4-Cyber shutdown and its replacement in `summary` alone and left `lifecycle_deadlines` at nine rows. Done when announcement, deprecation and shutdown dates are told apart from the source's own structure, an ambiguous multi-model or multi-date notice stays unprojected rather than guessing, affected stored records are migrated and projections rebuilt in the same move, and event 9163 yields the right date and successor. Routing `reminder` to a destination and an upcoming-shutdown block in `status` are a separate owner decision, not part of the parsing. |
+| Next | Read the wire back in a week. | `channel_mix 7`, taken no earlier than 2026-09-21, answers what the two channels carried after the routing changed: volumes per class, the lead-time share, and whether the invited room promoted anything at all. Done when the numbers are recorded here with their date and `change` is either returned to the public channel or left in `🕵scouts` on the evidence rather than on one morning's screenshot. |
 | Later | ModelScope verdict. | Keep or remove on measured lead time once it has produced a week of first sightings. |
 | Later | More repositories. | Add only repositories with a clear reader benefit and one explicit configuration entry each. |
 | Later | History commands. | Add `/latest` and `/search` only after the event and identity model remains useful in daily use. |

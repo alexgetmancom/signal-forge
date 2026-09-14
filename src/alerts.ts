@@ -58,12 +58,22 @@ function alertFooter(active: number, unconfirmed: number): string {
   return unconfirmed > 0 ? `${problems} · ${unconfirmed} seen once, not confirmed` : problems;
 }
 const alertResponse = z.object({ id: z.string().regex(/^\d+$/) });
+/**
+ * What is worth interrupting the owner for.
+ *
+ * A delivery that failed for good was not on this list, and that is how a 403 on the public
+ * channel stayed undiscovered for a day: nothing retries a failed delivery, the board that would
+ * have shown it is passive, and the feed being silent looks exactly like a quiet week. A send that
+ * will never happen on its own is precisely the case the alert channel exists for.
+ */
 const alertableKinds = new Set<IssueKind>([
   "source_failed",
   "collection_degraded",
   "worker_failed",
   "worker_stale",
   "delivery_stuck",
+  "delivery_failed",
+  "delivery_ambiguous",
 ]);
 
 type AlertAttemptStatus = "pending" | "sending" | "sent" | "failed" | "ambiguous";

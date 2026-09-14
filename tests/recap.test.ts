@@ -35,7 +35,7 @@ test("the week reads back as what arrived and what moved furthest", () => {
   const db = openDatabase(":memory:");
   week(db);
   const context = weeklyRecapContext(db, "2026-09-13T18:00:00.000Z");
-  expect(context.arrivals).toContain("GPT-6 Astra");
+  expect(context.arrivals).toEqual([{ vendor: "OpenAI", names: ["GPT-6 Astra"] }]);
   expect(context.arrivalCount).toBe(1);
   expect(context.priceMoves[0]).toMatchObject({ name: "Baseline", cheaper: true });
   expect(Math.round((context.priceMoves[0]?.percent ?? 0) * 100)).toBe(60);
@@ -78,4 +78,44 @@ test("the recap is queued once for a period and never twice", () => {
 test("a week with nothing in it is not a message", () => {
   const db = openDatabase(":memory:");
   expect(scheduleWeeklyRecap(db, config, Date.parse("2026-09-14T09:00:00.000Z"))).toBe(false);
+});
+
+test("a week is read back by maker, with training checkpoints and re-keyed rows left out", () => {
+  const db = openDatabase(":memory:");
+  const weights: Collection = {
+    source: "huggingface:nvidia",
+    stream: "weights",
+    url: "https://huggingface.co/nvidia",
+    raw: [],
+    records: [{ id: "nvidia/Older", name: "nvidia/Older" }],
+  };
+  saveCollection(db, weights, [wire], "2026-09-08T10:00:00.000Z");
+  weights.records = [
+    { id: "nvidia/Older", name: "nvidia/Older" },
+    { id: "nvidia/Nemotron-4-Ultra", name: "nvidia/Nemotron-4-Ultra" },
+    // Two checkpoints of one training run, and a row the collector had to number because the
+    // catalogue already carries it. Neither is a release.
+    { id: "nvidia/Nemotron-4-Ultra-Math-SFT", name: "nvidia/Nemotron-4-Ultra-Math-SFT" },
+    { id: "nvidia/Nemotron-4-Ultra-Math-RL", name: "nvidia/Nemotron-4-Ultra-Math-RL" },
+    { id: "nvidia/Nemotron-4-Ultra (1)", name: "nvidia/Nemotron-4-Ultra (1)" },
+  ];
+  saveCollection(db, weights, [wire], "2026-09-09T10:00:00.000Z");
+  const catalogue: Collection = {
+    source: "openrouter",
+    stream: "openrouter",
+    url: "https://openrouter.ai",
+    raw: [],
+    records: [{ id: "sakana/fugu-mini", name: "Sakana: Fugu Mini" }],
+  };
+  saveCollection(db, catalogue, [wire], "2026-09-09T10:00:00.000Z");
+  catalogue.records.push({ id: "sakana/fugu-max", name: "Sakana: Fugu Max" });
+  saveCollection(db, catalogue, [wire], "2026-09-10T10:00:00.000Z");
+
+  const context = weeklyRecapContext(db, "2026-09-13T18:00:00.000Z");
+  expect(context.arrivalCount).toBe(2);
+  // The registry namespace names the maker; a maker the table has never heard of names itself.
+  expect(context.arrivals).toEqual([
+    { vendor: "NVIDIA", names: ["Nemotron 4 Ultra"] },
+    { vendor: "Sakana", names: ["Fugu Max"] },
+  ]);
 });

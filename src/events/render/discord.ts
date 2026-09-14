@@ -1,6 +1,7 @@
 import { sourceLabel } from "../../sources/labels.js";
 import { evidenceLabel, evidenceTypeFor, readerStanding } from "../confidence.js";
 import { vendorOf } from "../interpretation.js";
+import { displayTitle } from "../naming.js";
 import type { Event, RecordData } from "../types.js";
 import { DESCRIPTION_CHARACTERS } from "./budget.js";
 import { eventFacts, type LeadTime } from "./facts.js";
@@ -38,7 +39,7 @@ function eyebrow(event: Event): string {
  * out "Model availability updated" spends a reader's attention on grammar rather than on the name.
  */
 function eventHeadline(event: Event, record: RecordData | null): string {
-  const name = String(record?.name ?? event.entity_id);
+  const name = displayTitle(String(record?.name ?? event.entity_id), event.stream, event.source);
   if (event.stream === "deprecations" && event.kind === "new") return `⚠️ Action required · ${name}`;
   return `${KIND_ICONS[event.kind]} ${name}`;
 }

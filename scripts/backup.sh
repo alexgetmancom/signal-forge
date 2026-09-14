@@ -73,6 +73,17 @@ snapshot() {
     }) + '\n');
   "
   mv "$DIR/data/backup-$STAMP.db" "$DEST/app-$STAMP.db"
+  # The routing table is not in the repository -- it names channels and carries the bot's
+  # destinations -- so the database was backed up nightly while the file that decides where any of
+  # it goes existed in exactly one place. Restoring the database onto a new host without it means
+  # rebuilding the routing from memory. It is a few kilobytes; it is kept beside the snapshot it
+  # belongs to, readable only by the owner, and rotated with the archives.
+  if [[ -f "$DIR/signal-forge.json" ]]; then
+    install -m 600 "$DIR/signal-forge.json" "$DEST/config-$STAMP.json"
+    echo "config copied: $DEST/config-$STAMP.json"
+  else
+    echo "no signal-forge.json beside the database; the routing table is not being backed up" >&2
+  fi
   echo "snapshot ready: $DEST/app-$STAMP.db"
 }
 
@@ -107,6 +118,9 @@ archive() {
   # a failing `ls` would turn that into a failed job.
   if compgen -G "$DEST/app-*.db.gz" > /dev/null; then
     ls -1t "$DEST"/app-*.db.gz | tail -n "+$((KEEP + 1))" | xargs -r rm --
+  fi
+  if compgen -G "$DEST/config-*.json" > /dev/null; then
+    ls -1t "$DEST"/config-*.json | tail -n "+$((KEEP + 1))" | xargs -r rm --
   fi
   echo "backup ok: $STAMP"
 }

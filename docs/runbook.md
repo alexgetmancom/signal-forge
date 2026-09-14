@@ -84,6 +84,12 @@ copy is its rollback point, restored with `cp` rather than decompressed -- and r
 phase after production is healthy again. An uncompressed snapshot left behind by a deployment that
 died between the phases needs no attention: the next archive phase finds it by the same glob.
 
+The snapshot phase also copies `signal-forge.json` beside the archive as `config-<stamp>.json`, with
+owner-only permissions and the same rotation. The routing table is not in the repository -- it names
+the channels and carries the destinations -- so without this the database was backed up nightly while
+the file deciding where any of it goes existed in exactly one place. A deployment directory with no
+`signal-forge.json` is reported on stderr rather than failing the job.
+
 After a successful verification the job writes `last-verified.json` into the backup directory. That
 marker is the only thing the service can see of a job that runs outside it: `doctor` reads it, and
 `issues` raises `backup_stale` when the newest verified archive is more than two nights old. A

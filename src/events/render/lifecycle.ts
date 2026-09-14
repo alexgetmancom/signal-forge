@@ -72,6 +72,8 @@ export function renderLifecycleReminderEmbed(context: LifecycleReminderContext, 
   };
 }
 
+const NAMES_PER_VENDOR = 3;
+
 /**
  * The week, in the order a reader would ask about it: what can I use now, what got cheaper, and
  * what did the people watching early see before anybody announced it.
@@ -80,11 +82,20 @@ export function renderWeeklyRecapLines(context: WeeklyRecapContext): string[] {
   const day = (at: string) =>
     new Date(at).toLocaleDateString("en-GB", { day: "numeric", month: "long", timeZone: "UTC" });
   const lines = [`**${day(context.from)} – ${day(context.to)}**`, ""];
-  lines.push(
-    context.arrivalCount
-      ? `🚀 **${context.arrivalCount} ${context.arrivalCount === 1 ? "model" : "models"} arrived** · ${context.arrivals.join(", ")}`
-      : "🚀 **No new models this week.**",
-  );
+  if (!context.arrivalCount) lines.push("🚀 **No new models this week.**");
+  else {
+    lines.push(`🚀 **${context.arrivalCount} ${context.arrivalCount === 1 ? "model" : "models"} arrived**`);
+    // One line per maker, because a reader scanning this is looking for a name they use.
+    let named = 0;
+    for (const group of context.arrivals) {
+      const shown = group.names.slice(0, NAMES_PER_VENDOR);
+      named += group.names.length;
+      const rest = group.names.length - shown.length;
+      lines.push(`· **${group.vendor}** — ${shown.join(", ")}${rest ? ` +${rest}` : ""}`);
+    }
+    const others = context.arrivalCount - named;
+    if (others > 0) lines.push(`· ${others} more from smaller makers`);
+  }
   for (const move of context.priceMoves)
     lines.push(`📊 ${move.name} · ${move.cheaper ? "down" : "up"} ${Math.round(move.percent * 100)}%`);
   if (context.codenameCount)

@@ -532,3 +532,33 @@ test("many collectors failing together is reported as one shared path", async ()
   expect(description).toContain("5 collectors stopped reporting at once");
   expect(description).toContain("one shared path");
 });
+
+test("a delivery that will never send on its own reaches the owner", async () => {
+  const db = openDatabase(":memory:");
+  const config = {
+    ...loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname }),
+    DISCORD_BOT_TOKEN: "token",
+    alertChannelId: "999",
+  };
+  const posts: Record<string, unknown>[] = [];
+  const request = async (_url: string, init?: RequestInit) => {
+    posts.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+    return Response.json({ id: "1" });
+  };
+  const now = Date.parse("2026-09-14T12:00:00.000Z");
+  db.query("INSERT INTO batches(id,source,digest,ready_at,sealed) VALUES(1,'openai',0,?,1)").run(
+    new Date(now).toISOString(),
+  );
+  db.query(
+    "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,status,error,updated_at) VALUES(7,1,'discord-signals','{}','{}',0,'failed','Discord rejected the message: 403 Missing Permissions',?)",
+  ).run(new Date(now).toISOString());
+
+  // Nothing retries a failed delivery, so the second reading is the same failure, and that is the
+  // confirmation the alert waits for.
+  expect((await publishAlerts(db, config, request, now)).down).toEqual([]);
+  expect((await publishAlerts(db, config, request, now)).down).toContain("delivery:7");
+  const embed = (posts[0] as { embeds: { description: string }[] }).embeds[0];
+  expect(embed?.description).toContain("discord-signals");
+  expect(embed?.description).toContain("403 Missing Permissions");
+  db.close();
+});

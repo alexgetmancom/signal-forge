@@ -1,6 +1,7 @@
 import type { Destination } from "../../config.js";
 import { sourceLabel } from "../../sources/labels.js";
 import { evidenceLabel, evidenceTypeFor } from "../confidence.js";
+import { displayTitle } from "../naming.js";
 import type { Event, RecordData } from "../types.js";
 import { utcStamp } from "./common.js";
 import { eventFacts, type LeadTime } from "./facts.js";
@@ -26,7 +27,7 @@ export function renderEvent(
   const evidenceType = event.evidence_type ?? evidenceTypeFor(event.source, event.stream);
   return [
     `${labels[event.kind]} · ${sourceLabel(event.source)}`,
-    String(record?.name ?? event.entity_id),
+    displayTitle(String(record?.name ?? event.entity_id), event.stream, event.source),
     "",
     ...eventFacts(event, summary),
     "",

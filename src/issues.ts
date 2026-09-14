@@ -145,7 +145,11 @@ export function listActionableIssues(db: Database, config: AppConfig, now = Date
       destination: delivery.destination_id,
       firstSeenAt: updatedAt,
       updatedAt,
-      message: `Delivery ${delivery.id} to ${delivery.destination_id} is ${delivery.status}`,
+      // The platform's own words, trimmed: "is failed" sends the reader to the database, where
+      // "403 Missing Permissions" sends them to the channel's permissions, which is the fix.
+      message: `Delivery ${delivery.id} to ${delivery.destination_id} is ${delivery.status}${
+        delivery.error ? `: ${delivery.error.replace(/\s+/g, " ").slice(0, 160)}` : ""
+      }`,
       hint: ambiguous
         ? "Verify the destination before any retry; the send may already have reached the audience."
         : "Inspect the stored platform response and destination configuration.",
