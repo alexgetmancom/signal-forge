@@ -13,7 +13,8 @@ source-derived confidence, correlates events across sources and delivers only wh
 notification policy. Production is healthy, the gate passes on `main`, and there are no known
 actionable defects.
 
-Eighty-seven sources are registered. Two fail persistently, both blocked upstream rather than broken
+A hundred and eleven sources are registered, twenty-three of them added on 2026-09-14 after reading
+what four competing feeds carry. Two fail persistently, both blocked upstream rather than broken
 here: `gemini` (location) and `vercel-gateway` (incomplete response); each is an owner decision
 below. `status:anthropic` recovered on its own after the bot protection let go, checked 2026-09-14.
 
@@ -25,12 +26,16 @@ that has since moved is not a priority.
 | Priority | Task | Definition of done |
 |---|---|---|
 | Next | Read the wire back in a week. | `channel_mix 7`, taken no earlier than 2026-09-21, says what the two channels carried after the routing changed: volume per class, the lead-time share, and whether the invited room ever promoted anything. Done when the numbers are written here with their date, and `change` is either returned to `🚀signals` or left in `🕵scouts` on that evidence. |
-| Owner decision | Kimi: K2.8 and the platform migration. | The Moonshot catalogue reads `api.moonshot.ai` and returns two models, `kimi-k2.6` and `kimi-k2.7-code`. Neither `kimi-k3` nor `kimi-for-coding` is in it, which is why the K2.8 Preview rollout of 11 September 2026 was invisible here and K3 was only ever seen second-hand. Needs a key from `platform.kimi.com` and `api.moonshot.cn`, then the Kimi Code changelog as its own source. |
+| Owner decision | Kimi: a key for the coding tier. | The Moonshot key answers with `kimi-k2.6` and `kimi-k2.7-code` and nothing newer, checked against production 2026-09-14, which is why the K2.8 Preview rollout of 11 September 2026 was invisible here. The coding tier is a separate host with a separate credential: `api.kimi.com/coding/v1/models` answers 401 to a key it does not accept while every neighbouring path answers 404, so the source is registered and correct ahead of the key. Set `KIMI_API_KEY` and it collects; the Kimi Code changelog already ships as its own source. |
 | Owner decision | Google catalogue. | `gemini` has never succeeded, and the reason is geography, established 2026-09-13 from the production container: `generativelanguage.googleapis.com` answers `FAILED_PRECONDITION`, `User location is not supported`. An invalid key returns `API key not valid` instead, so only a real key reveals the refusal. Google reports `RU` through all four house exits, including two that geolocate to Germany. Choose: Vertex AI with a billed service account, an exit Google reads as outside Russia, or accept OpenRouter as the Google source. |
 | Owner decision | Vercel AI Gateway. | Has never succeeded. Decide whether the incomplete upstream response is worth another parser or the source should be removed. |
 | Later | A human verdict from the invited room. | A stealth model on an arena cannot be called by API, so no benchmark of ours reaches it -- the scouts can, by hand. A codename card carrying a prompt kit chosen from the arena's own modality flags, and a reaction rubric the promotion worker tallies, makes the room the evaluation. The verdict travels with the reveal, which already links back to the sighting. Gives two measurements nobody else has: which source produces signals people confirm, and which scout is right most often. |
 | Later | Shutdown dates that reach the reminder engine. | The reminder engine, `lifecycle_deadlines` and idempotent 30/7/1-day reminders exist; the extraction does not. `parseOpenAIDeprecations()` keeps the prose and extracts no shutdown or replacement field, and the `lifecycle.ts` fallback reads ISO dates, not `October 1, 2026`. Event 9163 announced the GPT-5.4-Cyber shutdown in `summary` alone. Done when announcement, deprecation and shutdown dates are told apart from the source's own structure, an ambiguous notice stays unprojected rather than guessed, stored records are migrated in the same move, and event 9163 yields the right date and successor. Capped in value because deprecations are scouts' material. |
-| Later | Wire the provider credentials already in production. | `MINIMAX_API_KEY`, `DASHSCOPE_API_KEY` and `CEREBRAS_API_KEY` are present and are not registered capabilities or collectors. Add each only with a concrete source, a validated response and a passing production status; an environment variable alone is not an integration. Artificial Analysis remains the only configured catalogue capability with no credential. |
+| Later | The six leaderboards that will not answer in data. | MathArena, ARC-AGI 2 and 3, Epoch FrontierMath, DeepSWE and the Artificial Analysis image and video arenas all render their tables from JavaScript, checked 2026-09-14; no static JSON, CSV or feed was found behind any of them. VoxelBench, WeirdML and SimpleBench shipped because they publish the data their pages draw from. Done when each remaining board is either read from a data endpoint or written off in one line here; parsing rendered markup is not an option, because it reports a style change as a ranking move. |
+| Later | Four vendor blogs with no feed. | Meta Research, Tencent, IBM Research and MiniMax announce releases on pages with no RSS or Atom -- eight candidate addresses checked 2026-09-14, none served a feed -- so each needs its own HTML parser against corporate marketing markup, the most fragile shape of source here. Meta and Tencent weights already arrive through `huggingface:meta-models` and `huggingface:tencent`, which covers the release itself; these would add the vendor's own words. |
+| Later | Changelogs behind rendered pages. | `docs.mistral.ai/resources/changelogs` (1.4 MB of HTML, distinct from the release notes already collected), the ZCode changelog where GLM-5.3 and GLM-5.3-Flash are documented but absent from the Z.ai `/models` catalogue, Alibaba Model Studio release notes beside the `dashscope` catalogue, and the DeepMind model cards. The ZCode case is the one worth having: documentation exposing a model the API does not list yet, which must never be reported as API availability without the catalogue confirming it. |
+| Later | The Google product blog in full. | `blog.google` is covered through the AI topic feed. Its English sitemap lists 11,617 pages grouped by section rather than by date, measured 2026-09-14, so the 4,000-page cap in `pages.ts` would silently drop whichever section sorts last; the other topic feeds are the way in, one per topic, not a raised cap. |
+| Later | Surfaces that need a way in, not a parser. | `status.x.ai` refuses its own API with 403 and renders in the browser. Meta's model catalogue has no public endpoint. Google Labs publishes its unreleased product strings in a web bundle the way `claude.ai` does, and the same technique reads it. Android release diffing -- unpacking an APK and comparing `strings.xml` between versions -- is how a competitor saw Perplexity's wake word and Qwen's Projects weeks early; it is a subsystem, not a source. |
 | Later | More reset sources, and an evidence type for them. | Z.ai, xAI and Meta reset surfaces, each as its own source with its own authority, never merged into the Codex tracker's family. `events.evidence_type` carries a CHECK constraint, so `reset` needs a rebuild of a table a dozen others reference; until that is worth one move, resets store `unknown` and say what they are in the card's own words. |
 | Later | A last-reset board. | One status message, edited in place, naming when each tracked vendor last reset usage limits. Worth building when a second vendor's resets are collected; with one row it is a card that already exists. |
 | Later | ModelScope verdict. | Keep or remove on measured lead time, once `lead-time 7` has a full week of it behind it. It has produced no first sighting worth a card so far. |
@@ -50,6 +55,9 @@ Kept because the reasoning cost real observation and is easy to re-litigate from
   arena sightings arriving with the same weight. Lumina keeps them apart for the same reason.
   Competitors split by source instead (`api-models`, `arena`, `subpages`); with thirteen streams
   that is a dozen channels, and it defeats the cross-source story grouping they do not have.
+- **A leaderboard position is not stored, only the score.** A board reorders whenever anyone below
+  moves, so a stored rank emits a change for every model each time one of them is measured. The
+  score is the reading and the rank follows from it.
 - **A newsroom post is never a launch.** Measured 2026-09-13 across 1192 OpenAI items: `category` is
   present on 1031, and `Product` (163) and `Release` (7) are cleanly releases, so parsing it would
   have worked. It was not needed -- a model a reader can use appears in the vendor catalogue, so the
@@ -110,27 +118,33 @@ Not scheduled. Written down so they stop being re-derived from scratch.
   production history for it: all six observed transitions to 2026-09-12 were Arena events.
 - **Hugging Face model-card metadata** and **Hacker News** (digest-only, never sufficient for
   `confirmed`) -- the last two things the 2026-09-09 competitor audit proposed and this never built.
+- **A second Cohere reading with dates.** Its changelog arrives as an index with no publication
+  dates, so it is `web` evidence; the per-entry Markdown carries the date at the cost of one request
+  each. Worth it only if a Cohere release ever needs to be dated to the day.
 
 ## Deferred
 
 - Telegram delivery is implemented and tested; no destination is configured, because the audience is
   on Discord.
 - Cloud catalogues (Bedrock, Vertex, Azure AI Foundry) need credentials and a clear reader need.
-- Mobile app releases, individual PR authors, more status providers, a public report site, a
-  removals role.
+- Individual PR authors, more status providers, a public report site, a removals role.
 - LLM relevance verification, until at least seven days of deterministic discovery density,
   confirmation rate, first-source wins and lead-time measurements exist.
 
 ## Source coverage
 
-Catalogues (OpenRouter, OpenAI, Anthropic, xAI, Moonshot, Mistral, Groq, Z.ai, Artificial Analysis,
-each inert without its own key; Gemini blocked upstream). Open weights on Hugging Face and
-ModelScope. Arena, Arena leaderboards and DesignArena. OpenRouter usage rankings, in shadow, as the
-only measure of what people actually run. npm, PyPI and GitHub activity for selected AI tools.
-Official news, release notes and changelogs for OpenAI, Codex, Anthropic, Claude Code, Gemini, xAI,
-Mistral, Groq, DeepSeek and Hugging Face. Lifecycle and deprecation pages for OpenAI, Anthropic,
-Google, AWS, Azure, Groq, Cohere and xAI. Vendor site pages watched for URLs that appear before the
-announcement. Codex usage-limit resets. GitHub and Hugging Face discovery, both in shadow.
+Catalogues (OpenRouter, OpenAI, Anthropic, xAI, Moonshot, Mistral, Groq, Z.ai, MiniMax, Alibaba
+Model Studio, Cerebras, Artificial Analysis and Kimi, each inert without its own key; Gemini blocked
+upstream). Open weights on Hugging Face, including the `meta-models`, `ibm-granite` and `tencent`
+organisations, and on ModelScope. Arena, Arena leaderboards, DesignArena, and the three independent
+boards that publish their own data: VoxelBench, WeirdML and SimpleBench. OpenRouter usage rankings,
+in shadow, as the only measure of what people actually run. npm, PyPI and GitHub activity for
+selected AI tools. Official news, release notes and changelogs for OpenAI, Codex, Anthropic, Claude
+Code, Gemini, the Google AI blog, DeepMind, xAI, Mistral, Groq, DeepSeek, Kimi Code, Cohere and
+Hugging Face. Lifecycle and deprecation pages for OpenAI, Anthropic, Google, AWS, Azure, Groq,
+Cohere and xAI. Vendor site pages watched for URLs that appear before the announcement, including
+the Claude API reference and help centre. Eleven iOS listings, read for the vendor's own release
+notes. Codex usage-limit resets. GitHub and Hugging Face discovery, both in shadow.
 
 A failed or malformed collection is never treated as an empty catalogue, and external responses are
 validated before they can change stored state.
