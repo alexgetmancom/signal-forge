@@ -6,7 +6,10 @@ export const DEEPSEEK_SUMMARY_MODEL = "deepseek-v4-flash";
 export const DEEPSEEK_SUMMARY_ENDPOINT = "https://api.deepseek.com/v1/chat/completions";
 const DEEPSEEK_SUMMARY_OPERATION = "summary.fillSummaries";
 export const DEEPSEEK_SUMMARY_MAX_INPUT_CHARS = 6_000;
-export const DEEPSEEK_SUMMARY_MAX_OUTPUT_TOKENS = 90;
+// A sentence the model cannot finish is discarded, so the ceiling decides how many summaries
+// survive rather than how long they are. Ten calls cost $0.0016 on 2026-09-14, and the daily
+// attempt limit caps the whole integration well under a dollar a day at this width.
+export const DEEPSEEK_SUMMARY_MAX_OUTPUT_TOKENS = 160;
 export const DEEPSEEK_SUMMARY_DAILY_ATTEMPT_LIMIT = 300;
 const DEEPSEEK_PRICING_VERSION = "deepseek-flash-2026-08-16";
 

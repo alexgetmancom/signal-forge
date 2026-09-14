@@ -3,7 +3,7 @@ import { loadConfig } from "../src/config.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import type { RecordData } from "../src/events/types.js";
 import { openDatabase } from "../src/storage/database.js";
-import { fillSummaries, sanitize, summarize } from "../src/summary.js";
+import { completeSentences, fillSummaries, sanitize, summarize } from "../src/summary.js";
 
 const fixture = new URL("./fixtures/config.json", import.meta.url).pathname;
 const config = { ...loadConfig({ CONFIG_PATH: fixture }), DEEPSEEK_API_KEY: "key" };
@@ -118,4 +118,23 @@ test("a failing summariser never breaks the batch", async () => {
     outcome: "failed",
     error_type: "Error",
   });
+});
+
+test("a sentence the model could not finish is not published", () => {
+  // The output ceiling cuts these: 33 of 71 summaries stored on production ended this way.
+  expect(completeSentences("Nvidia added a new public Hug")).toBeNull();
+  expect(completeSentences("OpenRouter raised prices: prompt, completion and")).toBeNull();
+  // What finished is kept, and the unfinished tail is dropped rather than shown.
+  expect(completeSentences("OpenRouter raised two prices. It also removed the over")).toBe(
+    "OpenRouter raised two prices.",
+  );
+  expect(completeSentences("The listing moved to version 2.4.")).toBe("The listing moved to version 2.4.");
+});
+
+test("a summary that prices in per-token units says nothing the card does not already say", () => {
+  // The card prints the same figures underneath as dollars per million tokens.
+  expect(completeSentences("DeepSeek V4 Pro lowered pricing: prompt to 0.00000066.")).toBeNull();
+  expect(completeSentences("DeepSeek V4 Pro lowered its prompt and completion prices.")).toBe(
+    "DeepSeek V4 Pro lowered its prompt and completion prices.",
+  );
 });
