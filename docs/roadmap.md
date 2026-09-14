@@ -36,8 +36,11 @@ an integration gap, not evidence that those models are unavailable.
 - The recap reads a week back by maker, and counts as an arrival only what a maker offered: billing
   tiers, aliases, dated snapshots, numbered duplicate rows, third-party quantisations training
   checkpoints, artefacts a registry declares no pipeline for and somebody's fine-tune of a model
-  that already arrived are excluded. Price lines are read against the price charged before, skip
-  cached-read rates, and are withheld entirely when a subject's rows moved in both directions.
+  that already arrived are excluded. Price lines are the week's net move, read against the price charged
+  before, skip cached-read rates, obey the rotation and dithering rules the cards already obey, and
+  are withheld when a subject's rows or fields moved in both directions. They are spent only on
+  models a benchmark, an arena or their own maker's API knows, and a rise soon after a row appears
+  is reported as a launch promotion ending.
 - A delivery that failed or came back ambiguous raises an alert in the private problem channel,
   carrying the platform's own words. Nothing retries those, so they were previously invisible.
 - The nightly backup copies `signal-forge.json` beside the database snapshot and rotates it with the

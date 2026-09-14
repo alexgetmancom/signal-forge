@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { AppConfig, Destination } from "./config.js";
 import { readableName } from "./events/naming.js";
+import { isOscillating, isScheduledPricingRotation } from "./events/oscillation.js";
 import { renamedEvents } from "./events/rename.js";
 import { priceMoveRatio, pricePair } from "./events/render/common.js";
 import { signalClass } from "./events/signals.js";
@@ -15,6 +16,7 @@ import {
   modelSubject,
 } from "./events/variants.js";
 import { vendorOf, vendorOfName } from "./events/vendors.js";
+import { subjectKey, witnessedSubjects } from "./events/witness.js";
 
 /**
  * A week, summarised once, in the channel that otherwise only says what is happening now.
@@ -44,7 +46,15 @@ export const weeklyRecapContextSchema = z.object({
   to: z.string(),
   arrivals: z.array(z.object({ vendor: z.string(), names: z.array(z.string()) })),
   arrivalCount: z.number(),
-  priceMoves: z.array(z.object({ name: z.string(), percent: z.number(), cheaper: z.boolean() })),
+  priceMoves: z.array(
+    z.object({
+      name: z.string(),
+      percent: z.number(),
+      cheaper: z.boolean(),
+      // Absent in the recaps already stored before this was told apart from a decision to charge more.
+      discountEnded: z.boolean().default(false),
+    }),
+  ),
   codenameCount: z.number(),
   bestLead: z.object({ name: z.string(), hours: z.number() }).nullable(),
 });
@@ -114,29 +124,49 @@ function arrivalVendor(event: Event, record: RecordData | null, name: string): s
  * dearer, and "down 70%" was true of a field almost nobody pays and false of the week.
  */
 const BILLED_ELSEWHERE = /cache|image|request|search|audio|video|discount|internal/i;
+/** How long after a model appears a rise still reads as the end of its launch promotion. */
+const LAUNCH_PROMOTION_MS = 90 * 24 * 3_600_000;
+
+type PriceMove = {
+  name: string;
+  percent: number;
+  ratio: number;
+  cheaper: boolean;
+  reportable: boolean;
+  discountEnded: boolean;
+};
+
+function pricing(json: string | null): Record<string, unknown> {
+  const record = json ? (JSON.parse(json) as RecordData) : null;
+  return record?.pricing && typeof record.pricing === "object" ? (record.pricing as Record<string, unknown>) : {};
+}
 
 /**
- * Every move this edit made to a price a reader pays, one per field.
+ * Where a price started the week and where it ended it, one entry per field a reader pays.
  *
  * `ratio` ranks moves against each other, as it always has. `percent` is what a reader is told, and
- * it is relative to the old price, so a rise reads as the multiple it actually is. They are
- * returned rather than reduced, because two fields moving in opposite directions is a repricing
- * and not a cut, and only the caller can see that across a subject's several rows.
+ * it is relative to the old price, so a rise reads as the multiple it actually is. Reading the
+ * first `before` against the last `after` is what makes a price that went up and came back down
+ * again produce no line at all.
  */
-function priceMovesOf(event: Event): { percent: number; ratio: number; cheaper: boolean }[] {
-  const before = event.before_json ? (JSON.parse(event.before_json) as RecordData) : null;
-  const after = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
-  const from = before?.pricing && typeof before.pricing === "object" ? (before.pricing as Record<string, unknown>) : {};
-  const to = after?.pricing && typeof after.pricing === "object" ? (after.pricing as Record<string, unknown>) : {};
+function netPriceMoves(first: Event, last: Event): { percent: number; ratio: number; cheaper: boolean }[] {
+  const from = pricing(first.before_json);
+  const to = pricing(last.after_json);
   const moves: { percent: number; ratio: number; cheaper: boolean }[] = [];
   for (const key of new Set([...Object.keys(from), ...Object.keys(to)])) {
     if (BILLED_ELSEWHERE.test(key)) continue;
-    const ratio = priceMoveRatio(from[key], to[key], event.source);
-    const pair = pricePair(from[key], to[key], event.source);
+    const ratio = priceMoveRatio(from[key], to[key], last.source);
+    const pair = pricePair(from[key], to[key], last.source);
     if (ratio === null || ratio === 0 || !pair || pair.from === 0) continue;
     moves.push({ percent: Math.abs(pair.to - pair.from) / pair.from, ratio, cheaper: pair.to < pair.from });
   }
   return moves;
+}
+
+/** True when the catalogue says this row appeared recently enough for a promotion to be ending. */
+function recentlyListed(record: RecordData | null, to: string): boolean {
+  const created = typeof record?.created === "string" ? Date.parse(record.created) : Number.NaN;
+  return Number.isFinite(created) && Date.parse(to) - created <= LAUNCH_PROMOTION_MS;
 }
 
 export function weeklyRecapContext(db: Database, to: string): WeeklyRecapContext {
@@ -146,6 +176,7 @@ export function weeklyRecapContext(db: Database, to: string): WeeklyRecapContext
     .all(from, to);
   const classified = events.map((event) => ({ event, signal: signalClass(event) }));
   const renamed = renamedEvents(db, events);
+  const witnessed = witnessedSubjects(db);
   // One model however many collectors saw it, and the maker's own word ahead of a reseller's.
   const bySubject = new Map<string, { name: string; vendor: string; weight: number }>();
   for (const { event, signal } of classified) {
@@ -175,27 +206,49 @@ export function weeklyRecapContext(db: Database, to: string): WeeklyRecapContext
     byVendor.set(arrival.vendor, names);
   }
   const arrivals = [...byVendor.entries()].map(([vendor, names]) => ({ vendor, names }));
-  // One model, one price line. A catalogue lists the same model under several rows, and on
-  // 8 September two rows of Inception's Mercury 2.5 moved in opposite directions an hour apart:
-  // the preview row went up five times when the launch discount expired, the standard row went
-  // down eighty percent to the discounted rate. One of those is the week's news and nothing in
-  // the data says which, so a subject whose rows contradict each other is left out rather than
-  // reported in whichever direction sorts highest.
-  const bySubjectMove = new Map<
-    string,
-    { name: string; percent: number; ratio: number; cheaper: boolean; reportable: boolean }[]
-  >();
+  // One model, one price line, and the line is the week's net move rather than its steepest step.
+  //
+  // A catalogue lists the same model under several rows and edits each of them more than once. On
+  // 8 September two rows of Inception's Mercury 2.5 moved in opposite directions an hour apart --
+  // the preview row up five times as its launch discount expired, the standard row down eighty
+  // percent onto that same discount -- and the flattering half sorted highest. A subject whose rows
+  // or fields disagree says nothing at all: one of them is the week's news and nothing in the data
+  // says which.
+  const byRow = new Map<string, { event: Event; name: string }[]>();
   for (const { event, signal } of classified) {
     if (signal !== "change") continue;
-    const name = nameOf(event);
+    // The rules a card already lives by. A base rate rotating onto a tier the record itself
+    // publishes, or a level dithering back to where it was, is not a week's news either.
+    if (isScheduledPricingRotation(event) || isOscillating(db, event, Date.parse(to))) continue;
+    const row = byRow.get(`${event.source}\u0000${event.entity_id}`) ?? [];
+    row.push({ event, name: nameOf(event) });
+    byRow.set(`${event.source}\u0000${event.entity_id}`, row);
+  }
+  const bySubjectMove = new Map<string, PriceMove[]>();
+  for (const row of byRow.values()) {
+    const first = row[0]?.event;
+    const last = row.at(-1)?.event;
+    const name = row.at(-1)?.name ?? "";
+    if (!first || !last) continue;
+    const moves = netPriceMoves(first, last);
+    // Input down and output up in the same edit is a repricing, not a cut; IBM's Granite was
+    // reported seventy percent cheaper on a cached-read rate in the week its output got dearer.
+    if (!moves.length || new Set(moves.map((move) => move.cheaper)).size !== 1) continue;
+    const steepest = moves.reduce((best, move) => (move.ratio > best.ratio ? move : best));
     const subject = modelSubject(name);
     const held = bySubjectMove.get(subject) ?? [];
-    // A tier never carries a price line of its own, and it is still evidence about the subject:
-    // Mercury's preview row is where the expiring discount showed, and reading the standard row
-    // without it is how the week's rise was reported as a cut.
-    for (const move of priceMovesOf(event))
-      held.push({ name: readableName(name), ...move, reportable: !isModelVariant(name) });
-    if (held.length) bySubjectMove.set(subject, held);
+    // A tier carries no line of its own and is still evidence about the subject: Mercury's preview
+    // row is where the expiring discount showed.
+    held.push({
+      name: readableName(name),
+      ...steepest,
+      reportable: !isModelVariant(name) && witnessed.has(subjectKey(name)),
+      // A price that rises weeks after a model first appeared is almost always the launch
+      // promotion ending rather than a decision to charge more, and saying so is the difference
+      // between a fact and a scare.
+      discountEnded: !steepest.cheaper && recentlyListed(recordOf(last), to),
+    });
+    bySubjectMove.set(subject, held);
   }
   const priceMoves = [...bySubjectMove.values()]
     .filter((moves) => new Set(moves.map((move) => move.cheaper)).size === 1)
@@ -205,7 +258,7 @@ export function weeklyRecapContext(db: Database, to: string): WeeklyRecapContext
     })
     .sort((one, other) => other.ratio - one.ratio)
     .slice(0, 3)
-    .map(({ name, percent, cheaper }) => ({ name, percent, cheaper }));
+    .map(({ name, percent, cheaper, discountEnded }) => ({ name, percent, cheaper, discountEnded }));
   return weeklyRecapContextSchema.parse({
     from,
     to,

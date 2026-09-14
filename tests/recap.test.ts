@@ -145,6 +145,19 @@ test("a price line is what a reader pays, and says nothing when the rows disagre
       { id: "ibm/granite", name: "IBM: Granite", pricing: { prompt: "0.0000001", input_cache_read: "0.00000005" } },
     ],
   };
+  // A price line is only spent on a model something other than a price list knows about.
+  const board: Collection = {
+    source: "arena-leaderboards",
+    stream: "leaderboards",
+    url: "https://arena.example/leaderboard",
+    raw: [],
+    records: [
+      { id: "text:overall:qwen3-14b", name: "Qwen3 14B", rank: 40 },
+      { id: "text:overall:mercury", name: "Mercury", rank: 41 },
+      { id: "text:overall:granite", name: "Granite", rank: 42 },
+    ],
+  };
+  saveCollection(db, board, [wire], "2026-09-08T09:00:00.000Z");
   saveCollection(db, catalogue, [wire], "2026-09-08T10:00:00.000Z");
   catalogue.records = [
     { id: "qwen/qwen3-14b", name: "Qwen: Qwen3 14B", pricing: { prompt: "0.0000002275", completion: "0.00000091" } },
@@ -157,7 +170,84 @@ test("a price line is what a reader pays, and says nothing when the rows disagre
   saveCollection(db, catalogue, [wire], "2026-09-09T10:00:00.000Z");
 
   const context = weeklyRecapContext(db, "2026-09-13T18:00:00.000Z");
-  expect(context.priceMoves).toEqual([{ name: "Qwen: Qwen3 14B", percent: 2.7916666666666665, cheaper: false }]);
+  expect(context.priceMoves).toEqual([
+    { name: "Qwen: Qwen3 14B", percent: 2.7916666666666665, cheaper: false, discountEnded: false },
+  ]);
   // Nearly quadrupling is not "up 74%", whatever the ranking arithmetic says.
   expect(renderWeeklyRecapLines(context)).toContain("📊 Qwen: Qwen3 14B · 3.8× more expensive");
+});
+
+test("a price only speaks for a model something other than a price list knows", () => {
+  const db = openDatabase(":memory:");
+  const catalogue: Collection = {
+    source: "openrouter",
+    stream: "openrouter",
+    url: "https://openrouter.ai",
+    raw: [],
+    records: [
+      { id: "obscure/model", name: "Obscure: Model", pricing: { prompt: "0.0000001" } },
+      {
+        id: "upstage/solar-pro4",
+        name: "Upstage: Solar Pro 4",
+        created: "2026-08-10T00:00:00.000Z",
+        pricing: { prompt: "0.00000003" },
+      },
+    ],
+  };
+  const board: Collection = {
+    source: "arena-leaderboards",
+    stream: "leaderboards",
+    url: "https://arena.example/leaderboard",
+    raw: [],
+    records: [{ id: "text:overall:solar-pro4-20260805", name: "solar-pro4-20260805", rank: 12 }],
+  };
+  saveCollection(db, board, [wire], "2026-09-08T09:00:00.000Z");
+  saveCollection(db, catalogue, [wire], "2026-09-08T10:00:00.000Z");
+  catalogue.records = [
+    { id: "obscure/model", name: "Obscure: Model", pricing: { prompt: "0.0000009" } },
+    {
+      id: "upstage/solar-pro4",
+      name: "Upstage: Solar Pro 4",
+      created: "2026-08-10T00:00:00.000Z",
+      pricing: { prompt: "0.00000009" },
+    },
+  ];
+  saveCollection(db, catalogue, [wire], "2026-09-09T10:00:00.000Z");
+
+  const context = weeklyRecapContext(db, "2026-09-13T18:00:00.000Z");
+  // The obscure row moved nine times as far and is nobody's news; the benchmarked one speaks, and
+  // says why it went up.
+  expect(context.priceMoves).toEqual([
+    { name: "Upstage: Solar Pro 4", percent: 2, cheaper: false, discountEnded: true },
+  ]);
+  expect(renderWeeklyRecapLines(context)).toContain(
+    "📊 Upstage: Solar Pro 4 · launch pricing ended · 3.0× more expensive",
+  );
+});
+
+test("a price that goes up and comes back down again is not a week's news", () => {
+  const db = openDatabase(":memory:");
+  const board: Collection = {
+    source: "arena-leaderboards",
+    stream: "leaderboards",
+    url: "https://arena.example/leaderboard",
+    raw: [],
+    records: [{ id: "text:overall:qwen3-14b", name: "Qwen3 14B", rank: 40 }],
+  };
+  const catalogue: Collection = {
+    source: "openrouter",
+    stream: "openrouter",
+    url: "https://openrouter.ai",
+    raw: [],
+    records: [{ id: "qwen/qwen3-14b", name: "Qwen: Qwen3 14B", pricing: { prompt: "0.00000012" } }],
+  };
+  saveCollection(db, board, [wire], "2026-09-08T09:00:00.000Z");
+  saveCollection(db, catalogue, [wire], "2026-09-08T10:00:00.000Z");
+  catalogue.records = [{ id: "qwen/qwen3-14b", name: "Qwen: Qwen3 14B", pricing: { prompt: "0.0000002275" } }];
+  saveCollection(db, catalogue, [wire], "2026-09-09T10:00:00.000Z");
+  catalogue.records = [{ id: "qwen/qwen3-14b", name: "Qwen: Qwen3 14B", pricing: { prompt: "0.00000012" } }];
+  saveCollection(db, catalogue, [wire], "2026-09-12T10:00:00.000Z");
+
+  // The provider serving it changed and changed back. The week's net move is nothing.
+  expect(weeklyRecapContext(db, "2026-09-13T18:00:00.000Z").priceMoves).toEqual([]);
 });

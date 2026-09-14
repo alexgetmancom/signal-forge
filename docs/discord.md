@@ -177,11 +177,20 @@ somebody else's quantisation and a training checkpoint published beside the mode
 real records and none of them is a release. A registry carries more than releases, and it says so itself: an artefact that declares no
 inference pipeline (a parametric 3D head model) or declares the model it was fine-tuned from is
 published work and not a launch. A price line is what a reader is billed -- prompt and completion,
-never a cached-read rate -- read against the price charged before, so a rise reads as the multiple
-it is rather than a percentage of the bigger number. A subject whose rows or fields moved in both
-directions in the same week carries no price line at all: a standard row falling to a discounted
-rate while its preview row rises off one is catalogue bookkeeping, and nothing in the data says
-which half was the week's news.
+never a cached-read rate -- read as the week's net move, from the price at the start to the price at
+the end, and against the price charged before, so a rise reads as the multiple it is rather than a
+percentage of the bigger number. A subject whose rows or fields moved in both directions carries no
+price line at all: a standard row falling to a discounted rate while its preview row rises off one
+is catalogue bookkeeping, and nothing in the data says which half was the week's news. A price that
+went up and came back down produces nothing either, which is what a provider swap on a reseller
+looks like.
+
+Three lines a week is a small budget, so they are spent on models something other than a price list
+knows about: a benchmark ranks it, an arena serves it, or its own maker lists it in their API.
+Qwen3 14B, a small model from April 2025, moved 3.8 times on one catalogue because the cheapest
+provider serving it changed, and took the line from DeepSeek V3.1 actually becoming 55% cheaper. A
+rise within three months of a row first appearing is reported as the launch promotion ending, which
+is what it nearly always is.
 
 Names are printed the way a reader says them: a
 catalogue handle such as `gpt-image-2.5-flare` is read back as GPT Image 2.5 Flare, while an Arena

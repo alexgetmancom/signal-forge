@@ -79,11 +79,11 @@ const NAMES_PER_VENDOR = 3;
  * multiple it became once it is more than a doubling. "Up 74%" for a price that nearly quadrupled
  * is arithmetic nobody is charged.
  */
-function priceMove(move: { percent: number; cheaper: boolean }): string {
+function priceMove(move: { percent: number; cheaper: boolean; discountEnded?: boolean }): string {
   if (move.cheaper) return `down ${Math.round(move.percent * 100)}%`;
-  return move.percent >= 1
-    ? `${(move.percent + 1).toFixed(1)}× more expensive`
-    : `up ${Math.round(move.percent * 100)}%`;
+  const rise =
+    move.percent >= 1 ? `${(move.percent + 1).toFixed(1)}× more expensive` : `up ${Math.round(move.percent * 100)}%`;
+  return move.discountEnded ? `launch pricing ended · ${rise}` : rise;
 }
 
 /**
