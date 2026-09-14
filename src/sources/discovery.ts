@@ -90,33 +90,21 @@ const HUGGINGFACE_EXPAND = [
 ];
 
 /**
- * What separates a laboratory's release from the rest of the feed at the moment the weights land,
- * when nobody has reacted to it yet.
+ * Likes arrive too late to find a release -- 12,850 of 13,770 repositories captured in four days had
+ * none when first seen and the busiest had six -- but they find what the weights cannot show: a
+ * gated repository, a format carrying no parameter index, a small model that matters anyway.
+ * Bucketed, because the raw count moves on every poll and a body that moves reports a change that
+ * means nothing.
  *
- * Measured on 270 models drawn from four days of the feed (2026-09-14): 66 carried a parameter
- * count at all, 39 of those declared no base model, and exactly one of those reached a hundred
- * billion parameters -- a re-upload of somebody else's weights, which gives itself away by carrying
- * a parameter count already seen in the window. Popularity cannot do this work: 12,850 of 13,770
- * captured repositories had zero likes when first seen, and the busiest had six.
- *
- * The floor is deliberately low and the decision is recorded rather than delivered. A week of
- * shadow output is what a real floor gets set from; training checkpoints published without a base
- * model are the false positives to look for.
- */
-const NOVEL_PARAMETER_FLOOR = 20_000_000_000;
-
-/**
- * Likes arrive too late to find a release but they do find what the parameter rule cannot see: a
- * gated repository, a format that carries no safetensors index, a small model that matters anyway.
- * Bucketed, because the raw count moves on every poll and a body that moves emits a change event
- * that means nothing.
+ * Whether the weights are the first of their kind is decided in `weights.ts` against every count
+ * ever published. That is memory; this is a function of one HTTP response.
  */
 const LIKES_FLOOR = 20;
 
 /**
- * Only as long as the sweep can still re-read the model. Following a repository for two days after
- * it leaves the window would mean re-reading stored candidates rather than the feed, which is a
- * different collector; twenty likes inside twelve hours is what a launch looks like anyway.
+ * Only as long as the sweep can still re-read the model. Following a repository after it leaves the
+ * window would mean re-reading stored candidates rather than the feed, which is a different
+ * collector; twenty likes inside twelve hours is what a launch looks like anyway.
  */
 const LIKES_WINDOW_HOURS = HUGGINGFACE_WINDOW_HOURS;
 
@@ -132,42 +120,14 @@ function declaresBaseModel(model: z.infer<typeof huggingFaceDiscoveryModel>): bo
 }
 
 /**
- * Why this repository is worth a person's attention, or an empty list. Reasons carry no measured
- * number: `records.body` is compared byte for byte, so a reason that embedded the like count would
- * report a change every time somebody clicked.
+ * Why this repository is worth a person's attention on the strength of this response alone. Reasons
+ * carry no measured number: `records.body` is compared byte for byte, so a reason that embedded the
+ * like count would report a change every time somebody clicked.
  */
-function notableReasons(
-  model: z.infer<typeof huggingFaceDiscoveryModel>,
-  originalOf: ReadonlyMap<number, string>,
-  now: number,
-): string[] {
-  const reasons: string[] = [];
-  const total = parameterTotal(model);
-  if (total !== null && total >= NOVEL_PARAMETER_FLOOR && !declaresBaseModel(model)) {
-    // A copy of somebody else's weights reproduces the parameter count exactly; whoever published
-    // that count first in the window is the origin and the rest are mirrors.
-    if (originalOf.get(total) === model.id) reasons.push("novel-parameter-total");
-  }
+function notableReasons(model: z.infer<typeof huggingFaceDiscoveryModel>, now: number): string[] {
   const created = Date.parse(model.createdAt);
   const young = Number.isFinite(created) && now - created <= LIKES_WINDOW_HOURS * 3_600_000;
-  if (young && (model.likes ?? 0) >= LIKES_FLOOR) reasons.push(`likes-within-${LIKES_WINDOW_HOURS}h`);
-  return reasons;
-}
-
-/** The earliest-created repository for each parameter count in the sweep. */
-function originalsByParameterTotal(models: readonly z.infer<typeof huggingFaceDiscoveryModel>[]): Map<number, string> {
-  const earliest = new Map<number, { id: string; created: number }>();
-  for (const model of models) {
-    const total = parameterTotal(model);
-    if (total === null) continue;
-    const created = Date.parse(model.createdAt);
-    if (!Number.isFinite(created)) continue;
-    const held = earliest.get(total);
-    if (!held || created < held.created || (created === held.created && model.id < held.id)) {
-      earliest.set(total, { id: model.id, created });
-    }
-  }
-  return new Map([...earliest].map(([total, held]) => [total, held.id]));
+  return young && (model.likes ?? 0) >= LIKES_FLOOR ? [`likes-within-${LIKES_WINDOW_HOURS}h`] : [];
 }
 
 function sevenDayDate(now: Date): string {
@@ -275,7 +235,6 @@ export async function collectHuggingFaceDiscovery(
     if (covered) break;
   }
   const within = models.filter((model) => !model.private && Date.parse(model.createdAt) >= cutoff);
-  const originals = originalsByParameterTotal(within);
   const records: RecordData[] = within.map((model) => {
     const attention = huggingFaceAttentionScore(
       {
@@ -288,7 +247,7 @@ export async function collectHuggingFaceDiscovery(
       },
       now.getTime(),
     );
-    const reasons = notableReasons(model, originals, now.getTime());
+    const reasons = notableReasons(model, now.getTime());
     return {
       id: model.id,
       name: model.id,

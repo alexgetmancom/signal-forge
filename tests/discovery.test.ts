@@ -123,34 +123,6 @@ test("a body carries the parameter count but never a figure that moves", async (
   expect(record).not.toHaveProperty("updated");
 });
 
-test("weights are notable, a re-upload of the same weights is not", async () => {
-  const model = (id: string, createdAt: string, extra: Record<string, unknown> = {}) => ({
-    id,
-    author: id.split("/")[0],
-    createdAt,
-    tags: [],
-    private: false,
-    safetensors: { total: 753_329_940_480 },
-    ...extra,
-  });
-  const request = async () =>
-    Response.json([
-      model("mirror/copy", "2026-09-10T18:00:00.000Z"),
-      model("lab/original", "2026-09-10T11:00:00.000Z"),
-      model("derived/tune", "2026-09-10T12:00:00.000Z", { cardData: { base_model: "lab/original" } }),
-      { id: "small/adapter", author: "small", createdAt: "2026-09-10T11:00:00.000Z", tags: [], private: false },
-    ]);
-  const records = (await collectHuggingFaceDiscovery(config, request, undefined, now)).records;
-  const status = Object.fromEntries(records.map((record) => [record.id, record.discoveryStatus]));
-  expect(status).toEqual({
-    "lab/original": "notable",
-    "mirror/copy": "candidate",
-    "derived/tune": "candidate",
-    "small/adapter": "candidate",
-  });
-  expect(records.find((record) => record.id === "lab/original")?.notableReasons).toEqual(["novel-parameter-total"]);
-});
-
 test("likes find what the parameter rule cannot, and only while the model is young", async () => {
   const liked = (createdAt: string) => ({
     id: "gated/model",

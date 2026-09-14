@@ -4,6 +4,7 @@ import { rebuildHypotheses } from "../hypotheses.js";
 import { rebuildLifecycleDeadlines } from "../lifecycle.js";
 import { rebuildModelFacts } from "../modelFacts.js";
 import { rememberStoryProjection, type StoryProjection, updateStories } from "../stories.js";
+import { markNovelWeights } from "../weights.js";
 import { prepareDeliveries } from "./batching.js";
 import { persistCollection } from "./store.js";
 import type { Collection } from "./types.js";
@@ -25,7 +26,9 @@ export function saveCollection(
     const previousEventId = Number(
       db.query<{ id: number | null }, []>("SELECT MAX(id) AS id FROM events").get()?.id ?? 0,
     );
-    const count = persistCollection(db, collection, destinations, now);
+    // The ledger of parameter counts is memory a collector cannot hold, and its verdict belongs to
+    // the same transaction as the snapshot and events it explains.
+    const count = persistCollection(db, markNovelWeights(db, collection, now), destinations, now);
     const currentEventId = Number(
       db.query<{ id: number | null }, []>("SELECT MAX(id) AS id FROM events").get()?.id ?? 0,
     );
