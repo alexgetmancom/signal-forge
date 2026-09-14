@@ -189,7 +189,9 @@ while the same problem continues. A delivery that failed or came back ambiguous 
 is never retried automatically, so without an alert a message that will never reach the channel
 looks exactly like a quiet week -- which is how a 403 on the public channel went unnoticed for a
 day. The alert carries the platform's own words, so "403 Missing Permissions" points at the
-channel's permissions rather than at the database. The alert includes the next diagnostic action and does not go to
+channel's permissions rather than at the database. A failed row stops being actionable once that
+destination has sent something after it: the channel answered the question. An ambiguous one never
+does, because somebody has to go and look. The alert includes the next diagnostic action and does not go to
 a reader feed channel.
 A known channel rejection leaves the transition failed, so the next cycle retries rather than losing
 it. A transport failure or an unconfirmable response is recorded as an ambiguous alert outcome and

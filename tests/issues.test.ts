@@ -108,3 +108,28 @@ test("stale workers and sending deliveries are actionable without automatic retr
   expect(db.query("SELECT status FROM deliveries WHERE id=8").get()).toEqual({ status: "sending" });
   db.close();
 });
+
+test("a failed delivery stops being actionable once the channel sends again", () => {
+  const db = openDatabase(":memory:");
+  const config = loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname });
+  const now = Date.parse("2026-09-14T12:00:00.000Z");
+  db.query("INSERT INTO batches(id,source,digest,ready_at,sealed) VALUES(1,'openai',0,?,1)").run(
+    new Date(now).toISOString(),
+  );
+  const add = (id: number, status: string) =>
+    db
+      .query(
+        "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,status,error,updated_at) VALUES(?,1,'signals','{}','{}',?, ?,'Platform returned HTTP 403',?)",
+      )
+      .run(id, id, status, new Date(now).toISOString());
+
+  add(1, "failed");
+  expect(listActionableIssues(db, config, now).some((issue) => issue.id === "delivery:1")).toBe(true);
+  // The permissions were fixed and the channel has carried something since.
+  add(2, "sent");
+  expect(listActionableIssues(db, config, now).some((issue) => issue.id === "delivery:1")).toBe(false);
+  // A later failure is the current state of the wire and says so.
+  add(3, "failed");
+  expect(listActionableIssues(db, config, now).some((issue) => issue.id === "delivery:3")).toBe(true);
+  db.close();
+});

@@ -134,9 +134,22 @@ export function listActionableIssues(db: Database, config: AppConfig, now = Date
       "SELECT id,destination_id,status,updated_at,error FROM deliveries WHERE status IN ('failed','ambiguous','verification_required') ORDER BY id",
     )
     .all();
+  // A destination that has sent something since answers the question a failed row raises: the
+  // channel works, and that one message is history rather than a channel to go and fix. A failure
+  // with nothing successful after it is the opposite -- the wire is silently down -- and stays
+  // actionable until it is. An ambiguous send is never history: somebody has to go and look.
+  const lastSent = new Map(
+    db
+      .query<{ destination_id: string; id: number }, []>(
+        "SELECT destination_id,MAX(id) AS id FROM deliveries WHERE status='sent' GROUP BY destination_id",
+      )
+      .all()
+      .map((row) => [row.destination_id, row.id] as const),
+  );
   for (const delivery of deliveries) {
     const updatedAt = issueTime(delivery.updated_at, now);
     const ambiguous = delivery.status !== "failed";
+    if (!ambiguous && (lastSent.get(delivery.destination_id) ?? 0) > delivery.id) continue;
     issues.push({
       id: `delivery:${delivery.id}`,
       kind: ambiguous ? "delivery_ambiguous" : "delivery_failed",
