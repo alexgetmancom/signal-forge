@@ -4,6 +4,26 @@ import type { AppConfig } from "./config.js";
 import type { Fetch } from "./http-client.js";
 import { lockHolder, withActionLock } from "./runtime/actionLock.js";
 
+/**
+ * The editorial archive, read from Solo Publisher and never written to.
+ *
+ * The two services stay independent: neither imports the other or touches the other's database.
+ * This reads the Studio's existing `ops_recent` and `ops_post_text` MCP operations every fifteen
+ * minutes, with `SOLO_PUBLISHER_MCP_URL` and `SOLO_PUBLISHER_MCP_TOKEN` configured together in the
+ * deployment environment. The token is a Studio credential: only these two read operations are ever
+ * called, but the credential itself is not read-only, so it is never logged and never reaches an
+ * error message.
+ *
+ * What the upstream can and cannot answer shapes everything below. It returns at most fifty text
+ * publications, so each refresh updates that window and retains rows seen before it -- absence is
+ * never deletion. Older history, video publications and edits to posts that have left the window
+ * are outside the contract, and losing overlap with a full next window is a permanent coverage gap:
+ * conversion must not be calculated across one. `publishedAt` is the Studio's own publication date,
+ * not a verified per-platform send.
+ *
+ * These rows are editorial outcomes and never corroborating evidence for a signal. Nothing here
+ * matches stories, calculates conversion, creates drafts or notifies subscribers.
+ */
 const instant = z.iso.datetime({ offset: true }).transform((value) => new Date(value).toISOString());
 const target = z.object({
   target: z.string(),

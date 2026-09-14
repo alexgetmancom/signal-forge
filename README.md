@@ -268,8 +268,8 @@ Story views expose event IDs, `canonicalId`, `identityStatus`, and aliases so do
 Signal Forge can read published text and platform outcomes from Solo Publisher every 15 minutes.
 Set `SOLO_PUBLISHER_MCP_URL` and `SOLO_PUBLISHER_MCP_TOKEN`, then inspect `bun src/cli.ts publications`.
 The initial window is the latest 50 text publications; previously observed posts remain stored.
-These rows do not create signal events or notifications. See [the workflow](docs/agent-workflow.md)
-for coverage and authorization details.
+These rows do not create signal events or notifications; the coverage limits and the authorization
+rule are documented where they are enforced, at the top of `src/publications.ts`.
 
 ## Reliability
 
@@ -353,6 +353,5 @@ has already settled.
 ## Documentation
 
 * [docs/runbook.md](docs/runbook.md) — deployment, backup, restore, and operator procedures
-* [docs/agent-workflow.md](docs/agent-workflow.md) — evidence handoff for downstream publication workflows
 * [docs/discord.md](docs/discord.md) — Discord delivery, boards, roles, and channel configuration
 * [docs/roadmap.md](docs/roadmap.md) — current engineering priorities

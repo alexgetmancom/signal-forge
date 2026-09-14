@@ -1,179 +1,102 @@
-# Signal Forge operator runbook
+# Operator runbook
 
-This runbook describes the operational contract without naming the deployment host, address or
-filesystem layout. Those values belong in the operator's deployment environment, never in the
-repository or a public report.
+Every procedure here is a script, because a procedure that lives in prose is a procedure nobody
+runs the same way twice. What is left in this file is the route — which script, when — and the few
+things the scripts cannot know. Hosts, paths and credentials stay in the operator's deployment
+environment, never in this repository.
 
-## Deploy and health
+Set `SIGNAL_FORGE_DIR` to the deployment directory for every script below. Deployment additionally
+needs `SIGNAL_FORGE_DEPLOY_HOST`, `SIGNAL_FORGE_DEPLOY_DIR` and `SIGNAL_FORGE_BIND_ADDRESS`.
 
-Run deployment from an authorized operator checkout:
+| When | Run |
+| --- | --- |
+| Ship a release | CI, on push to `main`; `./scripts/deploy.sh` by hand only when CI cannot |
+| Nightly | `./scripts/backup.sh` (snapshot, then archive) |
+| Before a migration | `bun scripts/rehearse-migration.ts /path/to/app.db` |
+| On a schedule, and after any schema or backup change | `./scripts/restore-drill.sh` |
+| After losing the database | `./scripts/restore.sh --yes [archive]` |
+| To see whether any of it worked | `bun dist/src/cli.js doctor`, `issues`, `status` |
 
-```sh
-./scripts/deploy.sh
-```
+`bun dist/src/cli.js guide` is the command catalogue and the symptom index. Run one collector
+against a production database, never two. The operational HTTP API requires its bearer token.
 
-Set `SIGNAL_FORGE_DEPLOY_HOST`, `SIGNAL_FORGE_DEPLOY_DIR` and `SIGNAL_FORGE_BIND_ADDRESS` in the
-operator environment before deployment. Keep their values outside the repository.
-
-The release image is built and checked once in CI and published to the private container registry.
-Deployment pulls it by digest through `DEPLOY_IMAGE`, which the script requires and refuses unless
-it is pinned by digest: a tag can be repointed after the checks ran. Production no longer compiles
-anything.
-
-The deployment script pulls the image, applies migrations, normalizes Claude Web evidence and
-performs the Arena metadata backfill while the collectors are stopped, then waits for container
-health. It preserves the production database. Credentials stay in the deployment environment and
-never enter the image. Afterwards it keeps the five most recent release images and removes older
-ones; set `SIGNAL_FORGE_KEEP_RELEASES` to keep a different number.
-
-After deployment, verify the health endpoint, readiness endpoint, application logs and:
+## After a deployment
 
 ```sh
-bun dist/src/cli.js guide
 bun dist/src/cli.js doctor
 bun dist/src/cli.js issues
 bun dist/src/cli.js signal-quality 7
-bun dist/src/cli.js code-analytics 7
-bun dist/src/cli.js deepseek-usage 30
-bun dist/src/cli.js models
-bun dist/src/cli.js hypotheses
-bun dist/src/cli.js lifecycle-deadlines
+bun dist/src/cli.js channel-mix 7
 bun dist/src/cli.js deliveries-needing-verification
 ```
 
-Run only one collector against a production database. Operational APIs require the configured
-bearer token.
-
-### Shadow sources
-
-`sourceEnabled` decides whether a collector runs. A running source with `sourceMode` set to
-`shadow` persists snapshots and immutable events and participates in stories, projections and
-metrics, but cannot create subscriber delivery work. GitHub and Hugging Face discovery are shadow
-by default. Promote a source by editing the operator-owned JSON configuration:
-
-```json
-{
-  "sourceMode": {
-    "discovery:github-ai": "active"
-  }
-}
-```
-
-Do not edit configuration through the CLI. Verify the resulting source mode in `status` before
-enabling a discovery source for subscribers.
-
-The intelligence projections are derived from immutable evidence: Model Facts retain event or
-current-observation provenance, hypotheses are interpretations rather than evidence, and lifecycle
-reminders are derived delivery work rather than synthetic events. Attention scores are triage
-values and never change confidence, which remains source-derived.
-
-## Backups
-
-The scheduled backup runs `scripts/backup.sh` with `SIGNAL_FORGE_DIR` set to the private deployment
-directory and a separate memory budget. It uses SQLite's `VACUUM INTO`, reads the copy back, runs
-`PRAGMA integrity_check`, verifies the event count, compresses it, and retains the configured number
-of recent archives. A failed verification must fail the backup job rather than produce a
-trusted-looking archive.
-
-The script takes those steps in two phases so a deployment need not wait for the slow one.
-`backup.sh snapshot` makes the verified copy and leaves it uncompressed, which takes about three
-seconds; `backup.sh archive` compresses every uncompressed snapshot it finds, checks the archive as
-a stream and rotates. With no argument it runs both, which is what the schedule wants and what it
-has always done. `scripts/deploy.sh` takes the snapshot before it stops the application -- that
-copy is its rollback point, restored with `cp` rather than decompressed -- and runs the archive
-phase after production is healthy again. An uncompressed snapshot left behind by a deployment that
-died between the phases needs no attention: the next archive phase finds it by the same glob.
-
-The snapshot phase also copies `signal-forge.json` beside the archive as `config-<stamp>.json`, with
-owner-only permissions and the same rotation. The routing table is not in the repository -- it names
-the channels and carries the destinations -- so without this the database was backed up nightly while
-the file deciding where any of it goes existed in exactly one place. A deployment directory with no
-`signal-forge.json` is reported on stderr rather than failing the job.
-
-After a successful verification the job writes `last-verified.json` into the backup directory. That
-marker is the only thing the service can see of a job that runs outside it: `doctor` reads it, and
-`issues` raises `backup_stale` when the newest verified archive is more than two nights old. A
-backup directory with archives and no marker is reported as unverified, because an archive nobody
-read back is a file, not a backup.
+Deployment pulls the image CI built, applies migrations with the collectors stopped, preserves the
+database, waits for health and keeps the five most recent release images. It refuses an image that
+is not pinned by digest, and says so: a tag can be repointed after the checks ran.
 
 ## Migrations
 
-Production is the database the deployment opens on the production host, not the `data/app.db` in a
-development checkout. That copy has its own history and its own row counts, and a version stamped
-onto it proves nothing about the one subscribers depend on.
+Three things will ruin a migration, and none of them is visible afterwards.
 
-Rehearse on a copy of the database the migration will actually run against:
-
-```sh
-bun scripts/rehearse-migration.ts /path/to/app.db
-```
-
-Rehearse on a copy taken with the write-ahead log folded in, or the copy is not the database:
+**A copy without its write-ahead log is not the database.** A plain file copy leaves `app.db-wal`
+behind, so the newest pages are missing and a rehearsal answers for a database that does not exist:
 
 ```sh
 sqlite3 /path/to/app.db 'PRAGMA wal_checkpoint(TRUNCATE);'
 ```
 
-A plain file copy takes `app.db` and leaves `app.db-wal` behind, so the newest pages are missing and
-the rehearsal answers for a database that does not exist. The same applies to any archive taken by
-copying the file.
+**Production is the database on the production host**, not the `data/app.db` in a checkout. That
+copy has its own history, and a version stamped on it proves nothing about the one subscribers
+depend on. Rehearse against a copy of the real thing: `rehearse-migration.ts` reports schema
+versions, per-table row changes, and how many stored `records.body` values the migration moves.
 
-It reports the schema versions, per-table row changes and — the case that matters here — how many
-stored `records.body` values the migration moved. A subscriber-facing string lives in those bodies
-and is compared byte for byte, so a body that changed without a deliberate rewrite is a "changed"
-event for every record carrying it. Migrate with the collector stopped.
+**A subscriber-facing string lives in `records.body` and is compared byte for byte.** A body that
+changes without a deliberate rewrite emits a "changed" event for every record carrying it. Migrate
+with the collector stopped.
 
-Migrations 001 to 025 were squashed into a single `025_baseline.sql` on 2026-09-13. The steps
-themselves are in the git log. The file is numbered for the version it produces rather than for
-being first, so production, which already holds 25, has nothing to run, and a new database reaches
-that version in one step. A migration added after the squash continues from 026.
+Migrations 001–025 were squashed into `025_baseline.sql` on 2026-09-13; the steps are in the git
+log. An archive from before the squash carries a version below 25 and the baseline cannot walk it
+forward: check out the commit before the squash, migrate it there, and come back.
 
-An archive taken before the squash carries a version below 25, and the baseline cannot walk it
-forward: check it out at the commit before the squash, migrate it there, and come back.
+## Backups and restore
 
-Migration 026 drops `snapshots.raw_json`, and a payload collected before bodies were compressed
-lives only there. Release them first, on the stopped collector:
+`backup.sh` runs in two phases so a deployment need not wait for the slow one: `snapshot` makes a
+verified copy in about three seconds and is what `deploy.sh` holds as its rollback point; `archive`
+compresses and rotates. With no argument it does both, which is what the nightly job wants. The
+snapshot also copies `signal-forge.json`, because the routing table exists in exactly one place
+otherwise. After a successful verification the job writes `last-verified.json`, which is the only
+thing the service can see of a job that runs outside it: `doctor` reads it and `issues` raises
+`backup_stale`.
 
-```sh
-bun scripts/compress-snapshots.ts /path/to/app.db
+`restore-drill.sh` restores the newest archive into a throwaway instance with no network, checks
+integrity and provenance, boots it, rebuilds every derived view and destroys the copy. Expect
+`issues` to be long inside the drill: every source fails without a network, and that is the
+isolation working.
+
+`restore.sh` is the real thing, and the only script here that destroys production state. It refuses
+to run without `--yes`, copies the database it is about to overwrite into `backups/superseded-*.db`,
+removes the stale sidecars, checks integrity, boots the application and rebuilds the derived views.
+
+Two decisions stay with the operator. **Whether to restore at all**: a restored database is missing
+everything since the archive was taken, and a corrupted one may still be repairable. **What the
+delivery queue will do**: a restored database carries the queue as it was, so anything pending at
+backup time sends on start and subscribers may see it twice. Read `deliveries` first if that matters
+more than the minutes it costs.
+
+## Shadow sources
+
+`sourceEnabled` decides whether a collector runs. A source with `sourceMode` set to `shadow` keeps
+snapshots, events, stories and metrics but creates no delivery work. GitHub and Hugging Face
+discovery, the Hugging Face blog and OpenRouter usage are shadow by default. Promote one by editing
+the operator-owned JSON, never through the CLI, and verify the result in `status`:
+
+```json
+{ "sourceMode": { "discovery:github-ai": "active" } }
 ```
-
-The migration refuses to run while any payload is still only in `raw_json`, naming the script in the
-constraint it fails, so the order cannot be got wrong silently.
-
-## Restore
-
-Restore only while the service is stopped:
-
-1. Stop the application.
-2. Decompress the selected archive into the configured database directory, or copy it there
-   directly if you are restoring an uncompressed snapshot a deployment left behind.
-3. Remove stale `-wal` and `-shm` sidecars.
-4. Start the application and wait for readiness.
-5. Run `issues`, `signal-quality 7` and the delivery verification report.
-6. Run a separate integrity check and compare the restored event count with the backup log.
-7. Run `models`, `hypotheses` and `lifecycle-deadlines` to confirm the derived views rebuild consistently.
-
-Do not restore over a live SQLite database.
-
-### Drill
-
-`./scripts/restore-drill.sh [archive]` performs the whole procedure against a throwaway copy and
-destroys it afterwards. It defaults to the newest archive. Run it on a schedule that matches how
-much loss would be tolerable, and after any change to the schema or the backup job.
-
-The drill instance runs with no network at all. A restored database carries the delivery queue as it
-was, so an instance that could reach Discord would re-send messages subscribers already have;
-`--network none` makes that impossible rather than unlikely, and no credentials are passed either.
-Every source therefore fails inside the drill and `issues` is long — that is the isolation working.
-
-It fails, rather than reporting success, when the archive will not decompress, when
-`integrity_check` or `foreign_key_check` object, when any event has lost its snapshot, when the
-application does not become ready, when a derived view will not rebuild, or when the archive holds
-more events than production does.
 
 ## Delivery
 
-Successful sends are never retried. HTTP 429 honors retry timing. An uncertain send is marked
-`ambiguous` and never automatically repeated; inspect the actual destination, require manual
-verification, then record the final outcome without sending again.
+Successful sends are never retried, and HTTP 429 honours the retry timing it is given. An uncertain
+outcome is `ambiguous` and is never repeated automatically: inspect the actual channel, then
+`require-delivery-verification` and `resolve-delivery-verification` record what happened without
+sending a second message.
