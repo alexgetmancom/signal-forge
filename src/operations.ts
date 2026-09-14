@@ -27,6 +27,7 @@ import { signalQuality } from "./signalQuality.js";
 import { sourceJobs } from "./sources/registry.js";
 import { dateIntegrity } from "./storage/dateIntegrity.js";
 import { listStories } from "./stories.js";
+import { seedWeightTotals } from "./weights.js";
 
 /**
  * One entry per operation, and every operator surface is a projection of it: the CLI dispatch and
@@ -127,6 +128,18 @@ export function operations(db: Database, config: AppConfig): OperationMap {
       schema: z.object({}),
       cli: {},
       handler: () => syncPublications(db, config),
+    },
+    "seed-weight-totals": {
+      section: "host",
+      summary: "Hold every parameter count of the established catalogue for the laboratory that published it.",
+      note:
+        "Run once after the ledger is created, and again only if it is rebuilt. Reads the public " +
+        "catalogue; a count already held by an earlier publication is left alone.",
+      mutates: true,
+      agent: false,
+      schema: z.object({}),
+      cli: {},
+      handler: () => seedWeightTotals(db),
     },
     guide: {
       section: "health",
