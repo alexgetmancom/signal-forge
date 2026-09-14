@@ -72,10 +72,10 @@ test("GitHub discovery requires a token and rejects malformed responses", async 
   ).rejects.toThrow();
 });
 
-test("global Hugging Face discovery is append-only and validates the public response", async () => {
-  let requested = "";
+test("global Hugging Face discovery sweeps a window and validates the public response", async () => {
+  const requested: string[] = [];
   const request = async (url: string) => {
-    requested = url;
+    requested.push(url);
     return Response.json([
       {
         id: "openai/secret-model",
@@ -92,14 +92,80 @@ test("global Hugging Face discovery is append-only and validates the public resp
     ]);
   };
   const collection = await collectHuggingFaceDiscovery(config, request, undefined, now);
-  expect(requested).toBe("https://huggingface.co/api/models?sort=createdAt&direction=-1&limit=100");
+  expect(requested[0]).toContain("limit=1000");
+  expect(requested[0]).toContain("expand[]=safetensors");
+  // A short page is the end of the feed: one request, not twenty-four.
+  expect(requested).toHaveLength(1);
   expect(collection).toMatchObject({ source: "discovery:huggingface-recent", stream: "weights", appendOnly: true });
-  expect(collection.records[0]).toMatchObject({
-    id: "openai/secret-model",
-    author: "openai",
-    pipelineTag: "text-generation",
-    discoveryStatus: "candidate",
-  });
-  expect(collection.records[0]?.attentionScore).toBeGreaterThan(0);
+  expect(collection.records[0]).toMatchObject({ id: "openai/secret-model", author: "openai" });
   await expect(collectHuggingFaceDiscovery(config, async () => Response.json({}), undefined, now)).rejects.toThrow();
+});
+
+test("a body carries the parameter count but never a figure that moves", async () => {
+  const request = async () =>
+    Response.json([
+      {
+        id: "lab/new-weights",
+        author: "lab",
+        createdAt: "2026-09-10T11:00:00.000Z",
+        lastModified: "2026-09-10T23:00:00.000Z",
+        downloads: 4,
+        likes: 3,
+        tags: [],
+        private: false,
+        safetensors: { total: 753_329_940_480 },
+      },
+    ]);
+  const record = (await collectHuggingFaceDiscovery(config, request, undefined, now)).records[0];
+  expect(record).toMatchObject({ parameters: 753_329_940_480, derivative: false });
+  expect(record).not.toHaveProperty("likes");
+  expect(record).not.toHaveProperty("downloads");
+  expect(record).not.toHaveProperty("updated");
+});
+
+test("weights are notable, a re-upload of the same weights is not", async () => {
+  const model = (id: string, createdAt: string, extra: Record<string, unknown> = {}) => ({
+    id,
+    author: id.split("/")[0],
+    createdAt,
+    tags: [],
+    private: false,
+    safetensors: { total: 753_329_940_480 },
+    ...extra,
+  });
+  const request = async () =>
+    Response.json([
+      model("mirror/copy", "2026-09-10T18:00:00.000Z"),
+      model("lab/original", "2026-09-10T11:00:00.000Z"),
+      model("derived/tune", "2026-09-10T12:00:00.000Z", { cardData: { base_model: "lab/original" } }),
+      { id: "small/adapter", author: "small", createdAt: "2026-09-10T11:00:00.000Z", tags: [], private: false },
+    ]);
+  const records = (await collectHuggingFaceDiscovery(config, request, undefined, now)).records;
+  const status = Object.fromEntries(records.map((record) => [record.id, record.discoveryStatus]));
+  expect(status).toEqual({
+    "lab/original": "notable",
+    "mirror/copy": "candidate",
+    "derived/tune": "candidate",
+    "small/adapter": "candidate",
+  });
+  expect(records.find((record) => record.id === "lab/original")?.notableReasons).toEqual(["novel-parameter-total"]);
+});
+
+test("likes find what the parameter rule cannot, and only while the model is young", async () => {
+  const liked = (createdAt: string) => ({
+    id: "gated/model",
+    author: "gated",
+    createdAt,
+    tags: [],
+    private: false,
+    likes: 40,
+    gated: true,
+  });
+  const reasons = async (createdAt: string) =>
+    (await collectHuggingFaceDiscovery(config, async () => Response.json([liked(createdAt)]), undefined, now))
+      .records[0]?.notableReasons;
+  expect(await reasons("2026-09-10T11:00:00.000Z")).toEqual(["likes-within-12h"]);
+  // Past the window the model is not read at all: the like count it carries was earned out of
+  // sight, and the sweep cannot page back far enough to have watched it happen.
+  expect(await reasons("2026-09-09T11:00:00.000Z")).toBeUndefined();
 });

@@ -760,7 +760,11 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
     authority: "third_party",
     group: "Discovery",
     stream: "weights",
-    intervalSeconds: 1800,
+    // The sweep re-reads a three-day window rather than the newest page, so the interval no longer
+    // decides what is seen -- it decides how soon weights uploaded into an already-known repository
+    // are noticed. Hourly is what the evidence asked for: Atria Dawn Preview went from empty
+    // repository to 753-billion-parameter weights in three hours and seventeen minutes.
+    intervalSeconds: 3600,
     pace: { group: "huggingface.co", seconds: 60 },
     collector: () => collectHuggingFaceDiscovery(config, fetch, cache, new Date()),
     enabled: requested("discovery:huggingface-recent"),
