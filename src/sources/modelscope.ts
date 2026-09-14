@@ -22,6 +22,7 @@ export const MODELSCOPE_ORGS: readonly string[] = [
   "StepFun",
   "baidu",
   "iic",
+  "Shanghai_AI_Laboratory",
 ];
 
 const listing = z.object({

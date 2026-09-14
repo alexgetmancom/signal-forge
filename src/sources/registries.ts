@@ -52,6 +52,9 @@ export const HF_AUTHORS = [
   "meta-models",
   "ibm-granite",
   "tencent",
+  // Shanghai AI Lab publishes under the InternLM organisation on both registries, whatever the
+  // model is branded; Atria Dawn Preview landed here three days before its announcement.
+  "internlm",
 ];
 
 export function parseHuggingFace(payload: string, author: string): Collection {
