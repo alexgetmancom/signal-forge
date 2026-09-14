@@ -41,3 +41,25 @@ export function witnessedSubjects(db: Database): Set<string> {
   }
   return witnessed;
 }
+
+/**
+ * How heavily a model is used, as a place in the ranking, for the models that appear on one.
+ *
+ * Three price lines a week is a budget, and spending one on a model nobody runs is how DeepSeek V4
+ * Flash 0731 -- fourth by tokens on the very catalogue that repriced it -- went unmentioned as it
+ * got three times cheaper. A model that is not ranked is not disqualified; it simply goes last.
+ */
+export function usageRanks(db: Database): Map<string, number> {
+  const ranks = new Map<string, number>();
+  for (const row of db.query<{ body: string }, []>("SELECT body FROM records WHERE source='openrouter-usage'").all()) {
+    try {
+      const record = JSON.parse(row.body) as { id?: unknown; rank?: unknown };
+      const place = Number(record.rank);
+      if (typeof record.id === "string" && Number.isFinite(place)) {
+        const key = subjectKey(record.id);
+        if (!ranks.has(key) || place < (ranks.get(key) ?? place)) ranks.set(key, place);
+      }
+    } catch {}
+  }
+  return ranks;
+}

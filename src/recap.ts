@@ -16,7 +16,7 @@ import {
   modelSubject,
 } from "./events/variants.js";
 import { vendorOf, vendorOfName } from "./events/vendors.js";
-import { subjectKey, witnessedSubjects } from "./events/witness.js";
+import { subjectKey, usageRanks, witnessedSubjects } from "./events/witness.js";
 
 /**
  * A week, summarised once, in the channel that otherwise only says what is happening now.
@@ -184,6 +184,7 @@ export function weeklyRecapContext(db: Database, to: string): WeeklyRecapContext
   const classified = events.map((event) => ({ event, signal: signalClass(event) }));
   const renamed = renamedEvents(db, events);
   const witnessed = witnessedSubjects(db);
+  const usage = usageRanks(db);
   // One model however many collectors saw it, and the maker's own word ahead of a reseller's.
   const bySubject = new Map<string, { name: string; vendor: string; weight: number }>();
   for (const { event, signal } of classified) {
@@ -263,7 +264,12 @@ export function weeklyRecapContext(db: Database, to: string): WeeklyRecapContext
       const reportable = moves.filter((move) => move.reportable);
       return reportable.length ? [reportable.reduce((best, move) => (move.ratio > best.ratio ? move : best))] : [];
     })
-    .sort((one, other) => other.ratio - one.ratio)
+    // A model people actually run first, and only then the size of the move.
+    .sort((one, other) => {
+      const mine = usage.get(subjectKey(one.name)) ?? Number.POSITIVE_INFINITY;
+      const theirs = usage.get(subjectKey(other.name)) ?? Number.POSITIVE_INFINITY;
+      return mine - theirs || other.ratio - one.ratio;
+    })
     .slice(0, 3)
     .map(({ name, percent, cheaper, discountEnded }) => ({ name, percent, cheaper, discountEnded }));
   return weeklyRecapContextSchema.parse({

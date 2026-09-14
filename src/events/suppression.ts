@@ -17,6 +17,10 @@ const SUPPRESSION_REASONS = [
   "waiting_for_the_move_to_settle",
   "returned_to_the_delivered_state",
   "renamed_by_the_source",
+  "below_the_top_of_the_board",
+  "another_serving_of_a_known_model",
+  "display_label_only",
+  "alias_of_another_row",
 ] as const;
 
 export type SuppressionReason = (typeof SUPPRESSION_REASONS)[number];
@@ -39,6 +43,14 @@ function suppressionDetail(event: Event, reason: SuppressionReason): string {
       return "The move ended where this destination last saw it";
     case "renamed_by_the_source":
       return "An identical record arrived or left under another key in the same few hours";
+    case "below_the_top_of_the_board":
+      return "A place on a benchmark outside the leading three, and not the top changing hands";
+    case "another_serving_of_a_known_model":
+      return "A model already identified here, listed again under the way it is served";
+    case "display_label_only":
+      return "Nothing changed but the title the source displays";
+    case "alias_of_another_row":
+      return "A row that points at whichever build is newest, not a model of its own";
   }
 }
 

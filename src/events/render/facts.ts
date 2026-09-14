@@ -196,7 +196,11 @@ export function eventFacts(event: Event & { lead?: LeadTime }, summary?: string)
       if (key === "selectable") continue;
       if (key === "maker" && canonical(raw) === canonical(record?.provider)) continue;
       if (key === "pricing") lines.push(...prices(null, raw, event.source));
-      else if (["description", "summary", "message"].includes(key)) lines.push(describe(raw));
+      else if (["description", "summary", "message"].includes(key)) {
+        // A feed that carries no summary for a post said nothing; "not set" is a line spent saying
+        // that a field was empty, which is not a fact about the thing.
+        if (present(raw)) lines.push(describe(raw));
+      }
       // A field a source left empty is absence of evidence, not a fact about the model.
       else if (present(raw)) lines.push(`${fieldLabels[key] ?? key}: ${value(key, raw)}`);
     }

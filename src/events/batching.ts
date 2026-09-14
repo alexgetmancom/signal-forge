@@ -27,6 +27,7 @@ import { pingWorthy, type SignalClass } from "./signals.js";
 import { sourceFamily } from "./sourceFamily.js";
 import { clearSuppression, recordSuppression, type SuppressionReason } from "./suppression.js";
 import type { Event, RecordData } from "./types.js";
+import { isAliasRow, isAnotherServing, isLabelOnlyChange, isMinorBoardMove, knownModelNames } from "./worth.js";
 
 const DUPLICATE_STORY_WINDOW_MS = 6 * 3_600_000;
 /** How many stories an hourly digest shows before it stops being read at all. */
@@ -303,6 +304,8 @@ export function prepareDeliveries(
     // A re-keyed catalogue speaks once per row, twice: the row that left and the identical row that
     // arrived. Found once per batch, because the answer does not depend on the destination.
     const renamed = renamedEvents(db, events);
+    // Read once per batch: the question is about the event, not about the destination.
+    const known = events.some((event) => event.stream === "arena") ? knownModelNames(db) : [];
     for (const target of targets) {
       const destination = JSON.parse(target.destination_json) as Destination;
       const subscribed = new Set<string>(destination.signals);
@@ -329,6 +332,10 @@ export function prepareDeliveries(
                 : "no_reader_facing_change",
             );
           if (renamed.has(event.id)) return quiet(event, "renamed_by_the_source");
+          if (isMinorBoardMove(event)) return quiet(event, "below_the_top_of_the_board");
+          if (isAnotherServing(event, known)) return quiet(event, "another_serving_of_a_known_model");
+          if (isLabelOnlyChange(event)) return quiet(event, "display_label_only");
+          if (isAliasRow(event)) return quiet(event, "alias_of_another_row");
           if (isScheduledPricingRotation(event)) return quiet(event, "scheduled_pricing_rotation");
           if (isOscillating(db, event, now)) return quiet(event, "oscillating");
           if (isReappearance(db, event, now)) return quiet(event, "flapping_in_and_out");

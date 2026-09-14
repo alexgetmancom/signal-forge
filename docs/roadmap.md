@@ -31,6 +31,12 @@ an integration gap, not evidence that those models are unavailable.
 
 - Cards and the weekly recap print the name of a thing, not the catalogue key for it, while an
   Arena codename and a repository id keep their exact characters.
+- Usage is measured: `openrouter-usage` reads the public token ranking as a shadow source, and the
+  recap orders its price lines by how heavily a model is actually run rather than by the size of the
+  percentage. DeepSeek V4 Flash 0731 is fourth by tokens there.
+- The invited room is no longer told about board moves outside the leading three, another serving of
+  a model already identified, a change of display label, an alias row, or the Hugging Face
+  engineering blog.
 - A record re-keyed by its source is recognised by its body and stays quiet on both halves, so a
   catalogue renaming its rows no longer reads as a wave of arrivals and removals.
 - The recap reads a week back by maker, and counts as an arrival only what a maker offered: billing
@@ -171,6 +177,7 @@ priority.
 | Later | An evidence type for resets. | `events.evidence_type` carries a CHECK constraint, so a new member needs a rebuild of a table a dozen others reference. Resets store `unknown` and say what they are in the card's own words until that rebuild is worth one move. |
 | Later | Shutdown dates that reach the reminder engine. | Deprecations are `🕵scouts` material: a retirement is read by whoever runs the model being retired, and the public wire is for what a reader can start using. That caps the value of this work, which is why it moved from Next to Later. The reminder engine, `lifecycle_deadlines` and idempotent 30/7/1-day reminders already exist; the extraction does not. `parseOpenAIDeprecations()` keeps the prose but extracts no shutdown or replacement field, and the `lifecycle.ts` fallback reads ISO dates, not `October 1, 2026`. Event 9163 announced the GPT-5.4-Cyber shutdown and its replacement in `summary` alone and left `lifecycle_deadlines` at nine rows. Done when announcement, deprecation and shutdown dates are told apart from the source's own structure, an ambiguous multi-model or multi-date notice stays unprojected rather than guessing, affected stored records are migrated and projections rebuilt in the same move, and event 9163 yields the right date and successor. Routing `reminder` to a destination and an upcoming-shutdown block in `status` are a separate owner decision, not part of the parsing. |
 | Next | Read the wire back in a week. | `channel_mix 7`, taken no earlier than 2026-09-21, answers what the two channels carried after the routing changed: volumes per class, the lead-time share, and whether the invited room promoted anything at all. Done when the numbers are recorded here with their date and `change` is either returned to the public channel or left in `🕵scouts` on the evidence rather than on one morning's screenshot. |
+| Owner decision | Kimi K2.8 and the platform migration. | The Moonshot catalogue reads `api.moonshot.ai` and returns two models, `kimi-k2.6` and `kimi-k2.7-code`; neither K3 nor `kimi-for-coding` is in it, which is why the K2.8 Preview rollout of 11 September 2026 was invisible here and K3 was only ever seen second-hand. Needs a key from platform.kimi.com and `api.moonshot.cn`, plus the Kimi Code changelog as its own source. |
 | Later | ModelScope verdict. | Keep or remove on measured lead time once it has produced a week of first sightings. |
 | Later | More repositories. | Add only repositories with a clear reader benefit and one explicit configuration entry each. |
 | Later | History commands. | Add `/latest` and `/search` only after the event and identity model remains useful in daily use. |

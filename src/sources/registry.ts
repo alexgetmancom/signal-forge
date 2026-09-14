@@ -61,6 +61,7 @@ import {
   collectXaiReleaseNotes,
 } from "./releaseNotes.js";
 import { collectCodexResets } from "./resets.js";
+import { collectOpenRouterUsage } from "./usage.js";
 
 export type SourceDefinition = {
   id: string;
@@ -284,6 +285,18 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       intervalSeconds: config.pollSeconds,
       collector: () => collectArena(),
       enabled: requested("arena"),
+    },
+    {
+      id: "openrouter-usage",
+      label: sourceLabel("openrouter-usage"),
+      authority: "third_party",
+      group: "Catalogues",
+      stream: "leaderboards",
+      // Usage over a month moves slowly; reading it four times a day is already more often than
+      // any decision that depends on it.
+      intervalSeconds: 21600,
+      collector: () => collectOpenRouterUsage(),
+      enabled: requested("openrouter-usage"),
     },
     {
       id: "arena-leaderboards",
@@ -679,6 +692,15 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
     "github:openai/codex:commits",
     ...GITHUB_DISCOVERY_QUERIES.map((query) => `discovery:github-${query.id}`),
     "discovery:huggingface-recent",
+    // An engineering blog, not a newsroom. "Async GRPO with LoRA across HF Jobs" is a post about
+    // how Hugging Face runs training on its own infrastructure; a reader following model releases
+    // gets nothing from it, and it arrived in the invited room beside actual sightings. The feed
+    // keeps collecting, because a release post could appear there and the evidence is worth
+    // holding; it simply no longer interrupts anyone.
+    "huggingface-blog-feed",
+    // Collected to be measured against, never to be told: nobody needs a card because a model
+    // moved from ninth to tenth by tokens.
+    "openrouter-usage",
   ]);
   const resolved = definitions.map(
     (definition): SourceDefinition => ({

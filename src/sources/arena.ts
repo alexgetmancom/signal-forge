@@ -1,38 +1,9 @@
 import { z } from "zod";
 import type { Collection } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
+import { nextData } from "./html.js";
 import { fetchText } from "./http.js";
 
-function nextData(html: string, key: string): unknown {
-  let stream = "";
-  for (const match of html.matchAll(/self\.__next_f\.push\((\[.*?\])\)<\/script>/g)) {
-    const chunk: unknown = JSON.parse(match[1] ?? "null");
-    if (Array.isArray(chunk) && chunk[0] === 1 && typeof chunk[1] === "string") stream += chunk[1];
-  }
-  const search = (value: unknown): unknown => {
-    if (value && typeof value === "object") {
-      if (!Array.isArray(value) && Object.hasOwn(value, key)) return (value as Record<string, unknown>)[key];
-      for (const nested of Object.values(value)) {
-        const found = search(nested);
-        if (found !== undefined) return found;
-      }
-    }
-    return undefined;
-  };
-  for (const line of stream.split("\n")) {
-    const text = line.slice(line.indexOf(":") + 1);
-    if (!text.startsWith("[") && !text.startsWith("{")) continue;
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(text);
-    } catch {
-      continue;
-    }
-    const found = search(parsed);
-    if (found !== undefined) return found;
-  }
-  throw new Error(`Public page no longer exposes ${key}`);
-}
 const arenaModels = z
   .array(
     z.object({

@@ -192,8 +192,9 @@ heard of those rows, so the only judgement available is whether the maker is one
 follows, and a catalogue-only arrival from an unknown maker is left out. Adding a maker to that
 table is how a new name gets in, and it is one line.
 
-Three lines a week is a small budget, so they are spent on models something other than a price list
-knows about: a benchmark ranks it, an arena serves it, or its own maker lists it in their API.
+Three lines a week is a small budget. They are ordered by how heavily a model is actually used --
+`openrouter-usage` reads the public ranking and is collected for no other purpose -- and spent on
+models something other than a price list knows about: a benchmark ranks it, an arena serves it, or its own maker lists it in their API.
 Qwen3 14B, a small model from April 2025, moved 3.8 times on one catalogue because the cheapest
 provider serving it changed, and took the line from DeepSeek V3.1 actually becoming 55% cheaper. A
 rise within three months of a row first appearing is reported as the launch promotion ending, which
@@ -221,6 +222,32 @@ a reader feed channel.
 A known channel rejection leaves the transition failed, so the next cycle retries rather than losing
 it. A transport failure or an unconfirmable response is recorded as an ambiguous alert outcome and
 is never sent again automatically; verify the private channel before taking action.
+
+## What the invited room is not told
+
+Four observations that are true, cheap to make and not worth anybody's attention were read in
+`🕵scouts` on 14 September and could not be explained to the person who owns the channel. Each is now
+a written suppression rather than a card.
+
+A **board move outside the leading three** says something about a table, not about the frontier.
+Entering a benchmark at rank 2 speaks; entering at rank 5, or sliding from 6 to 7, does not. Taking
+first place always speaks, and so does losing it.
+
+**Another serving of a model already identified here.** `kimi-k3-gateway-max-v3` is Kimi K3 reached
+through a gateway at maximum thinking effort with the third harness; the arena lists every wiring
+separately and each arrived as an unidentified sighting. A name that is a model we already know
+followed only by serving words -- gateway, official, proxy, max, a harness number -- is that model.
+
+**A change of label and nothing else.** OpenRouter prefixed its own titles with the vendor and
+"DeepSeek V4 Flash Latest" became "DeepSeek: DeepSeek V4 Flash Latest". An arena is the exception: a
+codename acquiring a real name is the entire point of watching one.
+
+**An alias row.** `~deepseek/deepseek-v4-flash-latest` is not a model but a promise to route to
+whichever build is newest, and its every move repeats a card the model behind it already produced.
+
+The Hugging Face engineering blog moved to shadow for the same reason. "Async GRPO with LoRA across
+HF Jobs" is a post about how Hugging Face runs training on its own infrastructure; the feed keeps
+collecting, because a release post could appear there, and it no longer interrupts anyone.
 
 ## A re-keyed catalogue
 
