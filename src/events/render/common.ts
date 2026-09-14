@@ -156,6 +156,21 @@ export function priceMoveRatio(before: unknown, after: unknown, source?: string)
   return base > 0 ? Math.abs(from - to) / base : 0;
 }
 
+/**
+ * The two prices themselves, per million tokens, so a caller can say which way a number moved and
+ * by how much against the price that was actually being charged before.
+ *
+ * `priceMoveRatio` divides by the larger of the two, which is the right way to rank moves and the
+ * wrong way to describe one: a rise from $0.24 to $0.91 is "74%" that way and 3.8 times as
+ * expensive in a reader's bank account.
+ */
+export function pricePair(before: unknown, after: unknown, source?: string): { from: number; to: number } | null {
+  const unit = priceUnitForSource(source, before);
+  const from = pricePerMillion(before, unit);
+  const to = pricePerMillion(after, unit);
+  return from === null || to === null ? null : { from, to };
+}
+
 export function significantPriceChange(before: unknown, after: unknown, source?: string): boolean {
   if (before === null || before === undefined || after === null || after === undefined) return true;
   const unit = priceUnitForSource(source, before);

@@ -2,10 +2,18 @@ import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { AppConfig, Destination } from "./config.js";
 import { readableName } from "./events/naming.js";
-import { priceMoveRatio } from "./events/render/common.js";
+import { renamedEvents } from "./events/rename.js";
+import { priceMoveRatio, pricePair } from "./events/render/common.js";
 import { signalClass } from "./events/signals.js";
 import type { Event, RecordData } from "./events/types.js";
-import { arrivalWeight, isModelVariant, isRepublished, isTrainingArtefact, modelSubject } from "./events/variants.js";
+import {
+  arrivalWeight,
+  isBesideTheRelease,
+  isModelVariant,
+  isRepublished,
+  isTrainingArtefact,
+  modelSubject,
+} from "./events/variants.js";
 import { vendorOf, vendorOfName } from "./events/vendors.js";
 
 /**
@@ -71,9 +79,12 @@ function nameOf(event: Event): string {
  * are all real records and none of them is a release. Counting them is how the first recap reported
  * thirty-seven models in a week that had nine, and led with a batch tier of a model from July.
  */
-function isRealArrival(event: Event): boolean {
+function isRealArrival(event: Event, renamed: Set<number>): boolean {
   const record = recordOf(event);
   const name = String(record?.name ?? event.entity_id);
+  if (renamed.has(event.id)) return false;
+  // Only a registry says what an artefact is; a catalogue row is a model by construction.
+  if (event.stream === "weights" && isBesideTheRelease(record)) return false;
   return !isModelVariant(name) && !isTrainingArtefact(name) && !isRepublished(event, record);
 }
 
@@ -94,19 +105,38 @@ function arrivalVendor(event: Event, record: RecordData | null, name: string): s
   return namespace || "Other";
 }
 
-function steepestMove(event: Event): { percent: number; cheaper: boolean } | null {
+/**
+ * What a reader is actually billed.
+ *
+ * A catalogue row prices half a dozen things -- prompt, completion, cached reads, images, web
+ * search -- and the steepest of them is usually the smallest number. IBM's Granite 4.2 8B dropped
+ * its cached-read rate by seventy percent in the same edit that made output sixty-seven percent
+ * dearer, and "down 70%" was true of a field almost nobody pays and false of the week.
+ */
+const BILLED_ELSEWHERE = /cache|image|request|search|audio|video|discount|internal/i;
+
+/**
+ * Every move this edit made to a price a reader pays, one per field.
+ *
+ * `ratio` ranks moves against each other, as it always has. `percent` is what a reader is told, and
+ * it is relative to the old price, so a rise reads as the multiple it actually is. They are
+ * returned rather than reduced, because two fields moving in opposite directions is a repricing
+ * and not a cut, and only the caller can see that across a subject's several rows.
+ */
+function priceMovesOf(event: Event): { percent: number; ratio: number; cheaper: boolean }[] {
   const before = event.before_json ? (JSON.parse(event.before_json) as RecordData) : null;
   const after = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
   const from = before?.pricing && typeof before.pricing === "object" ? (before.pricing as Record<string, unknown>) : {};
   const to = after?.pricing && typeof after.pricing === "object" ? (after.pricing as Record<string, unknown>) : {};
-  let best: { percent: number; cheaper: boolean } | null = null;
+  const moves: { percent: number; ratio: number; cheaper: boolean }[] = [];
   for (const key of new Set([...Object.keys(from), ...Object.keys(to)])) {
+    if (BILLED_ELSEWHERE.test(key)) continue;
     const ratio = priceMoveRatio(from[key], to[key], event.source);
-    if (ratio === null || ratio === 0) continue;
-    const cheaper = Number(to[key]) < Number(from[key]);
-    if (!best || ratio > best.percent) best = { percent: ratio, cheaper };
+    const pair = pricePair(from[key], to[key], event.source);
+    if (ratio === null || ratio === 0 || !pair || pair.from === 0) continue;
+    moves.push({ percent: Math.abs(pair.to - pair.from) / pair.from, ratio, cheaper: pair.to < pair.from });
   }
-  return best;
+  return moves;
 }
 
 export function weeklyRecapContext(db: Database, to: string): WeeklyRecapContext {
@@ -115,10 +145,11 @@ export function weeklyRecapContext(db: Database, to: string): WeeklyRecapContext
     .query<Event, [string, string]>("SELECT * FROM events WHERE detected_at>=? AND detected_at<? ORDER BY id")
     .all(from, to);
   const classified = events.map((event) => ({ event, signal: signalClass(event) }));
+  const renamed = renamedEvents(db, events);
   // One model however many collectors saw it, and the maker's own word ahead of a reseller's.
   const bySubject = new Map<string, { name: string; vendor: string; weight: number }>();
   for (const { event, signal } of classified) {
-    if (signal !== "launch" || event.kind !== "new" || !isRealArrival(event)) continue;
+    if (signal !== "launch" || event.kind !== "new" || !isRealArrival(event, renamed)) continue;
     const record = recordOf(event);
     const name = nameOf(event);
     const subject = modelSubject(name);
@@ -144,14 +175,37 @@ export function weeklyRecapContext(db: Database, to: string): WeeklyRecapContext
     byVendor.set(arrival.vendor, names);
   }
   const arrivals = [...byVendor.entries()].map(([vendor, names]) => ({ vendor, names }));
-  const priceMoves = classified
-    .filter(({ event, signal }) => signal === "change" && !isModelVariant(nameOf(event)))
-    .flatMap(({ event }) => {
-      const move = steepestMove(event);
-      return move ? [{ name: readableName(nameOf(event)), percent: move.percent, cheaper: move.cheaper }] : [];
+  // One model, one price line. A catalogue lists the same model under several rows, and on
+  // 8 September two rows of Inception's Mercury 2.5 moved in opposite directions an hour apart:
+  // the preview row went up five times when the launch discount expired, the standard row went
+  // down eighty percent to the discounted rate. One of those is the week's news and nothing in
+  // the data says which, so a subject whose rows contradict each other is left out rather than
+  // reported in whichever direction sorts highest.
+  const bySubjectMove = new Map<
+    string,
+    { name: string; percent: number; ratio: number; cheaper: boolean; reportable: boolean }[]
+  >();
+  for (const { event, signal } of classified) {
+    if (signal !== "change") continue;
+    const name = nameOf(event);
+    const subject = modelSubject(name);
+    const held = bySubjectMove.get(subject) ?? [];
+    // A tier never carries a price line of its own, and it is still evidence about the subject:
+    // Mercury's preview row is where the expiring discount showed, and reading the standard row
+    // without it is how the week's rise was reported as a cut.
+    for (const move of priceMovesOf(event))
+      held.push({ name: readableName(name), ...move, reportable: !isModelVariant(name) });
+    if (held.length) bySubjectMove.set(subject, held);
+  }
+  const priceMoves = [...bySubjectMove.values()]
+    .filter((moves) => new Set(moves.map((move) => move.cheaper)).size === 1)
+    .flatMap((moves) => {
+      const reportable = moves.filter((move) => move.reportable);
+      return reportable.length ? [reportable.reduce((best, move) => (move.ratio > best.ratio ? move : best))] : [];
     })
-    .sort((one, other) => other.percent - one.percent)
-    .slice(0, 3);
+    .sort((one, other) => other.ratio - one.ratio)
+    .slice(0, 3)
+    .map(({ name, percent, cheaper }) => ({ name, percent, cheaper }));
   return weeklyRecapContextSchema.parse({
     from,
     to,

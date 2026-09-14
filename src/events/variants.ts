@@ -47,6 +47,28 @@ export function isModelVariant(name: string): boolean {
   );
 }
 
+/**
+ * True when a published artefact is not a model somebody can run, or is somebody's edit of one.
+ *
+ * A registry carries far more than releases. `google/gnm-v3` is a parametric 3D model of a human
+ * head -- a real publication by Google, and nothing a reader of this feed can call or run -- and it
+ * says so itself: it declares no inference pipeline at all, only `3d`, `mesh` and `computer-vision`
+ * tags. `NVIDIA-NemotronLabs-AI-for-Media-Sports-Tennis` declares the model it was fine-tuned from,
+ * which is the registry's own way of saying this is a derivative rather than a launch.
+ *
+ * Both facts come from the record. Nothing here judges whether the work is interesting.
+ */
+export function isBesideTheRelease(record: RecordData | null): boolean {
+  if (!record) return false;
+  const tags = Array.isArray(record.tags) ? record.tags.map(String) : [];
+  if (tags.some((tag) => /^base_model:(finetune|quantized|adapter|merge):/i.test(tag))) return true;
+  // A registry that does not report a pipeline at all has not said anything; one that reports an
+  // empty one has said this is not something to run.
+  if (!("pipeline" in record) && !("category" in record)) return false;
+  const pipeline = record.pipeline ?? record.category;
+  return typeof pipeline === "string" ? !pipeline.trim() : pipeline === null || pipeline === undefined;
+}
+
 /** True when this entry is a step in training a model rather than a model offered to anyone. */
 export function isTrainingArtefact(name: string): boolean {
   return TRAINING_ARTEFACT.test(name.trim());
@@ -63,6 +85,7 @@ export function modelSubject(name: string): string {
   const stripped = name
     .trim()
     .replace(VARIANT_SUFFIX, "")
+    .replace(ALIAS_SUFFIX, "")
     .replace(DATED_SNAPSHOT, "")
     .replace(/\s*\(\d+\)\s*$/, "")
     .replace(/^[^:/]+[:/]/, "");

@@ -75,6 +75,18 @@ export function renderLifecycleReminderEmbed(context: LifecycleReminderContext, 
 const NAMES_PER_VENDOR = 3;
 
 /**
+ * A price move in the terms a reader pays it in: a cut as the share that came off, a rise as the
+ * multiple it became once it is more than a doubling. "Up 74%" for a price that nearly quadrupled
+ * is arithmetic nobody is charged.
+ */
+function priceMove(move: { percent: number; cheaper: boolean }): string {
+  if (move.cheaper) return `down ${Math.round(move.percent * 100)}%`;
+  return move.percent >= 1
+    ? `${(move.percent + 1).toFixed(1)}× more expensive`
+    : `up ${Math.round(move.percent * 100)}%`;
+}
+
+/**
  * The week, in the order a reader would ask about it: what can I use now, what got cheaper, and
  * what did the people watching early see before anybody announced it.
  */
@@ -96,8 +108,7 @@ export function renderWeeklyRecapLines(context: WeeklyRecapContext): string[] {
     const others = context.arrivalCount - named;
     if (others > 0) lines.push(`· ${others} more from smaller makers`);
   }
-  for (const move of context.priceMoves)
-    lines.push(`📊 ${move.name} · ${move.cheaper ? "down" : "up"} ${Math.round(move.percent * 100)}%`);
+  for (const move of context.priceMoves) lines.push(`📊 ${move.name} · ${priceMove(move)}`);
   if (context.codenameCount)
     lines.push(
       `🕵 **${context.codenameCount} early ${context.codenameCount === 1 ? "sighting" : "sightings"}** in scouts, before any announcement`,

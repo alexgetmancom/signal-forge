@@ -31,9 +31,13 @@ an integration gap, not evidence that those models are unavailable.
 
 - Cards and the weekly recap print the name of a thing, not the catalogue key for it, while an
   Arena codename and a repository id keep their exact characters.
+- A record re-keyed by its source is recognised by its body and stays quiet on both halves, so a
+  catalogue renaming its rows no longer reads as a wave of arrivals and removals.
 - The recap reads a week back by maker, and counts as an arrival only what a maker offered: billing
-  tiers, aliases, dated snapshots, numbered duplicate rows, third-party quantisations and training
-  checkpoints are excluded.
+  tiers, aliases, dated snapshots, numbered duplicate rows, third-party quantisations training
+  checkpoints, artefacts a registry declares no pipeline for and somebody's fine-tune of a model
+  that already arrived are excluded. Price lines are read against the price charged before, skip
+  cached-read rates, and are withheld entirely when a subject's rows moved in both directions.
 - A delivery that failed or came back ambiguous raises an alert in the private problem channel,
   carrying the platform's own words. Nothing retries those, so they were previously invisible.
 - The nightly backup copies `signal-forge.json` beside the database snapshot and rotates it with the

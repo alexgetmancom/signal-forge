@@ -9,6 +9,7 @@ import { deliveryBaseline, withBaseline } from "./cooldown.js";
 import { vendorOf } from "./interpretation.js";
 import { hasNotificationContent } from "./notification.js";
 import { isOscillating, isReappearance, isScheduledPricingRotation } from "./oscillation.js";
+import { renamedEvents } from "./rename.js";
 import { type Attachment, eventAttachment } from "./render/attachment.js";
 import { pageEmbeds } from "./render/budget.js";
 import { eventEmbed } from "./render/discord.js";
@@ -299,6 +300,9 @@ export function prepareDeliveries(
         .map((row) => [row.event_id, row.story_id] as const),
     );
     const leads = leadTimes(db, storyIds, events);
+    // A re-keyed catalogue speaks once per row, twice: the row that left and the identical row that
+    // arrived. Found once per batch, because the answer does not depend on the destination.
+    const renamed = renamedEvents(db, events);
     for (const target of targets) {
       const destination = JSON.parse(target.destination_json) as Destination;
       const subscribed = new Set<string>(destination.signals);
@@ -324,6 +328,7 @@ export function prepareDeliveries(
                 ? "returned_to_the_delivered_state"
                 : "no_reader_facing_change",
             );
+          if (renamed.has(event.id)) return quiet(event, "renamed_by_the_source");
           if (isScheduledPricingRotation(event)) return quiet(event, "scheduled_pricing_rotation");
           if (isOscillating(db, event, now)) return quiet(event, "oscillating");
           if (isReappearance(db, event, now)) return quiet(event, "flapping_in_and_out");

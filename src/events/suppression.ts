@@ -16,6 +16,7 @@ const SUPPRESSION_REASONS = [
   "already_told_by_another_source",
   "waiting_for_the_move_to_settle",
   "returned_to_the_delivered_state",
+  "renamed_by_the_source",
 ] as const;
 
 export type SuppressionReason = (typeof SUPPRESSION_REASONS)[number];
@@ -36,6 +37,8 @@ function suppressionDetail(event: Event, reason: SuppressionReason): string {
       return "This destination heard about this subject less than six hours ago";
     case "returned_to_the_delivered_state":
       return "The move ended where this destination last saw it";
+    case "renamed_by_the_source":
+      return "An identical record arrived or left under another key in the same few hours";
   }
 }
 

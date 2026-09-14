@@ -174,7 +174,16 @@ Arrivals are read back by maker rather than as a list of handles: one line per v
 makers, the rest counted. What counts as an arrival is narrower than what counts as an event -- a
 billing tier, a `latest` alias, a dated snapshot, a numbered row the collector had to disambiguate,
 somebody else's quantisation and a training checkpoint published beside the model it trained are all
-real records and none of them is a release. Names are printed the way a reader says them: a
+real records and none of them is a release. A registry carries more than releases, and it says so itself: an artefact that declares no
+inference pipeline (a parametric 3D head model) or declares the model it was fine-tuned from is
+published work and not a launch. A price line is what a reader is billed -- prompt and completion,
+never a cached-read rate -- read against the price charged before, so a rise reads as the multiple
+it is rather than a percentage of the bigger number. A subject whose rows or fields moved in both
+directions in the same week carries no price line at all: a standard row falling to a discounted
+rate while its preview row rises off one is catalogue bookkeeping, and nothing in the data says
+which half was the week's news.
+
+Names are printed the way a reader says them: a
 catalogue handle such as `gpt-image-2.5-flare` is read back as GPT Image 2.5 Flare, while an Arena
 codename and a repository id keep their exact characters, because those are what somebody searches
 for.
@@ -196,6 +205,15 @@ a reader feed channel.
 A known channel rejection leaves the transition failed, so the next cycle retries rather than losing
 it. A transport failure or an unconfirmable response is recorded as an ambiguous alert outcome and
 is never sent again automatically; verify the private channel before taking action.
+
+## A re-keyed catalogue
+
+A source that renames its rows emits the same record twice: the row that left and an identical row
+that arrived under another key. DeepSeek's pricing table did exactly that on 10 September, and one
+of the two numbered rows it produced was a model from the spring. Both halves are quiet when the
+bodies match byte for byte with the key fields removed, recorded as `renamed_by_the_source`, and
+neither reaches a reader. When the bodies differ -- a new version, new prices -- it is a release
+wearing a reused name and it speaks, which is how `deepseek-flash` stayed in the week it launched.
 
 ## Reader message format
 

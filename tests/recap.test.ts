@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import type { Destination } from "../src/config.js";
 import { prepareDeliveries } from "../src/events/batching.js";
 import { saveCollection } from "../src/events/pipeline.js";
+import { renderWeeklyRecapLines } from "../src/events/render/lifecycle.js";
 import type { Collection } from "../src/events/types.js";
 import { lastRecapPeriod, scheduleWeeklyRecap, weeklyRecapContext } from "../src/recap.js";
 import { openDatabase } from "../src/storage/database.js";
@@ -87,17 +88,26 @@ test("a week is read back by maker, with training checkpoints and re-keyed rows 
     stream: "weights",
     url: "https://huggingface.co/nvidia",
     raw: [],
-    records: [{ id: "nvidia/Older", name: "nvidia/Older" }],
+    records: [{ id: "nvidia/Older", name: "nvidia/Older", pipeline: "text-generation" }],
   };
   saveCollection(db, weights, [wire], "2026-09-08T10:00:00.000Z");
   weights.records = [
-    { id: "nvidia/Older", name: "nvidia/Older" },
-    { id: "nvidia/Nemotron-4-Ultra", name: "nvidia/Nemotron-4-Ultra" },
+    { id: "nvidia/Older", name: "nvidia/Older", pipeline: "text-generation" },
+    { id: "nvidia/Nemotron-4-Ultra", name: "nvidia/Nemotron-4-Ultra", pipeline: "text-generation" },
     // Two checkpoints of one training run, and a row the collector had to number because the
     // catalogue already carries it. Neither is a release.
-    { id: "nvidia/Nemotron-4-Ultra-Math-SFT", name: "nvidia/Nemotron-4-Ultra-Math-SFT" },
-    { id: "nvidia/Nemotron-4-Ultra-Math-RL", name: "nvidia/Nemotron-4-Ultra-Math-RL" },
-    { id: "nvidia/Nemotron-4-Ultra (1)", name: "nvidia/Nemotron-4-Ultra (1)" },
+    { id: "nvidia/Nemotron-4-Ultra-Math-SFT", name: "nvidia/Nemotron-4-Ultra-Math-SFT", pipeline: "text-generation" },
+    { id: "nvidia/Nemotron-4-Ultra-Math-RL", name: "nvidia/Nemotron-4-Ultra-Math-RL", pipeline: "text-generation" },
+    { id: "nvidia/Nemotron-4-Ultra (1)", name: "nvidia/Nemotron-4-Ultra (1)", pipeline: "text-generation" },
+    // A parametric 3D head: a real publication by a real maker, and not a model anyone can call.
+    { id: "google/gnm-v4", name: "google/gnm-v4", pipeline: null, tags: ["3d", "computer-vision"] },
+    // Somebody's fine-tune of a model that already arrived.
+    {
+      id: "nvidia/Nemotron-4-Ultra-Tennis",
+      name: "nvidia/Nemotron-4-Ultra-Tennis",
+      pipeline: "any-to-any",
+      tags: ["base_model:finetune:nvidia/Nemotron-4-Ultra"],
+    },
   ];
   saveCollection(db, weights, [wire], "2026-09-09T10:00:00.000Z");
   const catalogue: Collection = {
@@ -118,4 +128,36 @@ test("a week is read back by maker, with training checkpoints and re-keyed rows 
     { vendor: "NVIDIA", names: ["Nemotron 4 Ultra"] },
     { vendor: "Sakana", names: ["Fugu Max"] },
   ]);
+});
+
+test("a price line is what a reader pays, and says nothing when the rows disagree", () => {
+  const db = openDatabase(":memory:");
+  const catalogue: Collection = {
+    source: "openrouter",
+    stream: "openrouter",
+    url: "https://openrouter.ai",
+    raw: [],
+    records: [
+      { id: "qwen/qwen3-14b", name: "Qwen: Qwen3 14B", pricing: { prompt: "0.00000012", completion: "0.00000024" } },
+      { id: "inception/mercury", name: "Inception: Mercury", pricing: { prompt: "0.0000002" } },
+      { id: "inception/mercury-preview", name: "Inception: Mercury Preview", pricing: { prompt: "0.00000004" } },
+      // A cached-read rate is not the price of the week, however far it moves.
+      { id: "ibm/granite", name: "IBM: Granite", pricing: { prompt: "0.0000001", input_cache_read: "0.00000005" } },
+    ],
+  };
+  saveCollection(db, catalogue, [wire], "2026-09-08T10:00:00.000Z");
+  catalogue.records = [
+    { id: "qwen/qwen3-14b", name: "Qwen: Qwen3 14B", pricing: { prompt: "0.0000002275", completion: "0.00000091" } },
+    // The standard row falls to the discounted rate while the preview row rises off it: one of
+    // these is the week's news and nothing here says which.
+    { id: "inception/mercury", name: "Inception: Mercury", pricing: { prompt: "0.00000004" } },
+    { id: "inception/mercury-preview", name: "Inception: Mercury Preview", pricing: { prompt: "0.0000002" } },
+    { id: "ibm/granite", name: "IBM: Granite", pricing: { prompt: "0.0000001", input_cache_read: "0.000000015" } },
+  ];
+  saveCollection(db, catalogue, [wire], "2026-09-09T10:00:00.000Z");
+
+  const context = weeklyRecapContext(db, "2026-09-13T18:00:00.000Z");
+  expect(context.priceMoves).toEqual([{ name: "Qwen: Qwen3 14B", percent: 2.7916666666666665, cheaper: false }]);
+  // Nearly quadrupling is not "up 74%", whatever the ranking arithmetic says.
+  expect(renderWeeklyRecapLines(context)).toContain("📊 Qwen: Qwen3 14B · 3.8× more expensive");
 });
