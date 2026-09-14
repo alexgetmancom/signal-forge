@@ -57,6 +57,21 @@ const FIRST_PARTY_VENDOR_BY_SOURCE: Record<string, string> = {
   "cohere-deprecations": "Cohere",
   "aws-bedrock-lifecycle": "AWS",
   "azure-foundry-lifecycle": "Microsoft",
+  "deepseek-api": "DeepSeek",
+  "cursor-changelog": "Cursor",
+  xai: "xAI",
+  zai: "Z.ai",
+  moonshot: "Moonshot",
+  mistral: "Mistral",
+  groq: "Groq",
+  minimax: "MiniMax",
+  dashscope: "Alibaba",
+  cerebras: "Cerebras",
+  "pages:google": "Google",
+  "pages:google-devs": "Google",
+  "pages:zai": "Z.ai",
+  "pages:claude-docs": "Anthropic",
+  "pages:claude-support": "Anthropic",
 };
 
 /** Independent confirmation must not count two official surfaces from the same vendor twice. */
