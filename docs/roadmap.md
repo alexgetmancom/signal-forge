@@ -84,6 +84,11 @@ Kept because the reasoning cost real observation and is easy to re-litigate from
   the engineer who runs Codex and are what that source is for; the tracker's own AI-classified watch
   forecast and its scheduled reset are neither, and its documentation says neither implies a reset
   happened. Retained as evidence, never delivered, nothing to measure.
+- **The documentation set is closed at five files, enforced by `check-docs`.** Prose multiplies on
+  its own: every session that learns something wants a file to put it in, and this repository had
+  2203 lines across eight files, of which a 1022-line competitor audit and a sixty-bullet list of
+  completed work described the past. A new file now fails the gate with the question of which
+  existing file the content belongs in.
 - **No welcome channel.** The channel map lives in each channel's Discord topic, where a reader
   already looks, and costs no sixth entry in the sidebar.
 
