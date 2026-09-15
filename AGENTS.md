@@ -31,10 +31,13 @@ reads. Timestamps are UTC.
 
 # Documentation
 
-Five files, and the gate enforces it. `README.md` is what the service is; this file is how work is
+Four files, and the gate enforces it. `README.md` is what the service is; this file is how work is
 done; `docs/roadmap.md` is the plan and the decisions measurement already settled; `docs/runbook.md`
-is which script to run when; `docs/discord.md` is the delivery contract. Everything else is a
-comment next to the code it explains.
+is which script to run when. Everything else is a comment next to the code it explains.
+
+Delivery has no document. A signal class is defined where it is derived, a suppression rule beside
+the code that applies it, and the routing in `signal-forge.json` -- which is the file the service
+actually reads, so it cannot drift from what subscribers get.
 
 Write a document only when it changes what happens next. A record of what was built is the code, its
 tests and the git log — a second copy in prose is wrong within a month and nobody notices. A new

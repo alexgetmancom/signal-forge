@@ -94,6 +94,23 @@ the operator-owned JSON, never through the CLI, and verify the result in `status
 { "sourceMode": { "discovery:github-ai": "active" } }
 ```
 
+## Discord setup
+
+The only part of delivery that lives outside this repository, because it is configuration in
+somebody else's product and nothing here can read it or check it.
+
+A bot reaches a private category only when its role holds `VIEW_CHANNEL` there. Mentioning a role
+that is not marked mentionable needs *Mention @everyone, @here and All Roles* in that channel, which
+a channel inheriting its category's permissions gets automatically. Verify a new channel with one
+manual `POST /channels/<id>/messages` before routing anything to it: a destination that cannot be
+written to shows up as a failed delivery hours later, and a 403 on a reader channel looks exactly
+like a quiet week.
+
+Destinations, boards, roles and the promotion thresholds are set in `signal-forge.json`; the shape
+is in `signal-forge.example.json`, and the service validates it on start. Deploy after changing it.
+A new destination receives future events only -- the first observation of a source is a quiet
+baseline.
+
 ## Delivery
 
 Successful sends are never retried, and HTTP 429 honours the retry timing it is given. An uncertain

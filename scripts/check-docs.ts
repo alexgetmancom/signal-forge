@@ -23,7 +23,6 @@ const DOCUMENTS: Record<string, { purpose: string; lines: number }> = {
   "AGENTS.md": { purpose: "how work is done here", lines: 120 },
   "docs/roadmap.md": { purpose: "the plan, and the decisions measurement already settled", lines: 200 },
   "docs/runbook.md": { purpose: "which script to run when, and what a script cannot know", lines: 140 },
-  "docs/discord.md": { purpose: "the delivery contract: classes, routing, what never becomes a card", lines: 260 },
 };
 
 const SKIP = new Set(["node_modules", ".git", "dist", "data", "backups", "coverage"]);

@@ -218,7 +218,7 @@ was never stored.
 
 GitHub notifications show the commit or pull-request title, a one-sentence summary when a large diff warrants it, and compact change statistics; raw patch evidence remains internal. Set `GITHUB_TOKEN` to raise the GitHub request allowance from 60 to 5,000 per hour. Optional `github` entries accept `repo` and `paths`; the default repository is `openai/codex`. Set `HF_TOKEN` to use the account's Hub API allowance instead of the anonymous allowance shared by the machine's public address.
 
-See [docs/discord.md](docs/discord.md) for Discord destination, channel, board, role, and permission configuration.
+Destinations, status boards, role mentions and promotion thresholds are set in `signal-forge.json`; `signal-forge.example.json` carries the shape, and [docs/runbook.md](docs/runbook.md) covers the Discord-side permissions the service cannot check for itself.
 
 ## Delivery
 
@@ -226,7 +226,7 @@ Signal Forge currently delivers reader-facing signals to Discord. Telegram suppo
 
 Delivery is designed to avoid duplicate or misleading notifications. Successful sends are never retried, rate limits are respected, and ambiguous outcomes require explicit operator verification rather than automatic resending.
 
-See [docs/discord.md](docs/discord.md) for channel configuration, status boards, role mentions, permissions, and delivery behavior.
+A destination subscribes to signal classes rather than to sources, so what reaches a channel is decided by `signals` in `signal-forge.json` and by the class each event derives in `src/events/signals.ts`.
 
 ## Operations
 
@@ -353,5 +353,4 @@ has already settled.
 ## Documentation
 
 * [docs/runbook.md](docs/runbook.md) — deployment, backup, restore, and operator procedures
-* [docs/discord.md](docs/discord.md) — Discord delivery, boards, roles, and channel configuration
 * [docs/roadmap.md](docs/roadmap.md) — current engineering priorities

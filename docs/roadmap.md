@@ -1,7 +1,7 @@
 # Roadmap
 
 Updated 2026-09-14 UTC. What is planned, what was decided and why, and nothing else. What is built
-is in the code, its tests, [README.md](../README.md) and [docs/discord.md](discord.md); this file
+is in the code, its tests and [README.md](../README.md); this file
 stopped keeping a second copy of that on 2026-09-14, and so did the competitor audit that seeded the
 source list -- every one of its recommendations shipped, and what it still proposed is under Ideas.
 
