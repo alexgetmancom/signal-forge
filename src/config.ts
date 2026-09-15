@@ -77,6 +77,8 @@ const envSchema = z.object({
   MINIMAX_API_KEY: optionalSecret,
   DASHSCOPE_API_KEY: optionalSecret,
   CEREBRAS_API_KEY: optionalSecret,
+  MIMO_API_KEY: optionalSecret,
+  POOLSIDE_API_KEY: optionalSecret,
   ARTIFICIAL_ANALYSIS_API_KEY: optionalSecret,
 });
 export const settingsSchema = z

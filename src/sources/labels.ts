@@ -70,6 +70,8 @@ const STATIC_LABELS: Record<string, string> = {
   minimax: "MiniMax API",
   dashscope: "Alibaba Model Studio API",
   cerebras: "Cerebras API",
+  mimo: "Xiaomi MiMo API",
+  poolside: "Poolside API",
 };
 
 /** Pure source naming used by both the registry and transport-neutral renderers. */

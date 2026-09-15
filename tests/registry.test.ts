@@ -21,6 +21,18 @@ test("source registry has unique IDs, valid streams, labels and consistent pacin
   ).toBe(true);
   expect(definitions.find((definition) => definition.id === "openai")?.authority).toBe("first_party");
   expect(definitions.find((definition) => definition.id === "openrouter")?.authority).toBe("third_party");
+  expect(definitions.find((definition) => definition.id === "mimo")).toMatchObject({
+    authority: "first_party",
+    stream: "api-models",
+    requiredCapabilities: ["MIMO_API_KEY"],
+    enabled: true,
+  });
+  expect(definitions.find((definition) => definition.id === "poolside")).toMatchObject({
+    authority: "first_party",
+    stream: "api-models",
+    requiredCapabilities: ["POOLSIDE_API_KEY"],
+    enabled: true,
+  });
   expect(definitions.find((definition) => definition.id === "vercel-gateway")?.restrictedReason).toBeUndefined();
   for (const id of [
     "openai-chatgpt-release-notes",
@@ -134,6 +146,13 @@ test("conditional sources distinguish intentional disablement from missing crede
   const deepSeekConfig = config({ DEEPSEEK_API_KEY: "test-key" });
   expect(sourceJobs(deepSeekDb, deepSeekConfig).some((job) => job.id === "deepseek-api")).toBe(true);
   deepSeekDb.close();
+
+  const newProviderDb = openDatabase(":memory:");
+  const newProviderConfig = config({ MIMO_API_KEY: "test-key", POOLSIDE_API_KEY: "test-key" });
+  expect(sourceJobs(newProviderDb, newProviderConfig).map((job) => job.id)).toEqual(
+    expect.arrayContaining(["mimo", "poolside"]),
+  );
+  newProviderDb.close();
 });
 
 test("registry rejects duplicate IDs and conflicting pacing", () => {
@@ -173,5 +192,7 @@ test("source labels cover generated families", () => {
   expect(sourceLabel("openai-api-changelog")).toBe("OpenAI · API changelog");
   expect(sourceLabel("status:deepseek")).toBe("DeepSeek · status");
   expect(sourceLabel("status:moonshot")).toBe("Moonshot · status");
+  expect(sourceLabel("mimo")).toBe("Xiaomi MiMo API");
+  expect(sourceLabel("poolside")).toBe("Poolside API");
   expect(sourceLabel("unknown-source")).toBe("unknown-source");
 });

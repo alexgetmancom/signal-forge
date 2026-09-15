@@ -7,7 +7,14 @@ const config = {
   ZAI_API_KEY: "secret",
 };
 
-const zai = PROVIDER_CATALOGUES.find((provider) => provider.id === "zai");
+function provider(id: string) {
+  const result = PROVIDER_CATALOGUES.find((entry) => entry.id === id);
+  if (!result) throw new Error(`Missing provider fixture: ${id}`);
+  return result;
+}
+
+const zai = provider("zai");
+const mimo = provider("mimo");
 
 // The shape Z.ai actually answers with, which is the shape OpenAI defined.
 const payload = JSON.stringify({
@@ -20,7 +27,7 @@ const payload = JSON.stringify({
 
 test("a provider catalogue is read with the key and never with the key in the address", async () => {
   const seen: { url: string; authorization: string | null }[] = [];
-  const collection = await collectProviderCatalogue(zai!, config, async (url, init) => {
+  const collection = await collectProviderCatalogue(zai, config, async (url, init) => {
     seen.push({ url: String(url), authorization: new Headers(init?.headers).get("authorization") });
     return new Response(payload, { headers: { "content-type": "application/json" } });
   });
@@ -39,19 +46,35 @@ test("a provider catalogue is read with the key and never with the key in the ad
   });
 });
 
+test("MiMo's id-and-owner-only catalogue response is supported", async () => {
+  const collection = await collectProviderCatalogue(
+    mimo,
+    { ...config, MIMO_API_KEY: "secret" },
+    async () =>
+      new Response(
+        JSON.stringify({
+          object: "list",
+          data: [{ id: "mimo-v2.5", object: "model", owned_by: "xiaomi" }],
+        }),
+      ),
+  );
+
+  expect(collection.records).toEqual([{ id: "mimo-v2.5", name: "mimo-v2.5", maker: "Xiaomi MiMo", owner: "xiaomi" }]);
+});
+
 test("an empty catalogue is a failed read, never an empty catalogue", async () => {
   expect(
-    collectProviderCatalogue(zai!, config, async () => new Response(JSON.stringify({ object: "list", data: [] }))),
+    collectProviderCatalogue(zai, config, async () => new Response(JSON.stringify({ object: "list", data: [] }))),
   ).rejects.toThrow();
 });
 
 test("a created that is only the time of the answer is not collected as a date", async () => {
-  const mistral = PROVIDER_CATALOGUES.find((provider) => provider.id === "mistral");
+  const mistral = provider("mistral");
   const answeredAt = Math.floor(Date.now() / 1000);
   // What Mistral actually answers: one identical created for every model, equal to now. Stored, it
   // was a change event per model per poll and a releaseDate of the last collection in Model Facts.
   const collection = await collectProviderCatalogue(
-    mistral!,
+    mistral,
     { ...config, MISTRAL_API_KEY: "secret" },
     async () =>
       new Response(
@@ -68,13 +91,13 @@ test("a created that is only the time of the answer is not collected as a date",
   expect(collection.records).toHaveLength(2);
   for (const record of collection.records) expect(record).not.toHaveProperty("created");
   // A provider that answers with real per-model dates keeps them.
-  expect((await collectProviderCatalogue(zai!, config, async () => new Response(payload))).records[1]).toHaveProperty(
+  expect((await collectProviderCatalogue(zai, config, async () => new Response(payload))).records[1]).toHaveProperty(
     "created",
     "2026-02-10T16:00:00.000Z",
   );
 });
 
 test("a provider with no key configured is not collected", async () => {
-  const groq = PROVIDER_CATALOGUES.find((provider) => provider.id === "groq");
-  expect(collectProviderCatalogue(groq!, config, async () => new Response(payload))).rejects.toThrow("GROQ_API_KEY");
+  const groq = provider("groq");
+  expect(collectProviderCatalogue(groq, config, async () => new Response(payload))).rejects.toThrow("GROQ_API_KEY");
 });

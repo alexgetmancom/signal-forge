@@ -451,6 +451,8 @@ test("a vendor pattern claims its own models and nobody else's", () => {
   expect(vendor("SpaceXAI")).toBe("Unknown");
   expect(vendor("", "Xaiowu/shan-tts-mms-v2")).toBe("Unknown");
   expect(vendor("xAI")).toBe("xAI");
+  expect(vendor("Xiaomi MiMo")).toBe("Xiaomi");
+  expect(vendor("Poolside")).toBe("Poolside");
   // A cloud that resells a model does not become its maker.
   expect(vendorOf({ source: "aws-bedrock-lifecycle", entity_id: "claude-sonnet" } as never, null)).toBe("Anthropic");
 });

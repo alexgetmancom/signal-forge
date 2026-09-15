@@ -247,6 +247,20 @@ export const PROVIDER_CATALOGUES: ProviderCatalogue[] = [
     url: "https://inference-docs.cerebras.ai/models/overview",
     key: "CEREBRAS_API_KEY",
   },
+  {
+    id: "mimo",
+    name: "Xiaomi MiMo",
+    apiUrl: "https://api.xiaomimimo.com/v1/models",
+    url: "https://mimo.mi.com/docs/en-US/api/model/list-models",
+    key: "MIMO_API_KEY",
+  },
+  {
+    id: "poolside",
+    name: "Poolside",
+    apiUrl: "https://inference.poolside.ai/v1/models",
+    url: "https://poolside.ai/models",
+    key: "POOLSIDE_API_KEY",
+  },
 ];
 
 const providerSchema = z.object({

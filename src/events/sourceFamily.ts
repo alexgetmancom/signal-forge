@@ -68,6 +68,8 @@ const FIRST_PARTY_VENDOR_BY_SOURCE: Record<string, string> = {
   minimax: "MiniMax",
   dashscope: "Alibaba",
   cerebras: "Cerebras",
+  mimo: "Xiaomi",
+  poolside: "Poolside",
   "pages:google": "Google",
   "pages:google-devs": "Google",
   "pages:zai": "Z.ai",

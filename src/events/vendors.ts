@@ -40,6 +40,7 @@ const VENDORS: [RegExp, string][] = [
   [/nvidia|nemotron/i, "NVIDIA"],
   [/microsoft|azure|\bphi-\d/i, "Microsoft"],
   [/amazon|\baws\b|bedrock/i, "Amazon"],
+  [/poolside/i, "Poolside"],
 ];
 
 /**
