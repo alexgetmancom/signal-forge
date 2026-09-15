@@ -1,5 +1,5 @@
 import { sourceLabel } from "../../sources/labels.js";
-import { evidenceLabel, evidenceTypeFor } from "../confidence.js";
+import { eventEvidenceType, evidenceLabel } from "../confidence.js";
 import { vendorOf } from "../interpretation.js";
 import { displayTitle } from "../naming.js";
 import { recordFor } from "../record.js";
@@ -59,11 +59,7 @@ export function renderStoryText(
     lines.push(...detailLines(event, summaries.get(event.id)));
     lines.push(`Evidence: ${link}`, "");
   });
-  const types = [
-    ...new Set(
-      events.map((event) => evidenceLabel(event.evidence_type ?? evidenceTypeFor(event.source, event.stream))),
-    ),
-  ];
+  const types = [...new Set(events.map((event) => evidenceLabel(eventEvidenceType(event))))];
   const confidences = [...new Set(events.map((event) => event.confidence ?? "observed"))];
   const stamp = Math.floor(Date.parse(latest.detected_at) / 1000);
   const time = platform === "discord" ? `<t:${stamp}:f>` : utcStamp(latest.detected_at);
@@ -97,11 +93,7 @@ export function storyEmbed(
   const kinds = events.map((event) => event.kind);
   const kind = kinds.includes("changed") ? "changed" : kinds.includes("new") ? "new" : "removed";
   const vendor = vendorOf(latest, recordFor(latest));
-  const types = [
-    ...new Set(
-      events.map((event) => evidenceLabel(event.evidence_type ?? evidenceTypeFor(event.source, event.stream))),
-    ),
-  ];
+  const types = [...new Set(events.map((event) => evidenceLabel(eventEvidenceType(event))))];
   const confidences = [...new Set(events.map((event) => event.confidence ?? "observed"))];
   const latestStamp = Math.floor(Date.parse(latest.detected_at) / 1000);
   const embed: Record<string, unknown> = {

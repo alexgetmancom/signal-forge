@@ -181,8 +181,8 @@ function currentEvent(row: CurrentRecordRow): EventRow {
     before_json: null,
     after_json: row.body,
     detected_at: row.observed_at,
-    confidence: confidenceFor(row.source, row.stream),
-    evidence_type: evidenceTypeFor(row.source, row.stream),
+    confidence: confidenceFor(row.source, row.stream, authorityForSource(row.source)),
+    evidence_type: evidenceTypeFor(row.source, row.stream, authorityForSource(row.source)),
     authority: authorityForSource(row.source),
   };
 }

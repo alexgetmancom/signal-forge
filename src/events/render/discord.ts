@@ -1,5 +1,5 @@
 import { sourceLabel } from "../../sources/labels.js";
-import { evidenceLabel, evidenceTypeFor, readerStanding } from "../confidence.js";
+import { eventEvidenceType, evidenceLabel, readerStanding } from "../confidence.js";
 import { vendorOf } from "../interpretation.js";
 import { displayTitle } from "../naming.js";
 import type { Event, RecordData } from "../types.js";
@@ -99,7 +99,7 @@ export function eventEmbed(event: Event & { lead?: LeadTime }, url: string, summ
   ]
     .join("\n")
     .slice(0, DESCRIPTION_CHARACTERS);
-  const evidenceType = event.evidence_type ?? evidenceTypeFor(event.source, event.stream);
+  const evidenceType = eventEvidenceType(event);
 
   const embed: Record<string, unknown> = {
     author: {

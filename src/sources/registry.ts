@@ -42,6 +42,7 @@ import {
   collectVertexDeprecations,
   collectXaiDeprecations,
 } from "./lifecycle.js";
+import { collectModelsDev, collectTrueFoundryAzure } from "./mirrors.js";
 import { collectCohereChangelog } from "./modelDocs.js";
 import { collectModelScope } from "./modelscope.js";
 import { collectAnthropicNews, collectOpenAINews } from "./news.js";
@@ -103,6 +104,30 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       intervalSeconds: config.pollSeconds,
       collector: () => collectOpenRouter(),
       enabled: requested("openrouter"),
+    },
+    {
+      id: "models-dev",
+      label: sourceLabel("models-dev"),
+      authority: "third_party",
+      group: "Catalogues",
+      stream: "api-models",
+      intervalSeconds: config.pollSeconds,
+      collector: () => collectModelsDev(fetch, cache),
+      enabled: requested("models-dev"),
+    },
+    {
+      id: "truefoundry-azure",
+      label: sourceLabel("truefoundry-azure"),
+      authority: "third_party",
+      vendor: "Microsoft",
+      group: "Catalogues",
+      stream: "api-models",
+      // A bot opens the pull request and it merges within the day; hourly is ahead of the cadence
+      // the repository actually changes at, and the tree is one request.
+      intervalSeconds: 3600,
+      requiredCapabilities: ["GITHUB_TOKEN"],
+      collector: () => collectTrueFoundryAzure(config.GITHUB_TOKEN ?? "", fetch, cache),
+      enabled: requested("truefoundry-azure"),
     },
     {
       id: "openai-news",
@@ -775,6 +800,11 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
     "github:openai/codex:commits",
     ...GITHUB_DISCOVERY_QUERIES.map((query) => `discovery:github-${query.id}`),
     "discovery:huggingface-recent",
+    // Two aggregators of other people's catalogues, kept out of the channel until a fortnight of
+    // signal-quality says what they are worth. They are the only sight of the cloud deployment
+    // layer, and also the only sources here that report a launch without the vendor saying so.
+    "models-dev",
+    "truefoundry-azure",
     // An engineering blog, not a newsroom. "Async GRPO with LoRA across HF Jobs" is a post about
     // how Hugging Face runs training on its own infrastructure; a reader following model releases
     // gets nothing from it, and it arrived in the invited room beside actual sightings. The feed

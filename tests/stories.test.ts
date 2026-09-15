@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { confidenceFor } from "../src/events/confidence.js";
+import { confidenceFor, evidenceTypeFor } from "../src/events/confidence.js";
 import { identityFor } from "../src/events/identity.js";
 import { vendorOf } from "../src/events/interpretation.js";
 import { saveCollection } from "../src/events/pipeline.js";
@@ -16,10 +16,17 @@ const collection = (source: string, stream: string, records: Collection["records
 });
 
 test("confidence labels follow source semantics instead of presentation guesses", () => {
-  expect(confidenceFor("arena", "arena")).toBe("observed");
-  expect(confidenceFor("openai", "api-models")).toBe("confirmed");
-  expect(confidenceFor("openai-news", "news")).toBe("supported");
-  expect(confidenceFor("github:openai/codex:releases", "github")).toBe("shipped");
+  expect(confidenceFor("arena", "arena", "third_party")).toBe("observed");
+  expect(confidenceFor("openai", "api-models", "first_party")).toBe("confirmed");
+  expect(confidenceFor("openai-news", "news", "first_party")).toBe("supported");
+  expect(confidenceFor("github:openai/codex:releases", "github", "third_party")).toBe("shipped");
+});
+
+test("an aggregator republishing a catalogue is reporting it, not answering for it", () => {
+  expect(confidenceFor("models-dev", "api-models", "third_party")).toBe("observed");
+  expect(confidenceFor("truefoundry-azure", "api-models", "third_party")).toBe("observed");
+  expect(evidenceTypeFor("models-dev", "api-models", "third_party")).toBe("availability_catalogue");
+  expect(evidenceTypeFor("anthropic", "api-models", "first_party")).toBe("api_catalogue");
 });
 
 test("identity keeps Arena codenames unresolved until a canonical source identifies them", () => {

@@ -19,24 +19,31 @@ const evidenceLabels: Record<EvidenceType, string> = {
   unknown: "unknown evidence",
 };
 
-/** Source semantics, not an LLM judgment, assign the initial confidence label. */
-export function confidenceFor(source: string, stream: string): Confidence {
+/**
+ * Source semantics, not an LLM judgment, assign the initial confidence label.
+ *
+ * A catalogue is `confirmed` because the vendor is answering for its own product. An aggregator
+ * republishing that catalogue is reporting, however faithfully, so authority decides rather than a
+ * list of the aggregators known so far.
+ */
+export function confidenceFor(source: string, stream: string, authority: SourceAuthority): Confidence {
   if (source.startsWith("github:") && source.endsWith(":releases")) return "shipped";
   if (source.startsWith("npm:") || source.startsWith("pypi:")) return "shipped";
   if (source === "cursor-changelog") return "shipped";
   if (stream === "apps") return "shipped";
   if (source.startsWith("huggingface:") || source.startsWith("modelscope:")) return "supported";
   if (source.startsWith("status:")) return "confirmed";
-  if (stream === "api-models" && source !== "openrouter" && source !== "vercel-gateway") return "confirmed";
+  if (stream === "api-models") return authority === "third_party" ? "observed" : "confirmed";
   if (stream === "deprecations") return "confirmed";
   if (stream === "news") return "supported";
   return "observed";
 }
 
 /** Names the kind of primary evidence behind an event; this is a source contract, not a guess. */
-export function evidenceTypeFor(source: string, stream: string): EvidenceType {
+export function evidenceTypeFor(source: string, stream: string, authority: SourceAuthority): EvidenceType {
   if (source === "openrouter" || stream === "openrouter") return "availability_catalogue";
-  if (stream === "api-models") return "api_catalogue";
+  // Who sells a model is a different fact from what its maker publishes about it.
+  if (stream === "api-models") return authority === "third_party" ? "availability_catalogue" : "api_catalogue";
   if (stream === "news") return "official_news";
   if (stream === "arena") return "arena_roster";
   if (stream === "leaderboards") return "leaderboard";
@@ -99,6 +106,17 @@ export function authorityForSource(source: string): SourceAuthority {
   return "third_party";
 }
 
+/**
+ * The evidence type of a stored event, falling back to the source contract for rows written before
+ * the column existed. Renderers ask this rather than re-deriving the authority at each call site.
+ */
+export function eventEvidenceType(event: Event): EvidenceType {
+  return (
+    event.evidence_type ??
+    evidenceTypeFor(event.source, event.stream, event.authority ?? authorityForSource(event.source))
+  );
+}
+
 export function evidenceLabel(type: EvidenceType): string {
   return evidenceLabels[type];
 }
@@ -157,7 +175,7 @@ export function readerStanding(event: Event): string | null {
       ? "Announced by the OpenAI staff member who announces these, via a third-party tracker."
       : "Noticed by a third-party tracker with no announcement behind it.";
   }
-  const type = event.evidence_type ?? evidenceTypeFor(event.source, event.stream);
+  const type = eventEvidenceType(event);
   const sentence = standings[type] || fallback[event.confidence ?? "observed"];
   return sentence || null;
 }

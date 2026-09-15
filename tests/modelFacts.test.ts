@@ -84,12 +84,22 @@ test("weaker evidence cannot overwrite stronger facts and newer equal evidence w
   introduce(db, "openrouter", "openrouter", [model({ context: 128000 })], "2026-09-10T01:00:00.000Z");
   expect(getModelFacts(db, "openai/gpt-6")?.facts.contextWindow).toMatchObject({ value: 256000, source: "openai" });
 
+  // An aggregator republishing a catalogue is `observed`, however recent and however many of them
+  // agree: the vendor is the one answering for its own product.
   introduce(db, "catalogue-a", "api-models", [model({ context: 128000 })], "2026-09-10T02:00:00.000Z");
   introduce(db, "catalogue-b", "api-models", [model({ context: 192000 })], "2026-09-10T03:00:00.000Z");
   expect(getModelFacts(db, "openai/gpt-6")?.facts.contextWindow).toMatchObject({
-    value: 192000,
-    source: "catalogue-b",
-    eventId: 4,
+    value: 256000,
+    source: "openai",
+    eventId: 1,
+  });
+
+  // Between two vendors answering at the same strength, the later reading is the current one.
+  introduce(db, "gemini", "api-models", [model({ context: 320000 })], "2026-09-10T04:00:00.000Z");
+  expect(getModelFacts(db, "openai/gpt-6")?.facts.contextWindow).toMatchObject({
+    value: 320000,
+    source: "gemini",
+    eventId: 5,
   });
   db.close();
 });

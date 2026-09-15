@@ -139,7 +139,11 @@ Not scheduled. Written down so they stop being re-derived from scratch.
 
 - Telegram delivery is implemented and tested; no destination is configured, because the audience is
   on Discord.
-- Cloud catalogues (Bedrock, Vertex, Azure AI Foundry) need credentials and a clear reader need.
+- Cloud catalogues read from the vendors themselves (Bedrock, Vertex, Azure AI Foundry) still need
+  credentials. Measured 2026-09-15: Foundry has no open catalogue -- `ai.azure.com/api/catalog/models`
+  answers with the single-page application, and the Learn page renders its model table from script.
+  What changed is that two aggregators publish the same rows without a credential, so the coverage
+  arrived without the keys; the first-party reading stays deferred.
 - Individual PR authors, more status providers, a public report site, a removals role.
 - LLM relevance verification, until at least seven days of deterministic discovery density,
   confirmation rate, first-source wins and lead-time measurements exist.
@@ -157,7 +161,10 @@ Code, Gemini, the Google AI blog, DeepMind, xAI, Mistral, Groq, DeepSeek, Kimi C
 Hugging Face. Lifecycle and deprecation pages for OpenAI, Anthropic, Google, AWS, Azure, Groq,
 Cohere and xAI. Vendor site pages watched for URLs that appear before the announcement, including
 the Claude API reference and help centre. Eleven iOS listings, read for the vendor's own release
-notes. Codex usage-limit resets. GitHub and Hugging Face discovery, both in shadow.
+notes. Codex usage-limit resets. GitHub and Hugging Face discovery, both in shadow. Two aggregated
+catalogues, in shadow: models.dev, which carries 217 providers as 2291 canonical models, and the
+TrueFoundry mirror of the two Azure directories, which is the only sight of a cloud's deployment
+version. Both are `third_party`, so a model they show and no vendor does stays `observed`.
 
 A failed or malformed collection is never treated as an empty catalogue, and external responses are
 validated before they can change stored state.

@@ -1,5 +1,7 @@
 const STATIC_LABELS: Record<string, string> = {
   openrouter: "OpenRouter",
+  "models-dev": "models.dev · catalogue",
+  "truefoundry-azure": "TrueFoundry · Azure catalogue",
   openai: "OpenAI API",
   anthropic: "Anthropic API",
   gemini: "Gemini API",

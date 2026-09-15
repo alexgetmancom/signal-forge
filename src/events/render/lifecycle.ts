@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { WeeklyRecapContext } from "../../recap.js";
 import { sourceLabel } from "../../sources/labels.js";
-import { evidenceLabel, evidenceTypeFor } from "../confidence.js";
+import { eventEvidenceType, evidenceLabel } from "../confidence.js";
 import type { Event } from "../types.js";
 
 export type LifecycleReminderContext = {
@@ -62,7 +62,7 @@ export function renderLifecycleReminderText(context: LifecycleReminderContext, e
 
 export function renderLifecycleReminderEmbed(context: LifecycleReminderContext, event: Event): Record<string, unknown> {
   const body = lines(context, event);
-  const evidenceType = event.evidence_type ?? evidenceTypeFor(event.source, event.stream);
+  const evidenceType = eventEvidenceType(event);
   return {
     author: { name: "LIFECYCLE DEADLINE" },
     title: context.title.slice(0, 250),

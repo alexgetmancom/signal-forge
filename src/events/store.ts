@@ -157,8 +157,8 @@ export function persistCollection(
   let count = 0;
   const emitted: Event[] = [];
   const emit = (id: string, kind: Event["kind"], before: string | null, after: string | null) => {
-    const confidence = confidenceFor(c.source, c.stream);
-    const evidence_type = evidenceTypeFor(c.source, c.stream);
+    const confidence = confidenceFor(c.source, c.stream, authority);
+    const evidence_type = evidenceTypeFor(c.source, c.stream, authority);
     const row = db
       .query<
         { id: number },

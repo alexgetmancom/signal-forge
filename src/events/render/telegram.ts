@@ -1,6 +1,6 @@
 import type { Destination } from "../../config.js";
 import { sourceLabel } from "../../sources/labels.js";
-import { evidenceLabel, evidenceTypeFor } from "../confidence.js";
+import { eventEvidenceType, evidenceLabel } from "../confidence.js";
 import { displayTitle } from "../naming.js";
 import type { Event, RecordData } from "../types.js";
 import { utcStamp } from "./common.js";
@@ -24,7 +24,7 @@ export function renderEvent(
         : url;
   const stamp = Math.floor(Date.parse(event.detected_at) / 1000);
   const time = platform === "discord" ? `<t:${stamp}:f>` : utcStamp(event.detected_at);
-  const evidenceType = event.evidence_type ?? evidenceTypeFor(event.source, event.stream);
+  const evidenceType = eventEvidenceType(event);
   return [
     `${labels[event.kind]} · ${sourceLabel(event.source)}`,
     displayTitle(String(record?.name ?? event.entity_id), event.stream, event.source),
