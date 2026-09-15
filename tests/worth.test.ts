@@ -159,3 +159,28 @@ test("a newsroom speaks about models and stays quiet about the company", () => {
   expect(reasons.storage).toBe("a_post_about_the_company_not_a_model");
   db.close();
 });
+
+test("a vendor blog is a newsroom, whichever vendor it belongs to", () => {
+  const db = openDatabase(":memory:");
+  const news: Collection = {
+    source: "google-ai-blog",
+    stream: "news",
+    url: "https://blog.google/technology/ai/",
+    raw: [],
+    records: [{ id: "baseline", name: "Introducing an earlier post" }],
+  };
+  saveCollection(db, news, [wire], "2026-09-15T00:00:00.000Z");
+  news.records = [
+    ...news.records,
+    // Both of the two posts this blog published by 2026-09-15.
+    { id: "devfest", name: "DevFest is back" },
+    { id: "astronaut", name: "Watch astronaut Christina Koch and Google’s James Manyika discuss space" },
+  ];
+  saveCollection(db, news, [wire], "2026-09-15T01:00:00.000Z");
+  prepareDeliveries(db, Date.parse("2026-09-15T02:00:00.000Z"));
+
+  const reasons = suppressed(db);
+  expect(reasons.devfest).toBe("a_post_about_the_company_not_a_model");
+  expect(reasons.astronaut).toBe("a_post_about_the_company_not_a_model");
+  db.close();
+});

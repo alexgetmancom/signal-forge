@@ -48,7 +48,14 @@ export type SignalClass = (typeof SIGNAL_CLASSES)[number];
  * `reminder`: derived operator work rather than an observation, such as a deadline reminder.
  */
 /** The sources that publish prose rather than a changelog. */
-const NEWSROOMS = new Set(["openai-news", "anthropic-news", "huggingface-blog-feed"]);
+/**
+ * A blog, as opposed to a changelog. Google's belongs here for the same reason OpenAI's does: two
+ * of the two posts it published by 2026-09-15 were a conference promotion and an astronaut
+ * interview, and it is also where a Gemini launch would appear. Left out of this set its posts were
+ * classed `release`, which is the class reserved for a changelog entry, and the newsroom filter --
+ * which reads the class -- never looked at them.
+ */
+const NEWSROOMS = new Set(["openai-news", "anthropic-news", "huggingface-blog-feed", "google-ai-blog"]);
 
 export function signalClass(event: Event): SignalClass {
   const record = recordFor(event);
