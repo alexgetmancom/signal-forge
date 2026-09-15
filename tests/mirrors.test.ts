@@ -112,6 +112,25 @@ const treePayload = JSON.stringify({
   ],
 });
 
+/** How the tree actually files Grok on Azure: the same deployment at two depths. */
+const nestedPayload = JSON.stringify({
+  truncated: false,
+  tree: [
+    { path: "providers/microsoft-foundry/azure_ai/global/grok-3.yaml", type: "blob" },
+    { path: "providers/microsoft-foundry/grok-3.yaml", type: "blob" },
+  ],
+});
+
+test("one deployment filed at two depths is one record, not a duplicate ID", async () => {
+  const collection = await collectTrueFoundryAzure("token", async () => new Response(nestedPayload));
+
+  expect(collection.records).toHaveLength(1);
+  expect(collection.records[0]).toMatchObject({
+    id: "microsoft-foundry/grok-3",
+    url: "https://github.com/truefoundry/models/blob/main/providers/microsoft-foundry/grok-3.yaml",
+  });
+});
+
 test("a Foundry deployment version merges into the model it deploys", async () => {
   const seen: string[] = [];
   const collection = await collectTrueFoundryAzure("token", async (_url, init) => {

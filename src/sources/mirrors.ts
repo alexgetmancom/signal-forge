@@ -43,6 +43,10 @@ const CORE_PROVIDERS = new Set([
   "cerebras",
 ]);
 
+function depth(path: string): number {
+  return path.split("/").length;
+}
+
 function vendorProviderFor(slug: string): string | null {
   return VENDOR_PROVIDER.find(([pattern]) => pattern.test(slug))?.[1] ?? null;
 }
@@ -208,8 +212,21 @@ export async function collectTrueFoundryAzure(
     else providersBySlug.set(slug, new Set([provider]));
   }
   if (!providersBySlug.size) throw new Error("TrueFoundry tree has no provider catalogue");
-  const records: RecordData[] = entries
-    .filter((entry) => AZURE_DIRECTORIES.includes(entry.provider))
+  // The same deployment is filed twice: `grok-3.yaml` and `azure_ai/global/grok-3.yaml` are one
+  // model in one provider, and emitting both is a duplicate record ID rather than two sightings.
+  // The shallower path is the catalogue entry; the nested one is a routing variant of it.
+  const deduplicated = new Map<string, (typeof entries)[number]>();
+  for (const entry of entries.filter((item) => AZURE_DIRECTORIES.includes(item.provider))) {
+    const key = `${entry.provider}/${entry.slug}`;
+    const held = deduplicated.get(key);
+    if (
+      !held ||
+      depth(entry.path) < depth(held.path) ||
+      (depth(entry.path) === depth(held.path) && entry.path < held.path)
+    )
+      deduplicated.set(key, entry);
+  }
+  const records: RecordData[] = [...deduplicated.values()]
     .map((entry) => {
       const base = providerVersionBase(entry.slug, providersBySlug);
       return {
