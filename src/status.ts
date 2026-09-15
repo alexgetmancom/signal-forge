@@ -150,6 +150,64 @@ const DOTS: Record<SourceState, string> = {
 const COLORS = { ok: 0x2ecc71, degraded: 0xf1c40f, down: 0xe74c3c };
 const discordMessage = z.object({ id: z.string().regex(/^\d+$/) });
 const DISCORD_TIMEOUT_MS = 20_000;
+/**
+ * Discord's own limits on one embed. They are not advisory: an embed one character over is a 400,
+ * and a board that cannot be edited freezes at whatever it last said. The status board crossed 6000
+ * characters at 104 visible collectors and stopped moving, which nothing noticed for as long as it
+ * took somebody to read the timestamps on it.
+ */
+const EMBED_CHARACTER_LIMIT = 6000;
+const EMBED_FIELD_LIMIT = 25;
+const FIELD_VALUE_LIMIT = 1024;
+const DESCRIPTION_LIMIT = 4096;
+
+type EmbedField = { name: string; value: string; inline: boolean };
+
+function embedLength(embed: Record<string, unknown>): number {
+  const text = (value: unknown) => (typeof value === "string" ? value.length : 0);
+  const fields = (embed.fields as EmbedField[] | undefined) ?? [];
+  return (
+    text(embed.title) +
+    text(embed.description) +
+    text((embed.footer as { text?: string } | undefined)?.text) +
+    fields.reduce((sum, field) => sum + field.name.length + field.value.length, 0)
+  );
+}
+
+/**
+ * The last thing a board passes through, so no render can exceed what Discord accepts. Trimming
+ * loses information and says so in the board itself; the alternative is an embed that is rejected
+ * whole, which loses all of it silently.
+ */
+export function fitEmbed(embed: Record<string, unknown>): Record<string, unknown> {
+  const fitted = { ...embed };
+  if (typeof fitted.description === "string") fitted.description = fitted.description.slice(0, DESCRIPTION_LIMIT);
+  const fields = (
+    ((fitted.fields as EmbedField[] | undefined) ?? []).map((field) => ({
+      ...field,
+      value: field.value.slice(0, FIELD_VALUE_LIMIT),
+    })) satisfies EmbedField[]
+  ).slice();
+
+  let dropped = 0;
+  const marker = (count: number): EmbedField => ({
+    name: "…",
+    value: `${count} more section${count === 1 ? "" : "s"} not shown — run \`status\` for the full list`,
+    inline: false,
+  });
+  const reserve = marker(fields.length).name.length + marker(fields.length).value.length;
+  while (
+    fields.length > 0 &&
+    (fields.length + 1 > EMBED_FIELD_LIMIT ||
+      embedLength({ ...fitted, fields }) + (dropped ? 0 : reserve) > EMBED_CHARACTER_LIMIT)
+  ) {
+    fields.pop();
+    dropped += 1;
+  }
+  if (dropped) fields.push(marker(dropped));
+  fitted.fields = fields;
+  return fitted;
+}
 
 function utcStamp(value: string): string {
   const iso = new Date(value).toISOString();
@@ -175,6 +233,11 @@ export function statusEmbed(health: SourceHealth[], now = Date.now()): Record<st
     const rows = health
       .filter((entry) => entry.group === group && entry.state !== "missing" && entry.state !== "disabled")
       .map((entry) => {
+        // A green collector is green because it was observed within its own schedule, so its
+        // authority and its timestamp say nothing its dot did not. Spelling them out for every
+        // healthy source is what pushed this embed past what Discord accepts; the sources that
+        // need a reader's attention keep every word of it.
+        if (entry.state === "ok") return `${DOTS.ok} ${entry.label}`;
         const last = entry.lastSuccess ? ` · ${utcStamp(entry.lastSuccess)}` : "";
         return `${DOTS[entry.state]} ${entry.label} · ${entry.authority.replace("_", "-")}${entry.detail ? ` — ${entry.detail}` : ""}${last}`;
       });
@@ -197,12 +260,58 @@ export function statusEmbed(health: SourceHealth[], now = Date.now()): Record<st
     color:
       failing.length === 0 ? COLORS.ok : failing.some((e) => e.state === "failing") ? COLORS.down : COLORS.degraded,
     fields,
-    footer: { text: "Signal Forge · public collection status · updates itself in place" },
+    footer: { text: "Signal Forge · green means observed on schedule · updates itself in place" },
     timestamp: new Date(now).toISOString(),
   };
 }
 
 export type BoardResult = "skipped" | "created" | "edited" | "unchanged";
+
+const BOARD_FAILURE_PREFIX = "board_failure:";
+export type BoardFailure = { board: BoardKey; reason: string; firstSeenAt: string; updatedAt: string };
+
+/**
+ * A board that cannot be sent is the one failure this service used to keep to itself: the channel
+ * still holds a plausible board, and a stale board looks exactly like a quiet one. Storing the
+ * refusal is what lets `issues` and the alert channel say it out loud.
+ */
+function recordBoardFailure(db: Database, board: BoardKey, reason: string, now: number): void {
+  const key = `${BOARD_FAILURE_PREFIX}${board}`;
+  const existing = db.query<{ value: string }, [string]>("SELECT value FROM app_state WHERE key=?").get(key);
+  let firstSeenAt = new Date(now).toISOString();
+  if (existing) {
+    try {
+      const parsed = JSON.parse(existing.value) as Partial<BoardFailure>;
+      if (parsed.firstSeenAt && Number.isFinite(Date.parse(parsed.firstSeenAt))) firstSeenAt = parsed.firstSeenAt;
+    } catch {
+      // A value this service cannot read is replaced by one it can.
+    }
+  }
+  const value = JSON.stringify({ board, reason, firstSeenAt, updatedAt: new Date(now).toISOString() });
+  db.query("INSERT INTO app_state(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(
+    key,
+    value,
+  );
+}
+
+function clearBoardFailure(db: Database, board: BoardKey): void {
+  db.query("DELETE FROM app_state WHERE key=?").run(`${BOARD_FAILURE_PREFIX}${board}`);
+}
+
+/** Every board Discord is currently refusing, for the read model that has to report it. */
+export function boardFailures(db: Database): BoardFailure[] {
+  return db
+    .query<{ key: string; value: string }, [string]>("SELECT key,value FROM app_state WHERE key LIKE ? ORDER BY key")
+    .all(`${BOARD_FAILURE_PREFIX}%`)
+    .flatMap((row) => {
+      try {
+        const parsed = JSON.parse(row.value) as BoardFailure;
+        return parsed.board && parsed.reason ? [parsed] : [];
+      } catch {
+        return [];
+      }
+    });
+}
 
 /**
  * The idempotency key for posting a board, in the 25 characters Discord allows a nonce.
@@ -229,12 +338,23 @@ function boardNonce(key: string, comparable: string, previousMessageId: string |
 async function sendBoard(
   db: Database,
   config: AppConfig,
-  key: string,
+  key: BoardKey,
   channelId: string,
-  embed: Record<string, unknown>,
-  request: Fetch = fetch,
+  rendered: Record<string, unknown>,
+  request: Fetch,
+  now: number,
 ): Promise<BoardResult> {
   if (!config.DISCORD_BOT_TOKEN) return "skipped";
+  const embed = fitEmbed(rendered);
+  const size = embedLength(embed);
+  // Nothing downstream of here can recover an embed Discord refuses, so it is refused here, where
+  // the reason is still known. fitEmbed makes this unreachable; an unreachable case that is not
+  // checked is how the board went quiet the first time.
+  if (size > EMBED_CHARACTER_LIMIT) {
+    log("error", "Board render exceeds Discord's embed limit", { board: key, characters: size });
+    recordBoardFailure(db, key, `render is ${size} characters, above Discord's limit of ${EMBED_CHARACTER_LIMIT}`, now);
+    return "unchanged";
+  }
   const comparable = JSON.stringify({ ...embed, timestamp: undefined });
   const renderKey = `${key}_render`;
   const messageKey = `${key}_message`;
@@ -250,7 +370,10 @@ async function sendBoard(
       redirect: "error",
     });
     await present.body?.cancel();
-    if (present.ok) return "unchanged";
+    if (present.ok) {
+      clearBoardFailure(db, key);
+      return "unchanged";
+    }
   }
 
   const headers = {
@@ -290,11 +413,15 @@ async function sendBoard(
     });
     if (edited.ok) {
       remember(messageId.value);
+      clearBoardFailure(db, key);
       return "edited";
     }
     // The board was deleted by hand; posting a fresh one is the recovery, not an error to retry.
     if (edited.status !== 404) {
       log("warn", "Board edit rejected", { board: key, status: edited.status });
+      // A rejected edit leaves the last version standing in the channel, which reads to everybody
+      // as a board that is simply quiet. It is an actionable problem, and now it says so.
+      recordBoardFailure(db, key, `Discord refused the edit with HTTP ${edited.status}`, now);
       return "unchanged";
     }
   }
@@ -308,14 +435,17 @@ async function sendBoard(
   });
   if (!created.ok) {
     log("warn", "Board post rejected", { board: key, status: created.status });
+    recordBoardFailure(db, key, `Discord refused the post with HTTP ${created.status}`, now);
     return "unchanged";
   }
   const parsed = discordMessage.safeParse(await created.json().catch(() => null));
   if (!parsed.success) {
     log("warn", "Board response invalid", { board: key });
+    recordBoardFailure(db, key, "Discord answered the post with a body this service could not read", now);
     return "unchanged";
   }
   remember(parsed.data.id);
+  clearBoardFailure(db, key);
   return "created";
 }
 
@@ -528,5 +658,5 @@ export async function publishBoard(
   const board = BOARDS[key];
   const channelId = board.channel(config);
   if (!channelId || !config.DISCORD_BOT_TOKEN) return "skipped";
-  return sendBoard(db, config, key, channelId, board.embed(db, config, now), request);
+  return sendBoard(db, config, key, channelId, board.embed(db, config, now), request, now);
 }

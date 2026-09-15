@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import { capabilityReport } from "./capabilities.js";
 import type { AppConfig } from "./config.js";
 import { backupStatus } from "./doctor.js";
-import { sourceHealth } from "./status.js";
+import { boardFailures, sourceHealth } from "./status.js";
 import { databaseSize } from "./storage/retention.js";
 
 /** Where growth stops being normal and becomes something to look at, rather than to discover. */
@@ -24,6 +24,7 @@ export type IssueKind =
   | "capability_missing"
   | "capability_rejected"
   | "backup_stale"
+  | "board_stalled"
   | "database_oversized";
 type IssueSeverity = "warning" | "error" | "critical";
 
@@ -205,6 +206,20 @@ export function listActionableIssues(db: Database, config: AppConfig, now = Date
       hint: "Check which sources serve the largest payloads before widening retention; deleting a payload an event points at destroys its evidence.",
     });
   }
+
+  // A board Discord refuses keeps showing its last accepted version, so the channel looks current
+  // while it is frozen. Nothing else can tell the difference.
+  for (const failure of boardFailures(db))
+    issues.push({
+      id: `board:${failure.board}`,
+      kind: "board_stalled",
+      severity: "error",
+      entity: failure.board,
+      firstSeenAt: issueTime(failure.firstSeenAt, now),
+      updatedAt: issueTime(failure.updatedAt, now),
+      message: `The ${failure.board} board is frozen at its last accepted version: ${failure.reason}`,
+      hint: "Inspect the render and the channel's permissions; the board in the channel is stale until this clears.",
+    });
 
   const workerRows = db
     .query<{ key: string; value: string }, []>("SELECT key,value FROM app_state WHERE key LIKE 'worker:%'")

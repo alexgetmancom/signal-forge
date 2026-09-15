@@ -74,6 +74,7 @@ const alertableKinds = new Set<IssueKind>([
   "delivery_stuck",
   "delivery_failed",
   "delivery_ambiguous",
+  "board_stalled",
 ]);
 
 type AlertAttemptStatus = "pending" | "sending" | "sent" | "failed" | "ambiguous";

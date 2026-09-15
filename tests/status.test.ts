@@ -2,8 +2,9 @@ import { expect, test } from "bun:test";
 import { publishAlerts, recoverInterruptedAlerts } from "../src/alerts.js";
 import { loadConfig } from "../src/config.js";
 import { saveCollection } from "../src/events/pipeline.js";
+import { listActionableIssues } from "../src/issues.js";
 import { PLATFORMS, parsePlatformStatus } from "../src/sources/platforms.js";
-import { activityEmbed, platformEmbed, publishBoard, sourceHealth, statusEmbed } from "../src/status.js";
+import { activityEmbed, fitEmbed, platformEmbed, publishBoard, sourceHealth, statusEmbed } from "../src/status.js";
 import { openDatabase } from "../src/storage/database.js";
 import { storeSnapshot } from "../src/storage/snapshots.js";
 
@@ -162,13 +163,21 @@ test("the embed groups sources and colours by the worst state", () => {
   db.close();
 });
 
-test("public tracker status includes observation freshness without operator details", () => {
+test("freshness is spelled out where it is news, and left to the dot where it is not", () => {
   const db = openDatabase(":memory:");
   const checked = new Date(now).toISOString();
   seed(db, "openrouter", { last_success: checked, checked_at: checked });
+  const stale = new Date(now - 4 * 300 * 1000).toISOString();
+  seed(db, "arena", { last_success: stale, checked_at: stale });
   const embed = statusEmbed(sourceHealth(db, withStatus, now), now);
   const fields = embed.fields as { name: string; value: string }[];
-  expect(fields.find((field) => field.name === "Catalogues")?.value).toContain("2026-09-08 12:00 UTC");
+  const catalogues = fields.find((field) => field.name === "Catalogues")?.value ?? "";
+  // A green collector is green because it was observed on schedule; repeating that per source for
+  // a hundred of them is what pushed the embed past Discord's 6000-character limit.
+  expect(catalogues).toContain("\ud83d\udfe2 OpenRouter");
+  expect(catalogues).not.toContain("2026-09-08 12:00 UTC");
+  const arena = fields.map((field) => field.value).join("\n");
+  expect(arena).toContain("2026-09-08 11:40 UTC");
   expect(fields.some((field) => field.name === "Delivery")).toBe(false);
   expect(fields.some((field) => field.name === "Integrations")).toBe(false);
   db.close();
@@ -565,5 +574,45 @@ test("a delivery that will never send on its own reaches the owner", async () =>
   const embed = (posts[0] as { embeds: { description: string }[] }).embeds[0];
   expect(embed?.description).toContain("discord-signals");
   expect(embed?.description).toContain("403 Missing Permissions");
+  db.close();
+});
+
+test("a board too large for Discord is trimmed to fit and says what it dropped", () => {
+  const groups = Array.from({ length: 30 }, (_, index) => ({
+    name: `Group ${index}`,
+    value: "x".repeat(900),
+    inline: false,
+  }));
+  const fitted = fitEmbed({
+    title: "Tracker status",
+    description: "d".repeat(5000),
+    fields: groups,
+    footer: { text: "footer" },
+  }) as { description: string; fields: { name: string; value: string }[] };
+  const size =
+    "Tracker status".length +
+    fitted.description.length +
+    "footer".length +
+    fitted.fields.reduce((sum, field) => sum + field.name.length + field.value.length, 0);
+  expect(fitted.description.length).toBe(4096);
+  expect(fitted.fields.length).toBeLessThanOrEqual(25);
+  expect(size).toBeLessThanOrEqual(6000);
+  expect(fitted.fields.at(-1)?.value).toContain("more sections not shown");
+});
+
+test("a board Discord refuses is an actionable issue rather than a channel that looks quiet", async () => {
+  const db = openDatabase(":memory:");
+  seed(db, "openrouter", { last_success: new Date(now - 1000).toISOString(), checked_at: new Date(now).toISOString() });
+  const request = async (_url: string, init?: RequestInit) =>
+    init?.method === "POST" ? new Response("{}", { status: 400 }) : new Response("{}", { status: 200 });
+  expect(await publishBoard(db, withStatus, "status", request, now)).toBe("unchanged");
+  const issue = listActionableIssues(db, withStatus, now).find((entry) => entry.kind === "board_stalled");
+  expect(issue?.message).toContain("HTTP 400");
+
+  // It clears itself the moment a board is accepted again; a problem nobody fixed is not a problem
+  // that stays on the list forever.
+  const accepted = async () => Response.json({ id: "555" });
+  expect(await publishBoard(db, withStatus, "status", accepted, now)).toBe("created");
+  expect(listActionableIssues(db, withStatus, now).some((entry) => entry.kind === "board_stalled")).toBe(false);
   db.close();
 });
