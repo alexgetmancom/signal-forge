@@ -825,13 +825,13 @@ test("leaderboard vote-only changes and overlapping intervals do not create even
   local.close();
 });
 
-test("removed models use before evidence for vendor role mentions", () => {
+test("a withdrawal is read from the record that left, and interrupts nobody", () => {
   const local = openDatabase(":memory:");
   const destination: Destination = {
     id: "d",
     platform: "discord",
     channelId: "1",
-    signals: ["launch", "codename", "evidence", "change"],
+    signals: ["launch", "codename", "evidence", "change", "retirement"],
   };
   const other = { id: "other/model", name: "Other" };
   const records = [{ id: "openai/gpt-6", name: "GPT-6", maker: "OpenAI" }, other];
@@ -842,10 +842,13 @@ test("removed models use before evidence for vendor role mentions", () => {
   saveCollection(local, collection, [destination], "2026-09-08T10:10:00.000Z", { OpenAI: "111" });
   const event = local.query("SELECT * FROM events WHERE kind='removed'").get() as Event;
   expect(hasNotificationContent(event)).toBe(true);
+  // Everything the card says about a row that is gone comes from the state before it went.
   const body = local.query<{ body: string }, []>("SELECT body FROM deliveries").get()?.body ?? "";
+  expect(body).toContain("OPENAI");
+  expect(body).toContain("GPT-6");
+  // A withdrawal no longer pings: it is bookkeeping, and a role mention interrupts a person's day.
   const payload = JSON.parse(body) as { content: string; allowed_mentions?: { roles?: string[] } };
-  expect(payload.content).toContain("<@&111>");
-  expect(payload.allowed_mentions?.roles).toEqual(["111"]);
+  expect(payload.content).not.toContain("<@&111>");
   local.close();
 });
 

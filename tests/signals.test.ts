@@ -15,12 +15,14 @@ const event = (
   ...overrides,
 });
 
-test("a reader who came for new models gets catalogue arrivals and withdrawals", () => {
+test("a reader who came for new models gets the arrivals, and withdrawals keep their own class", () => {
   expect(signalClass(event({ stream: "openrouter", kind: "new" }))).toBe("launch");
   expect(signalClass(event({ stream: "api-models", kind: "new", source: "openai" }))).toBe("launch");
   expect(signalClass(event({ stream: "weights", kind: "new", source: "huggingface:openai" }))).toBe("launch");
-  // A withdrawal is the same question answered the other way: can a reader still use it.
-  expect(signalClass(event({ stream: "openrouter", kind: "removed" }))).toBe("launch");
+  // A withdrawal was once read as the same question answered the other way. Measured over the week
+  // to 2026-09-15 it was bookkeeping instead: four of the eight cards the launch channel carried
+  // were departures, and each ended something that channel had never been told arrived.
+  expect(signalClass(event({ stream: "openrouter", kind: "removed" }))).toBe("retirement");
 });
 
 test("an entry listed but not yet usable is a codename, not a launch", () => {

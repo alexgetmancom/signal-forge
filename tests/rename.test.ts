@@ -6,7 +6,14 @@ import { renamedCounterpart } from "../src/events/rename.js";
 import type { Collection, Event } from "../src/events/types.js";
 import { openDatabase } from "../src/storage/database.js";
 
-const wire: Destination = { id: "wire", platform: "discord", channelId: "1", signals: ["launch", "change"] };
+// Subscribed to withdrawals too, because both halves of a rename have to be seen for either to be
+// recognised as one: the arrival under the new key and the departure of the old one.
+const wire: Destination = {
+  id: "wire",
+  platform: "discord",
+  channelId: "1",
+  signals: ["launch", "change", "retirement"],
+};
 
 function table(records: Collection["records"]): Collection {
   return {

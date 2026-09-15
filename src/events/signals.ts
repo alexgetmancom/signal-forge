@@ -21,6 +21,7 @@ export const SIGNAL_CLASSES = [
   "change",
   "incident",
   "reminder",
+  "retirement",
 ] as const;
 export type SignalClass = (typeof SIGNAL_CLASSES)[number];
 
@@ -120,7 +121,18 @@ export function signalClass(event: Event): SignalClass {
 
   if (["api-models", "openrouter", "weights"].includes(event.stream)) {
     if (event.kind === "new") return listedButUnusable ? "codename" : "launch";
-    if (event.kind === "removed") return "launch";
+    /**
+     * A row leaving a catalogue is not the other half of a launch. Over the week to 2026-09-15 the
+     * channel carrying launches spent half its cards on four departures -- a dated preview snapshot,
+     * an ancient preview, a 1B checkpoint, a catalogue row -- and every one of them ended something
+     * that channel had never been told arrived: zero delivered arrivals, one delivered departure
+     * each. Meanwhile the retirement a vendor actually announced went to the quiet room, which is
+     * the whole arrangement upside down.
+     *
+     * It keeps its own class so a room can take the arrivals without the bookkeeping. The evidence
+     * is stored either way and reads back through `events` and `stories`.
+     */
+    if (event.kind === "removed") return "retirement";
     return "change";
   }
 
