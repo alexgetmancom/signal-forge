@@ -10,10 +10,6 @@ export type AttentionInput = {
   created?: string | null;
   stars?: number | null;
   forks?: number | null;
-  downloads?: number | null;
-  likes?: number | null;
-  pipelineTag?: string | null;
-  tags?: readonly string[] | null;
 };
 
 const TECHNICAL_TERMS = [
@@ -38,7 +34,7 @@ const AI_TERMS = [
 ] as const;
 
 function searchable(input: AttentionInput): string {
-  return [input.name, input.description, ...(input.topics ?? []), input.pipelineTag, ...(input.tags ?? [])]
+  return [input.name, input.description, ...(input.topics ?? [])]
     .filter((value): value is string => typeof value === "string")
     .join(" ")
     .normalize("NFKC")
@@ -115,38 +111,6 @@ export function attentionScore(input: AttentionInput, now = Date.now()): Attenti
   if (TECHNICAL_TERMS.some((term) => hasTerm(text, term))) {
     score += 10;
     reasons.push("technical-term-match");
-  }
-  return { score: Math.min(100, Math.max(0, score)), reasons };
-}
-
-/** A deterministic extension of the base score for Hugging Face model discovery. */
-export function huggingFaceAttentionScore(input: AttentionInput, now = Date.now()): AttentionScore {
-  const base = attentionScore(input, now);
-  const reasons = [...base.reasons];
-  let score = base.score;
-  score += thresholdScore(
-    input.downloads,
-    [
-      [100_000, 20, "downloads-100k-plus"],
-      [10_000, 15, "downloads-10k-plus"],
-      [1_000, 10, "downloads-1k-plus"],
-    ],
-    reasons,
-  );
-  score += thresholdScore(
-    input.likes,
-    [
-      [100, 10, "likes-100-plus"],
-      [20, 5, "likes-20-plus"],
-    ],
-    reasons,
-  );
-  if (
-    input.pipelineTag ||
-    (input.tags ?? []).some((tag) => /text-generation|image|audio|multimodal|embedding/i.test(tag))
-  ) {
-    score += 10;
-    reasons.push("model-pipeline-match");
   }
   return { score: Math.min(100, Math.max(0, score)), reasons };
 }

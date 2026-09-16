@@ -5,9 +5,9 @@ import { displayTitle } from "../naming.js";
 import { recordFor } from "../record.js";
 import type { Event, RecordData } from "../types.js";
 import { utcStamp } from "./common.js";
-import { eventFacts, type LeadTime } from "./facts.js";
+import { type CardContext, eventFacts } from "./facts.js";
 
-export type StoryRenderEvent = Event & { url: string; lead?: LeadTime };
+export type StoryRenderEvent = Event & CardContext & { url: string };
 
 const KIND_LABELS: Record<Event["kind"], string> = { new: "🆕", changed: "✏️", removed: "🗑️" };
 const KIND_COLORS: Record<Event["kind"], number> = { new: 0x2ecc71, changed: 0xf1c40f, removed: 0xe74c3c };

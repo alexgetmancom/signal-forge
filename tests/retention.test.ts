@@ -137,7 +137,7 @@ test("a payload past its lifetime leaves a receipt, not a hole", () => {
 
 test("shadow candidates nobody ever used are dropped, delivered evidence is not", () => {
   const db = openDatabase(":memory:");
-  const snapshot = storeSnapshot(db, "discovery:huggingface-recent", new Date(now).toISOString(), "{}");
+  const snapshot = storeSnapshot(db, "discovery:github-ai", new Date(now).toISOString(), "{}");
   const event = (source: string, daysAgo: number) =>
     db
       .query<{ id: number }, [string, string, number]>(
@@ -146,13 +146,13 @@ test("shadow candidates nobody ever used are dropped, delivered evidence is not"
       )
       .get(source, new Date(now - daysAgo * 24 * 3_600_000).toISOString(), snapshot.id);
 
-  const old = event("discovery:huggingface-recent", 40);
-  const recent = event("discovery:huggingface-recent", 5);
-  const delivered = event("discovery:huggingface-recent", 40);
+  const old = event("discovery:github-ai", 40);
+  const recent = event("discovery:github-ai", 5);
+  const delivered = event("discovery:github-ai", 40);
   db.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'test','1970-01-01T00:00:00.000Z',1)").run();
   db.query("INSERT INTO batch_events(batch_id,event_id,url) VALUES(1,?,'')").run(delivered?.id ?? 0);
 
-  expect(pruneShadowCandidates(db, ["discovery:huggingface-recent"], now)).toBe(1);
+  expect(pruneShadowCandidates(db, ["discovery:github-ai"], now)).toBe(1);
   const left = db
     .query<{ id: number }, []>("SELECT id FROM events ORDER BY id")
     .all()
@@ -172,7 +172,7 @@ test("an active source keeps its old events", () => {
      VALUES('openrouter','openrouter','gpt-5','new','{}',?,?)`,
   ).run(new Date(now - 400 * 24 * 3_600_000).toISOString(), snapshot.id);
 
-  expect(pruneShadowCandidates(db, ["discovery:huggingface-recent"], now)).toBe(0);
+  expect(pruneShadowCandidates(db, ["discovery:github-ai"], now)).toBe(0);
   expect(db.query<{ c: number }, []>("SELECT COUNT(*) c FROM events").get()?.c).toBe(1);
   db.close();
 });

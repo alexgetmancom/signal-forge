@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
-import { isOscillating, isReappearance, isScheduledPricingRotation } from "../src/events/oscillation.js";
+import { departedAs, isOscillating, isReappearance, isScheduledPricingRotation } from "../src/events/oscillation.js";
 import { saveCollection } from "../src/events/pipeline.js";
+import { eventFacts } from "../src/events/render/facts.js";
 import type { Collection, Event } from "../src/events/types.js";
 import { openDatabase } from "../src/storage/database.js";
 
@@ -148,5 +149,38 @@ test("a row that comes back on different terms is news again", () => {
 
   const again = db.query<Event, []>("SELECT * FROM events WHERE kind='new' ORDER BY id DESC LIMIT 1").get() as Event;
   expect(isReappearance(db, again, Date.parse("2026-09-15T13:00:00.000Z"))).toBe(false);
+  db.close();
+});
+
+test("a row that comes back on different terms says what changed since it left", () => {
+  const db = openDatabase(":memory:");
+  const tools = ["max_tokens", "response_format", "structured_outputs", "tool_choice", "tools"];
+  const catalogue: Collection = {
+    source: "openrouter",
+    stream: "openrouter",
+    url: "https://openrouter.ai",
+    raw: [],
+    records: [
+      { id: "anchor/stays", name: "Anchor" },
+      { id: "z-ai/glm-5.2:free", name: "Z.ai: GLM 5.2 (free)", context: 256_000, parameters: tools },
+    ],
+  };
+  saveCollection(db, catalogue, [], "2026-09-15T09:21:22.991Z");
+  catalogue.records = [{ id: "anchor/stays", name: "Anchor" }];
+  saveCollection(db, catalogue, [], "2026-09-15T09:26:00.000Z");
+  saveCollection(db, catalogue, [], "2026-09-15T09:31:56.357Z");
+  catalogue.records = [
+    { id: "anchor/stays", name: "Anchor" },
+    { id: "z-ai/glm-5.2:free", name: "Z.ai: GLM 5.2 (free)", context: 256_000, parameters: ["max_tokens"] },
+  ];
+  saveCollection(db, catalogue, [], "2026-09-15T12:59:50.781Z");
+
+  const again = db.query<Event, []>("SELECT * FROM events WHERE kind='new' ORDER BY id DESC LIMIT 1").get() as Event;
+  const returned = departedAs(db, again, Date.parse("2026-09-15T13:00:00.000Z"));
+  expect(returned).not.toBeNull();
+  expect(eventFacts({ ...again, returned: returned ?? {} })).toEqual([
+    "Listed again, and not on the terms it left with:",
+    "Parameters: − response_format, structured_outputs, tool_choice, tools",
+  ]);
   db.close();
 });

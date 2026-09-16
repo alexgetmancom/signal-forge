@@ -79,10 +79,12 @@ export function sourceLabel(id: string): string {
   const staticLabel = STATIC_LABELS[id];
   if (staticLabel) return staticLabel;
   if (id.startsWith("huggingface:")) return `Hugging Face · ${id.slice("huggingface:".length)}`;
-  if (id === "discovery:huggingface-recent") return "Hugging Face · recent discovery";
+  if (id === "discovery:huggingface-trending") return "Hugging Face · trending";
   if (id.startsWith("discovery:github-")) return `GitHub · discovery · ${id.slice("discovery:github-".length)}`;
   if (id === "modelscope:recent") return "ModelScope · recent";
   if (id.startsWith("modelscope:")) return `ModelScope · ${id.slice("modelscope:".length)}`;
+  if (id.startsWith("artificial-analysis:"))
+    return `Artificial Analysis · ${id.slice("artificial-analysis:".length)} arena`;
   if (id.startsWith("designarena:")) return `DesignArena · ${id.slice("designarena:".length)}`;
   if (id.startsWith("app:ios:")) return `App Store · ${id.slice("app:ios:".length)}`;
   if (id.startsWith("pages:")) return `${id.slice("pages:".length)} · site pages`;

@@ -5,6 +5,7 @@ import { hasNotificationContent } from "../src/events/notification.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import { eventFacts } from "../src/events/render/facts.js";
 import type { Collection, Event } from "../src/events/types.js";
+import { parseMediaArena } from "../src/sources/analysis.js";
 import { openDatabase } from "../src/storage/database.js";
 
 const board = (records: Collection["records"]): Collection => ({
@@ -114,4 +115,49 @@ test("an Elo score is reported to one decimal, not to twelve", () => {
   } as Event;
 
   expect(eventFacts(event).join("\n")).toContain("Score: 1507.2 → 1505.5");
+});
+
+test("an Artificial Analysis media arena ranks only its leading places", () => {
+  const payload = JSON.stringify({
+    status: 200,
+    data: [
+      {
+        id: "ac3abe51-14ca-4c04-b215-01a85f3a36ac",
+        name: "GPT Image 2.5 Flare (max)",
+        slug: "gpt-image-2.5-flare-2026-09-08",
+        model_creator: { id: "e67e56e3", name: "OpenAI" },
+        elo: 1301,
+        rank: 1,
+        ci95: "-9/9",
+      },
+      { id: "fourth", name: "Fourth", slug: "fourth", model_creator: { name: "Lab" }, elo: 1100, rank: 4 },
+    ],
+  });
+  const collection = parseMediaArena("text-to-image", payload);
+  expect(collection).toMatchObject({
+    source: "artificial-analysis:text-to-image",
+    stream: "leaderboards",
+    url: "https://artificialanalysis.ai/text-to-image/arena",
+    trackChanges: true,
+  });
+  expect(collection.records).toEqual([
+    {
+      id: "ac3abe51-14ca-4c04-b215-01a85f3a36ac",
+      name: "GPT Image 2.5 Flare (max)",
+      modelKey: "gpt-image-2.5-flare-2026-09-08",
+      category: "artificial-analysis/text-to-image",
+      maker: "OpenAI",
+      score: 1301,
+      rank: 1,
+    },
+    {
+      id: "fourth",
+      name: "Fourth",
+      modelKey: "fourth",
+      category: "artificial-analysis/text-to-image",
+      maker: "Lab",
+      score: 1100,
+    },
+  ]);
+  expect(() => parseMediaArena("text-to-video", JSON.stringify({ data: [] }))).toThrow();
 });

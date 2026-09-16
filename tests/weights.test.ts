@@ -7,7 +7,7 @@ const now = "2026-09-14T12:00:00.000Z";
 
 function sweep(records: Collection["records"]): Collection {
   return {
-    source: "discovery:huggingface-recent",
+    source: "discovery:huggingface-trending",
     stream: "weights",
     url: "https://huggingface.co/api/models",
     raw: {},

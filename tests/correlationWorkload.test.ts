@@ -109,7 +109,7 @@ function build(db: Database): void {
     saveCollection(
       db,
       collection(
-        "discovery:huggingface-recent",
+        "discovery:huggingface-trending",
         "discovery",
         FAMILY.map((id) => ({
           id: `someone/${id}-quantised-${round}`,
@@ -133,7 +133,7 @@ function shape(db: Database): Shape[] {
   }));
 }
 
-const DERIVATIVE = "discovery:huggingface-recent";
+const DERIVATIVE = "discovery:huggingface-trending";
 
 /**
  * Exact, not "about this much". Every number here is a count of work the projection did on a fixed

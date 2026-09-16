@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { loadConfig } from "../src/config.js";
 import {
   collectGithubDiscovery,
-  collectHuggingFaceDiscovery,
+  collectHuggingFaceTrending,
   GITHUB_DISCOVERY_QUERIES,
 } from "../src/sources/discovery.js";
 
@@ -72,103 +72,57 @@ test("GitHub discovery requires a token and rejects malformed responses", async 
   ).rejects.toThrow();
 });
 
-test("global Hugging Face discovery sweeps a window and validates the public response", async () => {
-  const requested: string[] = [];
-  const request = async (url: string) => {
-    requested.push(url);
-    return Response.json([
-      {
-        id: "openai/secret-model",
-        author: "openai",
-        createdAt: "2026-09-10T11:00:00.000Z",
-        lastModified: "2026-09-10T11:30:00.000Z",
-        downloads: 10_000,
-        likes: 20,
-        pipeline_tag: "text-generation",
-        tags: ["transformers"],
-        private: false,
-        gated: false,
-      },
-    ]);
-  };
-  const collection = await collectHuggingFaceDiscovery(config, request, undefined, now);
-  expect(requested[0]).toContain("limit=1000");
-  expect(requested[0]).toContain("expand[]=safetensors");
-  // A short page is the end of the feed: one request, not twenty-four.
-  expect(requested).toHaveLength(1);
-  expect(collection).toMatchObject({ source: "discovery:huggingface-recent", stream: "weights", appendOnly: true });
-  expect(collection.records[0]).toMatchObject({ id: "openai/secret-model", author: "openai" });
-  await expect(collectHuggingFaceDiscovery(config, async () => Response.json({}), undefined, now)).rejects.toThrow();
+const trending = (id: string, extra: Record<string, unknown> = {}) => ({
+  id,
+  author: id.split("/")[0],
+  createdAt: "2026-09-08T11:00:00.000Z",
+  likes: 800,
+  pipeline_tag: "text-generation",
+  tags: ["license:apache-2.0"],
+  private: false,
+  safetensors: { total: 35_107_181_936 },
+  ...extra,
 });
 
-test("a body carries the parameter count but never a figure that moves", async () => {
+test("Hugging Face trending keeps young original models and says what licence they carry", async () => {
+  let requested = "";
+  const request = async (url: string) => {
+    requested = url;
+    return Response.json([trending("nex-agi/Nex-N2.5-mini")]);
+  };
+  const collection = await collectHuggingFaceTrending(config, request, undefined, now);
+  expect(requested).toContain("sort=trendingScore");
+  expect(collection).toMatchObject({ source: "discovery:huggingface-trending", stream: "weights", appendOnly: true });
+  expect(collection.records).toEqual([
+    {
+      id: "nex-agi/Nex-N2.5-mini",
+      name: "nex-agi/Nex-N2.5-mini",
+      url: "https://huggingface.co/nex-agi/Nex-N2.5-mini",
+      author: "nex-agi",
+      created: "2026-09-08T11:00:00.000Z",
+      pipelineTag: "text-generation",
+      license: "apache-2.0",
+      parameters: 35_107_181_936,
+      likes: 800,
+    },
+  ]);
+  await expect(collectHuggingFaceTrending(config, async () => Response.json({}), undefined, now)).rejects.toThrow();
+});
+
+test("copies and rediscoveries never enter the trending list", async () => {
+  // Every one of these was in the top hundred on 2026-09-16.
   const request = async () =>
     Response.json([
-      {
-        id: "lab/new-weights",
-        author: "lab",
-        createdAt: "2026-09-10T11:00:00.000Z",
-        lastModified: "2026-09-10T23:00:00.000Z",
-        downloads: 4,
-        likes: 3,
-        tags: [],
-        private: false,
-        safetensors: { total: 753_329_940_480 },
-      },
+      trending("unsloth/Qwen3.8-27B-GGUF"),
+      trending("dealignai/GLM-5.3-CYBERSECURITY-FP8"),
+      trending("audnai/penclaw-GLM-5.3-abliterated"),
+      trending("nvidia/Qwen3.8-27B-NVFP4"),
+      trending("ukisai/Swift-Qwen3.8-27b", { cardData: { base_model: "Qwen/Qwen3.8-27B" } }),
+      trending("TokenRhythm/NeoHorse-1-4B", { tags: ["base_model:finetune:Qwen/Qwen3-4B"] }),
+      trending("openai-community/gpt2", { createdAt: "2022-03-02T23:29:04.000Z" }),
+      trending("someone/private-model", { private: true }),
+      trending("openbmb/MiniCPM5-2B"),
     ]);
-  const record = (await collectHuggingFaceDiscovery(config, request, undefined, now)).records[0];
-  expect(record).toMatchObject({ parameters: 753_329_940_480, derivative: false });
-  expect(record).not.toHaveProperty("likes");
-  expect(record).not.toHaveProperty("downloads");
-  expect(record).not.toHaveProperty("updated");
-});
-
-test("likes find what the parameter rule cannot, and only while the model is young", async () => {
-  const liked = (createdAt: string) => ({
-    id: "gated/model",
-    author: "gated",
-    createdAt,
-    tags: [],
-    private: false,
-    likes: 40,
-    gated: true,
-  });
-  const reasons = async (createdAt: string) =>
-    (await collectHuggingFaceDiscovery(config, async () => Response.json([liked(createdAt)]), undefined, now))
-      .records[0]?.notableReasons;
-  expect(await reasons("2026-09-10T11:00:00.000Z")).toEqual(["likes-within-12h"]);
-  // Past the window the model is not read at all: the like count it carries was earned out of
-  // sight, and the sweep cannot page back far enough to have watched it happen.
-  expect(await reasons("2026-09-09T11:00:00.000Z")).toBeUndefined();
-});
-
-test("a model served again on the next page is one model, not a rejected sweep", async () => {
-  // `skip` counts from the newest model at each request, so a model published between two pages
-  // repeats the last row of one as the first of the next. On 2026-09-16 that rejected a whole sweep.
-  const model = (id: string, createdAt: string) => ({
-    id,
-    author: "lab",
-    createdAt,
-    lastModified: createdAt,
-    downloads: 0,
-    likes: 0,
-    pipeline_tag: "text-generation",
-    tags: [],
-    private: false,
-    gated: false,
-  });
-  const full = Array.from({ length: 1000 }, (_, index) =>
-    model(`lab/model-${index}`, new Date(Date.parse("2026-09-10T11:00:00.000Z") - index * 1000).toISOString()),
-  );
-  const pages = [full, [full[999], model("lab/older", "2026-09-10T08:00:00.000Z")]];
-  let call = 0;
-  const collection = await collectHuggingFaceDiscovery(
-    config,
-    async () => Response.json(pages[call++]),
-    undefined,
-    now,
-  );
-  expect(call).toBe(2);
-  expect(collection.records.filter((record) => record.id === "lab/model-999")).toHaveLength(1);
-  expect(collection.records).toHaveLength(1001);
+  const collection = await collectHuggingFaceTrending(config, request, undefined, now);
+  expect(collection.records.map((record) => record.id)).toEqual(["openbmb/MiniCPM5-2B"]);
 });

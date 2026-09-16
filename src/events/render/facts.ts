@@ -1,6 +1,7 @@
 import { sourceLabel } from "../../sources/labels.js";
 import { canonical } from "../canonical.js";
 import { identityFor } from "../identity.js";
+import { SUBSTANTIVE_FIELDS } from "../oscillation.js";
 import type { Event, RecordData } from "../types.js";
 import {
   collapseDetails,
@@ -69,18 +70,51 @@ function identityLine(event: Event, record: RecordData | null, title: string): s
  */
 export type LeadTime = { hours: number; source: string };
 
+/**
+ * What a card knows beyond its own event, looked up once per batch by the code that has the database.
+ *
+ * `returned` is the row as it last left, for a row that has come back changed. `elsewhere` names the
+ * other catalogues and registries already carrying the model: "dashscope: glm-5.3" reached the wire
+ * with no word that Z.ai and OpenRouter had listed GLM 5.3 before Alibaba's platform did, and a
+ * reader deciding whether that is news needs exactly that.
+ */
+export type CardContext = { lead?: LeadTime; returned?: Record<string, unknown>; elsewhere?: string[] };
+
 function leadLine(lead: LeadTime): string {
   const amount = lead.hours < 48 ? `${Math.round(lead.hours)} hours` : `${Math.round(lead.hours / 24)} days`;
   return `Traced ${amount} earlier · ${sourceLabel(lead.source)}`;
 }
 
-export function eventFacts(event: Event & { lead?: LeadTime }, summary?: string): string[] {
+function elsewhereLine(sources: readonly string[]): string {
+  return sources.length
+    ? `Already listed by ${sources.map(sourceLabel).join(", ")}`
+    : "No other tracked catalogue lists it yet";
+}
+
+export function eventFacts(event: Event & CardContext, summary?: string): string[] {
   const before = event.before_json ? (JSON.parse(event.before_json) as RecordData) : null;
   const after = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
   const record = after ?? before;
   const title = String(record?.name ?? event.entity_id);
   const lines: string[] = [];
   if (event.lead) lines.push(leadLine(event.lead));
+  if (event.elsewhere) lines.push(elsewhereLine(event.elsewhere));
+
+  if (event.returned && after && event.kind === "new") {
+    const terms = (row: Record<string, unknown>) =>
+      JSON.stringify(Object.fromEntries(SUBSTANTIVE_FIELDS.map((field) => [field, row[field] ?? null])));
+    const moved = eventFacts({
+      id: event.id,
+      source: event.source,
+      stream: event.stream,
+      entity_id: event.entity_id,
+      detected_at: event.detected_at,
+      kind: "changed",
+      before_json: terms(event.returned),
+      after_json: terms(after),
+    });
+    if (moved.length) return [...lines, "Listed again, and not on the terms it left with:", ...moved];
+  }
 
   if (event.stream === "web" && before && after && Array.isArray(before.strings) && Array.isArray(after.strings)) {
     const { added, removed, meaningfulAdded, meaningfulRemoved } = webStringChanges(before.strings, after.strings);

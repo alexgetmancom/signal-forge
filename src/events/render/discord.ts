@@ -4,7 +4,7 @@ import { vendorOf } from "../interpretation.js";
 import { displayTitle } from "../naming.js";
 import type { Event, RecordData } from "../types.js";
 import { DESCRIPTION_CHARACTERS } from "./budget.js";
-import { eventFacts, type LeadTime } from "./facts.js";
+import { type CardContext, eventFacts } from "./facts.js";
 
 const EYEBROWS: Record<string, string> = {
   "api-models": "MODEL CATALOGUE",
@@ -73,7 +73,7 @@ function readerImpact(event: Event, record: RecordData | null): string | null {
   return null;
 }
 
-export function eventEmbed(event: Event & { lead?: LeadTime }, url: string, summary?: string): Record<string, unknown> {
+export function eventEmbed(event: Event & CardContext, url: string, summary?: string): Record<string, unknown> {
   const before = event.before_json ? (JSON.parse(event.before_json) as RecordData) : null;
   const after = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
   const record = after ?? before;

@@ -10,13 +10,13 @@ source list -- every one of its recommendations shipped, and what it still propo
 Signal Forge watches AI model catalogues, arenas, open-weight registries, packages, repositories,
 documentation, official news and platform health; it keeps immutable before/after evidence, assigns
 source-derived confidence, correlates events across sources and delivers only what passes the
-notification policy. Production is healthy and the gate passes on `main`; the known defects are the
-card and story work below.
+notification policy. Production is healthy and the gate passes on `main`; what is left is reading
+back what the channels carried.
 
-A hundred and sixteen sources are registered and a hundred and fifteen collect, measured 2026-09-16.
-`gemini`, `vercel-gateway` and `artificial-analysis` had never collected and all three did that day,
-once their hostnames were routed through a US exit (settled below). The one that does not collect is
-the Kimi coding tier, which waits for a key.
+A hundred and nineteen sources are registered on 2026-09-16: ModelScope left, and the four Artificial
+Analysis media arenas arrived. `gemini`, `vercel-gateway` and `artificial-analysis` had never
+collected and did that day, once their hostnames were routed through a US exit (settled below). The
+one that does not collect is the Kimi coding tier, which waits for a key.
 
 ## Next work
 
@@ -25,22 +25,8 @@ that has since moved is not a priority.
 
 | Priority | Task | Definition of done |
 |---|---|---|
-| Next | Read the wire back in a week. | `channel-mix 7`, taken no earlier than 2026-09-23, says what the two channels carried after the routing of 2026-09-16 (`🚀signals`: `launch`; `🕵scouts`: `codename`). Replaying the week before it through every delivery filter predicted 7 wire cards and about 50 scout cards. Done when the real numbers are written here with their date, `unrouted` and `shadow` are read per class, and it is answered on that evidence whether any page section or reseller tier (OpenRouter's `:batch` rows speak today) still reaches the scouts without being a sighting. |
-| Next | Say what changed when a row comes back. | `z-ai/glm-5.2:free` left OpenRouter and returned 3 h 38 min later without `tools`, `tool_choice`, `structured_outputs` and `response_format`. Reappearance correctly let it speak, and the card said nothing about why: it read as a duplicate. Done when a returning row whose terms changed renders the fields that differ from the row that left. |
-| Next | One launch, one story, across a vendor's pages. | Gemini 3.8 Live reached the scouts as four page cards (`pages:google` twice, `pages:deepmind` once) beside the changelog entry, all inside an hour on 2026-09-15, because story correlation keys on names and each page slug spells the model differently (`gemini 3 8 audio`, `gemini 3.8 live`). Done when those five events land in one story on a replay of that hour, without merging distinct models -- the position-ordered fallback settled below is the constraint. |
-| Next | A card says where a model was seen. | "dashscope: glm-5.3" reached the wire with no word on what DashScope is (Alibaba's Model Studio API) or that GLM 5.3 had already shipped elsewhere: the card reports a row, and the reader needs the fact. It is a scout card now, and the scouts need the same answer. Done when a catalogue card names the platform by what it is and says whether the model was already known from another source. |
-| Next | Two cards for one OpenAI launch. | `gpt-image-2.5-flare` and its dated snapshot `gpt-image-2.5-flare-2026-09-08` arrive in the same collection and both speak: the alias filter does not treat a snapshot as another row of the model beside it. Done when a snapshot that arrives with its undated alias is suppressed with a reason, and a snapshot that arrives alone -- the way a model can first appear -- still speaks. `-preview` is not a snapshot: Google launches under it. |
+| Next | Read the wire back in a week. | `channel-mix 7`, taken no earlier than 2026-09-23, says what the two channels carried after the routing and filters of 2026-09-16 (`🚀signals`: `launch`; `🕵scouts`: `codename`). Replaying the week to 2026-09-16 19:00 through every delivery filter on a copy of production predicted 3 wire cards and 89 scout cards, of which 49 were site pages the section rules of the same day no longer collect and 2 were ModelScope: about 38. Hugging Face trending was not in that week and adds whatever enters its list. Done when the real numbers are written here with their date, `unrouted` and `shadow` are read per class, and anything that reached the scouts without being a sighting is named with its source. |
 | Owner decision | Kimi: a key for the coding tier. | The Moonshot key answers with `kimi-k2.6` and `kimi-k2.7-code` and nothing newer, checked against production 2026-09-14, which is why the K2.8 Preview rollout of 11 September 2026 was invisible here. The coding tier is a separate host with a separate credential: `api.kimi.com/coding/v1/models` answers 401 to a key it does not accept while every neighbouring path answers 404, so the source is registered and correct ahead of the key. Set `KIMI_API_KEY` and it collects; the Kimi Code changelog already ships as its own source. |
-| Later | A human verdict from the invited room. | A stealth model on an arena cannot be called by API, so no benchmark of ours reaches it -- the scouts can, by hand. A codename card carrying a prompt kit chosen from the arena's own modality flags, and a reaction rubric the promotion worker tallies, makes the room the evaluation. The verdict travels with the reveal, which already links back to the sighting. Gives two measurements nobody else has: which source produces signals people confirm, and which scout is right most often. |
-| Later | Shutdown dates that reach the reminder engine. | The reminder engine, `lifecycle_deadlines` and idempotent 30/7/1-day reminders exist; the extraction does not. `parseOpenAIDeprecations()` keeps the prose and extracts no shutdown or replacement field, and the `lifecycle.ts` fallback reads ISO dates, not `October 1, 2026`. Event 9163 announced the GPT-5.4-Cyber shutdown in `summary` alone. Done when announcement, deprecation and shutdown dates are told apart from the source's own structure, an ambiguous notice stays unprojected rather than guessed, stored records are migrated in the same move, and event 9163 yields the right date and successor. Capped in value because deprecations are scouts' material. |
-| Later | The six leaderboards that will not answer in data. | MathArena, ARC-AGI 2 and 3, Epoch FrontierMath, DeepSWE and the Artificial Analysis image and video arenas all render their tables from JavaScript, checked 2026-09-14; no static JSON, CSV or feed was found behind any of them. Artificial Analysis has had a key and a route since 2026-09-16, so its keyed data API is the first place to look for the two arenas before any page. VoxelBench, WeirdML and SimpleBench shipped because they publish the data their pages draw from. Done when each remaining board is either read from a data endpoint or written off in one line here; parsing rendered markup is not an option, because it reports a style change as a ranking move. |
-| Later | Four vendor blogs with no feed. | Meta Research, Tencent, IBM Research and MiniMax announce releases on pages with no RSS or Atom -- eight candidate addresses checked 2026-09-14, none served a feed -- so each needs its own HTML parser against corporate marketing markup, the most fragile shape of source here. Meta and Tencent weights already arrive through `huggingface:meta-models` and `huggingface:tencent`, which covers the release itself; these would add the vendor's own words. |
-| Later | Changelogs behind rendered pages. | `docs.mistral.ai/resources/changelogs` (1.4 MB of HTML, distinct from the release notes already collected), the ZCode changelog where GLM-5.3 and GLM-5.3-Flash are documented but absent from the Z.ai `/models` catalogue, Alibaba Model Studio release notes beside the `dashscope` catalogue, and the DeepMind model cards. The ZCode case is the one worth having: documentation exposing a model the API does not list yet, which must never be reported as API availability without the catalogue confirming it. |
-| Later | The Google product blog in full. | `blog.google` is covered through the AI topic feed. Its English sitemap lists 11,617 pages grouped by section rather than by date, measured 2026-09-14, so the 4,000-page cap in `pages.ts` would silently drop whichever section sorts last; the other topic feeds are the way in, one per topic, not a raised cap. |
-| Later | Surfaces that need a way in, not a parser. | `status.x.ai` refuses its own API with 403 and renders in the browser. Meta's model catalogue has no public endpoint. Google Labs publishes its unreleased product strings in a web bundle the way `claude.ai` does, and the same technique reads it. Android release diffing -- unpacking an APK and comparing `strings.xml` between versions -- is how a competitor saw Perplexity's wake word and Qwen's Projects weeks early; it is a subsystem, not a source. |
-| Later | More reset sources, and an evidence type for them. | Z.ai, xAI and Meta reset surfaces, each as its own source with its own authority, never merged into the Codex tracker's family. `events.evidence_type` carries a CHECK constraint, so `reset` needs a rebuild of a table a dozen others reference; until that is worth one move, resets store `unknown` and say what they are in the card's own words. |
-| Later | A last-reset board. | One status message, edited in place, naming when each tracked vendor last reset usage limits. Worth building when a second vendor's resets are collected; with one row it is a card that already exists. |
-| Later | ModelScope verdict. | Keep or remove on measured lead time, once `lead-time 7` has a full week of it behind it. It has produced no first sighting worth a card so far. |
 
 ## Settled by measurement
 
@@ -89,10 +75,24 @@ Kept because the reasoning cost real observation and is easy to re-litigate from
   trusted" and cannot answer "is this worth a stranger's attention", which is the whole question an
   early sighting raises. Reactions are polled over REST rather than listened for on a gateway
   socket, which keeps the outbound-only boundary intact for one request a cycle.
-- **Shadow discovery stays in the shadow.** `discovery:huggingface-recent` produced 7,723 stories in
-  seven days; 73 were touched by another source and all 73 were false matches on a base model's name
-  carried by a third-party derivative. Its apparent lead time was an artefact of being the only
-  source present.
+- **Hugging Face is read as its labs' accounts and its trending list, never as every upload.** The
+  upload sweep left 21,562 events in the week to 2026-09-16 and delivered none; 73 of its stories that
+  touched another source were all false matches on a base model's name carried by a derivative, and
+  its apparent lead time was an artefact of being the only source present. The labs' own accounts
+  see a release the hour its weights land. The trending list is the only way to hear about a lab
+  nobody follows: on 2026-09-16, 58 of its top 100 declared a base model and more were quantisations
+  by name, so copies and anything older than a fortnight are dropped before an event exists, and a
+  model a followed lab already published stays quiet. It still correlates only with itself.
+- **Written off 2026-09-16, on the owner's call that they are not worth carrying.** ModelScope: two
+  first sightings in a week and no lead over any source. MathArena, ARC-AGI, FrontierMath and DeepSWE:
+  no data endpoint, and rendered markup is not read. Meta Research, Tencent, IBM Research and MiniMax
+  blogs: a parser each against marketing markup, for words the weights already carry. The Google
+  product blog beyond its AI feed, the Mistral and ZCode changelogs, Model Studio release notes and
+  DeepMind model cards behind rendered pages, `status.x.ai`, Meta's catalogue, Google Labs bundles
+  and APK diffing: each needs a way in before a parser, and articles and evidence are routed
+  nowhere. More reset sources and a last-reset board: one vendor's resets exist. A human verdict in
+  the invited room and shutdown dates for the reminder engine: retirements are off the wire, and
+  nobody asked the room to grade.
 - **A source-count badge on a card is not worth building.** Of cards that reached a reader, 0% and
   10% had a second independent source at send time, and 18% would have carried a permanently wrong
   count: confirmation arrived a median 8.2 hours after the message was sent, and cards are not
@@ -167,16 +167,18 @@ Not scheduled. Written down so they stop being re-derived from scratch.
 
 Catalogues (OpenRouter, OpenAI, Anthropic, xAI, Moonshot, Mistral, Groq, Z.ai, MiniMax, Alibaba
 Model Studio, Cerebras, Artificial Analysis and Kimi, each inert without its own key; Gemini,
-Artificial Analysis and the Vercel AI Gateway reached through a US exit). Open weights on Hugging Face, including the `meta-models`, `ibm-granite` and `tencent`
-organisations, and on ModelScope. Arena, Arena leaderboards, DesignArena, and the three independent
-boards that publish their own data: VoxelBench, WeirdML and SimpleBench. OpenRouter usage rankings,
+Artificial Analysis and the Vercel AI Gateway reached through a US exit). Open weights on Hugging
+Face: the labs' own accounts, including `meta-models`, `ibm-granite` and `tencent`, and the trending
+list. Arena, Arena leaderboards, DesignArena, the Artificial Analysis image, image-editing, video and
+speech arenas, and the three independent boards that publish their own data: VoxelBench, WeirdML
+and SimpleBench. OpenRouter usage rankings,
 in shadow, as the only measure of what people actually run. npm, PyPI and GitHub activity for
 selected AI tools. Official news, release notes and changelogs for OpenAI, Codex, Anthropic, Claude
 Code, Gemini, the Google AI blog, DeepMind, xAI, Mistral, Groq, DeepSeek, Kimi Code, Cohere and
 Hugging Face. Lifecycle and deprecation pages for OpenAI, Anthropic, Google, AWS, Azure, Groq,
 Cohere and xAI. Vendor site pages watched for URLs that appear before the announcement, including
 the Claude API reference and help centre. Eleven iOS listings, read for the vendor's own release
-notes. Codex usage-limit resets. GitHub and Hugging Face discovery, both in shadow. Two aggregated
+notes. Codex usage-limit resets. GitHub discovery, in shadow. Two aggregated
 catalogues, in shadow: models.dev, which carries 217 providers as 2291 canonical models, and the
 TrueFoundry mirror of the two Azure directories, which is the only sight of a cloud's deployment
 version. Both are `third_party`, so a model they show and no vendor does stays `observed`.

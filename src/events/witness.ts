@@ -43,6 +43,38 @@ export function witnessedSubjects(db: Database): Set<string> {
 }
 
 /**
+ * Aggregators of other catalogues. A model they carry is already somewhere else, and naming them on
+ * a card would say "a list of lists has it" instead of where it can be called.
+ */
+const MIRRORS = new Set(["models-dev", "truefoundry-azure"]);
+
+/** Which catalogues and registries carry each model, keyed like `subjectKey`. */
+export function listingsBySubject(db: Database): Map<string, Set<string>> {
+  const listings = new Map<string, Set<string>>();
+  const rows = db
+    .query<{ source: string; id: string; body: string }, []>(
+      "SELECT source,id,body FROM records WHERE stream IN ('api-models','openrouter','weights') AND source NOT LIKE 'discovery:%'",
+    )
+    .all();
+  for (const row of rows) {
+    if (MIRRORS.has(row.source)) continue;
+    let name: unknown;
+    try {
+      name = (JSON.parse(row.body) as Record<string, unknown>).name;
+    } catch {
+      name = null;
+    }
+    for (const value of new Set([row.id, typeof name === "string" ? name : row.id])) {
+      const key = subjectKey(value);
+      const sources = listings.get(key) ?? new Set<string>();
+      sources.add(row.source);
+      listings.set(key, sources);
+    }
+  }
+  return listings;
+}
+
+/**
  * How heavily a model is used, as a place in the ranking, for the models that appear on one.
  *
  * Three price lines a week is a budget, and spending one on a model nobody runs is how DeepSeek V4

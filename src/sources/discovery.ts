@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { attentionScore, huggingFaceAttentionScore } from "../attention.js";
+import { attentionScore } from "../attention.js";
 import type { AppConfig } from "../config.js";
 import type { Collection, RecordData } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
@@ -37,97 +37,68 @@ const githubSearchSchema = z.object({
   items: z.array(repositorySchema).max(100),
 });
 
-const huggingFaceDiscoveryModel = z.object({
+const trendingModel = z.object({
   id: z.string().min(1),
   author: z.string().nullish(),
   createdAt: z.string().min(1),
-  lastModified: z.string().nullish(),
-  downloads: z.number().int().nonnegative().nullish(),
   likes: z.number().int().nonnegative().nullish(),
   pipeline_tag: z.string().nullish(),
   tags: z.array(z.string()).default([]),
   private: z.boolean().default(false),
-  gated: z.union([z.boolean(), z.string()]).nullish(),
-  // Present once weights are uploaded, which is the moment a release becomes a fact. An empty
-  // repository created minutes earlier carries neither.
   safetensors: z.object({ total: z.number().nonnegative().nullish() }).nullish(),
   cardData: z.object({ base_model: z.unknown().nullish() }).nullish(),
 });
 
-const huggingFaceDiscoverySchema = z.array(huggingFaceDiscoveryModel).max(1_000);
+const trendingSchema = z.array(trendingModel).max(1_000);
 
 /**
- * A model repository is created empty and the weights follow hours later -- Atria Dawn Preview was
- * created at 08:27 and carried its weights at 11:44 -- so a single look at creation time sees
- * nothing. The sweep therefore re-reads a window rather than the newest page: everything created in
- * the last three days is re-examined on every poll, which is also why a burst in the feed can no
- * longer outrun the collector.
- */
-const HUGGINGFACE_WINDOW_HOURS = 12;
-
-/**
- * The feed cannot be paged deeper than four thousand entries: `skip=3000` answers, `skip=4000` is
- * rejected outright (measured 2026-09-14). At the 201 repositories an hour the feed produced that
- * day four pages reach back about twenty hours, so a twelve-hour window keeps a margin of roughly
- * two thirds for a busier day, and a sweep that runs out of pages before reaching the cutoff says
- * so rather than reporting a window it did not cover.
- */
-const HUGGINGFACE_PAGE_LIMIT = 1_000;
-const HUGGINGFACE_MAX_PAGES = 4;
-
-const HUGGINGFACE_EXPAND = [
-  "createdAt",
-  "lastModified",
-  "downloads",
-  "likes",
-  "pipeline_tag",
-  "tags",
-  "private",
-  "gated",
-  "author",
-  "safetensors",
-  "cardData",
-];
-
-/**
- * Likes arrive too late to find a release -- 12,850 of 13,770 repositories captured in four days had
- * none when first seen and the busiest had six -- but they find what the weights cannot show: a
- * gated repository, a format carrying no parameter index, a small model that matters anyway.
- * Bucketed, because the raw count moves on every poll and a body that moves reports a change that
- * means nothing.
+ * What the registry itself says is taking off, instead of everything uploaded.
  *
- * Whether the weights are the first of their kind is decided in `weights.ts` against every count
- * ever published. That is memory; this is a function of one HTTP response.
+ * The creation-ordered feed this replaced read about three thousand repositories a day. Measured on
+ * production over the week to 2026-09-16: 21,562 events, not one delivered, 69,526 Model Facts rows
+ * derived from quantisations and fine-tunes, and a story per upload. Popularity cannot find a
+ * release the hour its weights land -- the maker's own account does that, and those accounts are
+ * collected as sources of their own -- but it is the only way to hear about a model from a lab this
+ * deployment does not follow. The trending order is Hugging Face's own measure of recent likes, so
+ * the like velocity a threshold would try to approximate is already computed.
+ *
+ * Entering this list is the event. A model that stays on it says nothing new, and one that leaves
+ * has not gone anywhere, so nothing is reported on either.
  */
-const LIKES_FLOOR = 20;
+const TRENDING_LIMIT = 100;
 
 /**
- * Only as long as the sweep can still re-read the model. Following a repository after it leaves the
- * window would mean re-reading stored candidates rather than the feed, which is a different
- * collector; twenty likes inside twelve hours is what a launch looks like anyway.
+ * A model trending for the first time a fortnight after upload is being rediscovered, not released.
+ * `sentence-transformers/all-MiniLM-L6-v2` (1,658 days old) and `openai-community/gpt2` sat in the
+ * top twenty on 2026-09-16.
  */
-const LIKES_WINDOW_HOURS = HUGGINGFACE_WINDOW_HOURS;
+const TRENDING_MAX_AGE_DAYS = 14;
 
-function parameterTotal(model: z.infer<typeof huggingFaceDiscoveryModel>): number | null {
+/**
+ * Somebody else's model, republished. Most of the list is one of these: on 2026-09-16, 58 of the
+ * top 100 declared a base model, and the rest of the copies say so in their name instead --
+ * `Qwen3.8-27B-Uncensored-GGUF`, `GLM-5.3-CYBERSECURITY-FP8`, `penclaw-GLM-5.3-abliterated`.
+ */
+const REPUBLISHED =
+  /(^|[-_.])(gguf|gptq|awq|exl[23]|mlx|nvfp4|fp8|fp4|int[48]|w[48]a\d+|bnb|\d-?bit|lora|adapter|merged?|abliterated|uncensored|heretic|obliterated|distill(ed)?)($|[-_.])/i;
+
+function parameterTotal(model: z.infer<typeof trendingModel>): number | null {
   const total = model.safetensors?.total;
   return typeof total === "number" && Number.isFinite(total) ? total : null;
 }
 
-function declaresBaseModel(model: z.infer<typeof huggingFaceDiscoveryModel>): boolean {
+function isRepublished(model: z.infer<typeof trendingModel>): boolean {
   const base = model.cardData?.base_model;
-  if (Array.isArray(base)) return base.length > 0;
-  return typeof base === "string" ? base.trim().length > 0 : Boolean(base);
-}
-
-/**
- * Why this repository is worth a person's attention on the strength of this response alone. Reasons
- * carry no measured number: `records.body` is compared byte for byte, so a reason that embedded the
- * like count would report a change every time somebody clicked.
- */
-function notableReasons(model: z.infer<typeof huggingFaceDiscoveryModel>, now: number): string[] {
-  const created = Date.parse(model.createdAt);
-  const young = Number.isFinite(created) && now - created <= LIKES_WINDOW_HOURS * 3_600_000;
-  return young && (model.likes ?? 0) >= LIKES_FLOOR ? [`likes-within-${LIKES_WINDOW_HOURS}h`] : [];
+  const declared = Array.isArray(base)
+    ? base.length > 0
+    : typeof base === "string"
+      ? base.trim() !== ""
+      : Boolean(base);
+  return (
+    declared ||
+    model.tags.some((tag) => tag.startsWith("base_model:")) ||
+    REPUBLISHED.test(model.id.slice(model.id.indexOf("/") + 1))
+  );
 }
 
 function sevenDayDate(now: Date): string {
@@ -200,84 +171,44 @@ export async function collectGithubDiscovery(
   };
 }
 
-export async function collectHuggingFaceDiscovery(
+export async function collectHuggingFaceTrending(
   config: AppConfig,
   request: Fetch = fetch,
   cache?: HttpCache,
   now = new Date(),
 ): Promise<Collection> {
-  const expand = HUGGINGFACE_EXPAND.map((field) => `expand[]=${field}`).join("&");
-  const feed = (skip: number) =>
-    `https://huggingface.co/api/models?sort=createdAt&direction=-1&limit=${HUGGINGFACE_PAGE_LIMIT}` +
-    `${skip ? `&skip=${skip}` : ""}&${expand}`;
+  const expand = ["createdAt", "likes", "pipeline_tag", "tags", "private", "author", "safetensors", "cardData"]
+    .map((field) => `expand[]=${field}`)
+    .join("&");
+  const url = `https://huggingface.co/api/models?sort=trendingScore&direction=-1&limit=${TRENDING_LIMIT}&${expand}`;
   const headers = {
     accept: "application/json",
     ...(config.HF_TOKEN ? { Authorization: `Bearer ${config.HF_TOKEN}` } : {}),
   };
-  const cutoff = now.getTime() - HUGGINGFACE_WINDOW_HOURS * 3_600_000;
-  const models: z.infer<typeof huggingFaceDiscoveryModel>[] = [];
-  let pages = 0;
-  // A sweep that exhausts its pages before reaching the cutoff saw less than the window it claims.
-  let covered = false;
-  // `skip` walks the feed backwards in whole pages, which needs nothing carried between requests:
-  // the alternative is the opaque cursor the API returns in a Link header, and reading that would
-  // mean teaching every collector's fetch helper to hand back response headers.
-  while (pages < HUGGINGFACE_MAX_PAGES) {
-    const page = huggingFaceDiscoverySchema.parse(
-      JSON.parse(await fetchText(feed(pages * HUGGINGFACE_PAGE_LIMIT), headers, request, undefined, cache)),
-    );
-    models.push(...page);
-    pages += 1;
-    const oldest = page.at(-1)?.createdAt;
-    // The feed is ordered newest first, so the last entry of a page decides whether the window is
-    // covered. A short page is the end of the feed, not a paging artefact worth another request.
-    covered = !oldest || Date.parse(oldest) < cutoff || page.length < HUGGINGFACE_PAGE_LIMIT;
-    if (covered) break;
-  }
-  // `skip` counts from the newest model at the moment of each request, so a model published between
-  // two pages pushes the rest down by one and the last row of a page is served again as the first
-  // of the next. On 2026-09-16 at 14:44 that rejected the whole sweep as duplicate record IDs. The
-  // repeat is the same model, so the first sighting stands.
-  const seen = new Set<string>();
-  const unique = models.filter((model) => !seen.has(model.id) && seen.add(model.id));
-  const within = unique.filter((model) => !model.private && Date.parse(model.createdAt) >= cutoff);
-  const records: RecordData[] = within.map((model) => {
-    const attention = huggingFaceAttentionScore(
-      {
-        name: model.id,
-        created: model.createdAt,
-        downloads: model.downloads ?? null,
-        likes: model.likes ?? null,
-        pipelineTag: model.pipeline_tag ?? null,
-        tags: model.tags,
-      },
-      now.getTime(),
-    );
-    const reasons = notableReasons(model, now.getTime());
-    return {
-      id: model.id,
-      name: model.id,
-      url: `https://huggingface.co/${model.id}`,
-      author: model.author,
-      created: model.createdAt,
-      pipelineTag: model.pipeline_tag ?? null,
-      tags: [...model.tags].sort(),
-      // The parameter count is a fact about the weights: it appears once, when they are uploaded,
-      // and never moves again. Likes, downloads and the modification time do move, and a body
-      // carrying them reports a change on every poll that says nothing about the model.
-      parameters: parameterTotal(model),
-      derivative: declaresBaseModel(model),
-      discoveryStatus: reasons.length ? "notable" : "candidate",
-      notableReasons: reasons,
-      attentionScore: attention.score,
-      attentionReasons: attention.reasons,
-    };
-  });
+  const models = trendingSchema.parse(JSON.parse(await fetchText(url, headers, request, undefined, cache)));
+  const cutoff = now.getTime() - TRENDING_MAX_AGE_DAYS * 24 * 3_600_000;
+  const releases = models.filter(
+    (model) => !model.private && Date.parse(model.createdAt) >= cutoff && !isRepublished(model),
+  );
+  const records: RecordData[] = releases.map((model) => ({
+    id: model.id,
+    name: model.id,
+    url: `https://huggingface.co/${model.id}`,
+    author: model.author ?? model.id.split("/")[0],
+    created: model.createdAt,
+    pipelineTag: model.pipeline_tag ?? null,
+    // Open weights are not open source until a licence says so, and the card should say which.
+    license: model.tags.find((tag) => tag.startsWith("license:"))?.slice("license:".length) ?? null,
+    parameters: parameterTotal(model),
+    // The count when the model entered the list. Changes to a trending record are never reported, so
+    // a number that moves on every poll costs nothing here and tells the reader why it was picked.
+    likes: model.likes ?? null,
+  }));
   return {
-    source: "discovery:huggingface-recent",
+    source: "discovery:huggingface-trending",
     stream: "weights",
-    url: feed(0),
-    raw: { pages, models: models.length, window: within.length, covered },
+    url,
+    raw: { trending: models.length, releases: releases.length },
     appendOnly: true,
     records,
   };

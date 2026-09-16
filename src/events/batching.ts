@@ -8,7 +8,7 @@ import { CONFIDENCE_LEVELS } from "./confidence.js";
 import { deliveryBaseline, withBaseline } from "./cooldown.js";
 import { vendorOf } from "./interpretation.js";
 import { hasNotificationContent } from "./notification.js";
-import { isOscillating, isReappearance, isScheduledPricingRotation } from "./oscillation.js";
+import { departedAs, isOscillating, isReappearance, isScheduledPricingRotation } from "./oscillation.js";
 import { renamedEvents } from "./rename.js";
 import { type Attachment, eventAttachment } from "./render/attachment.js";
 import { pageEmbeds } from "./render/budget.js";
@@ -23,17 +23,22 @@ import {
 } from "./render/lifecycle.js";
 import { renderStoryText, type StoryRenderEvent, storyEmbed } from "./render/story.js";
 import { renderEvent } from "./render/telegram.js";
-import { pingWorthy, type SignalClass } from "./signals.js";
+import { listsAnotherMakersModel, pingWorthy, type SignalClass } from "./signals.js";
 import { sourceFamily } from "./sourceFamily.js";
 import { clearSuppression, recordSuppression, type SuppressionReason } from "./suppression.js";
 import type { Event, RecordData } from "./types.js";
+import { displayName } from "./variants.js";
+import { listingsBySubject, subjectKey } from "./witness.js";
 import {
   isAboutTheCompanyNotAModel,
   isAliasRow,
   isAnotherServing,
+  isAnotherTierOfAListedModel,
   isLabelOnlyChange,
   isMinorBoardMove,
+  isPublishedByAFollowedLab,
   knownModelNames,
+  pageModel,
 } from "./worth.js";
 
 const DUPLICATE_STORY_WINDOW_MS = 6 * 3_600_000;
@@ -143,6 +148,23 @@ function repeatsDeliveredStory(
         CONFIDENCE_LEVELS.indexOf(event.confidence ?? "observed")
     );
   });
+}
+
+/** How long a model named by a vendor's pages stays the same piece of news for one destination. */
+const PAGE_MODEL_WINDOW_MS = 24 * 3_600_000;
+
+/** The models this destination was already told a vendor's pages are naming. */
+function pageModelsTold(db: Database, destinationId: string, batchId: number, now: number): Set<string> {
+  const rows = db
+    .query<Event, [string, number, string]>(
+      `SELECT DISTINCT e.* FROM delivery_events de
+       JOIN deliveries d ON d.id=de.delivery_id
+       JOIN events e ON e.id=de.event_id
+       WHERE d.destination_id=? AND d.batch_id<>? AND e.stream='pages' AND e.kind='new' AND e.detected_at>=?
+         AND d.status IN ('pending','sending','sent','ambiguous','verification_required')`,
+    )
+    .all(destinationId, batchId, new Date(now - PAGE_MODEL_WINDOW_MS).toISOString());
+  return new Set(rows.map(pageModel).filter((model): model is string => model !== null));
 }
 
 /** Builds transport payloads without changing immutable event evidence. */
@@ -311,6 +333,11 @@ export function prepareDeliveries(
     // A re-keyed catalogue speaks once per row, twice: the row that left and the identical row that
     // arrived. Found once per batch, because the answer does not depend on the destination.
     const renamed = renamedEvents(db, events);
+    // A sighting from a platform or a registry says where else the model already is; read once
+    // per batch, and only when a card will need it.
+    const sighted = (event: Event) =>
+      event.kind === "new" && (listsAnotherMakersModel(event) || event.source.startsWith("discovery:huggingface"));
+    const listings = events.some(sighted) ? listingsBySubject(db) : null;
     // Read once per batch: the question is about the event, not about the destination.
     const known = events.some((event) => event.stream === "arena" || event.signal === "article")
       ? knownModelNames(db)
@@ -323,6 +350,9 @@ export function prepareDeliveries(
         recordSuppression(db, event, target.destination_id, batch.id, reason, now);
         return [];
       };
+      const toldPages = events.some((event) => pageModel(event) && subscribed.has(event.signal))
+        ? pageModelsTold(db, target.destination_id, batch.id, now)
+        : new Set<string>();
       const speaking = events
         .filter((event) => subscribed.has(event.signal))
         .flatMap((event) => {
@@ -347,6 +377,8 @@ export function prepareDeliveries(
             return quiet(event, "a_post_about_the_company_not_a_model");
           if (isLabelOnlyChange(event)) return quiet(event, "display_label_only");
           if (isAliasRow(event)) return quiet(event, "alias_of_another_row");
+          if (isAnotherTierOfAListedModel(db, event)) return quiet(event, "another_tier_of_a_listed_model");
+          if (isPublishedByAFollowedLab(db, event)) return quiet(event, "published_by_a_followed_lab");
           if (isScheduledPricingRotation(event)) return quiet(event, "scheduled_pricing_rotation");
           if (isOscillating(db, event, now)) return quiet(event, "oscillating");
           if (isReappearance(db, event, now)) return quiet(event, "flapping_in_and_out");
@@ -354,9 +386,25 @@ export function prepareDeliveries(
             return quiet(event, "already_told_by_another_source");
           // A number that keeps moving waits, then speaks once about the whole move it missed.
           if (baseline?.hold) return quiet(event, "waiting_for_the_move_to_settle");
+          const model = pageModel(event);
+          if (model && toldPages.has(model)) return quiet(event, "another_page_about_the_same_model");
+          if (model) toldPages.add(model);
           return [caughtUp];
         });
       for (const event of speaking) clearSuppression(db, event.id, target.destination_id);
+      for (const event of speaking) {
+        const returned = departedAs(db, event, now);
+        if (returned) Object.assign(event, { returned });
+        if (listings && sighted(event)) {
+          const record = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
+          const name = displayName(String(record?.name ?? event.entity_id));
+          const keys = new Set([subjectKey(event.entity_id), subjectKey(name)]);
+          const elsewhere = [...keys].flatMap((key) => [...(listings.get(key) ?? [])]);
+          Object.assign(event, {
+            elsewhere: [...new Set(elsewhere)].filter((source) => source !== event.source).sort(),
+          });
+        }
+      }
       if (!speaking.length) {
         db.query(
           "DELETE FROM deliveries WHERE batch_id=? AND destination_id=? AND status='pending' AND attempts=0",

@@ -15,7 +15,7 @@ Built with Bun, TypeScript, and SQLite.
 * Arena appearances, codenames, and leaderboard movement
 * GitHub commits, pull requests, and releases
 * npm and PyPI package releases
-* Hugging Face and ModelScope open-weight registries
+* Hugging Face open-weight registries: the labs' own accounts, and the trending list for everyone else
 * Mobile app releases, with the vendor's own release notes
 * New pages appearing on vendor sites, before anything is announced
 * Product documentation and changelogs
@@ -23,8 +23,10 @@ Built with Bun, TypeScript, and SQLite.
 * Platform incidents and service status
 * Model deprecations and lifecycle changes
 
-GitHub and Hugging Face discovery run in shadow mode by default. They collect snapshots, events,
-stories and metrics but never create subscriber delivery work until explicitly promoted.
+GitHub discovery runs in shadow mode by default: it collects snapshots, events, stories and metrics
+but never creates subscriber delivery work until explicitly promoted. Hugging Face trending is
+active, and reaches the scouts only with original models under two weeks old that no followed lab
+already published.
 
 ## Why Signal Forge exists
 
@@ -49,10 +51,10 @@ An observation never becomes a stronger claim than its source supports.
 
 Signal Forge has a deterministic intelligence layer on top of immutable events:
 
-* GitHub and Hugging Face discovery collectors find recent candidates without creating a second
-  stream of evidence. GitHub discovery uses the existing `github` stream and Hugging Face discovery
-  uses `weights`.
-* Discovery sources calculate an attention score from recency, popularity and technical relevance.
+* GitHub and Hugging Face discovery collectors find candidates without creating a second stream of
+  evidence. GitHub discovery uses the existing `github` stream and Hugging Face trending uses
+  `weights`.
+* GitHub discovery calculates an attention score from recency, popularity and technical relevance.
   Attention is a triage measure, not confidence, and never changes source-derived confidence.
 * Model Facts is a reproducible projection of the best known structured fields for a canonical model.
   Every fact retains its source, optional event ID, evidence type, confidence and observation time;
@@ -162,9 +164,9 @@ Some collectors require provider credentials. See the configuration section belo
 The current source registry covers:
 
 * OpenRouter and optional first-party catalogs for OpenAI, Anthropic, Gemini, and DeepSeek, plus the Vercel AI Gateway feed
-* Arena appearances, leaderboards, and DesignArena categories
-* Hugging Face open-weight repositories
-* Recent global Hugging Face model discovery
+* Arena appearances, leaderboards, DesignArena categories, and the Artificial Analysis image, image-editing, video and speech arenas
+* Hugging Face open-weight repositories of followed labs
+* The Hugging Face trending list, without quantisations, fine-tunes and models older than two weeks
 * npm and PyPI packages
 * GitHub commits, pull requests, and releases for selected repositories
 * Recent GitHub discovery for artificial-intelligence, LLM, agent, and MCP repositories
@@ -194,7 +196,7 @@ API catalog collectors are requested by default. Set `sourceEnabled` to `false` 
 
 `sourceEnabled` controls whether a collector runs. `sourceMode` controls delivery for a running
 collector: `active` may create subscriber deliveries, while `shadow` still stores snapshots and
-events and participates in stories and metrics but creates no subscriber deliveries. Discovery
+events and participates in stories and metrics but creates no subscriber deliveries. GitHub discovery
 sources default to `shadow`. Promote a source by editing the operator-owned configuration, for
 example:
 

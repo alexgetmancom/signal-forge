@@ -170,3 +170,56 @@ export function isAboutTheCompanyNotAModel(event: Event, known: readonly string[
   const haystack = normalizeIdentity([title, body?.summary, body?.description].filter(Boolean).join(" "));
   return !known.some((words) => haystack.includes(words.join(" ")));
 }
+
+/**
+ * A dated snapshot or a billing tier of a model the same catalogue already lists.
+ *
+ * OpenAI listed `gpt-image-2.5-flare` and `gpt-image-2.5-flare-2026-09-08` in the collection of
+ * 2026-09-09 17:07, and both reached the wire as launches: four cards for two models. OpenRouter
+ * lists Mistral's models a second time as `:batch` rows -- five of them in one hour on 2026-09-10,
+ * each a sighting in the invited room of a model that shipped months before. Either is news only
+ * when the plain row is not there: a model can first appear as its snapshot, and that one speaks.
+ * `-preview` is not a tier. Google launches under it.
+ */
+const TIER_SUFFIX = /(-\d{4}-\d{2}-\d{2}|:(batch|free|beta|extended|thinking|floor|nitro|online))$/i;
+
+export function isAnotherTierOfAListedModel(db: Database, event: Event): boolean {
+  if (event.kind !== "new" || (event.stream !== "api-models" && event.stream !== "openrouter")) return false;
+  const plain = event.entity_id.replace(TIER_SUFFIX, "");
+  if (plain === event.entity_id) return false;
+  return Boolean(db.query("SELECT 1 FROM records WHERE source=? AND id=?").get(event.source, plain));
+}
+
+/**
+ * A trending model its own lab already published under an account collected as a source.
+ *
+ * The lab's account sees the weights the hour they land; the trending list sees the same repository
+ * a day later, once people have liked it. `deepseek-ai/DeepSeek-V4.1-Flash` topped the list on
+ * 2026-09-16 six days after `huggingface:deepseek-ai` reported it.
+ */
+export function isPublishedByAFollowedLab(db: Database, event: Event): boolean {
+  if (!event.source.startsWith("discovery:huggingface") || event.kind !== "new") return false;
+  return Boolean(
+    db.query("SELECT 1 FROM records WHERE source LIKE 'huggingface:%' AND lower(id)=lower(?)").get(event.entity_id),
+  );
+}
+
+/**
+ * The model a vendor page is about, read from its address.
+ *
+ * Gemini 3.8 Live reached the invited room as `/models/model-cards/gemini-3-8-audio` on DeepMind and
+ * `/gemini-api/docs/models/gemini-3.8-live` plus its extended-thinking page on the Gemini API docs,
+ * inside thirty-four minutes on 2026-09-15. Story correlation keeps them apart because the slugs name
+ * the model three ways, and it should: `gemini 3 8 audio` and `gemini 3.8 live` are different
+ * products to anything that reads names. What they share is the family and the version, and a
+ * reader told a vendor's pages have started naming Gemini 3.8 needs telling once.
+ */
+const PAGE_MODEL =
+  /(?:^|[/_\s-])(gemini|gemma|claude|opus|sonnet|haiku|gpt|grok|llama|qwen|glm|kimi|deepseek|mistral|veo|imagen|lyria)[-_\s]?(\d{1,2})(?:[.-](\d{1,2}))?(?![\d.])/i;
+
+export function pageModel(event: Event): string | null {
+  if (event.stream !== "pages" || event.kind !== "new") return null;
+  const match = PAGE_MODEL.exec(decodeURIComponent(event.entity_id));
+  if (!match?.[1] || !match[2]) return null;
+  return `${match[1].toLowerCase()} ${match[2]}${match[3] ? `.${match[3]}` : ""}`;
+}

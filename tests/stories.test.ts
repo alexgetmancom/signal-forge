@@ -408,7 +408,7 @@ test("a Hugging Face derivative does not corroborate the model it was built from
   saveCollection(
     db,
     {
-      source: "discovery:huggingface-recent",
+      source: "discovery:huggingface-trending",
       stream: "weights",
       url: "https://huggingface.co/api/models",
       raw: [],

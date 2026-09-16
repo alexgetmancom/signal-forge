@@ -104,6 +104,16 @@ const CATALOGUE_MAKER: Readonly<Record<string, string>> = {
   poolside: "Poolside",
 };
 
+/** True when a catalogue arrival is a platform listing somebody else's model, not its maker shipping it. */
+export function listsAnotherMakersModel(event: Event): boolean {
+  if (event.kind !== "new" || (event.stream !== "api-models" && event.stream !== "openrouter")) return false;
+  const owner = CATALOGUE_MAKER[event.source];
+  if (!owner) return true;
+  const record = recordFor(event);
+  const named = vendorOfName(`${text(record?.id) || event.entity_id} ${text(record?.name)}`);
+  return named !== "Unknown" && named !== owner;
+}
+
 export function signalClass(event: Event): SignalClass {
   const record = recordFor(event);
   const listedButUnusable = record?.selectable === false;
@@ -205,10 +215,7 @@ export function signalClass(event: Event): SignalClass {
        * `maker`: the DashScope collector stamps "Alibaba Model Studio" on every row, GLM included.
        * A name that names nobody -- `whisper-1`, `codestral`, `wan2.5` -- is the catalogue's own.
        */
-      const owner = CATALOGUE_MAKER[event.source];
-      if (!owner) return "codename";
-      const named = vendorOfName(`${text(record?.id) || event.entity_id} ${text(record?.name)}`);
-      return named === "Unknown" || named === owner ? "launch" : "codename";
+      return listsAnotherMakersModel(event) ? "codename" : "launch";
     }
     // A row leaving a catalogue is not the vendor announcing anything: over the week to
     // 2026-09-15 the launch channel spent half its cards on four departures, each ending

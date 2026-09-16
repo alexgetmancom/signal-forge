@@ -6,9 +6,10 @@ export function sourceFamily(source: string, stream = ""): string {
     return separator > "github:".length ? source.slice(0, separator) : source;
   }
   if (source.startsWith("huggingface:")) return "huggingface";
-  if (source === "discovery:huggingface-recent") return "huggingface";
+  if (source === "discovery:huggingface-trending") return "huggingface";
   if (source.startsWith("modelscope:")) return "modelscope";
   if (source.startsWith("designarena:")) return "designarena";
+  if (source.startsWith("artificial-analysis")) return "artificial-analysis";
   if (source.startsWith("app:ios:")) return "app-store";
   if (source.startsWith("npm:")) return "npm";
   if (source.startsWith("pypi:")) return "pypi";

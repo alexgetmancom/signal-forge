@@ -207,18 +207,19 @@ function rememberFamilyIdentity(group: StoryGroup, family: string, canonical: st
 }
 
 /**
- * Hugging Face's recent-models feed correlates only with itself.
+ * Hugging Face discovery correlates only with itself.
  *
  * The feed is overwhelmingly third-party derivatives, and their names carry the base model's terms:
  * `Ali-Mhrez/Qwen3-4B-Instruct-2507-SD-FNC-512-43` joined OpenRouter's Qwen story on the term
  * "qwen3", and a robotics checkpoint joined an Anthropic SDK release on nothing but a shared
  * correlation window. All seventy-three cross-source matches it produced in seven days were false,
  * and each one makes a story look corroborated when only a quantised copy of something else turned
- * up. GitHub discovery is deliberately not included: an `openai/model-x` repository beside a
+ * up. It reads the trending list now, with the declared copies filtered out, and the names on it
+ * still carry other makers' terms: `Swift-Qwen3.8-27b` declares no base model. GitHub discovery is deliberately not included: an `openai/model-x` repository beside a
  * `model-x` arena entry is the evidence a hypothesis is built from.
  */
 function isolatedCandidate(event: StoryEvent): boolean {
-  return event.source === "discovery:huggingface-recent";
+  return event.source === "discovery:huggingface-trending";
 }
 
 type MatchSubject = {

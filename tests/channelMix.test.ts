@@ -86,14 +86,14 @@ test("a shadow source is counted apart from a class nobody subscribes to", () =>
   // discovery collectors that are shadow and have no destination at all.
   const db = openDatabase(":memory:");
   const discovery: Collection = {
-    source: "discovery:huggingface-recent",
-    stream: "weights",
-    url: "https://huggingface.co",
+    source: "discovery:github-ai",
+    stream: "github",
+    url: "https://api.github.com",
     raw: [],
     records: [{ id: "anchor/one", name: "Anchor" }],
   };
   saveCollection(db, discovery, [], "2026-09-16T10:00:00.000Z");
-  discovery.records.push({ id: "lab/new-weights", name: "New Weights" });
+  discovery.records.push({ id: "lab/new-agent", name: "New Agent" });
   saveCollection(db, discovery, [], "2026-09-16T11:00:00.000Z");
 
   const scouts: Destination = { id: "scouts", platform: "discord", channelId: "9", signals: ["codename"] };

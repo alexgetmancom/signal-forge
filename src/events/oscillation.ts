@@ -105,7 +105,7 @@ const FLICKERING_STREAMS = ["leaderboards", "arena", "openrouter", "api-models",
  * catalogue that drops a model and lists it again an hour later has said nothing new; one that
  * lists it again at half the price, a quarter of the context or a different set of providers has.
  */
-const SUBSTANTIVE_FIELDS = ["pricing", "context", "input", "output", "providers", "parameters", "selectable"];
+export const SUBSTANTIVE_FIELDS = ["pricing", "context", "input", "output", "providers", "parameters", "selectable"];
 
 /**
  * A row that comes and goes.
@@ -119,25 +119,50 @@ const SUBSTANTIVE_FIELDS = ["pricing", "context", "input", "output", "providers"
  * public channel as launches of the same model. The rename window is three hours and this gap was
  * three hours thirty-eight, so nothing else caught it either.
  */
-export function isReappearance(db: Database, event: Event, now = Date.now()): boolean {
-  if (event.kind !== "new" || !FLICKERING_STREAMS.includes(event.stream)) return false;
+type Sighting = { kind: string; record: Record<string, unknown> | null };
+
+/**
+ * The last time this row arrived or left, inside the window. A row's first appearance leaves no
+ * event at all: the collection that establishes the baseline is silent by design. So the thing that
+ * marks a return is the departure, not an earlier arrival, and a row that has only ever been added
+ * is caught by the earlier arrival instead.
+ */
+function lastSighting(db: Database, event: Event, now: number): Sighting | null {
+  if (event.kind !== "new" || !FLICKERING_STREAMS.includes(event.stream)) return null;
   const since = new Date(now - REAPPEARANCE_WINDOW_MS).toISOString();
-  // A row's first appearance leaves no event at all: the collection that establishes the baseline
-  // is silent by design. So the thing that marks a return is the departure, not an earlier
-  // arrival, and a row that has only ever been added is caught by the earlier arrival instead.
-  const earlier = db
+  const previous = db
     .query<{ after_json: string | null; before_json: string | null; kind: string }, [string, string, number, string]>(
       `SELECT after_json,before_json,kind FROM events
-       WHERE source=? AND entity_id=? AND id<? AND detected_at>=? AND kind IN ('new','removed') ORDER BY id DESC`,
+       WHERE source=? AND entity_id=? AND id<? AND detected_at>=? AND kind IN ('new','removed') ORDER BY id DESC LIMIT 1`,
     )
-    .all(event.source, event.entity_id, event.id, since);
-  if (!earlier.length) return false;
+    .get(event.source, event.entity_id, event.id, since);
+  if (!previous) return null;
+  // A departure carries the row it removed in `before_json`; an arrival carries it in `after_json`.
+  return {
+    kind: previous.kind,
+    record: parse(previous.kind === "removed" ? previous.before_json : previous.after_json),
+  };
+}
+
+export function isReappearance(db: Database, event: Event, now = Date.now()): boolean {
+  const last = lastSighting(db, event, now);
+  if (!last) return false;
   // A row that comes back changed is a change, and saying so once is the point of the class. Only
   // the fields a reader acts on count: a catalogue reorders its own metadata between polls.
   const after = parse(event.after_json);
-  const previous = earlier[0];
-  // A departure carries the row it removed in `before_json`; an arrival carries it in `after_json`.
-  const last = parse((previous?.kind === "removed" ? previous.before_json : previous?.after_json) ?? null);
-  if (after && last) return !SUBSTANTIVE_FIELDS.some((field) => canonical(last[field]) !== canonical(after[field]));
+  if (after && last.record)
+    return !SUBSTANTIVE_FIELDS.some((field) => canonical(last.record?.[field]) !== canonical(after[field]));
   return true;
+}
+
+/**
+ * The row as it was when it last left, for a return that speaks.
+ *
+ * `z-ai/glm-5.2:free` left OpenRouter and came back 3 h 38 min later without tools, tool choice,
+ * structured outputs and response format. The return spoke, correctly, and the card listed the row
+ * as though it were new, so the one thing worth saying -- what it lost -- read as a duplicate.
+ */
+export function departedAs(db: Database, event: Event, now = Date.now()): Record<string, unknown> | null {
+  const last = lastSighting(db, event, now);
+  return last?.kind === "removed" ? last.record : null;
 }

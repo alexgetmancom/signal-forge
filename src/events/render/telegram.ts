@@ -4,10 +4,10 @@ import { eventEvidenceType, evidenceLabel } from "../confidence.js";
 import { displayTitle } from "../naming.js";
 import type { Event, RecordData } from "../types.js";
 import { utcStamp } from "./common.js";
-import { eventFacts, type LeadTime } from "./facts.js";
+import { type CardContext, eventFacts } from "./facts.js";
 
 export function renderEvent(
-  event: Event & { lead?: LeadTime },
+  event: Event & CardContext,
   url: string,
   platform: Destination["platform"] = "telegram",
   summary?: string,

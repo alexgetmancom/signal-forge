@@ -70,11 +70,8 @@ test("source registry has unique IDs, valid streams, labels and consistent pacin
   }
   expect(definitions.some((definition) => definition.id === "openai-developer-feed")).toBe(false);
   expect(definitions.some((definition) => definition.id.startsWith("github:deepseek-ai/"))).toBe(false);
-  // ModelScope returned as one filtered listing rather than a source per organisation: a single
-  // request, only the organisations worth watching, and only the fields that identify a release.
-  expect(definitions.filter((definition) => definition.id.startsWith("modelscope:")).map((one) => one.id)).toEqual([
-    "modelscope:recent",
-  ]);
+  // ModelScope was read for a week and never led anything, measured 2026-09-16.
+  expect(definitions.some((definition) => definition.id.startsWith("modelscope:"))).toBe(false);
   expect(
     definitions.filter((definition) => definition.id.startsWith("designarena:")).map((definition) => definition.id),
   ).toEqual(["designarena:website", "designarena:uicomponent", "designarena:image"]);
@@ -106,7 +103,7 @@ test("reader-facing sources stay active while noisy repository activity and disc
       .filter((definition) => definition.id.startsWith("discovery:github-"))
       .every((definition) => definition.mode === "shadow"),
   ).toBe(true);
-  expect(defaults.find((definition) => definition.id === "discovery:huggingface-recent")?.mode).toBe("shadow");
+  expect(defaults.find((definition) => definition.id === "discovery:huggingface-trending")?.mode).toBe("active");
   expect(defaults.find((definition) => definition.id === "github:openai/codex:pulls")?.mode).toBe("shadow");
   expect(defaults.find((definition) => definition.id === "github:openai/codex:commits")?.mode).toBe("shadow");
   expect(defaults.find((definition) => definition.id === "github:openai/codex:releases")?.mode).toBe("active");

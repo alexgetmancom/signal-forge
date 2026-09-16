@@ -10,7 +10,7 @@ test("source families collapse discovery queries but preserve independent surfac
   expect(sourceFamily("github:openai/codex:pulls", "github")).toBe("github:openai/codex");
   expect(sourceFamily("github:openai/codex:commits", "github")).toBe("github:openai/codex");
   expect(sourceFamily("huggingface:openai", "weights")).toBe("huggingface");
-  expect(sourceFamily("discovery:huggingface-recent", "weights")).toBe("huggingface");
+  expect(sourceFamily("discovery:huggingface-trending", "weights")).toBe("huggingface");
   expect(sourceFamily("openai", "api-models")).toBe("provider-api:openai");
   expect(sourceFamily("vercel-gateway", "api-models")).toBe("provider-api:vercel-gateway");
   expect(sourceFamily("openai-news", "news")).toBe("official-news:openai-news");

@@ -1,7 +1,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-export const CURRENT_SCHEMA_VERSION = 32;
+export const CURRENT_SCHEMA_VERSION = 33;
 
 export type Migration = {
   version: number;

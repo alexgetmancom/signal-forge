@@ -22,6 +22,9 @@ const SUPPRESSION_REASONS = [
   "display_label_only",
   "alias_of_another_row",
   "a_post_about_the_company_not_a_model",
+  "another_tier_of_a_listed_model",
+  "published_by_a_followed_lab",
+  "another_page_about_the_same_model",
 ] as const;
 
 export type SuppressionReason = (typeof SUPPRESSION_REASONS)[number];
@@ -52,6 +55,12 @@ function suppressionDetail(event: Event, reason: SuppressionReason): string {
       return "Nothing changed but the title the source displays";
     case "a_post_about_the_company_not_a_model":
       return "A newsroom post naming no model this deployment knows, and announcing none";
+    case "another_tier_of_a_listed_model":
+      return "A dated snapshot or billing tier of a model this catalogue already lists";
+    case "published_by_a_followed_lab":
+      return "Trending weights the lab's own account already published here";
+    case "another_page_about_the_same_model":
+      return "A vendor page naming a model this destination was told about in the last day";
     case "alias_of_another_row":
       return "A row that points at whichever build is newest, not a model of its own";
   }

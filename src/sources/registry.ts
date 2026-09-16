@@ -5,7 +5,7 @@ import { SOURCE_AUTHORITIES } from "../events/confidence.js";
 import type { Collection, SourceAuthority } from "../events/types.js";
 import { measure } from "../runtime/metrics.js";
 import { HttpCache } from "../storage/httpCache.js";
-import { collectArtificialAnalysis } from "./analysis.js";
+import { collectArtificialAnalysis, collectMediaArena, MEDIA_ARENAS } from "./analysis.js";
 import { APP_STORE_APPS, collectAppStore } from "./apps.js";
 import { collectArena, collectLeaderboards } from "./arena.js";
 import { collectSimpleBench, collectVoxelBench, collectWeirdMl } from "./benchmarks.js";
@@ -22,7 +22,7 @@ import { collectCodexDocs } from "./codex.js";
 import { collectCursorChangelog, collectDesignArena, DESIGNARENA_CATEGORIES } from "./community.js";
 import { collectDeepSeekModels, collectDeepSeekPricing, collectDeepSeekUpdates } from "./deepseek.js";
 import { collectAnthropicDeprecations, collectOpenAIDeprecations } from "./deprecations.js";
-import { collectGithubDiscovery, collectHuggingFaceDiscovery, GITHUB_DISCOVERY_QUERIES } from "./discovery.js";
+import { collectGithubDiscovery, collectHuggingFaceTrending, GITHUB_DISCOVERY_QUERIES } from "./discovery.js";
 import {
   collectAnthropicSdkReleases,
   collectClaudeCodeChangelog,
@@ -44,7 +44,6 @@ import {
 } from "./lifecycle.js";
 import { collectModelsDev, collectTrueFoundryAzure } from "./mirrors.js";
 import { collectCohereChangelog } from "./modelDocs.js";
-import { collectModelScope } from "./modelscope.js";
 import { collectAnthropicNews, collectOpenAINews } from "./news.js";
 import { collectSitePages, WATCHED_SITES } from "./pages.js";
 import { collectPlatformStatus, PLATFORMS } from "./platforms.js";
@@ -623,16 +622,20 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       collector: () => collectArtificialAnalysis(config),
       enabled: requested("artificial-analysis"),
     },
-    {
-      id: "modelscope:recent",
-      label: sourceLabel("modelscope:recent"),
-      authority: "vendor_owned",
-      group: "Open weights",
-      stream: "weights",
-      intervalSeconds: 1800,
-      collector: () => collectModelScope(fetch, cache),
-      enabled: requested("modelscope:recent"),
-    },
+    ...MEDIA_ARENAS.map(
+      (arena): Omit<SourceDefinition, "mode"> => ({
+        id: `artificial-analysis:${arena}`,
+        label: sourceLabel(`artificial-analysis:${arena}`),
+        authority: "third_party",
+        group: "Arena",
+        stream: "leaderboards",
+        intervalSeconds: 3600,
+        capabilityId: "artificial-analysis",
+        requiredCapabilities: ["ARTIFICIAL_ANALYSIS_API_KEY"],
+        collector: () => collectMediaArena(config, arena),
+        enabled: requested(`artificial-analysis:${arena}`),
+      }),
+    ),
     ...WATCHED_SITES.map(
       (site, index): Omit<SourceDefinition, "mode"> => ({
         id: `pages:${site.id}`,
@@ -780,26 +783,22 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
     });
   }
   definitions.push({
-    id: "discovery:huggingface-recent",
-    label: sourceLabel("discovery:huggingface-recent"),
+    id: "discovery:huggingface-trending",
+    label: sourceLabel("discovery:huggingface-trending"),
     authority: "third_party",
     group: "Discovery",
     stream: "weights",
-    // The sweep re-reads a three-day window rather than the newest page, so the interval no longer
-    // decides what is seen -- it decides how soon weights uploaded into an already-known repository
-    // are noticed. Hourly is what the evidence asked for: Atria Dawn Preview went from empty
-    // repository to 753-billion-parameter weights in three hours and seventeen minutes.
+    // The list moves with likes over days, so an hour is early enough to see a model enter it.
     intervalSeconds: 3600,
     pace: { group: "huggingface.co", seconds: 60 },
-    collector: () => collectHuggingFaceDiscovery(config, fetch, cache, new Date()),
-    enabled: requested("discovery:huggingface-recent"),
+    collector: () => collectHuggingFaceTrending(config, fetch, cache, new Date()),
+    enabled: requested("discovery:huggingface-trending"),
   });
 
   const shadowByDefault = new Set<string>([
     "github:openai/codex:pulls",
     "github:openai/codex:commits",
     ...GITHUB_DISCOVERY_QUERIES.map((query) => `discovery:github-${query.id}`),
-    "discovery:huggingface-recent",
     // Two aggregators of other people's catalogues, kept out of the channel until a fortnight of
     // signal-quality says what they are worth. They are the only sight of the cloud deployment
     // layer, and also the only sources here that report a launch without the vendor saying so.
