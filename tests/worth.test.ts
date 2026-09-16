@@ -44,7 +44,9 @@ test("a board speaks for the leading places and for the top changing hands", () 
   prepareDeliveries(db, Date.parse("2026-09-14T02:00:00.000Z"));
 
   const reasons = suppressed(db);
-  expect(reasons["image-to-code:fifth"]).toBe("below_the_top_of_the_board");
+  // Fifth place is outside the leading places by both guards now that they share one number, and
+  // the notification filter is the one that reaches it first.
+  expect(reasons["image-to-code:fifth"]).toBe("no_reader_facing_change");
   expect(reasons["image-to-code:second"]).toBeUndefined();
   db.close();
 });

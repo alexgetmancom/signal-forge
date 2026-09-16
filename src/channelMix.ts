@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import type { Destination } from "./config.js";
 import { signalClass } from "./events/signals.js";
 import type { Event } from "./events/types.js";
 
@@ -15,7 +16,7 @@ import type { Event } from "./events/types.js";
 export type ChannelMixReport = {
   since: string;
   days: number;
-  classes: { signal: string; events: number; delivered: number }[];
+  classes: { signal: string; events: number; delivered: number; routed: boolean; unrouted: number }[];
   destinations: { id: string; sent: number; failed: number; withLead: number; leadShare: number }[];
   promotions: { batches: number; sent: number };
 };
@@ -25,7 +26,12 @@ const LEAD_MARK = "Traced ";
 
 const rounded = (value: number): number => Math.round(value * 100) / 100;
 
-export function channelMix(db: Database, days = 7, now = Date.now()): ChannelMixReport {
+export function channelMix(
+  db: Database,
+  destinations: readonly Destination[],
+  days = 7,
+  now = Date.now(),
+): ChannelMixReport {
   if (!Number.isInteger(days) || days < 1 || days > 90) throw new Error("Channel mix days must be between 1 and 90");
   const since = new Date(now - days * 24 * 3_600_000).toISOString();
 
@@ -36,16 +42,22 @@ export function channelMix(db: Database, days = 7, now = Date.now()): ChannelMix
        FROM events e WHERE e.detected_at>=?`,
     )
     .all(since);
-  const classes = new Map<string, { events: number; delivered: number }>();
+  // A class no destination subscribes to leaves no delivery and no suppression either: the batch
+  // target is never created, so the event is absent from every report rather than shown as held
+  // back. Seven hours of silence on 2026-09-16 read as a broken collector and was this.
+  const subscribed = new Set(destinations.flatMap((destination) => destination.signals));
+  const classes = new Map<string, { events: number; delivered: number; routed: boolean; unrouted: number }>();
   for (const event of events) {
     const signal = signalClass(event) || "unclassified";
-    const held = classes.get(signal) ?? { events: 0, delivered: 0 };
+    const routed = subscribed.has(signal as Destination["signals"][number]);
+    const held = classes.get(signal) ?? { events: 0, delivered: 0, routed, unrouted: 0 };
     held.events += 1;
     if (event.delivered > 0) held.delivered += 1;
+    else if (!routed) held.unrouted += 1;
     classes.set(signal, held);
   }
 
-  const destinations = db
+  const carried = db
     .query<{ id: string; sent: number; failed: number; withLead: number }, [string, string]>(
       `SELECT d.destination_id AS id,
               SUM(CASE WHEN d.status='sent' THEN 1 ELSE 0 END) AS sent,
@@ -70,7 +82,7 @@ export function channelMix(db: Database, days = 7, now = Date.now()): ChannelMix
     classes: [...classes.entries()]
       .map(([signal, counts]) => ({ signal, ...counts }))
       .sort((one, other) => other.events - one.events),
-    destinations: destinations.map((row) => ({
+    destinations: carried.map((row) => ({
       ...row,
       // How often the wire could say it saw something before the rest of the internet did, which is
       // the whole claim the service makes.

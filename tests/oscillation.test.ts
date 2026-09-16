@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { isOscillating, isScheduledPricingRotation } from "../src/events/oscillation.js";
+import { isOscillating, isReappearance, isScheduledPricingRotation } from "../src/events/oscillation.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import type { Collection, Event } from "../src/events/types.js";
 import { openDatabase } from "../src/storage/database.js";
@@ -90,5 +90,63 @@ test("dithering older than the window no longer silences a change", () => {
   const late = Date.parse("2026-09-11T06:00:00.000Z");
   saveCollection(db, leaderboard(6), [], new Date(late).toISOString());
   expect(isOscillating(db, lastEvent(db), late)).toBe(false);
+  db.close();
+});
+
+test("a catalogue row that leaves and comes back unchanged is the same arrival", () => {
+  // z-ai/glm-5.2:free was listed on OpenRouter at 09:21 on 2026-09-15, gone by 09:31 and back at
+  // 12:59. Both arrivals were delivered to the public channel as launches of the same model, and
+  // the gap was three hours thirty-eight, so the three-hour rename window never saw it either.
+  const db = openDatabase(":memory:");
+  const catalogue: Collection = {
+    source: "openrouter",
+    stream: "openrouter",
+    url: "https://openrouter.ai",
+    raw: [],
+    records: [
+      { id: "anchor/stays", name: "Anchor" },
+      { id: "z-ai/glm-5.2:free", name: "Z.ai: GLM 5.2 (free)", context: 256_000 },
+    ],
+  };
+  saveCollection(db, catalogue, [], "2026-09-15T09:21:22.991Z");
+  catalogue.records = [{ id: "anchor/stays", name: "Anchor" }];
+  saveCollection(db, catalogue, [], "2026-09-15T09:26:00.000Z");
+  saveCollection(db, catalogue, [], "2026-09-15T09:31:56.357Z");
+  catalogue.records = [
+    { id: "anchor/stays", name: "Anchor" },
+    { id: "z-ai/glm-5.2:free", name: "Z.ai: GLM 5.2 (free)", context: 256_000 },
+  ];
+  saveCollection(db, catalogue, [], "2026-09-15T12:59:50.781Z");
+
+  const again = db.query<Event, []>("SELECT * FROM events WHERE kind='new' ORDER BY id DESC LIMIT 1").get() as Event;
+  expect(isReappearance(db, again, Date.parse("2026-09-15T13:00:00.000Z"))).toBe(true);
+  db.close();
+});
+
+test("a row that comes back on different terms is news again", () => {
+  const db = openDatabase(":memory:");
+  const catalogue: Collection = {
+    source: "openrouter",
+    stream: "openrouter",
+    url: "https://openrouter.ai",
+    raw: [],
+    records: [
+      { id: "anchor/stays", name: "Anchor" },
+      { id: "z-ai/glm-5.2:free", name: "Z.ai: GLM 5.2 (free)", context: 256_000 },
+    ],
+  };
+  saveCollection(db, catalogue, [], "2026-09-15T09:21:22.991Z");
+  catalogue.records = [{ id: "anchor/stays", name: "Anchor" }];
+  saveCollection(db, catalogue, [], "2026-09-15T09:26:00.000Z");
+  saveCollection(db, catalogue, [], "2026-09-15T09:31:56.357Z");
+  // The context window came back at an eighth of what left, which is the whole reason to say it.
+  catalogue.records = [
+    { id: "anchor/stays", name: "Anchor" },
+    { id: "z-ai/glm-5.2:free", name: "Z.ai: GLM 5.2 (free)", context: 32_768 },
+  ];
+  saveCollection(db, catalogue, [], "2026-09-15T12:59:50.781Z");
+
+  const again = db.query<Event, []>("SELECT * FROM events WHERE kind='new' ORDER BY id DESC LIMIT 1").get() as Event;
+  expect(isReappearance(db, again, Date.parse("2026-09-15T13:00:00.000Z"))).toBe(false);
   db.close();
 });

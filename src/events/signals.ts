@@ -62,7 +62,12 @@ export function signalClass(event: Event): SignalClass {
   const record = recordFor(event);
   const listedButUnusable = record?.selectable === false;
 
-  if (event.stream === "arena") return "codename";
+  // An arena roster is rewritten in bulk: one collection on 2026-09-15 withdrew 193 entries at
+  // once and every one of them was classed as a sighting, which put sixteen messages carrying ten
+  // to twenty-one cards each into the invited room inside eleven seconds. A name leaving an arena
+  // ends nothing a reader was told had started -- most of those names were never delivered at all
+  // -- and it is the same shape as a page that disappears, so it takes the same class.
+  if (event.stream === "arena") return event.kind === "removed" ? "evidence" : "codename";
   if (event.source.startsWith("discovery:")) return "codename";
 
   /**
@@ -120,7 +125,18 @@ export function signalClass(event: Event): SignalClass {
     return event.source.endsWith(":releases") && event.kind === "new" ? "release" : "evidence";
 
   if (["api-models", "openrouter", "weights"].includes(event.stream)) {
-    if (event.kind === "new") return listedButUnusable ? "codename" : "launch";
+    /**
+     * A reseller listing a model is not the vendor shipping it. `z-ai/glm-5.2:free` appeared on
+     * OpenRouter and was delivered to the public channel as a launch, worded as though Z.ai had
+     * announced something; Z.ai had not. An aggregator is the earliest sight of a model and the
+     * weakest word on whether it exists, which is the definition of a codename. The vendor's own
+     * catalogue and its own weights repository still launch, and a sighting that the vendor later
+     * confirms reaches the public channel through the promotion path that already exists.
+     */
+    if (event.kind === "new") {
+      if (listedButUnusable || event.authority === "third_party") return "codename";
+      return "launch";
+    }
     /**
      * A row leaving a catalogue is not the other half of a launch. Over the week to 2026-09-15 the
      * channel carrying launches spent half its cards on four departures -- a dated preview snapshot,

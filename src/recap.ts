@@ -82,6 +82,9 @@ function nameOf(event: Event): string {
   return String(recordOf(event)?.name ?? event.entity_id);
 }
 
+/** The streams where a row appearing means a model became available, whoever is doing the listing. */
+const CATALOGUE_STREAMS = new Set(["api-models", "openrouter", "weights"]);
+
 /**
  * Is this arrival a model, or another way of listing one?
  *
@@ -188,7 +191,12 @@ export function weeklyRecapContext(db: Database, to: string): WeeklyRecapContext
   // One model however many collectors saw it, and the maker's own word ahead of a reseller's.
   const bySubject = new Map<string, { name: string; vendor: string; weight: number }>();
   for (const { event, signal } of classified) {
-    if (signal !== "launch" || event.kind !== "new" || !isRealArrival(event, renamed)) continue;
+    // A week is read for what arrived, which is a wider question than what was worth interrupting
+    // a reader for. A reseller listing a model is a sighting rather than a launch and never
+    // reaches the public channel on its own, but it is still the week's first word that the model
+    // exists, and the weighting below already prefers the maker's own word over a reseller's.
+    const arrived = signal === "launch" || (signal === "codename" && CATALOGUE_STREAMS.has(event.stream));
+    if (!arrived || event.kind !== "new" || !isRealArrival(event, renamed)) continue;
     const record = recordOf(event);
     const name = nameOf(event);
     const subject = modelSubject(name);

@@ -460,14 +460,15 @@ export function operations(db: Database, config: AppConfig): OperationMap {
     },
     channel_mix: {
       section: "sources",
-      summary: "What each destination actually carried: signal classes delivered, lead-time share and promotions.",
+      summary:
+        "What each destination actually carried: signal classes delivered or unrouted, lead-time share and promotions.",
       startHere: "what the public channel is really full of",
       mutates: false,
       agent: true,
       schema: z.object({ days: count(90, 7) }),
       cli: { args: [{ name: "days", optional: true }] },
       http: { method: "get", path: "/api/channel-mix" },
-      handler: (input: { days: number }) => channelMix(db, input.days),
+      handler: (input: { days: number }) => channelMix(db, config.destinations, input.days),
     },
     signal_quality: {
       section: "sources",

@@ -30,9 +30,29 @@ test("an entry listed but not yet usable is a codename, not a launch", () => {
     signalClass(event({ stream: "openrouter", kind: "new" }, { id: "vendor/model", name: "Model", selectable: false })),
   ).toBe("codename");
   expect(signalClass(event({ stream: "arena", kind: "new", source: "arena" }))).toBe("codename");
-  expect(signalClass(event({ stream: "arena", kind: "removed", source: "arena" }))).toBe("codename");
   expect(signalClass(event({ stream: "leaderboards", kind: "new", source: "designarena:website" }))).toBe("codename");
   expect(signalClass(event({ stream: "github", kind: "new", source: "discovery:github-agents" }))).toBe("codename");
+});
+
+test("a name leaving an arena is a trail, not a sighting", () => {
+  // One collection on 2026-09-15 withdrew 193 arena entries at once and every one of them was
+  // classed as a sighting: sixteen messages carrying 10 to 21 cards each, inside eleven seconds.
+  expect(signalClass(event({ stream: "arena", kind: "removed", source: "arena" }))).toBe("evidence");
+  expect(signalClass(event({ stream: "arena", kind: "new", source: "arena" }))).toBe("codename");
+});
+
+test("a reseller listing a model is a sighting, and the vendor's own catalogue is a launch", () => {
+  const listed = { stream: "openrouter", kind: "new", authority: "third_party" } as const;
+  expect(signalClass(event(listed))).toBe("codename");
+  expect(
+    signalClass(event({ stream: "api-models", kind: "new", source: "models-dev", authority: "third_party" })),
+  ).toBe("codename");
+  expect(signalClass(event({ stream: "api-models", kind: "new", source: "openai", authority: "first_party" }))).toBe(
+    "launch",
+  );
+  expect(
+    signalClass(event({ stream: "weights", kind: "new", source: "huggingface:openai", authority: "vendor_owned" })),
+  ).toBe("launch");
 });
 
 test("a retirement notice speaks only when it names the successor", () => {

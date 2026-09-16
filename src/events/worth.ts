@@ -12,8 +12,14 @@ import type { Event, RecordData } from "./types.js";
  * the vendor's name had been prefixed to its own title.
  */
 
-/** A place on a board a reader would repeat to somebody else. */
-const TOP_PLACES = 3;
+/**
+ * A place on a board a reader would repeat to somebody else.
+ *
+ * One number, because two of them were two different answers to one question: this file suppressed
+ * anything outside the top three while `notification.ts` called the top five reader-facing, so an
+ * entry at rank four was both worth a card and not worth one depending on which guard ran.
+ */
+export const TOP_PLACES = 3;
 
 function record(event: Event): RecordData | null {
   const body = event.after_json ?? event.before_json;

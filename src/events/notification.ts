@@ -3,8 +3,8 @@ import { incidentSilence } from "./incidents.js";
 import { MIN_PRICE_CHANGE_RATIO, priceMoveRatio, significantPriceChange, webStringChanges } from "./render/common.js";
 import { eventFacts } from "./render/facts.js";
 import type { Event } from "./types.js";
+import { TOP_PLACES } from "./worth.js";
 
-const TOP_RANK = 5;
 const TOKEN_LIMIT_KEYS = new Set(["context", "inputTokenLimit", "outputTokenLimit"]);
 
 function rank(value: unknown): number | null {
@@ -33,15 +33,17 @@ function leaderboardSilence(event: Event): string | null {
   const after = event.after_json ? (JSON.parse(event.after_json) as Record<string, unknown>) : null;
   const beforeRank = rank(before?.rank);
   const afterRank = rank(after?.rank);
-  const outsideTop = `Leaderboard movement outside the top ${TOP_RANK}`;
-  if (event.kind === "new") return afterRank !== null && afterRank <= TOP_RANK ? null : outsideTop;
-  if (event.kind === "removed") return beforeRank !== null && beforeRank <= TOP_RANK ? null : outsideTop;
+  const outsideTop = `Leaderboard movement outside the top ${TOP_PLACES}`;
+  if (event.kind === "new") return afterRank !== null && afterRank <= TOP_PLACES ? null : outsideTop;
+  if (event.kind === "removed") return beforeRank !== null && beforeRank <= TOP_PLACES ? null : outsideTop;
   if (beforeRank === null || afterRank === null)
-    return (beforeRank !== null && beforeRank <= TOP_RANK) || (afterRank !== null && afterRank <= TOP_RANK)
+    return (beforeRank !== null && beforeRank <= TOP_PLACES) || (afterRank !== null && afterRank <= TOP_PLACES)
       ? null
       : outsideTop;
   if (beforeRank === afterRank) return "The score moved but the standing did not";
-  return beforeRank <= TOP_RANK || afterRank <= TOP_RANK || Math.abs(beforeRank - afterRank) >= 3 ? null : outsideTop;
+  return beforeRank <= TOP_PLACES || afterRank <= TOP_PLACES || Math.abs(beforeRank - afterRank) >= 3
+    ? null
+    : outsideTop;
 }
 
 /**

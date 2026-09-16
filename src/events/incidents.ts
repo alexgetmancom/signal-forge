@@ -45,15 +45,18 @@ export function incidentSilence(event: Event): string | null {
   if (event.stream !== "incidents") return null;
   const impact = impactOf(event);
   if (IGNORED_IMPACT.has(impact)) return `The vendor rated this "${impact || "no impact"}"`;
-  if (event.kind !== "changed" || SEVERE.has(impact)) return null;
-  // A minor incident is worth one line when it starts and one when it ends. The investigating →
-  // identified → monitoring walk in between is written for an on-call engineer, not for a reader.
+  if (event.kind !== "changed") return null;
+  // An incident is worth one line when it starts and one when it ends, whatever the vendor graded
+  // it. The investigating → identified → monitoring walk in between is written for an on-call
+  // engineer, not for a reader. Severity used to exempt an incident from this: OpenAI's
+  // `01M2KQNE5C42NEZPX6V01NHH5W` was major, so all three of its Statuspage edits reached the
+  // public channel in forty-seven minutes, saying the same outage three times.
   const before = event.before_json ? (JSON.parse(event.before_json) as RecordData) : null;
   const after = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
   if (resolved(event)) return null;
   return stage(before?.stage) === stage(after?.stage)
     ? "The incident wording changed but its stage did not"
-    : "A minor incident moved between working stages";
+    : "The incident moved between working stages";
 }
 
 /** An outage interrupts a reader only when the vendor calls it severe, or when it is finally over. */

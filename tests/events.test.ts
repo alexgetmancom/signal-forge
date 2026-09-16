@@ -47,20 +47,32 @@ test("a destination receives only the signal classes it subscribed to", () => {
   const local = openDatabase(":memory:");
   const launches: Destination = { id: "new", platform: "discord", channelId: "1", signals: ["launch"] };
   const movements: Destination = { id: "changes", platform: "discord", channelId: "2", signals: ["change"] };
-  const both = [launches, movements];
-  const listing = (pricing: string): Collection => ({
-    source: "openrouter",
-    stream: "openrouter",
-    url: "https://openrouter.ai",
+  const sightings: Destination = { id: "scouts", platform: "discord", channelId: "3", signals: ["codename"] };
+  const all = [launches, movements, sightings];
+  const listing = (source: string, pricing: string): Collection => ({
+    source,
+    stream: source === "openrouter" ? "openrouter" : "api-models",
+    url: "https://example.invalid/models",
     raw: [],
     records: [{ id: "a", name: "Model A", pricing: { prompt: pricing } }],
   });
-  saveCollection(local, listing("0.000001"), both, "2026-09-08T09:00:00.000Z");
-  // A second record appearing is a launch; only the launch channel hears about it.
-  const withNew = listing("0.000001");
-  withNew.records.push({ id: "b", name: "Model B" });
-  saveCollection(local, withNew, both, "2026-09-08T09:05:00.000Z");
+  // The vendor's own catalogue: a row appearing there is the vendor shipping it.
+  saveCollection(local, listing("openai", "0.000001"), all, "2026-09-08T09:00:00.000Z");
+  const shipped = listing("openai", "0.000001");
+  shipped.records.push({ id: "b", name: "Model B" });
+  saveCollection(local, shipped, all, "2026-09-08T09:05:00.000Z");
   expect(local.query("SELECT destination_id FROM deliveries").all()).toEqual([{ destination_id: "new" }]);
+
+  // A reseller listing one is the earliest sight of it and the weakest word on whether it exists,
+  // so it reaches the scouts rather than the channel that says a model shipped.
+  saveCollection(local, listing("openrouter", "0.000001"), all, "2026-09-08T10:00:00.000Z");
+  const listed = listing("openrouter", "0.000001");
+  listed.records.push({ id: "c", name: "Model C" });
+  saveCollection(local, listed, all, "2026-09-08T10:05:00.000Z");
+  expect(local.query("SELECT DISTINCT destination_id FROM deliveries ORDER BY destination_id").all()).toEqual([
+    { destination_id: "new" },
+    { destination_id: "scouts" },
+  ]);
   local.close();
 });
 
@@ -732,7 +744,7 @@ test("entering a board is a sentence, waits for the digest, and pings nobody", (
   expect(isRoutine(event)).toBe(true);
 });
 
-test("leaderboard notifications keep top-five entries and meaningful movements only", () => {
+test("leaderboard notifications keep the leading places and meaningful movements only", () => {
   const event = (kind: "new" | "changed" | "removed", before: unknown, after: unknown) =>
     ({
       id: 116,
@@ -744,8 +756,8 @@ test("leaderboard notifications keep top-five entries and meaningful movements o
       after_json: after === null ? null : JSON.stringify(after),
       detected_at: "2026-09-08T19:27:00.000Z",
     }) as const;
-  expect(hasNotificationContent(event("new", null, { id: "m", name: "M", rank: 5 }))).toBe(true);
-  expect(hasNotificationContent(event("new", null, { id: "m", name: "M", rank: 6 }))).toBe(false);
+  expect(hasNotificationContent(event("new", null, { id: "m", name: "M", rank: 3 }))).toBe(true);
+  expect(hasNotificationContent(event("new", null, { id: "m", name: "M", rank: 4 }))).toBe(false);
   expect(
     hasNotificationContent(event("changed", { id: "m", name: "M", rank: 12 }, { id: "m", name: "M", rank: 13 })),
   ).toBe(false);
