@@ -47,6 +47,8 @@ const trendingModel = z.object({
   private: z.boolean().default(false),
   safetensors: z.object({ total: z.number().nonnegative().nullish() }).nullish(),
   cardData: z.object({ base_model: z.unknown().nullish() }).nullish(),
+  gated: z.union([z.boolean(), z.string()]).nullish(),
+  config: z.object({ architectures: z.array(z.string()).nullish() }).nullish(),
 });
 
 const trendingSchema = z.array(trendingModel).max(1_000);
@@ -177,7 +179,18 @@ export async function collectHuggingFaceTrending(
   cache?: HttpCache,
   now = new Date(),
 ): Promise<Collection> {
-  const expand = ["createdAt", "likes", "pipeline_tag", "tags", "private", "author", "safetensors", "cardData"]
+  const expand = [
+    "createdAt",
+    "likes",
+    "pipeline_tag",
+    "tags",
+    "private",
+    "author",
+    "safetensors",
+    "cardData",
+    "gated",
+    "config",
+  ]
     .map((field) => `expand[]=${field}`)
     .join("&");
   const url = `https://huggingface.co/api/models?sort=trendingScore&direction=-1&limit=${TRENDING_LIMIT}&${expand}`;
@@ -200,6 +213,10 @@ export async function collectHuggingFaceTrending(
     // Open weights are not open source until a licence says so, and the card should say which.
     license: model.tags.find((tag) => tag.startsWith("license:"))?.slice("license:".length) ?? null,
     parameters: parameterTotal(model),
+    // What a reader decides "can I run this" from without opening the page: the architecture names the
+    // runtime it needs, and a gated repository needs an approval before the weights download.
+    architecture: model.config?.architectures?.[0] ?? null,
+    access: model.gated ? "gated" : "open",
     // The count when the model entered the list. Changes to a trending record are never reported, so
     // a number that moves on every poll costs nothing here and tells the reader why it was picked.
     likes: model.likes ?? null,

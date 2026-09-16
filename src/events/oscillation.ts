@@ -15,7 +15,7 @@ const OSCILLATION_WINDOW_MS = 48 * 3_600_000;
 /** A field must have moved this often inside the window before a repeat reads as dithering. */
 const MIN_PRIOR_CHANGES = 2;
 /** Fields whose level can legitimately move back and forth without the subject changing. */
-const OSCILLATING_FIELDS = new Set(["pricing", "context", "rank", "score", "votes"]);
+const OSCILLATING_FIELDS = new Set(["pricing", "context", "rank", "score", "votes", "selectable"]);
 
 function parse(json: string | null): Record<string, unknown> | null {
   if (!json) return null;

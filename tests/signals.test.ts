@@ -159,3 +159,25 @@ test("only the two classes a reader subscribed for carry a role mention", () => 
   expect(pingWorthy(event({ stream: "web", kind: "changed", source: "claude-web" }))).toBe(false);
   expect(pingWorthy(event({ stream: "news", kind: "changed", source: "openai-news" }))).toBe(false);
 });
+
+test("a listed entry becoming selectable is a sighting on an arena and a launch in its maker's catalogue", () => {
+  const flip = (source: string, stream: string, name: string): Event => ({
+    id: 1,
+    source,
+    stream,
+    entity_id: name,
+    kind: "changed",
+    before_json: JSON.stringify({ id: name, name, selectable: false }),
+    after_json: JSON.stringify({ id: name, name, selectable: true }),
+    detected_at: "2026-09-09T14:53:45.684Z",
+  });
+  expect(signalClass(flip("arena", "arena", "spicy-mayo"))).toBe("codename");
+  expect(signalClass(flip("openai", "api-models", "gpt-live-1"))).toBe("launch");
+  expect(signalClass(flip("groq", "api-models", "openai/gpt-oss-240b"))).toBe("codename");
+  expect(
+    signalClass({
+      ...flip("arena", "arena", "spicy-mayo"),
+      after_json: JSON.stringify({ selectable: false, name: "x" }),
+    }),
+  ).toBe("evidence");
+});

@@ -164,6 +164,15 @@ export function persistCollection(
     )
     .all(c.source);
   const previous = new Map(old.map((row) => [row.id, row]));
+  // A section the collector stopped reading on purpose is not a catalogue that shrank. On 2026-09-16
+  // dropping OpenAI's `index` and Claude Docs' translations left 116 of 788 and 643 of 3,415 records,
+  // and the guard below refused both sites until a migration deleted the rows by hand.
+  if (c.forget)
+    for (const id of [...previous.keys()])
+      if (c.forget(id)) {
+        db.query("DELETE FROM records WHERE source=? AND id=?").run(c.source, id);
+        previous.delete(id);
+      }
   if (!c.appendOnly && initialized?.last_success && suspiciousShrink(previous.size, c.records.length))
     throw new CollectionDegradedError(c.source, previous.size, c.records.length);
   let count = 0;

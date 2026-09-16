@@ -36,7 +36,16 @@ export function unexplainedFailure(error: unknown): string {
   const code = [error, cause]
     .map((value) => (value && typeof value === "object" ? (value as { code?: unknown }).code : undefined))
     .find((value): value is string => typeof value === "string" && /^[A-Z][A-Z0-9_]{1,40}$/.test(value));
-  const kind = name === "ZodError" || name === "SyntaxError" ? "response did not match the schema" : "network error";
+  // `SQLITE_BUSY` from an operator poll racing the service was reported as a network error on
+  // 2026-09-16, which sends whoever reads it to the router instead of to the lock.
+  const kind =
+    name === "ZodError" || name === "SyntaxError"
+      ? "response did not match the schema"
+      : name === "SQLiteError"
+        ? "local database error"
+        : name === "TypeError" || name === "AbortError" || name === "TimeoutError" || code?.startsWith("E")
+          ? "network error"
+          : "unexpected error";
   return `Collection failed: ${kind} (${[name, code].filter(Boolean).join(", ")})`;
 }
 

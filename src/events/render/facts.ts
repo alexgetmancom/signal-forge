@@ -68,7 +68,7 @@ function identityLine(event: Event, record: RecordData | null, title: string): s
  * checked. It is only ever set from a source in a different family, so a collector seeing its own
  * record twice never reads as a lead.
  */
-export type LeadTime = { hours: number; source: string };
+export type LeadTime = { hours: number; source: string; name?: string };
 
 /**
  * What a card knows beyond its own event, looked up once per batch by the code that has the database.
@@ -80,8 +80,19 @@ export type LeadTime = { hours: number; source: string };
  */
 export type CardContext = { lead?: LeadTime; returned?: Record<string, unknown>; elsewhere?: string[] };
 
-function leadLine(lead: LeadTime): string {
+/** Where a model is tested under a name that is not its own. */
+const CODENAME_SOURCES = /^(arena|arena-leaderboards|designarena:)/;
+
+/**
+ * The reveal. `spicy-mayo` sighted on the arena five days before a maker lists `Gemini 4 Ultra` is
+ * the story the scouts were told the first half of; the launch card on the wire says the second half
+ * points back to it, in the codename the room saw.
+ */
+function leadLine(lead: LeadTime, title: string): string {
   const amount = lead.hours < 48 ? `${Math.round(lead.hours)} hours` : `${Math.round(lead.hours / 24)} days`;
+  const codename = lead.name && lead.name.toLowerCase() !== title.toLowerCase() ? lead.name : null;
+  if (codename && CODENAME_SOURCES.test(lead.source))
+    return `🕵 Sighted ${amount} earlier on ${sourceLabel(lead.source)} as \`${codename}\``;
   return `Traced ${amount} earlier · ${sourceLabel(lead.source)}`;
 }
 
@@ -97,7 +108,7 @@ export function eventFacts(event: Event & CardContext, summary?: string): string
   const record = after ?? before;
   const title = String(record?.name ?? event.entity_id);
   const lines: string[] = [];
-  if (event.lead) lines.push(leadLine(event.lead));
+  if (event.lead) lines.push(leadLine(event.lead, title));
   if (event.elsewhere) lines.push(elsewhereLine(event.elsewhere));
 
   if (event.returned && after && event.kind === "new") {
@@ -224,6 +235,10 @@ export function eventFacts(event: Event & CardContext, summary?: string): string
       if (key === "id" || key === "name" || key === "prerelease" || NOISE.has(key)) continue;
       // The full list of supported API parameters is retained evidence that no reader decides
       // anything from. When it changes, the added and removed entries are shown instead.
+      if (key === "parameters" && typeof raw === "number") {
+        lines.push(`Parameters: ${raw >= 1e9 ? `${(raw / 1e9).toFixed(raw >= 1e10 ? 0 : 1)}B` : compactCount(raw)}`);
+        continue;
+      }
       if (key === "parameters") continue;
       // Whether a listing can be used is stated as a sentence, not as "Selectable: yes". A maker
       // that repeats the provider is one line spent on nothing.

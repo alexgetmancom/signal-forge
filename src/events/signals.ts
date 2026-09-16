@@ -59,7 +59,7 @@ export type SignalClass = (typeof SIGNAL_CLASSES)[number];
  * classed `release`, which is the class reserved for a changelog entry, and the newsroom filter --
  * which reads the class -- never looked at them.
  */
-const NEWSROOMS = new Set(["openai-news", "anthropic-news", "huggingface-blog-feed", "google-ai-blog"]);
+const NEWSROOMS = new Set(["openai-news", "anthropic-news", "huggingface-blog-feed", "google-ai-blog", "hackernews"]);
 
 /**
  * Watched sites whose new pages are not the tell a product page is.
@@ -104,6 +104,19 @@ const CATALOGUE_MAKER: Readonly<Record<string, string>> = {
   poolside: "Poolside",
 };
 
+/**
+ * An entry that was listed but could not be picked, and now can. On an arena this is a model moving
+ * from private testing to the public picker; in a catalogue it is the moment a listed model starts
+ * answering. Six arena entries made that move in the week to 2026-09-10 and each was delivered
+ * nowhere, as raw evidence.
+ */
+function becameSelectable(event: Event): boolean {
+  if (event.kind !== "changed" || !event.before_json || !event.after_json) return false;
+  const before = JSON.parse(event.before_json) as { selectable?: unknown };
+  const after = JSON.parse(event.after_json) as { selectable?: unknown };
+  return before.selectable === false && after.selectable === true;
+}
+
 /** True when a catalogue arrival is a platform listing somebody else's model, not its maker shipping it. */
 export function listsAnotherMakersModel(event: Event): boolean {
   if (event.kind !== "new" || (event.stream !== "api-models" && event.stream !== "openrouter")) return false;
@@ -122,7 +135,7 @@ export function signalClass(event: Event): SignalClass {
   // a page that disappears, so it takes the same class. On 2026-09-15 193 of them reached the
   // invited room as sightings in sixteen messages; the arena had served a partial roster, and every
   // one of the 193 was back five minutes later under the same id.
-  if (event.stream === "arena") return event.kind === "new" ? "codename" : "evidence";
+  if (event.stream === "arena") return event.kind === "new" || becameSelectable(event) ? "codename" : "evidence";
   if (event.source.startsWith("discovery:")) return "codename";
 
   /**
@@ -217,6 +230,9 @@ export function signalClass(event: Event): SignalClass {
        */
       return listsAnotherMakersModel(event) ? "codename" : "launch";
     }
+    // Listed first and switched on later: the switch is the release. In the maker's own catalogue it
+    // is a launch like any arrival would have been; anywhere else it is still a sighting.
+    if (becameSelectable(event)) return listsAnotherMakersModel({ ...event, kind: "new" }) ? "codename" : "launch";
     // A row leaving a catalogue is not the vendor announcing anything: over the week to
     // 2026-09-15 the launch channel spent half its cards on four departures, each ending
     // something it had never been told arrived. It is a trail nobody has to read.

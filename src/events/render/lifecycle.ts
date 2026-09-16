@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { WeeklyRecapContext } from "../../recap.js";
+import type { RecapContext } from "../../recap.js";
 import { sourceLabel } from "../../sources/labels.js";
 import { eventEvidenceType, evidenceLabel } from "../confidence.js";
 import type { Event } from "../types.js";
@@ -90,9 +90,16 @@ function priceMove(move: { percent: number; cheaper: boolean; discountEnded?: bo
  * The week, in the order a reader would ask about it: what can I use now, what got cheaper, and
  * what did the people watching early see before anybody announced it.
  */
-export function renderWeeklyRecapLines(context: WeeklyRecapContext): string[] {
+export function renderRecapLines(context: RecapContext): string[] {
   const day = (at: string) =>
     new Date(at).toLocaleDateString("en-GB", { day: "numeric", month: "long", timeZone: "UTC" });
+  if (context.period === "day") {
+    const moved = [
+      ...context.priceMoves.map((move) => `📊 ${move.name} · ${priceMove(move)}`),
+      ...context.leaders.map((leader) => `🏆 ${leader.name} now leads ${leader.board}`),
+    ];
+    return [`**${day(context.from)} → ${day(context.to)}**`, "", ...moved];
+  }
   const lines = [`**${day(context.from)} – ${day(context.to)}**`, ""];
   if (!context.arrivalCount) lines.push("🚀 **No new models this week.**");
   else {
@@ -116,11 +123,16 @@ export function renderWeeklyRecapLines(context: WeeklyRecapContext): string[] {
   return lines;
 }
 
-export function renderWeeklyRecapEmbed(context: WeeklyRecapContext): Record<string, unknown> {
+export function renderRecapEmbed(context: RecapContext): Record<string, unknown> {
   return {
-    author: { name: "THE WEEK IN MODELS" },
-    title: "Weekly recap",
-    description: renderWeeklyRecapLines(context).join("\n").slice(0, 4000),
-    footer: { text: "Everything here was posted as it happened · scouts saw the early half first" },
+    author: { name: context.period === "day" ? "WHAT MOVED" : "THE WEEK IN MODELS" },
+    title: context.period === "day" ? "Daily moves" : "Weekly recap",
+    description: renderRecapLines(context).join("\n").slice(0, 4000),
+    footer: {
+      text:
+        context.period === "day"
+          ? "Moves too small for a card of their own · no ping"
+          : "Everything here was posted as it happened · scouts saw the early half first",
+    },
   };
 }

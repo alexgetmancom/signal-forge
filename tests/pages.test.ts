@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
+import { saveCollection } from "../src/events/pipeline.js";
 import { signalClass } from "../src/events/signals.js";
 import type { Event } from "../src/events/types.js";
 import { collectSitePages, parseSitemap, WATCHED_SITES } from "../src/sources/pages.js";
+import { openDatabase } from "../src/storage/database.js";
 
 const site = WATCHED_SITES[1] as (typeof WATCHED_SITES)[number];
 
@@ -124,4 +126,27 @@ test("OpenAI's newsroom, partner and event pages are not watched as pages", () =
     openai,
   );
   expect(collection.records.map((record) => record.id)).toEqual(["/codex/pricing"]);
+});
+
+test("a section the site stops reading is forgotten, not reported gone or refused as a shrink", () => {
+  const db = openDatabase(":memory:");
+  const reading = { ...site, ignoreSections: [] };
+  const pages = Array.from({ length: 40 }, (_, index) => `/careers-archive/${index}`);
+  saveCollection(
+    db,
+    parseSitemap([urlset(["/news/one", "/news/two", ...pages])], reading),
+    [],
+    "2026-09-16T10:00:00.000Z",
+  );
+  const ignoring = { ...site, ignoreSections: ["careers-archive"] };
+  saveCollection(
+    db,
+    parseSitemap([urlset(["/news/one", "/news/two", ...pages])], ignoring),
+    [],
+    "2026-09-16T11:00:00.000Z",
+  );
+
+  expect(db.query<{ n: number }, []>("SELECT COUNT(*) n FROM records").get()?.n).toBe(2);
+  expect(db.query<{ n: number }, []>("SELECT COUNT(*) n FROM events").get()?.n).toBe(0);
+  db.close();
 });

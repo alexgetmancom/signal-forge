@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
+import { applyCardAmendments, queueIncidentAmendments } from "./amendments.js";
 import { type AppConfig, type Destination, destinationSchema } from "./config.js";
 import { prepareDeliveries } from "./events/batching.js";
 import type { Fetch } from "./http-client.js";
@@ -62,7 +63,9 @@ export async function deliverPending(db: Database, config: AppConfig, request: F
   await fillSummaries(db, config, request);
   db.transaction(() => {
     prepareDeliveries(db, Date.now(), config.vendorRoles, config.allSignalsRole);
+    queueIncidentAmendments(db);
   })();
+  await applyCardAmendments(db, config, request);
 
   const destinationIds = db
     .query<{ destination_id: string }, [string]>(

@@ -12,5 +12,7 @@ test("a withheld failure still says which kind it was, and nothing an upstream w
   expect(unexplainedFailure(reset)).not.toContain("secret");
   // A code is repeated only when it has the shape of one the runtime chose.
   const odd = Object.assign(new Error("boom"), { code: "api key sk-live-secret" });
-  expect(unexplainedFailure(odd)).toBe("Collection failed: network error (Error)");
+  expect(unexplainedFailure(odd)).toBe("Collection failed: unexpected error (Error)");
+  const busy = Object.assign(new Error("database is locked"), { name: "SQLiteError", code: "SQLITE_BUSY" });
+  expect(unexplainedFailure(busy)).toBe("Collection failed: local database error (SQLiteError, SQLITE_BUSY)");
 });

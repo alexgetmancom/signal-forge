@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { Destination } from "../config.js";
 import { promotionContextSchema } from "../promotion.js";
-import { weeklyRecapContextSchema } from "../recap.js";
+import { recapContextSchema } from "../recap.js";
 import { sourceLabel } from "../sources/labels.js";
 import { splitMessage } from "./canonical.js";
 import { CONFIDENCE_LEVELS } from "./confidence.js";
@@ -18,8 +18,8 @@ import {
   parseLifecycleReminderContext,
   renderLifecycleReminderEmbed,
   renderLifecycleReminderText,
-  renderWeeklyRecapEmbed,
-  renderWeeklyRecapLines,
+  renderRecapEmbed,
+  renderRecapLines,
 } from "./render/lifecycle.js";
 import { renderStoryText, type StoryRenderEvent, storyEmbed } from "./render/story.js";
 import { renderEvent } from "./render/telegram.js";
@@ -58,8 +58,10 @@ function leadTimes(db: Database, storyIds: Map<number, number>, events: Event[])
   const stories = [...new Set(storyIds.values())];
   if (!stories.length) return leads;
   const rows = db
-    .query<{ story_id: number; source: string; stream: string; detected_at: string }, number[]>(
-      `SELECT se.story_id,e.source,e.stream,e.detected_at FROM story_events se JOIN events e ON e.id=se.event_id
+    .query<{ story_id: number; source: string; stream: string; detected_at: string; name: string | null }, number[]>(
+      `SELECT se.story_id,e.source,e.stream,e.detected_at,
+         COALESCE(json_extract(e.after_json,'$.name'),json_extract(e.before_json,'$.name'),e.entity_id) AS name
+       FROM story_events se JOIN events e ON e.id=se.event_id
        WHERE se.story_id IN (${stories.map(() => "?").join(",")})`,
     )
     .all(...stories);
@@ -70,12 +72,17 @@ function leadTimes(db: Database, storyIds: Map<number, number>, events: Event[])
     const detectedAt = Date.parse(event.detected_at);
     const earliest = rows
       .filter((row) => row.story_id === storyId && sourceFamily(row.source, row.stream) !== family)
-      .map((row) => ({ at: Date.parse(row.detected_at), source: row.source }))
+      .map((row) => ({ at: Date.parse(row.detected_at), source: row.source, name: row.name }))
       .filter((row) => Number.isFinite(row.at) && row.at < detectedAt)
       .sort((one, other) => one.at - other.at)[0];
     if (!earliest || !Number.isFinite(detectedAt)) continue;
     const hours = (detectedAt - earliest.at) / 3_600_000;
-    if (hours >= 1) leads.set(event.id, { hours, source: earliest.source });
+    if (hours >= 1)
+      leads.set(event.id, {
+        hours,
+        source: earliest.source,
+        ...(earliest.name ? { name: String(earliest.name) } : {}),
+      });
   }
   return leads;
 }
@@ -269,13 +276,13 @@ export function prepareDeliveries(
       continue;
     }
     if (batch.kind === "weekly_recap") {
-      const context = weeklyRecapContextSchema.parse(JSON.parse(batch.context_json ?? "{}"));
+      const context = recapContextSchema.parse(JSON.parse(batch.context_json ?? "{}"));
       for (const target of targets) {
         const destination = JSON.parse(target.destination_json) as Destination;
         const body =
           destination.platform === "discord"
-            ? JSON.stringify({ content: "", embeds: [renderWeeklyRecapEmbed(context)] })
-            : renderWeeklyRecapLines(context).join("\n");
+            ? JSON.stringify({ content: "", embeds: [renderRecapEmbed(context)] })
+            : renderRecapLines(context).join("\n");
         db.query(
           `INSERT INTO deliveries(batch_id,destination_id,destination_json,body,part,updated_at) VALUES(?,?,?,?,0,?)
            ON CONFLICT(batch_id,destination_id,part) DO UPDATE SET body=excluded.body,updated_at=excluded.updated_at

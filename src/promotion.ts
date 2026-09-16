@@ -95,10 +95,15 @@ export async function promoteVouchedMessages(
       )
       .get(message.id, channels.room.id);
     if (!delivery) continue;
-    if (db.query("SELECT 1 FROM promoted_deliveries WHERE delivery_id=?").get(delivery.id)) continue;
-
     const count = (name: string) => message.reactions.find((reaction) => reaction.emoji.name === name)?.count ?? 0;
     const readerVotes = count(rule.readerEmoji);
+    // Every card's count is kept, not only the ones that travel: which source the room vouches for is
+    // the measurement, and promotion is one use of it.
+    db.query(
+      "INSERT INTO scout_reactions(delivery_id,votes,read_at) VALUES(?,?,?) ON CONFLICT(delivery_id) DO UPDATE SET votes=excluded.votes,read_at=excluded.read_at",
+    ).run(delivery.id, readerVotes + count(rule.ownerEmoji), new Date(now).toISOString());
+    if (db.query("SELECT 1 FROM promoted_deliveries WHERE delivery_id=?").get(delivery.id)) continue;
+
     let reason: PromotionContext["reason"] | null = null;
     let votes = readerVotes;
     if (count(rule.ownerEmoji) > 0) {

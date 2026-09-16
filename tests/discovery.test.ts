@@ -88,7 +88,7 @@ test("Hugging Face trending keeps young original models and says what licence th
   let requested = "";
   const request = async (url: string) => {
     requested = url;
-    return Response.json([trending("nex-agi/Nex-N2.5-mini")]);
+    return Response.json([trending("nex-agi/Nex-N2.5-mini", { config: { architectures: ["NexForCausalLM"] } })]);
   };
   const collection = await collectHuggingFaceTrending(config, request, undefined, now);
   expect(requested).toContain("sort=trendingScore");
@@ -103,6 +103,8 @@ test("Hugging Face trending keeps young original models and says what licence th
       pipelineTag: "text-generation",
       license: "apache-2.0",
       parameters: 35_107_181_936,
+      architecture: "NexForCausalLM",
+      access: "open",
       likes: 800,
     },
   ]);

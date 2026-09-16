@@ -25,6 +25,7 @@ import { deepSeekUsage } from "./runtime/deepseekUsage.js";
 import { codeAnalytics } from "./runtime/metrics.js";
 import { signalQuality } from "./signalQuality.js";
 import { sourceJobs } from "./sources/registry.js";
+import { sourceVerdicts } from "./sourceVerdicts.js";
 import { dateIntegrity } from "./storage/dateIntegrity.js";
 import { listStories } from "./stories.js";
 import { seedWeightTotals } from "./weights.js";
@@ -457,6 +458,18 @@ export function operations(db: Database, config: AppConfig): OperationMap {
       cli: { args: [{ name: "days", optional: true }] },
       http: { method: "get", path: "/api/lead-time" },
       handler: (input: { days: number }) => leadTime(db, input.days),
+    },
+    source_verdicts: {
+      section: "sources",
+      summary:
+        "Which enabled sources led another source, reached a reader or drew scout votes over a period; run monthly.",
+      startHere: "is a source worth keeping at all",
+      mutates: false,
+      agent: true,
+      schema: z.object({ days: count(90, 30) }),
+      cli: { args: [{ name: "days", optional: true }] },
+      http: { method: "get", path: "/api/source-verdicts" },
+      handler: (input: { days: number }) => sourceVerdicts(db, config, input.days),
     },
     channel_mix: {
       section: "sources",

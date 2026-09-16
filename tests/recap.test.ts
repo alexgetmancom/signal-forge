@@ -2,9 +2,9 @@ import { expect, test } from "bun:test";
 import type { Destination } from "../src/config.js";
 import { prepareDeliveries } from "../src/events/batching.js";
 import { saveCollection } from "../src/events/pipeline.js";
-import { renderWeeklyRecapLines } from "../src/events/render/lifecycle.js";
+import { renderRecapLines } from "../src/events/render/lifecycle.js";
 import type { Collection } from "../src/events/types.js";
-import { lastRecapPeriod, scheduleWeeklyRecap, weeklyRecapContext } from "../src/recap.js";
+import { lastRecapPeriod, recapContext, scheduleRecaps } from "../src/recap.js";
 import { openDatabase } from "../src/storage/database.js";
 
 const wire: Destination = { id: "wire", platform: "discord", channelId: "1", signals: ["launch", "change"] };
@@ -35,7 +35,7 @@ function week(db: ReturnType<typeof openDatabase>) {
 test("the week reads back as what arrived and what moved furthest", () => {
   const db = openDatabase(":memory:");
   week(db);
-  const context = weeklyRecapContext(db, "2026-09-13T18:00:00.000Z");
+  const context = recapContext(db, "2026-09-13T18:00:00.000Z");
   expect(context.arrivals).toEqual([{ vendor: "OpenAI", names: ["GPT-6 Astra"] }]);
   expect(context.arrivalCount).toBe(1);
   expect(context.priceMoves[0]).toMatchObject({ name: "Baseline", cheaper: true });
@@ -57,15 +57,15 @@ test("early sightings are counted as subjects, not as observations", () => {
     arena.records[1] = { id: "spicy-mayo", name: "spicy-mayo", rank: index + 1 };
     saveCollection(db, arena, [wire], `${at}T00:00:00.000Z`);
   }
-  expect(weeklyRecapContext(db, "2026-09-13T18:00:00.000Z").codenameCount).toBe(1);
+  expect(recapContext(db, "2026-09-13T18:00:00.000Z").codenameCount).toBe(1);
 });
 
 test("the recap is queued once for a period and never twice", () => {
   const db = openDatabase(":memory:");
   week(db);
   const now = Date.parse("2026-09-14T09:00:00.000Z");
-  expect(scheduleWeeklyRecap(db, config, now)).toBe(true);
-  expect(scheduleWeeklyRecap(db, config, now)).toBe(false);
+  expect(scheduleRecaps(db, config, now)).toEqual(["week"]);
+  expect(scheduleRecaps(db, config, now)).toEqual([]);
   expect(db.query("SELECT COUNT(*) AS n FROM batches WHERE kind='weekly_recap'").get()).toEqual({ n: 1 });
 
   prepareDeliveries(db, now);
@@ -78,7 +78,7 @@ test("the recap is queued once for a period and never twice", () => {
 
 test("a week with nothing in it is not a message", () => {
   const db = openDatabase(":memory:");
-  expect(scheduleWeeklyRecap(db, config, Date.parse("2026-09-14T09:00:00.000Z"))).toBe(false);
+  expect(scheduleRecaps(db, config, Date.parse("2026-09-14T09:00:00.000Z"))).toEqual([]);
 });
 
 test("a week is read back by maker, with training checkpoints and re-keyed rows left out", () => {
@@ -121,7 +121,7 @@ test("a week is read back by maker, with training checkpoints and re-keyed rows 
   catalogue.records.push({ id: "sakana/fugu-max", name: "Sakana: Fugu Max" });
   saveCollection(db, catalogue, [wire], "2026-09-10T10:00:00.000Z");
 
-  const context = weeklyRecapContext(db, "2026-09-13T18:00:00.000Z");
+  const context = recapContext(db, "2026-09-13T18:00:00.000Z");
   expect(context.arrivalCount).toBe(2);
   // The registry namespace names the maker; a maker the table has never heard of names itself.
   expect(context.arrivals).toEqual([
@@ -169,12 +169,12 @@ test("a price line is what a reader pays, and says nothing when the rows disagre
   ];
   saveCollection(db, catalogue, [wire], "2026-09-09T10:00:00.000Z");
 
-  const context = weeklyRecapContext(db, "2026-09-13T18:00:00.000Z");
+  const context = recapContext(db, "2026-09-13T18:00:00.000Z");
   expect(context.priceMoves).toEqual([
     { name: "Qwen: Qwen3 14B", percent: 2.7916666666666665, cheaper: false, discountEnded: false },
   ]);
   // Nearly quadrupling is not "up 74%", whatever the ranking arithmetic says.
-  expect(renderWeeklyRecapLines(context)).toContain("📊 Qwen: Qwen3 14B · 3.8× more expensive");
+  expect(renderRecapLines(context)).toContain("📊 Qwen: Qwen3 14B · 3.8× more expensive");
 });
 
 test("a price only speaks for a model something other than a price list knows", () => {
@@ -214,15 +214,13 @@ test("a price only speaks for a model something other than a price list knows", 
   ];
   saveCollection(db, catalogue, [wire], "2026-09-09T10:00:00.000Z");
 
-  const context = weeklyRecapContext(db, "2026-09-13T18:00:00.000Z");
+  const context = recapContext(db, "2026-09-13T18:00:00.000Z");
   // The obscure row moved nine times as far and is nobody's news; the benchmarked one speaks, and
   // says why it went up.
   expect(context.priceMoves).toEqual([
     { name: "Upstage: Solar Pro 4", percent: 2, cheaper: false, discountEnded: true },
   ]);
-  expect(renderWeeklyRecapLines(context)).toContain(
-    "📊 Upstage: Solar Pro 4 · launch pricing ended · 3.0× more expensive",
-  );
+  expect(renderRecapLines(context)).toContain("📊 Upstage: Solar Pro 4 · launch pricing ended · 3.0× more expensive");
 });
 
 test("a price that goes up and comes back down again is not a week's news", () => {
@@ -249,7 +247,7 @@ test("a price that goes up and comes back down again is not a week's news", () =
   saveCollection(db, catalogue, [wire], "2026-09-12T10:00:00.000Z");
 
   // The provider serving it changed and changed back. The week's net move is nothing.
-  expect(weeklyRecapContext(db, "2026-09-13T18:00:00.000Z").priceMoves).toEqual([]);
+  expect(recapContext(db, "2026-09-13T18:00:00.000Z").priceMoves).toEqual([]);
 });
 
 test("a reseller's catalogue speaks for makers this tracker follows", () => {
@@ -270,7 +268,38 @@ test("a reseller's catalogue speaks for makers this tracker follows", () => {
   );
   saveCollection(db, catalogue, [wire], "2026-09-09T10:00:00.000Z");
 
-  const context = weeklyRecapContext(db, "2026-09-13T18:00:00.000Z");
+  const context = recapContext(db, "2026-09-13T18:00:00.000Z");
   expect(context.arrivals).toEqual([{ vendor: "Sakana", names: ["Fugu Max"] }]);
   expect(context.arrivalCount).toBe(1);
+});
+
+test("the scouts get one morning message about what moved at the top of a board, and nothing else", () => {
+  const db = openDatabase(":memory:");
+  const scouts: Destination = { id: "scouts", platform: "discord", channelId: "2", signals: ["codename"] };
+  const board: Collection = {
+    source: "arena-leaderboards",
+    stream: "leaderboards",
+    url: "https://arena.example",
+    raw: [],
+    trackChanges: true,
+    records: [
+      { id: "text:a", name: "claude-fable-5.1", category: "text/overall", rank: 1, score: 1500 },
+      { id: "text:b", name: "gpt-6-astra", category: "text/overall", rank: 2, score: 1490 },
+    ],
+  };
+  saveCollection(db, board, [], "2026-09-16T01:00:00.000Z");
+  board.records = [
+    { id: "text:a", name: "claude-fable-5.1", category: "text/overall", rank: 2, score: 1500 },
+    { id: "text:b", name: "gpt-6-astra", category: "text/overall", rank: 1, score: 1560 },
+  ];
+  saveCollection(db, board, [], "2026-09-16T12:00:00.000Z");
+
+  const now = Date.parse("2026-09-17T07:00:00.000Z");
+  expect(lastRecapPeriod(now, "day")).toBe("2026-09-17T06:00:00.000Z");
+  expect(scheduleRecaps(db, { destinations: [scouts] } as never, now)).toEqual(["day"]);
+  prepareDeliveries(db, now);
+  const body = db.query<{ body: string }, []>("SELECT body FROM deliveries").get()?.body ?? "";
+  expect(body).toContain("Daily moves");
+  expect(body).toContain("now leads text/overall");
+  expect(body).not.toContain("<@&");
 });

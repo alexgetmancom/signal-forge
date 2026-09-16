@@ -7,6 +7,7 @@ import { hasNotificationContent } from "../src/events/notification.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import { collapseDetails, MAX_DETAIL_LINES } from "../src/events/render/common.js";
 import { eventEmbed } from "../src/events/render/discord.js";
+import { eventFacts } from "../src/events/render/facts.js";
 import { renderEvent } from "../src/events/render/telegram.js";
 import type { Collection, Event, RecordData } from "../src/events/types.js";
 import { openDatabase } from "../src/storage/database.js";
@@ -1079,4 +1080,23 @@ test("the reveal of a codename hangs off the message that reported the sighting"
     .query<{ body: string }, []>("SELECT body FROM deliveries WHERE external_id IS NULL ORDER BY id DESC")
     .get()?.body;
   expect(JSON.parse(String(reveal)).message_reference).toEqual({ message_id: "777", fail_if_not_exists: false });
+});
+
+test("a launch that was sighted under a codename says which one", () => {
+  const launch: Event = {
+    id: 9,
+    source: "gemini",
+    stream: "api-models",
+    entity_id: "gemini-4-ultra",
+    kind: "new",
+    before_json: null,
+    after_json: JSON.stringify({ id: "gemini-4-ultra", name: "Gemini 4 Ultra" }),
+    detected_at: "2026-09-20T10:00:00.000Z",
+  };
+  expect(eventFacts({ ...launch, lead: { hours: 120, source: "arena", name: "spicy-mayo" } })[0]).toBe(
+    "🕵 Sighted 5 days earlier on Arena as `spicy-mayo`",
+  );
+  expect(
+    eventFacts({ ...launch, lead: { hours: 18, source: "npm:@google/genai", name: "@google/genai 2.0.0" } })[0],
+  ).toBe("Traced 18 hours earlier · npm · @google/genai");
 });

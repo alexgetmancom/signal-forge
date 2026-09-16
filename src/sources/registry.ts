@@ -44,7 +44,7 @@ import {
 } from "./lifecycle.js";
 import { collectModelsDev, collectTrueFoundryAzure } from "./mirrors.js";
 import { collectCohereChangelog } from "./modelDocs.js";
-import { collectAnthropicNews, collectOpenAINews } from "./news.js";
+import { collectAnthropicNews, collectHackerNews, collectOpenAINews } from "./news.js";
 import { collectSitePages, WATCHED_SITES } from "./pages.js";
 import { collectPlatformStatus, PLATFORMS } from "./platforms.js";
 import {
@@ -138,6 +138,16 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       intervalSeconds: 900,
       collector: () => collectOpenAINews(),
       enabled: requested("openai-news"),
+    },
+    {
+      id: "hackernews",
+      label: sourceLabel("hackernews"),
+      authority: "third_party",
+      group: "Official news",
+      stream: "news",
+      intervalSeconds: 1800,
+      collector: () => collectHackerNews(),
+      enabled: requested("hackernews"),
     },
     {
       id: "openai-chatgpt-release-notes",

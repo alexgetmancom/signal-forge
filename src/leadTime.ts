@@ -18,6 +18,8 @@ export type LeadTimeRow = {
   label: string;
   /** Stories this source saw before any other source did. */
   firstSightings: number;
+  /** Of those, the stories another source reached later: a lead that was actually measured. */
+  ledOthers: number;
   /** Stories it reached at all, leading or not. */
   appearances: number;
   /** Median hours by which it beat the next source to arrive, across the stories it led. */
@@ -33,8 +35,12 @@ function medianHours(values: number[]): number | null {
   return value === null ? null : round(value, 1);
 }
 
-export function leadTime(db: Database, days = 7): { since: string; stories: number; sources: LeadTimeRow[] } {
-  const since = new Date(Date.now() - days * 24 * 3_600_000).toISOString();
+export function leadTime(
+  db: Database,
+  days = 7,
+  now = Date.now(),
+): { since: string; stories: number; sources: LeadTimeRow[] } {
+  const since = new Date(now - days * 24 * 3_600_000).toISOString();
   const sightings = db
     .query<Sighting, [string]>(
       `SELECT se.story_id, e.source, MIN(e.detected_at) AS detected_at
@@ -82,6 +88,7 @@ export function leadTime(db: Database, days = 7): { since: string; stories: numb
       source,
       label: sourceLabel(source),
       firstSightings: wins.get(source) ?? 0,
+      ledOthers: leads.get(source)?.length ?? 0,
       appearances: appearances.get(source) ?? 0,
       medianLeadHours: medianHours(leads.get(source) ?? []),
       medianLagHours: medianHours(lags.get(source) ?? []),

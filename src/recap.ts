@@ -30,8 +30,16 @@ import { subjectKey, usageRanks, witnessedSubjects } from "./events/witness.js";
  * already exists, and its identity is the period it covers: one row per week per source, enforced
  * by an index rather than remembered by this function.
  */
-const RECAP_SOURCE = "weekly-recap";
-const WEEK_MS = 7 * 24 * 3_600_000;
+/**
+ * The same summary over a day, for the invited room. The scouts are told every sighting as it
+ * happens and nothing about the numbers that move too little to speak on their own: a price cut,
+ * a board changing hands at the top. One message a morning says those, and never pings.
+ */
+const PERIODS = {
+  week: { source: "weekly-recap", ms: 7 * 24 * 3_600_000, signal: "launch" },
+  day: { source: "daily-recap", ms: 24 * 3_600_000, signal: "codename" },
+} as const;
+export type RecapPeriod = keyof typeof PERIODS;
 /** Where a thing shows up before anyone announces it. */
 const EARLY_STREAMS = new Set(["arena", "pages"]);
 /** Makers named in the recap itself; the rest are counted. */
@@ -41,7 +49,9 @@ function escapeForPattern(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
-export const weeklyRecapContextSchema = z.object({
+export const recapContextSchema = z.object({
+  // Absent in the recaps stored before a day could be summarised.
+  period: z.enum(["week", "day"]).default("week"),
   from: z.string(),
   to: z.string(),
   arrivals: z.array(z.object({ vendor: z.string(), names: z.array(z.string()) })),
@@ -57,8 +67,9 @@ export const weeklyRecapContextSchema = z.object({
   ),
   codenameCount: z.number(),
   bestLead: z.object({ name: z.string(), hours: z.number() }).nullable(),
+  leaders: z.array(z.object({ board: z.string(), name: z.string() })).default([]),
 });
-export type WeeklyRecapContext = z.infer<typeof weeklyRecapContextSchema>;
+export type RecapContext = z.infer<typeof recapContextSchema>;
 
 /**
  * The end of the most recent complete week, as an instant.
@@ -66,10 +77,12 @@ export type WeeklyRecapContext = z.infer<typeof weeklyRecapContextSchema>;
  * Sunday evening UTC: late enough that a week's last day is over in the Americas, early enough that
  * Asia reads it on Monday morning rather than a day later.
  */
-export function lastRecapPeriod(now: number): string {
+export function lastRecapPeriod(now: number, period: RecapPeriod = "week"): string {
   const end = new Date(now);
-  end.setUTCHours(18, 0, 0, 0);
-  while (end.getUTCDay() !== 0 || end.getTime() > now) end.setUTCDate(end.getUTCDate() - 1);
+  // The day closes at 06:00 UTC, which is the start of the morning in Moscow and the evening before
+  // on the American west coast: the room reads it with coffee rather than at midnight.
+  end.setUTCHours(period === "day" ? 6 : 18, 0, 0, 0);
+  while ((period === "week" && end.getUTCDay() !== 0) || end.getTime() > now) end.setUTCDate(end.getUTCDate() - 1);
   return end.toISOString();
 }
 
@@ -179,8 +192,8 @@ function recentlyListed(record: RecordData | null, to: string): boolean {
   return Number.isFinite(created) && Date.parse(to) - created <= LAUNCH_PROMOTION_MS;
 }
 
-export function weeklyRecapContext(db: Database, to: string): WeeklyRecapContext {
-  const from = new Date(Date.parse(to) - WEEK_MS).toISOString();
+export function recapContext(db: Database, to: string, period: RecapPeriod = "week"): RecapContext {
+  const from = new Date(Date.parse(to) - PERIODS[period].ms).toISOString();
   const events = db
     .query<Event, [string, string]>("SELECT * FROM events WHERE detected_at>=? AND detected_at<? ORDER BY id")
     .all(from, to);
@@ -280,7 +293,20 @@ export function weeklyRecapContext(db: Database, to: string): WeeklyRecapContext
     })
     .slice(0, 3)
     .map(({ name, percent, cheaper, discountEnded }) => ({ name, percent, cheaper, discountEnded }));
-  return weeklyRecapContextSchema.parse({
+  // A board changing hands at the top is the one ranking move a reader repeats to somebody else.
+  const leaders = classified
+    .filter(({ event }) => event.stream === "leaderboards" && event.kind === "changed")
+    .flatMap(({ event }) => {
+      const before = event.before_json ? (JSON.parse(event.before_json) as RecordData) : null;
+      const after = recordOf(event);
+      if (Number(after?.rank) !== 1 || Number(before?.rank) === 1) return [];
+      return [{ board: String(after?.category ?? event.source), name: readableName(nameOf(event)) }];
+    })
+    .filter((leader, index, all) => all.findIndex((other) => other.board === leader.board) === index)
+    .slice(0, 5);
+  return recapContextSchema.parse({
+    period,
+    leaders,
     from,
     to,
     arrivals: arrivals.slice(0, ARRIVAL_GROUPS),
@@ -303,33 +329,41 @@ export function weeklyRecapContext(db: Database, to: string): WeeklyRecapContext
 }
 
 /**
- * Queue the recap for the week that has just ended, once.
+ * Queue the recaps for the periods that have just ended, once each.
  *
- * It goes to the destinations that carry launches, which is the wire a reader follows for what they
- * can use: the invited room sees every one of these events as it happens and does not need the
- * week read back to it.
+ * The week goes to the destinations that carry launches, which is the wire a reader follows for
+ * what they can use. The day goes to the destinations that carry sightings: the invited room sees
+ * every event as it happens, and what it does not see is the small movement that never speaks.
  */
-export function scheduleWeeklyRecap(db: Database, config: AppConfig, now = Date.now()): boolean {
-  const readyAt = lastRecapPeriod(now);
-  const targets = (config.destinations as Destination[]).filter((destination) =>
-    destination.signals.includes("launch"),
-  );
+export function scheduleRecaps(db: Database, config: AppConfig, now = Date.now()): RecapPeriod[] {
+  return (Object.keys(PERIODS) as RecapPeriod[]).filter((period) => scheduleRecap(db, config, period, now));
+}
+
+function scheduleRecap(db: Database, config: AppConfig, period: RecapPeriod, now: number): boolean {
+  const { source, signal } = PERIODS[period];
+  const readyAt = lastRecapPeriod(now, period);
+  const targets = (config.destinations as Destination[]).filter((destination) => destination.signals.includes(signal));
   if (!targets.length) return false;
   const existing = db
     .query<{ id: number }, [string, string]>(
       "SELECT id FROM batches WHERE kind='weekly_recap' AND source=? AND ready_at=?",
     )
-    .get(RECAP_SOURCE, readyAt);
+    .get(source, readyAt);
   if (existing) return false;
-  const context = weeklyRecapContext(db, readyAt);
-  // A week in which nothing arrived, nothing moved and nothing was sighted is not worth a message.
-  if (!context.arrivalCount && !context.priceMoves.length && !context.codenameCount) return false;
+  const context = recapContext(db, readyAt, period);
+  // A period in which nothing arrived, nothing moved and nothing was sighted is not worth a message;
+  // a day is only ever about what moved.
+  const empty =
+    period === "day"
+      ? !context.priceMoves.length && !context.leaders.length
+      : !context.arrivalCount && !context.priceMoves.length && !context.codenameCount;
+  if (empty) return false;
   const batch = db
     .query<{ id: number }, [string, string, string]>(
       "INSERT INTO batches(source,digest,ready_at,kind,context_json) VALUES(?,0,?,'weekly_recap',?) RETURNING id",
     )
-    .get(RECAP_SOURCE, readyAt, JSON.stringify(context));
-  if (!batch) throw new Error("Weekly recap batch insert failed");
+    .get(source, readyAt, JSON.stringify(context));
+  if (!batch) throw new Error("Recap batch insert failed");
   for (const destination of targets)
     db.query("INSERT INTO batch_targets(batch_id,destination_id,destination_json) VALUES(?,?,?)").run(
       batch.id,

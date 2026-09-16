@@ -23,6 +23,10 @@ Built with Bun, TypeScript, and SQLite.
 * Platform incidents and service status
 * Model deprecations and lifecycle changes
 
+A major outage's card is edited to say it ended rather than followed by a second message. The wire
+gets a weekly recap on Sunday evening; the scouts get a daily one at 06:00 UTC with the price moves
+and board leaders too small for a card.
+
 GitHub discovery runs in shadow mode by default: it collects snapshots, events, stories and metrics
 but never creates subscriber delivery work until explicitly promoted. Hugging Face trending is
 active, and reaches the scouts only with original models under two weeks old that no followed lab
@@ -170,6 +174,7 @@ The current source registry covers:
 * npm and PyPI packages
 * GitHub commits, pull requests, and releases for selected repositories
 * Recent GitHub discovery for artificial-intelligence, LLM, agent, and MCP repositories
+* Hacker News front-page stories that name a followed maker, as corroboration that never becomes a card
 * Official OpenAI news, ChatGPT release notes, Codex and API changelogs, Anthropic Platform, Gemini API, xAI, Mistral, Groq, DeepSeek, and Hugging Face release surfaces, plus Codex documentation and Claude Code/Anthropic SDK releases
 * Provider lifecycle and deprecation pages for OpenAI, Anthropic, Google, AWS, Azure, Groq, Cohere, and xAI
 

@@ -13,10 +13,11 @@ source-derived confidence, correlates events across sources and delivers only wh
 notification policy. Production is healthy and the gate passes on `main`; what is left is reading
 back what the channels carried.
 
-A hundred and nineteen sources are registered on 2026-09-16: ModelScope left, and the four Artificial
+A hundred and twenty sources are registered on 2026-09-17: ModelScope left, and the four Artificial
 Analysis media arenas arrived. `gemini`, `vercel-gateway` and `artificial-analysis` had never
 collected and did that day, once their hostnames were routed through a US exit (settled below). The
-one that does not collect is the Kimi coding tier, which waits for a key.
+one that does not collect is the Kimi coding tier, which waits for a key. Hacker News joined on 2026-09-17 as a witness whose stories never
+become cards.
 
 ## Next work
 
@@ -26,6 +27,8 @@ that has since moved is not a priority.
 | Priority | Task | Definition of done |
 |---|---|---|
 | Next | Read the wire back in a week. | `channel-mix 7`, taken no earlier than 2026-09-23, says what the two channels carried after the routing and filters of 2026-09-16 (`🚀signals`: `launch`; `🕵scouts`: `codename`). Replaying the week to 2026-09-16 19:00 through every delivery filter on a copy of production predicted 3 wire cards and 89 scout cards, of which 49 were site pages the section rules of the same day no longer collect and 2 were ModelScope: about 38. Hugging Face trending was not in that week and adds whatever enters its list. Done when the real numbers are written here with their date, `unrouted` and `shadow` are read per class, and anything that reached the scouts without being a sighting is named with its source. |
+| Next | Judge the sources a month in. | `source-verdicts 30`, first taken no earlier than 2026-10-17 so the trending list, the media arenas and Hacker News have a whole period behind them. It names every enabled source that over thirty days led no other source, reached no reader and drew no scout vote. Done when each one named is removed or kept with a one-line reason here, and the date of the next reading is written in its place. |
+| Owner decision | Cloud catalogues from the clouds themselves. | Bedrock, Vertex and Azure AI Foundry answer only with an account credential, and production carries none, checked 2026-09-17. The aggregators already show those rows second-hand. Creating the accounts costs money and is the owner's call; until then there is nothing to build against. |
 | Owner decision | Kimi: a key for the coding tier. | The Moonshot key answers with `kimi-k2.6` and `kimi-k2.7-code` and nothing newer, checked against production 2026-09-14, which is why the K2.8 Preview rollout of 11 September 2026 was invisible here. The coding tier is a separate host with a separate credential: `api.kimi.com/coding/v1/models` answers 401 to a key it does not accept while every neighbouring path answers 404, so the source is registered and correct ahead of the key. Set `KIMI_API_KEY` and it collects; the Kimi Code changelog already ships as its own source. |
 
 ## Settled by measurement
@@ -134,18 +137,8 @@ Kept because the reasoning cost real observation and is easy to re-litigate from
 
 Not scheduled. Written down so they stop being re-derived from scratch.
 
-- **Incident cards edited in place across stages**, the way the status boards already edit one
-  message rather than growing a log.
-- **A daily summary of the changes too small to speak.** The parts exist -- digests, thresholds,
-  oscillation filtering, comparison against the last reader-visible baseline -- and must not be
-  reimplemented; what is missing is a `batches.kind` member with a period-and-destination identity.
-  No second sender, no independent cron, no universal top-five ranking.
 - **Regional lifecycle schedules.** A deprecation with different dates per region is stored as one
   record with one date, which understates the ones that matter most.
-- **`selectable: false -> true` in an API catalogue as a codename** rather than a change. No
-  production history for it: all six observed transitions to 2026-09-12 were Arena events.
-- **Hugging Face model-card metadata** and **Hacker News** (digest-only, never sufficient for
-  `confirmed`) -- the last two things the 2026-09-09 competitor audit proposed and this never built.
 - **A second Cohere reading with dates.** Its changelog arrives as an index with no publication
   dates, so it is `web` evidence; the per-entry Markdown carries the date at the cost of one request
   each. Worth it only if a Cohere release ever needs to be dated to the day.
@@ -154,11 +147,6 @@ Not scheduled. Written down so they stop being re-derived from scratch.
 
 - Telegram delivery is implemented and tested; no destination is configured, because the audience is
   on Discord.
-- Cloud catalogues read from the vendors themselves (Bedrock, Vertex, Azure AI Foundry) still need
-  credentials. Measured 2026-09-15: Foundry has no open catalogue -- `ai.azure.com/api/catalog/models`
-  answers with the single-page application, and the Learn page renders its model table from script.
-  What changed is that two aggregators publish the same rows without a credential, so the coverage
-  arrived without the keys; the first-party reading stays deferred.
 - Individual PR authors, more status providers, a public report site, a removals role.
 - LLM relevance verification, until at least seven days of deterministic discovery density,
   confirmation rate, first-source wins and lead-time measurements exist.

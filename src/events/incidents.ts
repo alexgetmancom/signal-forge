@@ -35,6 +35,9 @@ function stage(value: unknown): string {
  * reader and the honest word for it on the card.
  */
 const ENDED = new Set(["resolved", "completed", "unlisted"]);
+export function incidentEnded(event: Event): boolean {
+  return event.stream === "incidents" && resolved(event);
+}
 function resolved(event: Event): boolean {
   const current = stage((event.after_json ? (JSON.parse(event.after_json) as RecordData) : null)?.stage);
   return ENDED.has(current) || event.kind === "removed";

@@ -31,6 +31,11 @@ export type Collection = {
   /** A successful omission resolves a retained incident instead of deleting its evidence. */
   resolveMissing?: boolean;
   authority?: SourceAuthority;
+  /**
+   * Stored records this source has stopped reading on purpose, such as a site section it now
+   * ignores. They are dropped without a removal event and before the shrink guard compares counts.
+   */
+  forget?: (id: string) => boolean;
 };
 
 export type Event = {

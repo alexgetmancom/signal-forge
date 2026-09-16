@@ -35,6 +35,8 @@ export function confidenceFor(source: string, stream: string, authority: SourceA
   if (source.startsWith("status:")) return "confirmed";
   if (stream === "api-models") return authority === "third_party" ? "observed" : "confirmed";
   if (stream === "deprecations") return "confirmed";
+  // A link aggregator repeating a vendor's news is attention, not a second source for it.
+  if (source === "hackernews") return "observed";
   if (stream === "news") return "supported";
   return "observed";
 }
@@ -44,6 +46,7 @@ export function evidenceTypeFor(source: string, stream: string, authority: Sourc
   if (source === "openrouter" || stream === "openrouter") return "availability_catalogue";
   // Who sells a model is a different fact from what its maker publishes about it.
   if (stream === "api-models") return authority === "third_party" ? "availability_catalogue" : "api_catalogue";
+  if (source === "hackernews") return "unknown";
   if (stream === "news") return "official_news";
   if (stream === "arena") return "arena_roster";
   if (stream === "leaderboards") return "leaderboard";

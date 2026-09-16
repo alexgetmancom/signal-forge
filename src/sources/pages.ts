@@ -167,6 +167,13 @@ function titleFor(path: string): string {
   return words ? words.charAt(0).toUpperCase() + words.slice(1) : path;
 }
 
+function inIgnoredSection(path: string, site: WatchedSite): boolean {
+  const segments = path.split("/").filter(Boolean);
+  return Boolean(
+    site.ignoreSections?.some((entry) => entry.split("/").every((part, index) => segments[index] === part)),
+  );
+}
+
 function pageRecord(location: string, site: WatchedSite): RecordData | null {
   let url: URL;
   try {
@@ -178,10 +185,7 @@ function pageRecord(location: string, site: WatchedSite): RecordData | null {
   if (path === "/") return null;
   const segments = path.split("/").filter(Boolean);
   const section = segments[0] ?? "";
-  const ignored = site.ignoreSections?.some((entry) =>
-    entry.split("/").every((part, index) => segments[index] === part),
-  );
-  if (ignored) return null;
+  if (inIgnoredSection(path, site)) return null;
   return {
     id: path,
     name: `${site.name}: ${titleFor(path)}`,
@@ -207,6 +211,7 @@ export function parseSitemap(payloads: string[], site: WatchedSite): Collection 
     url: site.sitemap,
     raw: { pages: seen.size },
     records: [...seen.values()].slice(0, MAX_PAGES),
+    forget: (id) => inIgnoredSection(id, site),
   };
 }
 

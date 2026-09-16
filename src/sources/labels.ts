@@ -9,6 +9,7 @@ const STATIC_LABELS: Record<string, string> = {
   "arena-leaderboards": "Arena · leaderboards",
   "story-digest": "Signal Forge · story digest",
   "openai-news": "OpenAI · news",
+  hackernews: "Hacker News · front page",
   "openai-chatgpt-release-notes": "OpenAI · ChatGPT release notes",
   "openai-codex-changelog": "OpenAI · Codex changelog",
   "openai-api-changelog": "OpenAI · API changelog",
