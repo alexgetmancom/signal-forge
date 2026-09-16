@@ -2,7 +2,7 @@ import { text } from "../text.js";
 import { incidentIsSevere } from "./incidents.js";
 import { recordFor } from "./record.js";
 import type { Event } from "./types.js";
-import { vendorOf } from "./vendors.js";
+import { vendorOfName } from "./vendors.js";
 
 /**
  * What a reader came for, which is a different question from how solid the evidence is.
@@ -201,10 +201,14 @@ export function signalClass(event: Event): SignalClass {
        * on 2026-09-15 reached the public channel as a launch, and Z.ai had shipped nothing that
        * day. Authority cannot answer this -- DashScope is first-party for Qwen and a reseller for
        * everyone else, and the Vercel gateway is recorded as vendor-owned while selling 26 makers'
-       * models -- so the question is asked of the model's maker instead.
+       * models -- so the question is asked of the model's own name instead. Not of the record's
+       * `maker`: the DashScope collector stamps "Alibaba Model Studio" on every row, GLM included.
+       * A name that names nobody -- `whisper-1`, `codestral`, `wan2.5` -- is the catalogue's own.
        */
       const owner = CATALOGUE_MAKER[event.source];
-      return owner && vendorOf(event, record) === owner ? "launch" : "codename";
+      if (!owner) return "codename";
+      const named = vendorOfName(`${text(record?.id) || event.entity_id} ${text(record?.name)}`);
+      return named === "Unknown" || named === owner ? "launch" : "codename";
     }
     // A row leaving a catalogue is not the vendor announcing anything: over the week to
     // 2026-09-15 the launch channel spent half its cards on four departures, each ending

@@ -58,16 +58,25 @@ test("a reseller listing a model is a sighting, and the vendor's own catalogue i
 
 test("a platform listing another maker's model is a sighting, whoever owns the platform", () => {
   // `glm-5.3` on Alibaba's DashScope reached the public channel on 2026-09-15; Z.ai shipped nothing.
-  const glm = event(
-    { stream: "api-models", kind: "new", source: "dashscope", authority: "first_party", entity_id: "glm-5.3" },
-    { id: "glm-5.3", name: "glm-5.3" },
-  );
-  expect(signalClass(glm)).toBe("codename");
-  const qwen = event(
-    { stream: "api-models", kind: "new", source: "dashscope", authority: "first_party", entity_id: "qwen3.7-max" },
-    { id: "qwen3.7-max", name: "qwen3.7-max" },
-  );
-  expect(signalClass(qwen)).toBe("launch");
+  // The collector stamps the platform as the maker of every row, so the name has to answer.
+  const onDashScope = (id: string) =>
+    event(
+      { stream: "api-models", kind: "new", source: "dashscope", authority: "first_party", entity_id: id },
+      { id, name: id, maker: "Alibaba Model Studio", owner: "system" },
+    );
+  expect(signalClass(onDashScope("glm-5.3"))).toBe("codename");
+  expect(signalClass(onDashScope("deepseek-v4-pro"))).toBe("codename");
+  expect(signalClass(onDashScope("qwen3.7-max"))).toBe("launch");
+  // A name that names no maker is the catalogue's own model.
+  expect(signalClass(onDashScope("wan2.5-t2v-preview"))).toBe("launch");
+  expect(
+    signalClass(
+      event(
+        { stream: "api-models", kind: "new", source: "openai", entity_id: "whisper-2" },
+        { id: "whisper-2", name: "whisper-2" },
+      ),
+    ),
+  ).toBe("launch");
   // The gateway is recorded as vendor-owned and sells twenty-six makers' models.
   const gateway = event(
     {
