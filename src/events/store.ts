@@ -39,8 +39,20 @@ function validateRecords(source: string, records: Collection["records"]): void {
   });
 }
 
+/**
+ * A catalogue that loses a quarter of itself in one answer is a broken answer, not a news day.
+ *
+ * The bar was half, and the arena went under it by seven rows: on 2026-09-15 it served 871, 872 and
+ * then 539 of its 1065 entries, and the next answer had all 1065 back under the same ids. The
+ * partial answer was accepted, 193 entries were called gone and 193 came back five minutes later.
+ * Measured over every successful collection to 2026-09-16, the arena drops 18 to 38 per cent of its
+ * roster for one poll and recovers on the next, dozens of times a week, and no other catalogue
+ * whose missing rows mean removal ever lost as much as fifteen per cent in one answer. A rejected
+ * answer also resets the consecutive misses a removal needs, so the short answers either side of it
+ * cannot finish the job.
+ */
 function suspiciousShrink(previousCount: number, retainedCount: number): boolean {
-  return previousCount - retainedCount >= MIN_SUSPICIOUS_SHRINK && retainedCount * 2 < previousCount;
+  return previousCount - retainedCount >= MIN_SUSPICIOUS_SHRINK && retainedCount * 4 < previousCount * 3;
 }
 
 function comparisonBody(stream: string, body: string): string {

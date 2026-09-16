@@ -52,15 +52,19 @@ test("actionable issues use stable identities across source, delivery, worker an
   db.close();
 });
 
-test("collection shrinkage is a distinct actionable issue", () => {
+test("collection shrinkage is a distinct actionable issue once it repeats", () => {
   const db = openDatabase(":memory:");
   const config = loadConfig({ CONFIG_PATH: configPath });
-  db.query("INSERT INTO sources(id,last_error,last_success,checked_at) VALUES('openrouter',?,?,?)").run(
+  db.query("INSERT INTO sources(id,last_error,last_success,checked_at,failures) VALUES('openrouter',?,?,?,1)").run(
     "Collection degraded: openrouter retained 4 of 10 records",
     "2026-09-08T11:00:00.000Z",
     "2026-09-08T12:00:00.000Z",
   );
-  expect(listActionableIssues(db, config, Date.parse("2026-09-08T12:00:00.000Z"))).toContainEqual(
+  // One short answer rejected is the guard working; the arena serves several a week.
+  const at = Date.parse("2026-09-08T12:00:00.000Z");
+  expect(listActionableIssues(db, config, at).map((issue) => issue.id)).not.toContain("openrouter");
+  db.query("UPDATE sources SET failures=2 WHERE id='openrouter'").run();
+  expect(listActionableIssues(db, config, at)).toContainEqual(
     expect.objectContaining({ id: "openrouter", kind: "collection_degraded", severity: "critical" }),
   );
   db.close();

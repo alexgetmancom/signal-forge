@@ -88,10 +88,14 @@ export function listActionableIssues(db: Database, config: AppConfig, now = Date
     // When it started and when it was last confirmed are different questions. Reading both from
     // checked_at reported every outage as a moment old, however many days it had been running.
     const row = db
-      .query<{ checked_at: string | null; failure_started_at: string | null }, [string]>(
-        "SELECT checked_at,failure_started_at FROM sources WHERE id=?",
+      .query<{ checked_at: string | null; failure_started_at: string | null; failures: number }, [string]>(
+        "SELECT checked_at,failure_started_at,failures FROM sources WHERE id=?",
       )
       .get(entry.id);
+    // One short answer rejected is the guard working, not a source in trouble. The arena serves a
+    // roster missing a quarter or more of itself several times a week and every time the next
+    // answer is whole, measured to 2026-09-16; two short answers in a row is when to look.
+    if (entry.state === "degraded" && (row?.failures ?? 0) < 2) continue;
     const checked = row?.checked_at;
     const started = row?.failure_started_at ?? checked;
     issues.push({

@@ -2,6 +2,7 @@ import { text } from "../text.js";
 import { incidentIsSevere } from "./incidents.js";
 import { recordFor } from "./record.js";
 import type { Event } from "./types.js";
+import { vendorOf } from "./vendors.js";
 
 /**
  * What a reader came for, which is a different question from how solid the evidence is.
@@ -82,15 +83,35 @@ const PAGE_BLOGS = new Set(["pages:google-devs"]);
  */
 const RETIREMENT_WORDS = /\b(retire[sd]?|retirement|retiring|deprecat\w*|sunset\w*|end of life|discontinu\w*)\b/i;
 
+/**
+ * The maker whose own models an API catalogue sells. A catalogue absent here sells other makers'
+ * models -- Groq, Cerebras, the Vercel gateway -- and never launches anything itself.
+ */
+const CATALOGUE_MAKER: Readonly<Record<string, string>> = {
+  openai: "OpenAI",
+  anthropic: "Anthropic",
+  gemini: "Google",
+  xai: "xAI",
+  mistral: "Mistral",
+  moonshot: "Moonshot",
+  kimi: "Moonshot",
+  minimax: "MiniMax",
+  zai: "Z.ai",
+  "deepseek-api": "DeepSeek",
+  "deepseek-pricing": "DeepSeek",
+  dashscope: "Qwen",
+  mimo: "Xiaomi",
+  poolside: "Poolside",
+};
+
 export function signalClass(event: Event): SignalClass {
   const record = recordFor(event);
   const listedButUnusable = record?.selectable === false;
 
-  // An arena roster is rewritten in bulk: one collection on 2026-09-15 withdrew 193 entries at
-  // once and every one of them was classed as a sighting, which put sixteen messages carrying ten
-  // to twenty-one cards each into the invited room inside eleven seconds. A name leaving an arena
-  // ends nothing a reader was told had started -- most of those names were never delivered at all
-  // -- and it is the same shape as a page that disappears, so it takes the same class.
+  // A name leaving an arena ends nothing a reader was told had started, and it is the same shape as
+  // a page that disappears, so it takes the same class. On 2026-09-15 193 of them reached the
+  // invited room as sightings in sixteen messages; the arena had served a partial roster, and every
+  // one of the 193 was back five minutes later under the same id.
   if (event.stream === "arena") return event.kind === "new" ? "codename" : "evidence";
   if (event.source.startsWith("discovery:")) return "codename";
 
@@ -165,14 +186,6 @@ export function signalClass(event: Event): SignalClass {
     return event.source.endsWith(":releases") && event.kind === "new" ? "release" : "evidence";
 
   if (["api-models", "openrouter", "weights"].includes(event.stream)) {
-    /**
-     * A reseller listing a model is not the vendor shipping it. `z-ai/glm-5.2:free` appeared on
-     * OpenRouter and was delivered to the public channel as a launch, worded as though Z.ai had
-     * announced something; Z.ai had not. An aggregator is the earliest sight of a model and the
-     * weakest word on whether it exists, which is the definition of a codename. The vendor's own
-     * catalogue and its own weights repository still launch, and a sighting that the vendor later
-     * confirms reaches the public channel through the promotion path that already exists.
-     */
     if (event.kind === "new") {
       /**
        * Weights in a registry are the earliest word on a model and the furthest from a reader
@@ -181,26 +194,21 @@ export function signalClass(event: Event): SignalClass {
        * of them callable without renting the hardware to serve it. A launch is a model somebody
        * can call, which is a row in an API catalogue.
        */
-      if (event.stream === "weights") return "codename";
-      if (listedButUnusable || event.authority === "third_party") return "codename";
-      return "launch";
+      if (event.stream === "weights" || listedButUnusable) return "codename";
+      /**
+       * And only in the catalogue of the company that made it. A platform listing somebody else's
+       * model is a sighting, whoever owns the platform: `glm-5.3` appearing on Alibaba's DashScope
+       * on 2026-09-15 reached the public channel as a launch, and Z.ai had shipped nothing that
+       * day. Authority cannot answer this -- DashScope is first-party for Qwen and a reseller for
+       * everyone else, and the Vercel gateway is recorded as vendor-owned while selling 26 makers'
+       * models -- so the question is asked of the model's maker instead.
+       */
+      const owner = CATALOGUE_MAKER[event.source];
+      return owner && vendorOf(event, record) === owner ? "launch" : "codename";
     }
-    /**
-     * A row leaving a catalogue is not the other half of a launch. Over the week to 2026-09-15 the
-     * channel carrying launches spent half its cards on four departures -- a dated preview snapshot,
-     * an ancient preview, a 1B checkpoint, a catalogue row -- and every one of them ended something
-     * that channel had never been told arrived: zero delivered arrivals, one delivered departure
-     * each. Meanwhile the retirement a vendor actually announced went to the quiet room, which is
-     * the whole arrangement upside down.
-     *
-     * It keeps its own class so a room can take the arrivals without the bookkeeping. The evidence
-     * is stored either way and reads back through `events` and `stories`.
-     */
     // A row leaving a catalogue is not the vendor announcing anything: over the week to
     // 2026-09-15 the launch channel spent half its cards on four departures, each ending
-    // something it had never been told arrived. `retirement` is now the vendor's own word for a
-    // model going away, which is the thing a reader has to act on, so a silent withdrawal takes
-    // the class for a trail nobody has to read.
+    // something it had never been told arrived. It is a trail nobody has to read.
     if (event.kind === "removed") return "evidence";
     return "change";
   }

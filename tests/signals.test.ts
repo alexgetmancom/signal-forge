@@ -16,7 +16,7 @@ const event = (
 });
 
 test("a reader who came for new models gets the arrivals, and withdrawals keep their own class", () => {
-  expect(signalClass(event({ stream: "openrouter", kind: "new" }))).toBe("launch");
+  expect(signalClass(event({ stream: "openrouter", kind: "new" }))).toBe("codename");
   expect(signalClass(event({ stream: "api-models", kind: "new", source: "openai" }))).toBe("launch");
   // Weights in a registry are the earliest word on a model and the furthest from calling one.
   expect(signalClass(event({ stream: "weights", kind: "new", source: "huggingface:openai" }))).toBe("codename");
@@ -54,6 +54,32 @@ test("a reseller listing a model is a sighting, and the vendor's own catalogue i
   expect(
     signalClass(event({ stream: "weights", kind: "new", source: "huggingface:openai", authority: "vendor_owned" })),
   ).toBe("codename");
+});
+
+test("a platform listing another maker's model is a sighting, whoever owns the platform", () => {
+  // `glm-5.3` on Alibaba's DashScope reached the public channel on 2026-09-15; Z.ai shipped nothing.
+  const glm = event(
+    { stream: "api-models", kind: "new", source: "dashscope", authority: "first_party", entity_id: "glm-5.3" },
+    { id: "glm-5.3", name: "glm-5.3" },
+  );
+  expect(signalClass(glm)).toBe("codename");
+  const qwen = event(
+    { stream: "api-models", kind: "new", source: "dashscope", authority: "first_party", entity_id: "qwen3.7-max" },
+    { id: "qwen3.7-max", name: "qwen3.7-max" },
+  );
+  expect(signalClass(qwen)).toBe("launch");
+  // The gateway is recorded as vendor-owned and sells twenty-six makers' models.
+  const gateway = event(
+    {
+      stream: "api-models",
+      kind: "new",
+      source: "vercel-gateway",
+      authority: "vendor_owned",
+      entity_id: "openai/gpt-6",
+    },
+    { id: "openai/gpt-6", name: "GPT-6", owned_by: "openai" },
+  );
+  expect(signalClass(gateway)).toBe("codename");
 });
 
 test("a retirement notice speaks only when it names the successor", () => {

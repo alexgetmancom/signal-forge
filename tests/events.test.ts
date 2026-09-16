@@ -112,6 +112,16 @@ test("a suspicious full-catalogue shrink preserves the last known-good records",
   expect(db.query("SELECT COUNT(*) AS count FROM events").get()).toEqual({ count: 0 });
 });
 
+test("an answer missing a quarter of the catalogue is rejected, and a few real removals are not", () => {
+  // The arena served 539 of 1065 entries on 2026-09-15 and had all of them back five minutes later.
+  const roster = Array.from({ length: 100 }, (_, index) => `model-${index}`);
+  saveCollection(db, collection(roster), []);
+  expect(() => saveCollection(db, collection(roster.slice(0, 51)), [])).toThrow("Collection degraded");
+  expect(() => saveCollection(db, collection(roster.slice(0, 74)), [])).toThrow("Collection degraded");
+  // Four models leaving at once is a catalogue changing, and it is still counted.
+  expect(() => saveCollection(db, collection(roster.slice(0, 96)), [])).not.toThrow();
+});
+
 test("append-only collections are exempt from shrinkage protection", () => {
   saveCollection(db, { ...collection(["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"]), appendOnly: true }, []);
   expect(saveCollection(db, { ...collection(["a", "b", "c", "d"]), appendOnly: true }, [])).toBe(0);
