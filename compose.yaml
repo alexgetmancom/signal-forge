@@ -5,8 +5,9 @@ services:
     restart: unless-stopped
     # Boot rebuilds every projection before the service listens, and the collection cycle runs on
     # whatever is left. At 512m the boot footprint was 467m and the first cycle was OOM-killed
-    # roughly every fifteen minutes.
-    mem_limit: 1g
+    # roughly every fifteen minutes. At 1g an operator `poll` beside the running service was
+    # OOM-killed at 790m RSS on 2026-09-16, and the service's own cycle runs near the same edge.
+    mem_limit: 2g
     stop_grace_period: 2m
     logging:
       driver: json-file
