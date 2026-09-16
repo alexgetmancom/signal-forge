@@ -58,6 +58,26 @@ export type SignalClass = (typeof SIGNAL_CLASSES)[number];
  */
 const NEWSROOMS = new Set(["openai-news", "anthropic-news", "huggingface-blog-feed", "google-ai-blog"]);
 
+/**
+ * Watched sites whose new pages are not the tell a product page is.
+ *
+ * A page appearing on a vendor's product site before any announcement is a sighting. A help-centre
+ * article is not: "set up Salesforce in Claude" and "let team members run smart reports" reached
+ * the invited room as sightings on 2026-09-15, and a reader who came to hear about models cannot
+ * do anything with either. A developer blog is a blog, and its posts are what the vendor said.
+ */
+const HELP_CENTRES = new Set(["pages:claude-support"]);
+const PAGE_BLOGS = new Set(["pages:google-devs"]);
+
+/**
+ * A changelog entry that says a model is going away.
+ *
+ * This is the one thing in a vendor's release notes a reader has to act on by a date, and it
+ * arrives in the same feed as "added five request headers". Matched on the vendor's own words
+ * because the feed carries no field for it.
+ */
+const RETIREMENT_WORDS = /\b(retire[sd]?|retirement|retiring|deprecat\w*|sunset\w*|end of life|discontinu\w*)\b/i;
+
 export function signalClass(event: Event): SignalClass {
   const record = recordFor(event);
   const listedButUnusable = record?.selectable === false;
@@ -67,7 +87,7 @@ export function signalClass(event: Event): SignalClass {
   // to twenty-one cards each into the invited room inside eleven seconds. A name leaving an arena
   // ends nothing a reader was told had started -- most of those names were never delivered at all
   // -- and it is the same shape as a page that disappears, so it takes the same class.
-  if (event.stream === "arena") return event.kind === "removed" ? "evidence" : "codename";
+  if (event.stream === "arena") return event.kind === "new" ? "codename" : "evidence";
   if (event.source.startsWith("discovery:")) return "codename";
 
   /**
@@ -95,14 +115,30 @@ export function signalClass(event: Event): SignalClass {
    * a reader can use appears in the vendor's own catalogue, which is where the launch is observed.
    * The post is what the vendor said about it.
    */
-  if (event.stream === "news")
-    return NEWSROOMS.has(event.source) ? "article" : event.kind === "new" ? "release" : "change";
+  if (event.stream === "news") {
+    if (NEWSROOMS.has(event.source)) return "article";
+    if (event.kind !== "new") return "change";
+    /**
+     * A record carrying a version is a tool shipping a build: Claude Code 2.1.271, 2.1.272 and
+     * 2.1.273 landed in the invited room inside a day, and nobody there is subscribed to patch
+     * notes. A dated entry with no version is the vendor saying something, and the only thing it
+     * says that a reader must act on by a date is that a model is going away.
+     */
+    if (text(record?.version)) return "release";
+    return RETIREMENT_WORDS.test(`${text(record?.name)} ${text(record?.summary)} ${text(record?.description)}`)
+      ? "retirement"
+      : "release";
+  }
 
   if (event.stream === "apps") return "release";
 
   // A page appearing on a vendor site before any announcement is the same kind of tell as an
   // unreleased model on an arena. A page that leaves is evidence, not a signal to wake anyone.
-  if (event.stream === "pages") return event.kind === "new" ? "codename" : "evidence";
+  if (event.stream === "pages") {
+    if (HELP_CENTRES.has(event.source)) return "evidence";
+    if (PAGE_BLOGS.has(event.source)) return "article";
+    return event.kind === "new" ? "codename" : "evidence";
+  }
 
   if (event.stream === "web") return "evidence";
   if (event.stream === "packages") return "evidence";
@@ -134,6 +170,14 @@ export function signalClass(event: Event): SignalClass {
      * confirms reaches the public channel through the promotion path that already exists.
      */
     if (event.kind === "new") {
+      /**
+       * Weights in a registry are the earliest word on a model and the furthest from a reader
+       * using one. Intern-S2-397B, Atria-Dawn-Preview and Atria-Dawn-Preview-Ascend-w8a8 all
+       * reached the public channel as launches over two days: three separate repositories, none
+       * of them callable without renting the hardware to serve it. A launch is a model somebody
+       * can call, which is a row in an API catalogue.
+       */
+      if (event.stream === "weights") return "codename";
       if (listedButUnusable || event.authority === "third_party") return "codename";
       return "launch";
     }
@@ -148,7 +192,12 @@ export function signalClass(event: Event): SignalClass {
      * It keeps its own class so a room can take the arrivals without the bookkeeping. The evidence
      * is stored either way and reads back through `events` and `stories`.
      */
-    if (event.kind === "removed") return "retirement";
+    // A row leaving a catalogue is not the vendor announcing anything: over the week to
+    // 2026-09-15 the launch channel spent half its cards on four departures, each ending
+    // something it had never been told arrived. `retirement` is now the vendor's own word for a
+    // model going away, which is the thing a reader has to act on, so a silent withdrawal takes
+    // the class for a trail nobody has to read.
+    if (event.kind === "removed") return "evidence";
     return "change";
   }
 

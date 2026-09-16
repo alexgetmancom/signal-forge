@@ -92,7 +92,9 @@ test("a re-keyed row is recognised by its body and says nothing twice", () => {
       .filter((row) => row.reason === "renamed_by_the_source")
       .map((row) => row.entity_id)
       .sort(),
-  ).toEqual(["deepseek-v4-pro", "deepseek-v4-pro (2)"]);
+    // Only the arrival leaves a suppression: a row leaving a catalogue is evidence now, which no
+    // destination subscribes to, so the departure is never offered to one in the first place.
+  ).toEqual(["deepseek-v4-pro (2)"]);
   const body = db.query<{ body: string }, []>("SELECT body FROM deliveries").get()?.body ?? "";
   expect(body).toContain("DeepSeek Flash");
   expect(body).not.toContain("V4 Pro");

@@ -26,9 +26,13 @@ test("an outage the vendor calls severe interrupts the reader", () => {
   expect(incidentIsUrgent(event)).toBe(true);
 });
 
-test("a minor incident is worth its start and its end, and nothing in between", () => {
+test("an incident is worth its start and nothing after it", () => {
+  // A reader told the service is broken finds out it is fixed by using it. Being interrupted a
+  // second time to hear the outage ended is the interruption without the news.
   expect(incidentSilence(incident("new", "minor", null, "investigating"))).toBeNull();
-  expect(incidentSilence(incident("changed", "minor", "monitoring", "resolved"))).toBeNull();
+  expect(incidentSilence(incident("changed", "minor", "monitoring", "resolved"))).toBe(
+    "The incident ended, and its start was already reported",
+  );
   expect(incidentSilence(incident("changed", "minor", "investigating", "identified"))).toBe(
     "The incident moved between working stages",
   );
@@ -47,12 +51,14 @@ test("what the vendor rates as no impact at all never reaches a reader", () => {
   expect(incidentIsUrgent(event)).toBe(false);
 });
 
-test("a minor incident waits for the digest; a severe one does not", () => {
+test("a minor incident waits for the digest; a severe one's start does not", () => {
   expect(incidentIsUrgent(incident("new", "minor", null, "investigating"))).toBe(false);
-  expect(incidentIsUrgent(incident("changed", "critical", "identified", "monitoring"))).toBe(true);
+  expect(incidentIsUrgent(incident("new", "critical", null, "identified"))).toBe(true);
+  // An update to an outage already reported is not urgent, however the vendor grades it.
+  expect(incidentIsUrgent(incident("changed", "critical", "identified", "monitoring"))).toBe(false);
 });
 
-test("a severe incident speaks when it starts and when it ends, not at every edit in between", () => {
+test("a severe incident speaks when it starts and not once more", () => {
   // OpenAI's 01M2KQNE5C42NEZPX6V01NHH5W was graded major, so every Statuspage edit reached the
   // public channel: three messages about one outage inside forty-seven minutes on 2026-09-16.
   const major = (stage: string, next: string) => ({
@@ -68,6 +74,7 @@ test("a severe incident speaks when it starts and when it ends, not at every edi
   expect(incidentSilence(major("investigating", "identified"))).toBe("The incident moved between working stages");
   expect(incidentSilence(major("identified", "monitoring"))).toBe("The incident moved between working stages");
   expect(incidentSilence(major("monitoring", "monitoring"))).toBe("The incident wording changed but its stage did not");
-  // The end of a major outage is the second thing a reader is owed.
-  expect(incidentSilence(major("monitoring", "resolved"))).toBeNull();
+  expect(incidentSilence(major("monitoring", "resolved"))).toBe(
+    "The incident ended, and its start was already reported",
+  );
 });

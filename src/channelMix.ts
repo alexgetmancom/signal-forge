@@ -1,7 +1,8 @@
 import type { Database } from "bun:sqlite";
-import type { Destination } from "./config.js";
+import type { AppConfig, Destination } from "./config.js";
 import { signalClass } from "./events/signals.js";
 import type { Event } from "./events/types.js";
+import { buildSourceRegistry } from "./sources/registry.js";
 
 /**
  * What each channel actually carried, as opposed to what the routing says it should.
@@ -16,7 +17,14 @@ import type { Event } from "./events/types.js";
 export type ChannelMixReport = {
   since: string;
   days: number;
-  classes: { signal: string; events: number; delivered: number; routed: boolean; unrouted: number }[];
+  classes: {
+    signal: string;
+    events: number;
+    delivered: number;
+    routed: boolean;
+    unrouted: number;
+    shadow: number;
+  }[];
   destinations: { id: string; sent: number; failed: number; withLead: number; leadShare: number }[];
   promotions: { batches: number; sent: number };
 };
@@ -26,12 +34,8 @@ const LEAD_MARK = "Traced ";
 
 const rounded = (value: number): number => Math.round(value * 100) / 100;
 
-export function channelMix(
-  db: Database,
-  destinations: readonly Destination[],
-  days = 7,
-  now = Date.now(),
-): ChannelMixReport {
+export function channelMix(db: Database, config: AppConfig, days = 7, now = Date.now()): ChannelMixReport {
+  const destinations: readonly Destination[] = config.destinations;
   if (!Number.isInteger(days) || days < 1 || days > 90) throw new Error("Channel mix days must be between 1 and 90");
   const since = new Date(now - days * 24 * 3_600_000).toISOString();
 
@@ -46,13 +50,25 @@ export function channelMix(
   // target is never created, so the event is absent from every report rather than shown as held
   // back. Seven hours of silence on 2026-09-16 read as a broken collector and was this.
   const subscribed = new Set(destinations.flatMap((destination) => destination.signals));
-  const classes = new Map<string, { events: number; delivered: number; routed: boolean; unrouted: number }>();
+  // A shadow source is collected and never delivered, whatever class its events land in, so
+  // counting them as routed is how `codename` reported 7984 events and nothing unrouted while
+  // 7721 of them came from two discovery collectors that have no destination at all.
+  const shadowSources = new Set(
+    buildSourceRegistry(db, config)
+      .filter((source) => source.mode === "shadow")
+      .map((source) => source.id),
+  );
+  const classes = new Map<
+    string,
+    { events: number; delivered: number; routed: boolean; unrouted: number; shadow: number }
+  >();
   for (const event of events) {
     const signal = signalClass(event) || "unclassified";
     const routed = subscribed.has(signal as Destination["signals"][number]);
-    const held = classes.get(signal) ?? { events: 0, delivered: 0, routed, unrouted: 0 };
+    const held = classes.get(signal) ?? { events: 0, delivered: 0, routed, unrouted: 0, shadow: 0 };
     held.events += 1;
     if (event.delivered > 0) held.delivered += 1;
+    else if (shadowSources.has(event.source)) held.shadow += 1;
     else if (!routed) held.unrouted += 1;
     classes.set(signal, held);
   }

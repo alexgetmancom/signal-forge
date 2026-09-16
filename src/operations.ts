@@ -468,7 +468,7 @@ export function operations(db: Database, config: AppConfig): OperationMap {
       schema: z.object({ days: count(90, 7) }),
       cli: { args: [{ name: "days", optional: true }] },
       http: { method: "get", path: "/api/channel-mix" },
-      handler: (input: { days: number }) => channelMix(db, config.destinations, input.days),
+      handler: (input: { days: number }) => channelMix(db, config, input.days),
     },
     signal_quality: {
       section: "sources",

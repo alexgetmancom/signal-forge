@@ -45,24 +45,26 @@ export function incidentSilence(event: Event): string | null {
   if (event.stream !== "incidents") return null;
   const impact = impactOf(event);
   if (IGNORED_IMPACT.has(impact)) return `The vendor rated this "${impact || "no impact"}"`;
-  if (event.kind !== "changed") return null;
-  // An incident is worth one line when it starts and one when it ends, whatever the vendor graded
-  // it. The investigating → identified → monitoring walk in between is written for an on-call
-  // engineer, not for a reader. Severity used to exempt an incident from this: OpenAI's
-  // `01M2KQNE5C42NEZPX6V01NHH5W` was major, so all three of its Statuspage edits reached the
-  // public channel in forty-seven minutes, saying the same outage three times.
+  if (event.kind === "new") return null;
+  /**
+   * Only the start of an outage speaks. Everything after it -- the investigating → identified →
+   * monitoring walk, the wording edits, and the end -- is written for somebody on call. A reader
+   * who was told the service is broken does not need to be interrupted again to be told it is
+   * fixed: they find that out by using it. OpenAI's `01M2KQNE5C42NEZPX6V01NHH5W` said the same
+   * outage three times in forty-seven minutes on 2026-09-16.
+   */
+  if (resolved(event)) return "The incident ended, and its start was already reported";
   const before = event.before_json ? (JSON.parse(event.before_json) as RecordData) : null;
   const after = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
-  if (resolved(event)) return null;
   return stage(before?.stage) === stage(after?.stage)
     ? "The incident wording changed but its stage did not"
     : "The incident moved between working stages";
 }
 
-/** An outage interrupts a reader only when the vendor calls it severe, or when it is finally over. */
+/** An outage interrupts a reader only when the vendor calls it severe and it has just started. */
 export function incidentIsUrgent(event: Event): boolean {
   if (event.stream !== "incidents") return false;
-  return SEVERE.has(impactOf(event)) || resolved(event);
+  return SEVERE.has(impactOf(event)) && event.kind === "new";
 }
 
 /**

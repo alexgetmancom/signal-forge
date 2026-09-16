@@ -18,11 +18,12 @@ const event = (
 test("a reader who came for new models gets the arrivals, and withdrawals keep their own class", () => {
   expect(signalClass(event({ stream: "openrouter", kind: "new" }))).toBe("launch");
   expect(signalClass(event({ stream: "api-models", kind: "new", source: "openai" }))).toBe("launch");
-  expect(signalClass(event({ stream: "weights", kind: "new", source: "huggingface:openai" }))).toBe("launch");
+  // Weights in a registry are the earliest word on a model and the furthest from calling one.
+  expect(signalClass(event({ stream: "weights", kind: "new", source: "huggingface:openai" }))).toBe("codename");
   // A withdrawal was once read as the same question answered the other way. Measured over the week
   // to 2026-09-15 it was bookkeeping instead: four of the eight cards the launch channel carried
   // were departures, and each ended something that channel had never been told arrived.
-  expect(signalClass(event({ stream: "openrouter", kind: "removed" }))).toBe("retirement");
+  expect(signalClass(event({ stream: "openrouter", kind: "removed" }))).toBe("evidence");
 });
 
 test("an entry listed but not yet usable is a codename, not a launch", () => {
@@ -52,7 +53,7 @@ test("a reseller listing a model is a sighting, and the vendor's own catalogue i
   );
   expect(
     signalClass(event({ stream: "weights", kind: "new", source: "huggingface:openai", authority: "vendor_owned" })),
-  ).toBe("launch");
+  ).toBe("codename");
 });
 
 test("a retirement notice speaks only when it names the successor", () => {
