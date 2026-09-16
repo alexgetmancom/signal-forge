@@ -28,13 +28,16 @@ export type SignalClass = (typeof SIGNAL_CLASSES)[number];
 /**
  * The class of an event, derived from the same evidence the card is rendered from.
  *
- * `launch`: something a reader can now use, or can no longer use. An announcement, a catalogue
- *   entry appearing or disappearing, a published release.
+ * `launch`: something a reader can call now, or an outage the vendor graded severe that has just
+ *   started. A row appearing in the vendor's own API catalogue.
+ * `retirement`: the vendor's own word that a model or feature is going away, which is the one
+ *   changelog entry a reader has to act on by a date.
  * `codename`: something on its way. An arena sighting, an entry listed but not yet selectable, a
- *   new leaderboard key, a retirement notice that names a successor.
+ *   reseller listing, weights published to a registry, a new leaderboard key, a retirement notice
+ *   that names a successor.
  * `release`: software shipped around the models. A mobile or desktop app version, a CLI or SDK
- *   release, an entry in a tool's changelog. Real news to whoever uses that tool and nothing at
- *   all to whoever came for models, so it never interrupts.
+ *   build, an entry in a tool's changelog. Real news to whoever uses that tool and nothing at all to
+ *   whoever came for models, so it never interrupts.
  * `article`: what a vendor chose to say. Research, policy, hiring, customer stories, engineering
  *   write-ups. A model becoming usable is observed in the catalogue, not in the newsroom, so a
  *   post is commentary on an event rather than the event.
@@ -48,7 +51,6 @@ export type SignalClass = (typeof SIGNAL_CLASSES)[number];
  *   the board keeps counting them.
  * `reminder`: derived operator work rather than an observation, such as a deadline reminder.
  */
-/** The sources that publish prose rather than a changelog. */
 /**
  * A blog, as opposed to a changelog. Google's belongs here for the same reason OpenAI's does: two
  * of the two posts it published by 2026-09-15 were a conference promotion and an astronaut
@@ -70,11 +72,13 @@ const HELP_CENTRES = new Set(["pages:claude-support"]);
 const PAGE_BLOGS = new Set(["pages:google-devs"]);
 
 /**
- * A changelog entry that says a model is going away.
+ * A changelog entry that says a model or a feature is going away.
  *
  * This is the one thing in a vendor's release notes a reader has to act on by a date, and it
  * arrives in the same feed as "added five request headers". Matched on the vendor's own words
- * because the feed carries no field for it.
+ * because the feed carries no field for it, which is why a feature is caught as well as a model:
+ * "we're retiring automatic switching from Instant to Thinking" changes what a ChatGPT subscriber
+ * gets as surely as a model leaving the picker does.
  */
 const RETIREMENT_WORDS = /\b(retire[sd]?|retirement|retiring|deprecat\w*|sunset\w*|end of life|discontinu\w*)\b/i;
 

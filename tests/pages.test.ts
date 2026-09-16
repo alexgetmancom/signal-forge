@@ -91,3 +91,37 @@ test("a page appearing is a codename signal; a page leaving is only evidence", (
   expect(signalClass(event("new"))).toBe("codename");
   expect(signalClass(event("removed"))).toBe("evidence");
 });
+
+test("a translated page is one page, and an ignored section can sit below the first segment", () => {
+  // Three new Claude Docs pages reached the invited room as thirty-four cards on 2026-09-16, one per
+  // language, because the locale is the second segment and only the first was ever compared.
+  const docs = WATCHED_SITES.find((entry) => entry.id === "claude-docs") as (typeof WATCHED_SITES)[number];
+  const collection = parseSitemap(
+    [
+      urlset([
+        "/docs/en/cli-sdks-libraries/cli/apply",
+        "/docs/de/cli-sdks-libraries/cli/apply",
+        "/docs/pt-BR/cli-sdks-libraries/cli/apply",
+        "/docs/zh-TW/cli-sdks-libraries/cli/apply",
+      ]),
+    ],
+    docs,
+  );
+  expect(collection.records.map((record) => record.id)).toEqual(["/docs/en/cli-sdks-libraries/cli/apply"]);
+});
+
+test("OpenAI's newsroom, partner and event pages are not watched as pages", () => {
+  const openai = WATCHED_SITES.find((entry) => entry.id === "openai") as (typeof WATCHED_SITES)[number];
+  const collection = parseSitemap(
+    [
+      urlset([
+        "/index/disrupting-malicious-uses-of-ai-romance-scam",
+        "/business/partners/exl-service",
+        "/events/aws-reinvent",
+        "/codex/pricing",
+      ]),
+    ],
+    openai,
+  );
+  expect(collection.records.map((record) => record.id)).toEqual(["/codex/pricing"]);
+});

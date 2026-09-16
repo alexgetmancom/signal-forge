@@ -22,9 +22,14 @@ export type WatchedSite = {
   /**
    * Sections that never carry product news. This is a list of what to ignore rather than a list of
    * what to keep, so a section a vendor invents for something new is collected the day it appears.
+   * An entry is a leading path, so `docs/de` ignores one locale of a documentation tree whose first
+   * segment is always `docs`.
    */
   ignoreSections?: readonly string[];
 };
+
+/** The languages Anthropic translates its documentation into, besides English. */
+const CLAUDE_TRANSLATIONS = ["de", "es", "fr", "id", "it", "ja", "ko", "pt-BR", "ru", "zh-CN", "zh-TW"];
 
 export const WATCHED_SITES: readonly WatchedSite[] = [
   {
@@ -32,7 +37,22 @@ export const WATCHED_SITES: readonly WatchedSite[] = [
     name: "OpenAI",
     vendor: "OpenAI",
     sitemap: "https://openai.com/sitemap.xml",
-    ignoreSections: ["policies", "form", "supply", "global-affairs", "careers", "jobs", "brand-stories"],
+    // `index` is the newsroom, already read through its feed, and `business` and `events` are
+    // partner and conference pages. Every new page this site produced in the week to 2026-09-16 sat
+    // in one of the three -- eight "Disrupting malicious uses of AI" reports reached the invited
+    // room in one message -- and the site's measured lead over everyone else is 0.1 hours.
+    ignoreSections: [
+      "policies",
+      "form",
+      "supply",
+      "global-affairs",
+      "careers",
+      "jobs",
+      "brand-stories",
+      "index",
+      "business",
+      "events",
+    ],
   },
   {
     id: "anthropic",
@@ -90,7 +110,15 @@ export const WATCHED_SITES: readonly WatchedSite[] = [
     name: "Claude Docs",
     vendor: "Anthropic",
     sitemap: "https://platform.claude.com/sitemap.xml",
-    ignoreSections: ["settings", "logs", "usage", "playground"],
+    // Every page is published in twelve languages at once. Only English is read: three new pages on
+    // 2026-09-16 reached the invited room as thirty-four cards.
+    ignoreSections: [
+      "settings",
+      "logs",
+      "usage",
+      "playground",
+      ...CLAUDE_TRANSLATIONS.map((locale) => `docs/${locale}`),
+    ],
   },
   // A help-centre article is written when a feature is about to reach subscribers. The sitemap
   // carries the same articles in twelve languages; every locale but English is one page repeated.
@@ -148,8 +176,12 @@ function pageRecord(location: string, site: WatchedSite): RecordData | null {
   }
   const path = url.pathname.replace(/\/+$/, "") || "/";
   if (path === "/") return null;
-  const section = path.split("/").filter(Boolean)[0] ?? "";
-  if (site.ignoreSections?.includes(section)) return null;
+  const segments = path.split("/").filter(Boolean);
+  const section = segments[0] ?? "";
+  const ignored = site.ignoreSections?.some((entry) =>
+    entry.split("/").every((part, index) => segments[index] === part),
+  );
+  if (ignored) return null;
   return {
     id: path,
     name: `${site.name}: ${titleFor(path)}`,

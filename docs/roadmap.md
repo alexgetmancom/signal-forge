@@ -1,6 +1,6 @@
 # Roadmap
 
-Updated 2026-09-14 UTC. What is planned, what was decided and why, and nothing else. What is built
+Updated 2026-09-16 UTC. What is planned, what was decided and why, and nothing else. What is built
 is in the code, its tests and [README.md](../README.md); this file
 stopped keeping a second copy of that on 2026-09-14, and so did the competitor audit that seeded the
 source list -- every one of its recommendations shipped, and what it still proposed is under Ideas.
@@ -10,13 +10,13 @@ source list -- every one of its recommendations shipped, and what it still propo
 Signal Forge watches AI model catalogues, arenas, open-weight registries, packages, repositories,
 documentation, official news and platform health; it keeps immutable before/after evidence, assigns
 source-derived confidence, correlates events across sources and delivers only what passes the
-notification policy. Production is healthy, the gate passes on `main`, and there are no known
-actionable defects.
+notification policy. Production is healthy and the gate passes on `main`; the known defects are the
+card and story work below.
 
-A hundred and eleven sources are registered, twenty-three of them added on 2026-09-14 after reading
-what four competing feeds carry. Two fail persistently, both blocked upstream rather than broken
-here: `gemini` (location) and `vercel-gateway` (incomplete response); each is an owner decision
-below. `status:anthropic` recovered on its own after the bot protection let go, checked 2026-09-14.
+A hundred and sixteen sources are registered and a hundred and fifteen collect, measured 2026-09-16.
+`gemini`, `vercel-gateway` and `artificial-analysis` had never collected and all three did that day,
+once their hostnames were routed through a US exit (settled below). The one that does not collect is
+the Kimi coding tier, which waits for a key.
 
 ## Next work
 
@@ -25,13 +25,14 @@ that has since moved is not a priority.
 
 | Priority | Task | Definition of done |
 |---|---|---|
-| Next | Read the wire back in a week. | `channel_mix 7`, taken no earlier than 2026-09-21, says what the two channels carried after the routing changed: volume per class, the lead-time share, and whether the invited room ever promoted anything. Done when the numbers are written here with their date, and `change` is either returned to `🚀signals` or left in `🕵scouts` on that evidence. The window must start after 2026-09-14: until that day 8,948 of the 9,720 events in the `change` class were the Mistral and Moonshot timestamp defect below, so a reading taken over it answers about a bug rather than about the channel. |
+| Next | Read the wire back in a week. | `channel-mix 7`, taken no earlier than 2026-09-23, says what the two channels carried after the routing of 2026-09-16 (`🚀signals`: `launch`, `retirement`; `🕵scouts`: `codename`). The replay of the two days before it predicted 5 wire cards instead of 13 and 16 scout cards instead of 250. Done when the real numbers are written here with their date, `unrouted` and `shadow` are read per class, and two questions are answered on that evidence: whether a retired *feature* ("automatic switching from Instant to Thinking") belongs on the wire beside a retired model, and whether any page section still reaches the scouts without being a sighting. |
+| Next | Say what changed when a row comes back. | `z-ai/glm-5.2:free` left OpenRouter and returned 3 h 38 min later without `tools`, `tool_choice`, `structured_outputs` and `response_format`. Reappearance correctly let it speak, and the card said nothing about why: it read as a duplicate. Done when a returning row whose terms changed renders the fields that differ from the row that left. |
+| Next | One launch, one story, across a vendor's pages. | Gemini 3.8 Live reached the scouts as four page cards (`pages:google` twice, `pages:deepmind` once) beside the changelog entry, all inside an hour on 2026-09-15, because story correlation keys on names and each page slug spells the model differently (`gemini 3 8 audio`, `gemini 3.8 live`). Done when those five events land in one story on a replay of that hour, without merging distinct models -- the position-ordered fallback settled below is the constraint. |
+| Next | A card says where a model was seen. | "dashscope: glm-5.3" reached the wire with no word on what DashScope is (Alibaba's Model Studio API) or that GLM 5.3 had already shipped elsewhere: the card reports a row, and the reader needs the fact. Done when a catalogue card names the platform by what it is and says whether the model was already known from another source. |
 | Owner decision | Kimi: a key for the coding tier. | The Moonshot key answers with `kimi-k2.6` and `kimi-k2.7-code` and nothing newer, checked against production 2026-09-14, which is why the K2.8 Preview rollout of 11 September 2026 was invisible here. The coding tier is a separate host with a separate credential: `api.kimi.com/coding/v1/models` answers 401 to a key it does not accept while every neighbouring path answers 404, so the source is registered and correct ahead of the key. Set `KIMI_API_KEY` and it collects; the Kimi Code changelog already ships as its own source. |
-| Owner decision | Google catalogue. | `gemini` has never succeeded, and the reason is geography, established 2026-09-13 from the production container: `generativelanguage.googleapis.com` answers `FAILED_PRECONDITION`, `User location is not supported`. An invalid key returns `API key not valid` instead, so only a real key reveals the refusal. Google reports `RU` through all four house exits, including two that geolocate to Germany. Choose: Vertex AI with a billed service account, an exit Google reads as outside Russia, or accept OpenRouter as the Google source. |
-| Owner decision | Vercel AI Gateway. | Has never succeeded. Decide whether the incomplete upstream response is worth another parser or the source should be removed. |
 | Later | A human verdict from the invited room. | A stealth model on an arena cannot be called by API, so no benchmark of ours reaches it -- the scouts can, by hand. A codename card carrying a prompt kit chosen from the arena's own modality flags, and a reaction rubric the promotion worker tallies, makes the room the evaluation. The verdict travels with the reveal, which already links back to the sighting. Gives two measurements nobody else has: which source produces signals people confirm, and which scout is right most often. |
 | Later | Shutdown dates that reach the reminder engine. | The reminder engine, `lifecycle_deadlines` and idempotent 30/7/1-day reminders exist; the extraction does not. `parseOpenAIDeprecations()` keeps the prose and extracts no shutdown or replacement field, and the `lifecycle.ts` fallback reads ISO dates, not `October 1, 2026`. Event 9163 announced the GPT-5.4-Cyber shutdown in `summary` alone. Done when announcement, deprecation and shutdown dates are told apart from the source's own structure, an ambiguous notice stays unprojected rather than guessed, stored records are migrated in the same move, and event 9163 yields the right date and successor. Capped in value because deprecations are scouts' material. |
-| Later | The six leaderboards that will not answer in data. | MathArena, ARC-AGI 2 and 3, Epoch FrontierMath, DeepSWE and the Artificial Analysis image and video arenas all render their tables from JavaScript, checked 2026-09-14; no static JSON, CSV or feed was found behind any of them. VoxelBench, WeirdML and SimpleBench shipped because they publish the data their pages draw from. Done when each remaining board is either read from a data endpoint or written off in one line here; parsing rendered markup is not an option, because it reports a style change as a ranking move. |
+| Later | The six leaderboards that will not answer in data. | MathArena, ARC-AGI 2 and 3, Epoch FrontierMath, DeepSWE and the Artificial Analysis image and video arenas all render their tables from JavaScript, checked 2026-09-14; no static JSON, CSV or feed was found behind any of them. Artificial Analysis has had a key and a route since 2026-09-16, so its keyed data API is the first place to look for the two arenas before any page. VoxelBench, WeirdML and SimpleBench shipped because they publish the data their pages draw from. Done when each remaining board is either read from a data endpoint or written off in one line here; parsing rendered markup is not an option, because it reports a style change as a ranking move. |
 | Later | Four vendor blogs with no feed. | Meta Research, Tencent, IBM Research and MiniMax announce releases on pages with no RSS or Atom -- eight candidate addresses checked 2026-09-14, none served a feed -- so each needs its own HTML parser against corporate marketing markup, the most fragile shape of source here. Meta and Tencent weights already arrive through `huggingface:meta-models` and `huggingface:tencent`, which covers the release itself; these would add the vendor's own words. |
 | Later | Changelogs behind rendered pages. | `docs.mistral.ai/resources/changelogs` (1.4 MB of HTML, distinct from the release notes already collected), the ZCode changelog where GLM-5.3 and GLM-5.3-Flash are documented but absent from the Z.ai `/models` catalogue, Alibaba Model Studio release notes beside the `dashscope` catalogue, and the DeepMind model cards. The ZCode case is the one worth having: documentation exposing a model the API does not list yet, which must never be reported as API availability without the catalogue confirming it. |
 | Later | The Google product blog in full. | `blog.google` is covered through the AI topic feed. Its English sitemap lists 11,617 pages grouped by section rather than by date, measured 2026-09-14, so the 4,000-page cap in `pages.ts` would silently drop whichever section sorts last; the other topic feeds are the way in, one per topic, not a raised cap. |
@@ -44,10 +45,14 @@ that has since moved is not a priority.
 
 Kept because the reasoning cost real observation and is easy to re-litigate from intuition.
 
-- **One public channel, one invited one.** `🚀signals` is public (`launch`), `🕵scouts` is invited
-  (`codename`, `release`, `article`, `evidence`, `change`, `rank`), `📡status` is behind an opt-in
-  role. An audience arrives for models, so the public wire carries models; everything early or small
-  goes to a room of readers who came for exactly that. The classes stay independent of the channels,
+- **One public channel, one invited one.** `🚀signals` is public (`launch`, `retirement`),
+  `🕵scouts` is invited (`codename`), `📡status` is behind an opt-in role. Read card by card by the
+  owner over 2026-09-14 to 2026-09-16: the wire had carried three weight drops nobody can call, one
+  outage told three times and a reseller listing worded as a vendor announcement, and the scouts had
+  carried 193 arena withdrawals and patch notes for tools nobody subscribed to. So the wire carries a
+  model somebody can call, the start of a severe outage and a vendor's word that something is going
+  away; the scouts carry sightings and nothing else; versions, articles, evidence, changes and ranks
+  are collected and delivered nowhere. The classes stay independent of the channels,
   because routing is a line in `signal-forge.json` and reversing a channel decision must never need
   a deployment.
 - **`launch` and `codename` stay separate classes.** Merging them was proposed and rejected: the
@@ -90,6 +95,14 @@ Kept because the reasoning cost real observation and is easy to re-litigate from
   10% had a second independent source at send time, and 18% would have carried a permanently wrong
   count: confirmation arrived a median 8.2 hours after the message was sent, and cards are not
   edited.
+- **Three hostnames leave through a US exit.** Measured 2026-09-16 from the production host.
+  `generativelanguage.googleapis.com` answered `User location is not supported` through every house
+  exit and 200 with 58 models through a US one, with the same key. `ai-gateway.vercel.sh` was never an
+  incomplete upstream response: through the house exits the body was cut at 13,037, 16,384 and
+  16,384 bytes, through the US exit it arrived whole at 385,136, so no parser was ever at fault.
+  `artificialanalysis.ai` refused the connection outright, and through the US exit answers 401
+  without a key and 200 with one. The route is configured on the router for the production host and
+  those three hostnames only, never in this repository; everything else keeps its exit.
 - **Site pages are not early warning.** `pages:openai` leads by 0.1 hours -- the page appears when
   everyone else sees it. Packages lead by 17.9 hours and are worth their enrichment.
 - **The story correlation fallback is ordered by position, not by recency.** Indexing the search by
@@ -151,8 +164,8 @@ Not scheduled. Written down so they stop being re-derived from scratch.
 ## Source coverage
 
 Catalogues (OpenRouter, OpenAI, Anthropic, xAI, Moonshot, Mistral, Groq, Z.ai, MiniMax, Alibaba
-Model Studio, Cerebras, Artificial Analysis and Kimi, each inert without its own key; Gemini blocked
-upstream). Open weights on Hugging Face, including the `meta-models`, `ibm-granite` and `tencent`
+Model Studio, Cerebras, Artificial Analysis and Kimi, each inert without its own key; Gemini,
+Artificial Analysis and the Vercel AI Gateway reached through a US exit). Open weights on Hugging Face, including the `meta-models`, `ibm-granite` and `tencent`
 organisations, and on ModelScope. Arena, Arena leaderboards, DesignArena, and the three independent
 boards that publish their own data: VoxelBench, WeirdML and SimpleBench. OpenRouter usage rankings,
 in shadow, as the only measure of what people actually run. npm, PyPI and GitHub activity for

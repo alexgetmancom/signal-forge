@@ -234,7 +234,13 @@ export async function collectHuggingFaceDiscovery(
     covered = !oldest || Date.parse(oldest) < cutoff || page.length < HUGGINGFACE_PAGE_LIMIT;
     if (covered) break;
   }
-  const within = models.filter((model) => !model.private && Date.parse(model.createdAt) >= cutoff);
+  // `skip` counts from the newest model at the moment of each request, so a model published between
+  // two pages pushes the rest down by one and the last row of a page is served again as the first
+  // of the next. On 2026-09-16 at 14:44 that rejected the whole sweep as duplicate record IDs. The
+  // repeat is the same model, so the first sighting stands.
+  const seen = new Set<string>();
+  const unique = models.filter((model) => !seen.has(model.id) && seen.add(model.id));
+  const within = unique.filter((model) => !model.private && Date.parse(model.createdAt) >= cutoff);
   const records: RecordData[] = within.map((model) => {
     const attention = huggingFaceAttentionScore(
       {

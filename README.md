@@ -95,10 +95,11 @@ in it; a first-party retirement date shifting by a week is the strongest evidenc
 interesting.
 
 Those are two axes, so delivery follows a second one. Every event carries a signal class derived
-from its own evidence — `launch` (usable now, or no longer), `codename` (on its way), `evidence`
-(the raw trail), `change` (a number moved), `reminder` (derived operator work) — and a destination
-subscribes to classes rather than to the sources that happen to produce them. Only `launch` and
-`codename` carry a role mention.
+from its own evidence — `launch` (callable now, or a severe outage just started), `retirement` (the
+vendor says a model or feature is going away), `codename` (on its way), `release` (a tool shipped a
+build), `evidence` (the raw trail), `change` (a number moved), `reminder` (derived operator work) —
+and a destination subscribes to classes rather than to the sources that happen to produce them.
+Only `launch` and `codename` carry a role mention.
 
 ## Signal, not noise
 

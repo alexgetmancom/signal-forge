@@ -22,6 +22,24 @@ export function due(checkedAt: string | null, interval: number, failures: number
   return now - Date.parse(checkedAt) >= interval * Math.min(2 ** failures, 8) * 1000;
 }
 
+/**
+ * What kind of failure this was, in words that can carry no credential and no response body.
+ *
+ * The message is withheld because it can quote either. That used to withhold everything: Artificial
+ * Analysis failed inside a collection cycle on 2026-09-16 and passed every reproduction outside one,
+ * and "network or schema validation error" could not say which half had happened. The class of the
+ * error and the transport's own code are names chosen by the runtime, never by the upstream.
+ */
+export function unexplainedFailure(error: unknown): string {
+  const name = error instanceof Error ? error.name : typeof error;
+  const cause = error instanceof Error ? (error as { cause?: unknown }).cause : undefined;
+  const code = [error, cause]
+    .map((value) => (value && typeof value === "object" ? (value as { code?: unknown }).code : undefined))
+    .find((value): value is string => typeof value === "string" && /^[A-Z][A-Z0-9_]{1,40}$/.test(value));
+  const kind = name === "ZodError" || name === "SyntaxError" ? "response did not match the schema" : "network error";
+  return `Collection failed: ${kind} (${[name, code].filter(Boolean).join(", ")})`;
+}
+
 export type PollOutcome = { collected: boolean; sources: number; heldBy?: string };
 
 /**
@@ -103,7 +121,7 @@ async function collectDueSources(db: Database, config: AppConfig, force: boolean
                   error.message,
                 )
               ? error.message
-              : "Collection failed: network or schema validation error";
+              : unexplainedFailure(error);
         const checkedAt = new Date().toISOString();
         const retryAt = error instanceof SourceHttpError ? error.retryAt : null;
         db.transaction(() => {

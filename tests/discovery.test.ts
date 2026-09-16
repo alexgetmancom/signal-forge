@@ -141,3 +141,34 @@ test("likes find what the parameter rule cannot, and only while the model is you
   // sight, and the sweep cannot page back far enough to have watched it happen.
   expect(await reasons("2026-09-09T11:00:00.000Z")).toBeUndefined();
 });
+
+test("a model served again on the next page is one model, not a rejected sweep", async () => {
+  // `skip` counts from the newest model at each request, so a model published between two pages
+  // repeats the last row of one as the first of the next. On 2026-09-16 that rejected a whole sweep.
+  const model = (id: string, createdAt: string) => ({
+    id,
+    author: "lab",
+    createdAt,
+    lastModified: createdAt,
+    downloads: 0,
+    likes: 0,
+    pipeline_tag: "text-generation",
+    tags: [],
+    private: false,
+    gated: false,
+  });
+  const full = Array.from({ length: 1000 }, (_, index) =>
+    model(`lab/model-${index}`, new Date(Date.parse("2026-09-10T11:00:00.000Z") - index * 1000).toISOString()),
+  );
+  const pages = [full, [full[999], model("lab/older", "2026-09-10T08:00:00.000Z")]];
+  let call = 0;
+  const collection = await collectHuggingFaceDiscovery(
+    config,
+    async () => Response.json(pages[call++]),
+    undefined,
+    now,
+  );
+  expect(call).toBe(2);
+  expect(collection.records.filter((record) => record.id === "lab/model-999")).toHaveLength(1);
+  expect(collection.records).toHaveLength(1001);
+});
