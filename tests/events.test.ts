@@ -579,6 +579,11 @@ test("a Discord card leads with the name and says what it means in one line", ()
   // The eyebrow names the surface, the title names the thing, then how solid it is, then why it
   // matters. A reader decides whether to believe a card before deciding whether to act on it.
   expect(embed.author.name).toBe("AVAILABILITY · OPENAI");
+  // Who made it on the right, where it was seen beside the eyebrow.
+  expect(embed).toMatchObject({
+    thumbnail: { url: "attachment://openai.png" },
+    author: { icon_url: "attachment://openrouter.png" },
+  });
   expect(embed.title).toBe("🆕 GPT-6");
   expect(embed.description).toStartWith(
     "Seen in a reseller's catalogue, not announced by the maker.\nAvailable to use from this catalogue.",

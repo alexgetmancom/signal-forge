@@ -417,6 +417,47 @@ test("a long evidence list travels as a file instead of ending at a truncation n
   expect((sent?.headers as Record<string, string> | undefined)?.["content-type"]).toBeUndefined();
   local.close();
 });
+
+test("a card's logos travel with its message once each, and one that does not fit leaves the card", async () => {
+  const local = openDatabase(":memory:");
+  const destination: Destination = { id: "dc", platform: "discord", channelId: "77", signals: ["launch"] };
+  const card = (vendor: string) => ({
+    author: { name: "AVAILABILITY", icon_url: "attachment://openrouter.png" },
+    thumbnail: { url: `attachment://${vendor}.png` },
+    title: vendor,
+  });
+  const send = async (body: unknown) => {
+    local.query("DELETE FROM deliveries").run();
+    local
+      .query("INSERT OR IGNORE INTO batches(id,source,ready_at,sealed) VALUES(1,'test','1970-01-01T00:00:00.000Z',1)")
+      .run();
+    local
+      .query(
+        "INSERT INTO deliveries(batch_id,destination_id,destination_json,body,part,updated_at) VALUES(1,'dc',?,?,0,'1970-01-01T00:00:00.000Z')",
+      )
+      .run(JSON.stringify(destination), JSON.stringify(body));
+    let form: FormData | undefined;
+    await deliverPending(local, { ...config, destinations: [destination] }, async (_url, init) => {
+      form = init?.body as FormData;
+      return new Response(JSON.stringify({ id: "9001" }), { status: 200 });
+    });
+    return form as FormData;
+  };
+
+  const shared = await send({ content: "", embeds: [card("google"), card("google"), card("openai")] });
+  const names = [0, 1, 2, 3].map((index) => (shared.get(`files[${index}]`) as File | null)?.name);
+  expect(names).toEqual(["openrouter.png", "google.png", "openai.png", undefined]);
+  expect((shared.get("files[1]") as File).type).toStartWith("image/png");
+
+  const evidence = Array.from({ length: 9 }, (_, index) => ({ filename: `e${index}.txt`, content: "x" }));
+  const crowded = await send({ content: "", embeds: [card("google")], files: evidence });
+  const payload = JSON.parse(String(crowded.get("payload_json"))) as { embeds: Record<string, unknown>[] };
+  expect((crowded.get("files[9]") as File).name).toBe("openrouter.png");
+  expect(payload.embeds[0]?.thumbnail).toBeUndefined();
+  expect(payload.embeds[0]?.author).toEqual({ name: "AVAILABILITY", icon_url: "attachment://openrouter.png" });
+  local.close();
+});
+
 test("a message turned away for hours becomes a failure an operator can see", async () => {
   const local = openDatabase(":memory:");
   const discord = { id: "dc", platform: "discord" as const, channelId: "2", signals: ["launch"] };

@@ -5,6 +5,7 @@ import { displayTitle } from "../naming.js";
 import type { Event, RecordData } from "../types.js";
 import { DESCRIPTION_CHARACTERS } from "./budget.js";
 import { type CardContext, eventFacts } from "./facts.js";
+import { sourceLogo, vendorLogo } from "./logos.js";
 
 const EYEBROWS: Record<string, string> = {
   "api-models": "MODEL CATALOGUE",
@@ -101,9 +102,11 @@ export function eventEmbed(event: Event & CardContext, url: string, summary?: st
     .slice(0, DESCRIPTION_CHARACTERS);
   const evidenceType = eventEvidenceType(event);
 
+  const sourceIcon = sourceLogo(event.source);
   const embed: Record<string, unknown> = {
     author: {
       name: [eyebrow(event), vendor === "Unknown" ? null : vendor.toUpperCase()].filter(Boolean).join(" · "),
+      ...(sourceIcon ? { icon_url: sourceIcon } : {}),
     },
     title: eventHeadline(event, record).slice(0, 250),
     color: KIND_COLORS[event.kind],
@@ -115,6 +118,8 @@ export function eventEmbed(event: Event & CardContext, url: string, summary?: st
       text: `${sourceLabel(event.source)} · ${event.stream === "resets" ? "usage limit reset" : evidenceLabel(evidenceType)} · ${event.confidence ?? "observed"}`,
     },
   };
+  const thumbnail = vendorLogo(vendor);
+  if (thumbnail) embed.thumbnail = { url: thumbnail };
   if (link) embed.url = link;
   return embed;
 }

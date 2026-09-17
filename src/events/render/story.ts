@@ -6,6 +6,7 @@ import { recordFor } from "../record.js";
 import type { Event, RecordData } from "../types.js";
 import { utcStamp } from "./common.js";
 import { type CardContext, eventFacts } from "./facts.js";
+import { vendorLogo } from "./logos.js";
 
 export type StoryRenderEvent = Event & CardContext & { url: string };
 
@@ -108,6 +109,8 @@ export function storyEmbed(
     ],
     footer: { text: `Evidence: ${types.join(", ")} · Confidence: ${confidences.join(", ")}` },
   };
+  const thumbnail = vendorLogo(vendor);
+  if (thumbnail) embed.thumbnail = { url: thumbnail };
   const link = recordUrl(first, firstRecord);
   if (link) embed.url = link;
   return embed;

@@ -3,6 +3,7 @@ import { z } from "zod";
 import { applyCardAmendments, queueIncidentAmendments } from "./amendments.js";
 import { type AppConfig, type Destination, destinationSchema } from "./config.js";
 import { prepareDeliveries } from "./events/batching.js";
+import { logoFiles } from "./events/render/logos.js";
 import type { Fetch } from "./http-client.js";
 import { log } from "./logger.js";
 import { measure } from "./runtime/metrics.js";
@@ -20,15 +21,30 @@ const instant = (epochMs: number): string => new Date(epochMs).toISOString();
  * of a job that retries silently for ever.
  */
 const MAX_RATE_LIMIT_ATTEMPTS = 8;
+/** Discord's limit on the files one message carries. */
+const MAX_FILES = 10;
 type DeliveryStatus = "pending" | "sent" | "failed" | "ambiguous";
 type PreparedDelivery = {
   destination: Destination;
   url: string;
   headers: Record<string, string>;
   body: unknown;
-  /** Evidence too long for a card travels as a file beside it. */
-  files?: { filename: string; content: string }[];
+  /** Evidence too long for a card, and the logos its cards show, travel as files beside it. */
+  files?: { filename: string; content: string | Uint8Array }[];
 };
+
+/** A card keeps a logo only when its message carries the file; Discord shows nothing for the rest. */
+function withoutMissingLogos(embed: Record<string, unknown>, carried: Set<string>): Record<string, unknown> {
+  const missing = (url: unknown) =>
+    typeof url === "string" && url.startsWith("attachment://") && !carried.has(url.slice("attachment://".length));
+  const { thumbnail, author, ...rest } = embed as { thumbnail?: { url?: unknown }; author?: { icon_url?: unknown } };
+  const { icon_url, ...name } = author ?? {};
+  return {
+    ...rest,
+    ...(thumbnail && !missing(thumbnail.url) ? { thumbnail } : {}),
+    ...(author ? { author: missing(icon_url) ? name : author } : {}),
+  };
+}
 
 const telegramResponse = z.object({ ok: z.literal(true), result: z.object({ message_id: z.number().int() }) });
 const telegramErrorResponse = z.object({
@@ -47,7 +63,8 @@ function multipart(prepared: PreparedDelivery): FormData {
   const form = new FormData();
   form.append("payload_json", JSON.stringify(prepared.body));
   (prepared.files ?? []).forEach((file, index) => {
-    form.append(`files[${index}]`, new Blob([file.content], { type: "text/plain" }), file.filename);
+    const type = typeof file.content === "string" ? "text/plain" : "image/png";
+    form.append(`files[${index}]`, new Blob([file.content], { type }), file.filename);
   });
   return form;
 }
@@ -118,9 +135,17 @@ export async function deliverPending(db: Database, config: AppConfig, request: F
             const parsed = job.body.startsWith("{")
               ? (JSON.parse(job.body) as Record<string, unknown>)
               : { content: job.body };
-            const { files, ...payload } = parsed as Record<string, unknown> & {
+            const { files: evidence = [], ...payload } = parsed as Record<string, unknown> & {
               files?: { filename: string; content: string }[];
             };
+            // Evidence first: a logo is decoration, and one that does not fit is taken off the card.
+            const logos = logoFiles(payload).slice(0, Math.max(0, MAX_FILES - evidence.length));
+            const carried = new Set(logos.map((logo) => logo.filename));
+            if (Array.isArray(payload.embeds))
+              payload.embeds = (payload.embeds as Record<string, unknown>[]).map((embed) =>
+                withoutMissingLogos(embed, carried),
+              );
+            const files = [...evidence, ...logos];
             // SUPPRESS_EMBEDS (4) hides every embed on the message, our own included — setting it on a
             // message built out of embeds delivers a bare header and nothing else.
             const hasEmbeds = Array.isArray(payload.embeds) && payload.embeds.length > 0;
