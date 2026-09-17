@@ -128,6 +128,8 @@ function firstMarkdownLink(value: string): { label: string; url: string } | null
   return label && url ? { label, url } : null;
 }
 
+const GENERIC_LINK_LABEL = /^(here|this|link|docs?|documentation|guide|learn more|read more|more|see more)\.?$/i;
+
 function firstSentence(value: string): string {
   return value.split(/(?<=[.!?])\s+/)[0]?.trim() ?? "";
 }
@@ -156,7 +158,10 @@ export function parseOpenAIApiChangelog(markdown: string): Collection {
     const body = lines.slice(firstContent + 1).join("\n");
     const link = firstMarkdownLink(body);
     const summary = markdownSummary(body) || markdownSummary(metadata);
-    const name = (link?.label || firstSentence(summary) || metadata).slice(0, 200);
+    // A link reading "here" or "learn more" is where the entry points, not what it says: the
+    // Responses API file-input entry reached the public channel titled "here" on 2026-09-17.
+    const label = link?.label && !GENERIC_LINK_LABEL.test(link.label) ? link.label : "";
+    const name = (label || firstSentence(summary) || metadata).slice(0, 200);
     if (!name || !summary) return [];
     const identity = slug(link?.url ?? `${metadata}:${name}`) || `entry-${index}`;
     return [

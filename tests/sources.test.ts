@@ -277,6 +277,14 @@ test("official release-note pages keep dated entries and reject unreadable pages
     "Feature",
     "",
     "[Mutual TLS](https://developers.openai.com/api/docs/guides/mutual-tls) is now generally available.",
+    "",
+    "## February, 2026",
+    "",
+    "### Feb 24",
+    "",
+    "Update · API: v1/responses",
+    "",
+    "Expanded input file support in the Responses API to accept more file types. Learn more [here](https://developers.openai.com/api/docs/guides/file-inputs).",
   ].join("\n");
   const api = parseOpenAIApiChangelog(apiMarkdown);
   expect(api).toMatchObject({
@@ -296,6 +304,8 @@ test("official release-note pages keep dated entries and reject unreadable pages
     expect.objectContaining({ name: "Prompt Cache Diagnostics", published: "2026-09-08T00:00:00.000Z" }),
     expect.objectContaining({ name: "Updated API errors so applications can distinguish traffic conditions." }),
     expect.objectContaining({ name: "Mutual TLS", published: "2026-08-29T00:00:00.000Z" }),
+    // A link reading "here" is not a title.
+    expect.objectContaining({ name: "Expanded input file support in the Responses API to accept more file types." }),
   ]);
   expect(api.records[1]?.summary).toContain("Prompt Cache Diagnostics");
   expect(api.records[1]?.id).not.toBe(api.records[2]?.id);

@@ -83,7 +83,9 @@ const NAMES_A_MODEL =
 /**
  * The changelogs of the tools and APIs the public channel's readers work in. A version of an SDK or
  * a vendor's hardware feed is a build, not something a Claude Code or Codex user changes their day
- * for, and stays evidence.
+ * for, and stays evidence. So do the OpenAI and Gemini API changelogs: on 2026-09-17 the owner read
+ * "Responses API accepts more file types" and a swap of one Antigravity preview for the next on
+ * the public channel and called both noise. A model reaching those APIs is seen in the catalogue.
  */
 const TOOL_CHANGELOGS = new Set([
   "claude-code-changelog",
@@ -91,8 +93,6 @@ const TOOL_CHANGELOGS = new Set([
   "cursor-changelog",
   "kimi-code-changelog",
   "openai-chatgpt-release-notes",
-  "openai-api-changelog",
-  "gemini-api-changelog",
   "xai-release-notes",
   "mistral-release-notes",
   "deepseek-updates",
@@ -119,6 +119,25 @@ const PAGE_BLOGS = new Set(["pages:google-devs"]);
  * gets as surely as a model leaving the picker does.
  */
 const RETIREMENT_WORDS = /\b(retire[sd]?|retirement|retiring|deprecat\w*|sunset\w*|end of life|discontinu\w*)\b/i;
+
+/**
+ * A preview replaced by the next preview. "Released antigravity-preview-09-2026, which replaces and
+ * deprecates antigravity-preview-05-2026" reached the public channel as a retirement on 2026-09-17:
+ * nothing a reader runs goes away, the preview string moves on.
+ */
+const PREVIEW_SUCCESSION = /\bpreview\S*[^.]*\b(?:replac|supersed|deprecat)\w*[^.]*\bpreview\b/i;
+
+/**
+ * How old a changelog entry may be when its wording is edited and still be news. OpenAI rewrote its
+ * entry of 2026-02-24 on 2026-09-17 to name the Responses API, and the edit reached the public
+ * channel as a change seven months after the feature shipped.
+ */
+const EDITABLE_AS_NEWS_MS = 7 * 24 * 3_600_000;
+
+function editOfAnOldEntry(event: Event, published: unknown): boolean {
+  const at = Date.parse(text(published) ?? "");
+  return Number.isFinite(at) && Date.parse(event.detected_at) - at > EDITABLE_AS_NEWS_MS;
+}
 
 /**
  * The maker whose own models an API catalogue sells. A catalogue absent here sells other makers'
@@ -205,18 +224,15 @@ export function signalClass(event: Event): SignalClass {
       const title = text(record?.name) ?? "";
       return event.kind === "new" && ANNOUNCES.test(title) && NAMES_A_MODEL.test(title) ? "launch" : "article";
     }
-    if (event.kind !== "new") return "change";
+    if (event.kind !== "new") return editOfAnOldEntry(event, record?.published) ? "evidence" : "change";
     /**
      * A record carrying a version is a tool shipping a build: Claude Code 2.1.271, 2.1.272 and
      * 2.1.273 landed in the invited room inside a day, and nobody there is subscribed to patch
      * notes. A dated entry with no version is the vendor saying something, and the only thing it
      * says that a reader must act on by a date is that a model is going away.
      */
-    if (
-      !text(record?.version) &&
-      RETIREMENT_WORDS.test(`${text(record?.name)} ${text(record?.summary)} ${text(record?.description)}`)
-    )
-      return "retirement";
+    const words = `${text(record?.name)} ${text(record?.summary)} ${text(record?.description)}`;
+    if (!text(record?.version) && RETIREMENT_WORDS.test(words) && !PREVIEW_SUCCESSION.test(words)) return "retirement";
     return TOOL_CHANGELOGS.has(event.source) ? "release" : "evidence";
   }
 

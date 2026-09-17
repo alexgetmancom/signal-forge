@@ -24,6 +24,8 @@ const SUPPRESSION_REASONS = [
   "a_post_about_the_company_not_a_model",
   "another_tier_of_a_listed_model",
   "published_by_a_followed_lab",
+  "weights_with_nothing_to_run",
+  "weights_published_long_ago",
   "another_page_about_the_same_model",
   "past_the_digest_limit",
 ] as const;
@@ -60,6 +62,10 @@ function suppressionDetail(event: Event, reason: SuppressionReason): string {
       return "A dated snapshot or billing tier of a model this catalogue already lists";
     case "published_by_a_followed_lab":
       return "Trending weights the lab's own account already published here";
+    case "weights_with_nothing_to_run":
+      return "Weights a followed lab published that declare no pipeline to run";
+    case "weights_published_long_ago":
+      return "A router serving weights published more than thirty days earlier";
     case "another_page_about_the_same_model":
       return "A vendor page naming a model this destination was told about in the last day";
     case "past_the_digest_limit":

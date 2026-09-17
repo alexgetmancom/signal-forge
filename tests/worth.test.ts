@@ -263,6 +263,46 @@ test("trending weights a followed lab already published are not a second sightin
   db.close();
 });
 
+test("weights with nothing to run and a router serving old weights stay quiet", () => {
+  const db = openDatabase(":memory:");
+  const lab: Collection = {
+    source: "huggingface:tencent",
+    stream: "weights",
+    url: "https://huggingface.co/api/models?author=tencent",
+    raw: [],
+    appendOnly: true,
+    records: [{ id: "tencent/anchor", name: "tencent/anchor", pipeline: "text-generation" }],
+  };
+  saveCollection(db, lab, [wire], "2026-09-17T14:00:00.000Z");
+  // The two repositories of 2026-09-17, beside one that declares a pipeline.
+  lab.records.push(
+    { id: "tencent/WeVisDoc-2B", name: "tencent/WeVisDoc-2B", pipeline: null, category: null },
+    { id: "tencent/Hunyuan-9", name: "tencent/Hunyuan-9", pipeline: "text-generation" },
+  );
+  saveCollection(db, lab, [wire], "2026-09-17T15:45:54.037Z");
+  const router: Collection = {
+    source: "huggingface-router",
+    stream: "api-models",
+    url: "https://huggingface.co/inference/models",
+    raw: [],
+    records: [{ id: "zai-org/anchor", name: "zai-org/anchor", created: "2025-01-01T00:00:00.000Z" }],
+  };
+  saveCollection(db, router, [wire], "2026-09-17T16:00:00.000Z");
+  router.records.push(
+    { id: "zai-org/GLM-4.7-FP8", name: "zai-org/GLM-4.7-FP8", created: "2025-12-22T13:41:42.000Z" },
+    { id: "zai-org/GLM-5.4", name: "zai-org/GLM-5.4", created: "2026-09-15T00:00:00.000Z" },
+  );
+  saveCollection(db, router, [wire], "2026-09-17T17:05:20.440Z");
+  prepareDeliveries(db, Date.parse("2026-09-17T19:00:00.000Z"));
+
+  const reasons = suppressed(db);
+  expect(reasons["tencent/WeVisDoc-2B"]).toBe("weights_with_nothing_to_run");
+  expect(reasons["tencent/Hunyuan-9"]).toBeUndefined();
+  expect(reasons["zai-org/GLM-4.7-FP8"]).toBe("weights_published_long_ago");
+  expect(reasons["zai-org/GLM-5.4"]).toBeUndefined();
+  db.close();
+});
+
 test("a model named by several vendor pages is told once", () => {
   const db = openDatabase(":memory:");
   const site = (source: string, anchor: string): Collection => ({

@@ -120,6 +120,32 @@ test("a number that moved is a change, whatever produced it", () => {
   expect(signalClass(event({ stream: "news", kind: "changed", source: "groq-changelog" }))).toBe("change");
 });
 
+test("an edit to an old changelog entry is a trail, and a preview replacing a preview retires nothing", () => {
+  // OpenAI reworded its entry of 2026-02-24 on 2026-09-17 and it reached the public channel.
+  const edited = event(
+    { stream: "news", kind: "changed", source: "openai-api-changelog", detected_at: "2026-09-17T16:10:41.392Z" },
+    { id: "entry", name: "Expanded input file support", published: "2026-02-24T00:00:00.000Z" },
+  );
+  expect(signalClass(edited)).toBe("evidence");
+  expect(
+    signalClass({ ...edited, after_json: JSON.stringify({ id: "entry", published: "2026-09-15T00:00:00.000Z" }) }),
+  ).toBe("change");
+  const gemini = (summary: string) =>
+    event(
+      { stream: "news", kind: "new", source: "gemini-api-changelog" },
+      { id: "2026-09-17", name: "Gemini API changelog · 2026-09-17", summary },
+    );
+  expect(
+    signalClass(
+      gemini(
+        "Antigravity Agent 09-2026 : Released antigravity-preview-09-2026 , which replaces and deprecates antigravity-preview-05-2026 .",
+      ),
+    ),
+  ).toBe("evidence");
+  expect(signalClass(gemini("gemini-2.5-flash will be retired on 2026-10-30."))).toBe("retirement");
+  expect(signalClass(event({ stream: "news", kind: "new", source: "openai-api-changelog" }))).toBe("evidence");
+});
+
 test("a tool readers work in shipping a build is a release; an app, an SDK or a hardware feed is not", () => {
   expect(signalClass(event({ stream: "apps", kind: "new", source: "app:ios:chatgpt" }))).toBe("evidence");
   expect(signalClass(event({ stream: "apps", kind: "changed", source: "app:ios:claude" }))).toBe("evidence");

@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { canonical } from "./canonical.js";
 import { normalizeIdentity } from "./identity.js";
 import type { Event, RecordData } from "./types.js";
+import { isBesideTheRelease } from "./variants.js";
 
 /**
  * Observations that are true, cheap to make, and not worth a message.
@@ -234,4 +235,30 @@ export function pageModel(event: Event): string | null {
   const slug = path.slice(match.index + match[0].length).split("/")[0] ?? "";
   const tier = PAGE_TIER.exec(slug)?.[1]?.toLowerCase();
   return `${match[1].toLowerCase()} ${match[2]}${match[3] ? `.${match[3]}` : ""}${tier ? ` ${tier}` : ""}`;
+}
+
+/**
+ * Weights a followed lab published that declare nothing to run.
+ *
+ * `tencent/WeVisDoc-2B` and `-4B` reached the invited room on 2026-09-17 with no pipeline, no
+ * downloads and a document-retrieval purpose nobody there came for. The recap already left such
+ * repositories out; the cards did not.
+ */
+export function isWeightsBesideTheRelease(event: Event): boolean {
+  return event.kind === "new" && event.source.startsWith("huggingface:") && isBesideTheRelease(record(event));
+}
+
+/**
+ * A router starting to serve weights that were published long ago.
+ *
+ * `zai-org/GLM-4.7-FP8` arrived on Hugging Face's inference router on 2026-09-17 as it dropped
+ * `GLM-4.6-FP8`; the repository dates from 2025-12-22. A sighting is the earliest word on a model,
+ * and this one was months late.
+ */
+const LONG_PUBLISHED_MS = 30 * 24 * 3_600_000;
+
+export function isLongPublishedWeights(event: Event): boolean {
+  if (event.kind !== "new" || event.source !== "huggingface-router") return false;
+  const created = Date.parse(String(record(event)?.created ?? ""));
+  return Number.isFinite(created) && Date.parse(event.detected_at) - created > LONG_PUBLISHED_MS;
 }

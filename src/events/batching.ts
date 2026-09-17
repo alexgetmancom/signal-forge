@@ -35,8 +35,10 @@ import {
   isAnotherServing,
   isAnotherTierOfAListedModel,
   isLabelOnlyChange,
+  isLongPublishedWeights,
   isMinorBoardMove,
   isPublishedByAFollowedLab,
+  isWeightsBesideTheRelease,
   knownModelNames,
   pageModel,
 } from "./worth.js";
@@ -395,6 +397,8 @@ export function prepareDeliveries(
           if (isAliasRow(event)) return quiet(event, "alias_of_another_row");
           if (isAnotherTierOfAListedModel(db, event)) return quiet(event, "another_tier_of_a_listed_model");
           if (isPublishedByAFollowedLab(db, event)) return quiet(event, "published_by_a_followed_lab");
+          if (isWeightsBesideTheRelease(event)) return quiet(event, "weights_with_nothing_to_run");
+          if (isLongPublishedWeights(event)) return quiet(event, "weights_published_long_ago");
           if (isScheduledPricingRotation(event)) return quiet(event, "scheduled_pricing_rotation");
           if (isOscillating(db, event, now)) return quiet(event, "oscillating");
           if (isReappearance(db, event, now)) return quiet(event, "flapping_in_and_out");
