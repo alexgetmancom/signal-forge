@@ -68,7 +68,6 @@ import {
 } from "./releaseNotes.js";
 import { collectCodexResets } from "./resets.js";
 import { collectOpenRouterUsage } from "./usage.js";
-import { collectVertexModelGarden, collectVertexQuotas } from "./vertex.js";
 
 export type SourceDefinition = {
   id: string;
@@ -749,32 +748,6 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       collector: () => collectGemini(config),
       enabled: requested("gemini"),
       restrictedReason: "upstream is not serving this feed to us — no data reaching the collector",
-    },
-    {
-      id: "vertex-quotas",
-      label: sourceLabel("vertex-quotas"),
-      authority: "third_party",
-      group: "Catalogues",
-      stream: "api-models",
-      // A quota dimension leads a listing by days, not minutes; hourly spends little of the budget.
-      intervalSeconds: 3600,
-      capabilityId: "google-cloud",
-      requiredCapabilities: ["GOOGLE_CLOUD_SERVICE_ACCOUNT"],
-      collector: () => collectVertexQuotas(config),
-      enabled: requested("vertex-quotas"),
-    },
-    {
-      id: "vertex-model-garden",
-      label: sourceLabel("vertex-model-garden"),
-      authority: "third_party",
-      vendor: "xAI",
-      group: "Catalogues",
-      stream: "api-models",
-      intervalSeconds: 3600,
-      capabilityId: "google-cloud",
-      requiredCapabilities: ["GOOGLE_CLOUD_SERVICE_ACCOUNT"],
-      collector: () => collectVertexModelGarden(config),
-      enabled: requested("vertex-model-garden"),
     },
   ];
 
