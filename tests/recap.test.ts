@@ -174,7 +174,7 @@ test("a price line is what a reader pays, and says nothing when the rows disagre
     { name: "Qwen: Qwen3 14B", percent: 2.7916666666666665, cheaper: false, discountEnded: false },
   ]);
   // Nearly quadrupling is not "up 74%", whatever the ranking arithmetic says.
-  expect(renderRecapLines(context)).toContain("📊 Qwen: Qwen3 14B · 3.8× more expensive");
+  expect(renderRecapLines(context)).toContain("📊 Qwen3 14B · 3.8× more expensive");
 });
 
 test("a price only speaks for a model something other than a price list knows", () => {
@@ -220,7 +220,7 @@ test("a price only speaks for a model something other than a price list knows", 
   expect(context.priceMoves).toEqual([
     { name: "Upstage: Solar Pro 4", percent: 2, cheaper: false, discountEnded: true },
   ]);
-  expect(renderRecapLines(context)).toContain("📊 Upstage: Solar Pro 4 · launch pricing ended · 3.0× more expensive");
+  expect(renderRecapLines(context)).toContain("📊 Solar Pro 4 · launch pricing ended · 3.0× more expensive");
 });
 
 test("a price that goes up and comes back down again is not a week's news", () => {
@@ -299,7 +299,7 @@ test("the scouts get one morning message about what moved at the top of a board,
   expect(scheduleRecaps(db, { destinations: [scouts] } as never, now)).toEqual(["day"]);
   prepareDeliveries(db, now);
   const body = db.query<{ body: string }, []>("SELECT body FROM deliveries").get()?.body ?? "";
-  expect(body).toContain("Daily moves");
+  expect(body).toContain("WHAT MOVED");
   expect(body).toContain("now leads text/overall");
   expect(body).not.toContain("<@&");
 });

@@ -215,6 +215,8 @@ export function prices(before: unknown, after: unknown, source?: string): Fact[]
   const labels: Record<string, string> = {
     prompt: "Input price",
     completion: "Output price",
+    input: "Input price",
+    output: "Output price",
     input_cache_read: "Cache read",
     input_cache_write: "Cache write",
     inputCacheHitOffPeak: "Cache hit off-peak",
@@ -228,6 +230,8 @@ export function prices(before: unknown, after: unknown, source?: string): Fact[]
   const shorthand: Record<string, string> = {
     prompt: "in",
     completion: "out",
+    input: "in",
+    output: "out",
     input_cache_read: "cache read",
     input_cache_write: "cache write",
   };
@@ -240,7 +244,8 @@ export function prices(before: unknown, after: unknown, source?: string): Fact[]
   const result: Fact[] = [];
   if (!before) {
     const parts = Object.keys(shorthand)
-      .filter((key) => next[key] !== undefined && next[key] !== null && next[key] !== "")
+      // A gateway that does not know a rate writes 0; a blank is not a free model.
+      .filter((key) => next[key] !== undefined && next[key] !== null && next[key] !== "" && Number(next[key]) !== 0)
       .map((key) => `${money(next[key])} ${shorthand[key]}`);
     // A gateway that does not know a rate writes 0 rather than leaving it out: the Vercel AI Gateway
     // listed Jev on 2026-09-16 with "Pricing output: 0", which reads as free and is a blank.
@@ -273,4 +278,15 @@ export function collapseDetails(details: Fact[], max = MAX_DETAIL_LINES): Fact[]
   if (trimmed.length <= max) return trimmed;
   const hidden = trimmed.length - max;
   return [...trimmed.slice(0, max), `\u2026and ${hidden} more change${hidden === 1 ? "" : "s"} not shown`];
+}
+
+/**
+ * A catalogue writes the maker before the name: "Z.ai: GLM 5.2", "DeepSeek: DeepSeek V4 Flash 0731",
+ * "OpenAI: Elevated errors with …". The card's eyebrow and logo already say who, so the title keeps
+ * only the name. A prefix of more than three words is a sentence, not a maker, and stays.
+ */
+export function withoutMakerPrefix(name: string): string {
+  const match = /^([^:]{1,40}):\s+(\S.*)$/.exec(name);
+  if (!match || (match[1] ?? "").trim().split(/\s+/).length > 3) return name;
+  return match[2] ?? name;
 }

@@ -35,7 +35,20 @@ export const destinationSchema = z.discriminatedUnion("platform", [
     topicId: z.number().int().positive().optional(),
     signals,
   }),
-  z.object({ id: z.string().min(1), platform: z.literal("discord"), channelId: z.string().regex(/^\d+$/), signals }),
+  z.object({
+    id: z.string().min(1),
+    platform: z.literal("discord"),
+    channelId: z.string().regex(/^\d+$/),
+    signals,
+    /**
+     * How much of a card its readers get. `brief` is a news reader's card: what happened and the one
+     * or two values behind it. `evidence` adds what a scout checks it against: raw ids, other names,
+     * the strings that changed and how sure the source is. Which signals a channel carries is still
+     * being decided, so the depth belongs to the channel rather than to the signal. Absent is
+     * `evidence`, which is what every channel carried before readers were told apart.
+     */
+    detail: z.enum(["brief", "evidence"]).optional(),
+  }),
 ]);
 export type Destination = z.infer<typeof destinationSchema>;
 const optionalSecret = z.preprocess((v) => (v === "" ? undefined : v), z.string().min(1).optional());

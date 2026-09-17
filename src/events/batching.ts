@@ -515,11 +515,12 @@ export function prepareDeliveries(
         const mentions = roles.map((role) => `<@&${role}>`).join(" ");
         const embeds = items.map((group) =>
           group.length > 1
-            ? storyEmbed(group, summaries)
+            ? storyEmbed(group, summaries, destination.detail)
             : eventEmbed(
                 group[0] as StoryRenderEvent,
                 (group[0] as StoryRenderEvent).url,
                 summaries.get((group[0] as StoryRenderEvent).id),
+                destination.detail,
               ),
         );
         // An embed and its evidence file travel together: the page an embed lands on decides

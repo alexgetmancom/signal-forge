@@ -306,12 +306,14 @@ test("one story becomes one cross-source digest with every evidence link", () =>
   const discord = local
     .query<{ body: string }, [string]>("SELECT body FROM deliveries WHERE destination_id=?")
     .get("dc")?.body;
-  const payload = JSON.parse(discord ?? "{}") as { embeds?: { description?: string }[] };
+  const payload = JSON.parse(discord ?? "{}") as {
+    embeds?: { description?: string; fields?: { name: string; value: string }[] }[];
+  };
   expect(payload.embeds).toHaveLength(1);
-  expect(payload.embeds?.[0]?.description).toContain("https://openrouter.ai/models/gpt-5");
-  expect(payload.embeds?.[0]?.description).toContain("https://api.openai.com/models/gpt-5");
-  expect(payload.embeds?.[0]?.description).toContain("**OpenRouter** · [evidence](");
-  expect(payload.embeds?.[0]?.description).toContain("**OpenAI API** · [evidence](");
+  // One sentence for the story, one line per update, and every source linked once.
+  expect(payload.embeds?.[0]?.description).toStartWith("2 updates from 2 sources.");
+  const seen = payload.embeds?.[0]?.fields?.find((field) => field.name === "Seen on")?.value;
+  expect(seen).toBe("OpenRouter · OpenAI API");
   local.close();
 });
 
@@ -526,7 +528,7 @@ test("notifications expose source confidence", () => {
   // Source, evidence and confidence live in the footer once. They used to appear both as fields
   // and as footer text, which spent a third of the card repeating itself.
   expect(eventEmbed(event, "https://example.com")).toMatchObject({
-    footer: { text: "OpenAI API · API catalogue · confirmed" },
+    footer: { text: "OpenAI API · confirmed by the provider" },
     timestamp: "2026-09-08T14:06:00.000Z",
   });
   expect(eventEmbed(event, "https://example.com").fields).toBeUndefined();
@@ -585,10 +587,12 @@ test("a Discord card leads with the name and says what it means in one line", ()
     author: { icon_url: "attachment://openrouter.png" },
   });
   expect(embed.title).toBe("🆕 GPT-6");
-  expect(embed.description).toStartWith(
-    "Seen in a reseller's catalogue, not announced by the maker.\nAvailable to use from this catalogue.",
+  expect(embed.description).toStartWith("Added to OpenRouter.");
+  expect(embed.footer.text).toBe("OpenRouter · confirmed by the provider");
+  // A news reader's card names the source and nothing about how sure it is.
+  expect((eventEmbed(event, "https://openrouter.ai", undefined, "brief").footer as { text: string }).text).toBe(
+    "OpenRouter",
   );
-  expect(embed.footer.text).toBe("OpenRouter · availability catalogue · confirmed");
   expect(embed.timestamp).toBe("2026-09-08T14:06:00.000Z");
   // The vendor is already in the eyebrow, so the body does not repeat it.
   expect(embed.description).not.toContain("Maker");
@@ -1129,7 +1133,7 @@ test("a card leaves out what is a blank or our own bookkeeping, and says whose n
   };
   const lines = eventFacts(listing).join("\n");
   expect(lines).not.toMatch(/Context: 0|Returns: 0|Pricing output|discoveryStatus|notableReasons/);
-  expect(lines).toContain("Pricing input: 0.000000042");
+  expect(lines).toContain("Price: $0.042 in / 1M tokens");
 
   const sighting: Event = {
     id: 4,

@@ -1,8 +1,8 @@
 import { z } from "zod";
 import type { RecapContext } from "../../recap.js";
 import { sourceLabel } from "../../sources/labels.js";
-import { eventEvidenceType, evidenceLabel } from "../confidence.js";
 import type { Event } from "../types.js";
+import { withoutMakerPrefix } from "./common.js";
 import { footerText } from "./discord.js";
 
 export type LifecycleReminderContext = {
@@ -73,10 +73,9 @@ export function renderLifecycleReminderEmbed(context: LifecycleReminderContext, 
       ...(context.replacement
         ? [{ name: "Replacement", value: context.replacement.slice(0, 1024), inline: true }]
         : []),
-      { name: "Evidence", value: `[${sourceLabel(event.source)}](${context.url})`, inline: true },
     ],
     url: context.url,
-    footer: { text: footerText(event.source, evidenceLabel(eventEvidenceType(event)), `event #${event.id}`) },
+    footer: { text: footerText(event.source, event.confidence ?? "observed", "evidence") },
   };
 }
 
@@ -103,8 +102,8 @@ export function renderRecapLines(context: RecapContext): string[] {
     new Date(at).toLocaleDateString("en-GB", { day: "numeric", month: "long", timeZone: "UTC" });
   if (context.period === "day") {
     const moved = [
-      ...context.priceMoves.map((move) => `📊 ${move.name} · ${priceMove(move)}`),
-      ...context.leaders.map((leader) => `🏆 ${leader.name} now leads ${leader.board}`),
+      ...context.priceMoves.map((move) => `📊 ${withoutMakerPrefix(move.name)} · ${priceMove(move)}`),
+      ...context.leaders.map((leader) => `🏆 ${withoutMakerPrefix(leader.name)} now leads ${leader.board}`),
     ];
     return [`**${day(context.from)} → ${day(context.to)}**`, "", ...moved];
   }
@@ -123,7 +122,7 @@ export function renderRecapLines(context: RecapContext): string[] {
     const others = context.arrivalCount - named;
     if (others > 0) lines.push(`· ${others} more from smaller makers`);
   }
-  for (const move of context.priceMoves) lines.push(`📊 ${move.name} · ${priceMove(move)}`);
+  for (const move of context.priceMoves) lines.push(`📊 ${withoutMakerPrefix(move.name)} · ${priceMove(move)}`);
   if (context.codenameCount)
     lines.push(
       `🕵 **${context.codenameCount} early ${context.codenameCount === 1 ? "sighting" : "sightings"}** in scouts, before any announcement`,
@@ -134,7 +133,6 @@ export function renderRecapLines(context: RecapContext): string[] {
 export function renderRecapEmbed(context: RecapContext): Record<string, unknown> {
   return {
     author: { name: context.period === "day" ? "WHAT MOVED" : "THE WEEK IN MODELS" },
-    title: context.period === "day" ? "Daily moves" : "Weekly recap",
     description: renderRecapLines(context).join("\n").slice(0, 4000),
     footer: {
       text:

@@ -98,7 +98,7 @@ test("a due reminder creates one lifecycle batch linked to the original evidence
   const body = db.query<{ body: string }, []>("SELECT body FROM deliveries").get()?.body ?? "";
   expect(body).toContain("LIFECYCLE DEADLINE");
   expect(body).toContain("Claude example model retires in 30 days");
-  expect(body).toContain("Evidence");
+  expect(body).toContain("platform.claude.com/docs/en/about-claude/model-deprecations");
   db.close();
 });
 
