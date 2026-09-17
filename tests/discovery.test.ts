@@ -128,3 +128,10 @@ test("copies and rediscoveries never enter the trending list", async () => {
   const collection = await collectHuggingFaceTrending(config, request, undefined, now);
   expect(collection.records.map((record) => record.id)).toEqual(["openbmb/MiniCPM5-2B"]);
 });
+
+test("a GitHub search that ran out of time is a failed read, not the ranking", async () => {
+  const request = async () => Response.json({ total_count: 500, incomplete_results: true, items: [] });
+  await expect(
+    collectGithubDiscovery(config, GITHUB_DISCOVERY_QUERIES[0], request, new Date("2026-09-10T12:00:00.000Z")),
+  ).rejects.toThrow("incomplete results");
+});

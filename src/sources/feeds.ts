@@ -79,10 +79,34 @@ function feedLink(value: unknown): string {
   throw new Error("Official feed item has no valid link");
 }
 
-function publishedDate(value: string): string {
+const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+
+/**
+ * A date as written, or null when it names no real day. `Date` rolls an impossible day forward
+ * (`30 Feb 2026` is 2 March), so the day written is checked against the month it is written in.
+ */
+export function calendarDate(value: string): Date | null {
   const normalized = value.replace(/\b(\d{1,2})(st|nd|rd|th)\b/gi, "$1");
   const date = new Date(normalized);
-  if (!Number.isFinite(date.getTime())) throw new Error(`Official feed item has invalid publication date: ${value}`);
+  if (!Number.isFinite(date.getTime())) return null;
+  const dayFirst = normalized.match(/\b(\d{1,2})\s+([a-z]{3})[a-z]*\.?,?\s+(\d{4})\b/i);
+  const monthFirst = normalized.match(/\b([a-z]{3})[a-z]*\.?\s+(\d{1,2}),?\s+(\d{4})\b/i);
+  const iso = normalized.match(/\b(\d{4})-(\d{2})-(\d{2})(?!\d)/);
+  const [day, month, year] = dayFirst
+    ? [dayFirst[1], MONTHS.indexOf(String(dayFirst[2]).toLowerCase()), dayFirst[3]]
+    : monthFirst
+      ? [monthFirst[2], MONTHS.indexOf(String(monthFirst[1]).toLowerCase()), monthFirst[3]]
+      : iso
+        ? [iso[3], Number(iso[2]) - 1, iso[1]]
+        : [undefined, -1, undefined];
+  if (month < 0) return date;
+  const written = new Date(Date.UTC(Number(year), month, Number(day)));
+  return written.getUTCDate() === Number(day) && written.getUTCMonth() === month ? date : null;
+}
+
+function publishedDate(value: string): string {
+  const date = calendarDate(value);
+  if (!date) throw new Error(`Official feed item has invalid publication date: ${value}`);
   return date.toISOString();
 }
 

@@ -1,4 +1,4 @@
-import { XMLParser } from "fast-xml-parser";
+import { XMLParser, XMLValidator } from "fast-xml-parser";
 import { z } from "zod";
 import type { Collection, RecordData } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
@@ -139,13 +139,19 @@ export const WATCHED_SITES: readonly WatchedSite[] = [
   },
 ];
 
-/** One collection follows at most this many child sitemaps of an index, newest sections first. */
-const MAX_CHILD_SITEMAPS = 12;
-const MAX_PAGES = 4000;
+/**
+ * Bounds on a read that has gone wrong, never a sample of a site. Measured 2026-09-17: OpenAI's index
+ * lists 39 child sitemaps and the largest sitemap lists 4,442 URLs. A site past either bound fails the
+ * read: a truncated catalogue would report the pages beyond the cut as gone, or never see them arrive.
+ */
+const MAX_CHILD_SITEMAPS = 60;
+const MAX_PAGES = 10_000;
 
 const locations = z.array(z.object({ loc: z.union([z.string(), z.number()]) }).passthrough());
 
 function parseXml(payload: string): { urls: string[]; children: string[] } {
+  // The parser is lenient: a body cut off mid-transfer still yields the entries before the cut.
+  if (XMLValidator.validate(payload) !== true) throw new Error("Sitemap is not well-formed XML");
   const parser = new XMLParser({ ignoreAttributes: true, isArray: (name) => name === "url" || name === "sitemap" });
   const document = parser.parse(payload) as Record<string, unknown>;
   const read = (value: unknown): string[] => {
@@ -196,36 +202,53 @@ function pageRecord(location: string, site: WatchedSite): RecordData | null {
   };
 }
 
-export function parseSitemap(payloads: string[], site: WatchedSite): Collection {
+export function parseSitemap(payloads: string[], site: WatchedSite, baseline: readonly number[] = []): Collection {
   const seen = new Map<string, RecordData>();
-  for (const payload of payloads)
+  const silentIds: string[] = [];
+  payloads.forEach((payload, index) => {
     for (const location of parseXml(payload).urls) {
       const record = pageRecord(location, site);
-      if (record && !seen.has(record.id)) seen.set(record.id, record);
+      if (!record || seen.has(record.id)) continue;
+      seen.set(record.id, record);
+      if (baseline.includes(index)) silentIds.push(record.id);
     }
+  });
   // An empty sitemap is a failed read of a site that certainly still has pages.
   if (!seen.size) throw new Error(`Sitemap for ${site.name} listed no usable pages`);
+  if (seen.size > MAX_PAGES) throw new Error(`Sitemap for ${site.name} lists more than ${MAX_PAGES} pages`);
   return {
     source: `pages:${site.id}`,
     stream: "pages",
     url: site.sitemap,
     raw: { pages: seen.size },
-    records: [...seen.values()].slice(0, MAX_PAGES),
+    records: [...seen.values()],
     forget: (id) => inIgnoredSection(id, site),
+    ...(silentIds.length ? { silentIds } : {}),
   };
 }
 
+/**
+ * `readBefore` is the child sitemaps the previous successful read followed, or null when none is
+ * recorded. A child not among them is a baseline: its pages were published before this service
+ * read them, and announcing them would be a flood of old pages, not news.
+ */
 export async function collectSitePages(
   site: WatchedSite,
   request: Fetch = fetch,
   cache?: HttpCache,
+  readBefore: readonly string[] | null = null,
 ): Promise<Collection> {
   const headers = { accept: "application/xml" };
   const root = await fetchText(site.sitemap, headers, request, undefined, cache);
   const { children } = parseXml(root);
   if (!children.length) return parseSitemap([root], site);
+  if (children.length > MAX_CHILD_SITEMAPS)
+    throw new Error(`Sitemap for ${site.name} lists more than ${MAX_CHILD_SITEMAPS} child sitemaps`);
   const payloads: string[] = [];
-  for (const child of children.slice(0, MAX_CHILD_SITEMAPS))
-    payloads.push(await fetchText(child, headers, request, undefined, cache));
-  return parseSitemap(payloads, site);
+  for (const child of children) payloads.push(await fetchText(child, headers, request, undefined, cache));
+  const baseline = readBefore
+    ? children.flatMap((child, index) => (readBefore.includes(child) ? [] : [index]))
+    : children.map((_, index) => index);
+  const collection = parseSitemap(payloads, site, baseline);
+  return { ...collection, raw: { pages: collection.records.length, children } };
 }

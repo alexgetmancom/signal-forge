@@ -1,5 +1,5 @@
 import type { Fetch } from "../http-client.js";
-import { freshUntil, type HttpCache } from "../storage/httpCache.js";
+import { type CacheEntry, freshUntil, type HttpCache } from "../storage/httpCache.js";
 
 /** How long the channel is given to come back before an observation is called a failure. */
 export const RETRY_DELAYS_MS = [3_000, 9_000];
@@ -75,15 +75,18 @@ export async function fetchText(
 ): Promise<string> {
   let response: Response | undefined;
   const origin = new URL(url).origin;
-  const cached = send ? null : (cache?.get(url) ?? null);
-  if (cached && cached.freshUntil > Date.now()) {
-    cache?.touch(url, cached.freshUntil);
-    return cached.body;
-  }
-  const conditional: Record<string, string> = {};
-  if (cached?.etag) conditional["if-none-match"] = cached.etag;
-  else if (cached?.lastModified) conditional["if-modified-since"] = cached.lastModified;
+  let cached: CacheEntry | null = null;
   for (let hop = 0; hop < 4; hop++) {
+    // Validators belong to the URL that issued them. A redirect asks again about the target with
+    // the target's own cache entry, or a 304 from it would hand back the body of the start URL.
+    cached = send ? null : (cache?.get(url) ?? null);
+    if (cached && cached.freshUntil > Date.now()) {
+      cache?.touch(url, cached.freshUntil);
+      return cached.body;
+    }
+    const conditional: Record<string, string> = {};
+    if (cached?.etag) conditional["if-none-match"] = cached.etag;
+    else if (cached?.lastModified) conditional["if-modified-since"] = cached.lastModified;
     response = await attempt(
       url,
       request,
@@ -115,14 +118,18 @@ export async function fetchText(
   // AWS WAF answers a challenged client with a CAPTCHA page under an unrelated status code, so
   // the status alone reads as a broken endpoint. Naming it correctly matters: the answer to being
   // challenged is to ask less often, never to look like something else.
-  if (response.headers.get("x-amzn-waf-action") || response.headers.get("cf-mitigated"))
+  if (response.headers.get("x-amzn-waf-action") || response.headers.get("cf-mitigated")) {
+    await response.body?.cancel();
     throw new Error("Source challenged by bot protection");
-  if (!response.ok)
+  }
+  if (!response.ok) {
+    await response.body?.cancel();
     throw new SourceHttpError(
       `Source returned HTTP ${response.status}`,
       response.status === 429 ? retryAt(response.headers) : null,
       response.status,
     );
+  }
   const reader = response.body?.getReader();
   if (!reader) throw new Error("Source returned no body");
   const chunks: Uint8Array[] = [];

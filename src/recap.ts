@@ -66,7 +66,6 @@ export const recapContextSchema = z.object({
     }),
   ),
   codenameCount: z.number(),
-  bestLead: z.object({ name: z.string(), hours: z.number() }).nullable(),
   leaders: z.array(z.object({ board: z.string(), name: z.string() })).default([]),
 });
 export type RecapContext = z.infer<typeof recapContextSchema>;
@@ -329,7 +328,6 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
         )
         .map(({ event }) => modelSubject(nameOf(event))),
     ).size,
-    bestLead: null,
   });
 }
 

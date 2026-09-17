@@ -20,9 +20,9 @@ export class RuntimeSupervisor {
 
     const resources = [...this.resources].reverse();
     this.resources.clear();
-    this.stopPromise = (async () => {
-      for (const resource of resources) await resource.stop();
-    })();
+    // Each worker waits out its own current cycle; waiting for them one after another would make
+    // shutdown the sum of every cycle in flight instead of the longest one, past the grace period.
+    this.stopPromise = Promise.all(resources.map((resource) => resource.stop())).then(() => undefined);
     await this.stopPromise;
   }
 }

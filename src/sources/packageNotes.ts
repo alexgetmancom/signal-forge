@@ -52,7 +52,7 @@ export async function packageReleaseNotes(
   const released = version(event);
   if (!repository || !released) return null;
   const payload = await fetchText(
-    `https://api.github.com/repos/${repository}/releases?per_page=30`,
+    `https://api.github.com/repos/${repository}/releases?per_page=100`,
     {
       accept: "application/vnd.github+json",
       ...(config.GITHUB_TOKEN ? { Authorization: `Bearer ${config.GITHUB_TOKEN}` } : {}),
@@ -60,7 +60,10 @@ export async function packageReleaseNotes(
     request,
   );
   const published = releases.parse(JSON.parse(payload)).filter((release) => !release.draft);
-  const match = published.find((release) => release.tag_name.includes(released));
+  // The version ends the tag and is not the start of a longer one: `v1.2.3` and `pkg@1.2.3`, never
+  // `v1.2.30`.
+  const tag = new RegExp(`(?:^|[^0-9.])${released.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`);
+  const match = published.find((release) => tag.test(release.tag_name));
   if (!match) return null;
   const body = match.body?.trim();
   return body ? `RELEASE ${match.tag_name}\n\n${body}`.slice(0, MAX_NOTES_CHARS) : null;

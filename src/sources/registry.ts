@@ -5,6 +5,7 @@ import { SOURCE_AUTHORITIES } from "../events/confidence.js";
 import type { Collection, SourceAuthority } from "../events/types.js";
 import { measure } from "../runtime/metrics.js";
 import { HttpCache } from "../storage/httpCache.js";
+import { readLatestSnapshot } from "../storage/snapshots.js";
 import { collectArtificialAnalysis, collectMediaArena, MEDIA_ARENAS } from "./analysis.js";
 import { APP_STORE_APPS, collectAppStore } from "./apps.js";
 import { collectArena, collectLeaderboards } from "./arena.js";
@@ -90,6 +91,13 @@ export type SourceDefinition = {
  * from their collector-specific lists, but their operational metadata is defined here beside the
  * static sources.
  */
+/** The child sitemaps the last stored read of a site followed, or null when it recorded none. */
+function childSitemapsRead(db: Database, source: string): string[] | null {
+  const payload = readLatestSnapshot(db, source);
+  const children = payload ? (JSON.parse(payload) as { children?: unknown }).children : undefined;
+  return Array.isArray(children) ? children.filter((child): child is string => typeof child === "string") : null;
+}
+
 export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefinition[] {
   const cache = new HttpCache(db);
   const requested = (id: string): boolean => config.sourceEnabled[id] ?? true;
@@ -658,7 +666,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
         // One collection reads a site's index and its sections in sequence, so the requests are
         // already paced by the collector itself.
         intervalSeconds: 3600 + index * 300,
-        collector: () => collectSitePages(site, fetch, cache),
+        collector: () => collectSitePages(site, fetch, cache, childSitemapsRead(db, `pages:${site.id}`)),
         enabled: requested(`pages:${site.id}`),
       }),
     ),

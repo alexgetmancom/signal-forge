@@ -10,6 +10,7 @@ import { parseCursorChangelog, parseDesignArena } from "../src/sources/community
 import { parseDeepSeekModels, parseDeepSeekPricing, parseDeepSeekUpdates } from "../src/sources/deepseek.js";
 import { parseAnthropicDeprecations, parseOpenAIDeprecations } from "../src/sources/deprecations.js";
 import {
+  calendarDate,
   collectOpenAICodexChangelog,
   parseAnthropicSdkReleases,
   parseClaudeCodeChangelog,
@@ -954,7 +955,7 @@ test("npm keeps the channels people install and drops the per-platform copies", 
       "darwin-arm64": "0.153.4-darwin-arm64",
       "linux-x64": "0.153.4-linux-x64",
     },
-    time: { "0.153.4": "2026-09-08T00:00:00.000Z" },
+    time: { "0.153.4": "2026-09-08T00:00:00.000Z", "0.154.0-alpha.7": "2026-09-09T00:00:00.000Z" },
   });
   const ids = parseNpm(payload).records.map((record) => record.id);
   // One alpha bump used to arrive as seven identical messages, one per architecture.
@@ -1164,4 +1165,69 @@ test("a Kimi Code release is dated from its own entry, and a month without a day
 
 test("a Kimi Code page that stopped carrying dated entries is a failed read", () => {
   expect(() => parseKimiCodeChangelog('<div class="wn-entry"></div>')).toThrow();
+});
+
+test("a redirect asks about its target with the target's own validators", async () => {
+  const db = openDatabase(":memory:");
+  const cache = new HttpCache(db);
+  const start = "https://example.test/start";
+  const target = "https://example.test/final";
+  cache.put(start, { etag: '"start"', lastModified: null, freshUntil: 0, body: "start body" });
+  const seen: { url: string; etag: string | null }[] = [];
+  const request = async (url: string, init?: RequestInit) => {
+    const etag = new Headers(init?.headers).get("if-none-match");
+    seen.push({ url, etag });
+    if (url === start) return new Response(null, { status: 301, headers: { location: target } });
+    // A server that answers any validator with 304 would otherwise hand back the start URL's body.
+    if (etag) return new Response(null, { status: 304 });
+    return new Response("final body", { status: 200, headers: { etag: '"final"' } });
+  };
+  expect(await fetchText(start, {}, request, undefined, cache)).toBe("final body");
+  expect(seen).toEqual([
+    { url: start, etag: '"start"' },
+    { url: target, etag: null },
+  ]);
+  expect(cache.get(target)?.body).toBe("final body");
+});
+
+test("cache directives are read regardless of case", () => {
+  expect(freshUntil("Public, Max-Age=600, Immutable", 0)).toBe(600_000);
+});
+
+test("the cache budget is measured in bytes, not characters", () => {
+  const db = openDatabase(":memory:");
+  const cache = new HttpCache(db);
+  cache.put("https://example.test/wide", { etag: '"w"', lastModified: null, freshUntil: 0, body: "é" });
+  const size = db
+    .query<{ bytes: number }, []>("SELECT LENGTH(CAST(body AS BLOB)) AS bytes FROM http_cache")
+    .get()?.bytes;
+  expect(size).toBe(2);
+});
+
+test("a private Hugging Face repository is not recorded, let alone as public", () => {
+  const model = (id: string, isPrivate: boolean) => ({
+    id,
+    author: "deepseek-ai",
+    createdAt: "2026-04-24T00:00:00.000Z",
+    tags: [],
+    private: isPrivate,
+  });
+  const parsed = parseHuggingFace(
+    JSON.stringify([model("deepseek-ai/Open", false), model("deepseek-ai/Hidden", true)]),
+    "deepseek-ai",
+  );
+  expect(parsed.records.map((record) => record.id)).toEqual(["deepseek-ai/Open"]);
+});
+
+test("a tagged npm version without a publication time is a malformed document", () => {
+  const payload = JSON.stringify({ name: "@openai/codex", "dist-tags": { latest: "0.153.4" }, time: {} });
+  expect(() => parseNpm(payload)).toThrow("no publication time");
+});
+
+test("a date naming a day its month does not have is rejected, not rolled into the next month", () => {
+  expect(calendarDate("Mon, 30 Feb 2026 10:00:00 GMT")).toBeNull();
+  expect(calendarDate("Feb 29, 2027 UTC")).toBeNull();
+  expect(calendarDate("2026-02-30T00:00:00Z")).toBeNull();
+  expect(calendarDate("Thu, 17 Sep 2026 10:00:00 GMT")?.toISOString()).toBe("2026-09-17T10:00:00.000Z");
+  expect(calendarDate("Feb 29, 2028 UTC")?.toISOString()).toBe("2028-02-29T00:00:00.000Z");
 });

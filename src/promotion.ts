@@ -51,7 +51,11 @@ function roomAndWire(config: AppConfig): { room: DiscordDestination; wire: Desti
 }
 
 async function read<T>(url: string, config: AppConfig, request: Fetch, schema: z.ZodType<T>): Promise<T | null> {
-  const response = await request(url, { headers: { Authorization: `Bot ${config.DISCORD_BOT_TOKEN}` } });
+  const response = await request(url, {
+    headers: { Authorization: `Bot ${config.DISCORD_BOT_TOKEN}` },
+    // Without a bound, one stalled Discord connection holds shutdown open until the host kills it.
+    signal: AbortSignal.timeout(20_000),
+  });
   if (!response.ok) {
     // The address carries a channel id and nothing secret, and the body may carry anything.
     log("warn", "Reaction read rejected", { status: response.status });

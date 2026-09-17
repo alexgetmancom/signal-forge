@@ -417,6 +417,7 @@ async function sendBoard(
       return "edited";
     }
     // The board was deleted by hand; posting a fresh one is the recovery, not an error to retry.
+    await edited.body?.cancel();
     if (edited.status !== 404) {
       log("warn", "Board edit rejected", { board: key, status: edited.status });
       // A rejected edit leaves the last version standing in the channel, which reads to everybody
@@ -434,6 +435,7 @@ async function sendBoard(
     redirect: "error",
   });
   if (!created.ok) {
+    await created.body?.cancel();
     log("warn", "Board post rejected", { board: key, status: created.status });
     recordBoardFailure(db, key, `Discord refused the post with HTTP ${created.status}`, now);
     return "unchanged";
@@ -474,7 +476,8 @@ export function platformEmbed(db: Database, now = Date.now()): Record<string, un
       incidents?: { name: string; status: string; impact: string }[];
     };
     const indicator = raw.indicator ?? "none";
-    if ((INDICATOR_RANK[indicator] ?? 0) > (INDICATOR_RANK[worst] ?? 0)) worst = indicator;
+    // An indicator this board does not know is not a healthy one: it reads as degraded until named.
+    if ((INDICATOR_RANK[indicator] ?? INDICATOR_RANK.minor ?? 0) > (INDICATOR_RANK[worst] ?? 0)) worst = indicator;
     lines.push(`${INDICATORS[indicator] ?? "⚪"} **${platform.name}** — ${raw.headline ?? "unknown"}`);
     for (const incident of (raw.incidents ?? []).slice(0, 3))
       lines.push(`　└ ${incident.name} (${incident.status}, ${incident.impact})`);

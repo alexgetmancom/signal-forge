@@ -69,8 +69,9 @@ export class HttpCache {
   /** Drops least recently used entries until the cache fits its budget. */
   private evictToBudget(): number {
     const total =
-      this.db.query<{ bytes: number | null }, []>("SELECT SUM(LENGTH(body)) AS bytes FROM http_cache").get()?.bytes ??
-      0;
+      this.db
+        .query<{ bytes: number | null }, []>("SELECT SUM(LENGTH(CAST(body AS BLOB))) AS bytes FROM http_cache")
+        .get()?.bytes ?? 0;
     if (total <= BUDGET_BYTES) return 0;
     let dropped = 0;
     let remaining = total;
@@ -78,7 +79,7 @@ export class HttpCache {
     while (remaining > BUDGET_BYTES) {
       const victims = this.db
         .query<{ url: string; size: number }, []>(
-          "SELECT url, LENGTH(body) AS size FROM http_cache ORDER BY used_at LIMIT 50",
+          "SELECT url, LENGTH(CAST(body AS BLOB)) AS size FROM http_cache ORDER BY used_at LIMIT 50",
         )
         .all();
       if (!victims.length) return dropped;
@@ -99,7 +100,7 @@ export class HttpCache {
  * exist to report, so anything else revalidates on the next observation.
  */
 export function freshUntil(cacheControl: string | null, now = Date.now()): number {
-  if (!cacheControl || !/\bimmutable\b/.test(cacheControl)) return 0;
-  const maxAge = Number(cacheControl.match(/\bmax-age=(\d+)/)?.[1] ?? 0);
+  if (!cacheControl || !/\bimmutable\b/i.test(cacheControl)) return 0;
+  const maxAge = Number(cacheControl.match(/\bmax-age=(\d+)/i)?.[1] ?? 0);
   return maxAge > 0 ? now + Math.min(maxAge, 30 * 24 * 3600) * 1000 : 0;
 }

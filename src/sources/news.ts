@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Collection } from "../events/types.js";
 import { vendorOfName } from "../events/vendors.js";
 import type { Fetch } from "../http-client.js";
+import { calendarDate } from "./feeds.js";
 import { decodeHtml } from "./html.js";
 import { fetchText } from "./http.js";
 
@@ -44,10 +45,16 @@ export function parseOpenAINews(text: string): Collection {
         .replace(/<[^>]+>/g, " ")
         .replace(/\s+/g, " ")
         .trim(),
-      published: new Date(item.pubDate).toISOString(),
+      published: newsDate(item.pubDate),
     })),
   };
 }
+function newsDate(value: string): string {
+  const date = calendarDate(value);
+  if (!date) throw new Error(`Source news item has invalid publication date: ${value}`);
+  return date.toISOString();
+}
+
 export async function collectOpenAINews(request: Fetch = fetch): Promise<Collection> {
   return parseOpenAINews(await fetchText("https://openai.com/news/rss.xml", {}, request));
 }
@@ -63,7 +70,7 @@ export function parseAnthropicNews(html: string): Collection {
       name: decodeHtml(match[4] ?? "").trim(),
       url: `https://www.anthropic.com${path}`,
       category: decodeHtml(match[3] ?? "").trim() || null,
-      published: new Date(`${match[2]} UTC`).toISOString(),
+      published: newsDate(`${match[2]} UTC`),
     };
   });
   if (!records.length) throw new Error("Anthropic newsroom entries not found");

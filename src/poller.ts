@@ -95,6 +95,7 @@ async function collectDueSources(db: Database, config: AppConfig, force: boolean
   for (const job of jobs) {
     const last = rows.get(job.id);
     const now = Date.now();
+    // Even a forced run waits out a server's own Retry-After: asking early is what earned it.
     if (last?.retry_at && Date.parse(last.retry_at) > now) continue;
     if (!force && !due(last?.checked_at ?? null, job.intervalSeconds, last?.failures ?? 0, now)) continue;
     if (job.pace && now - (pacedAt.get(job.pace.group) ?? 0) < job.pace.seconds * 1000) continue;
@@ -115,10 +116,22 @@ async function collectDueSources(db: Database, config: AppConfig, force: boolean
         const collection = { ...collected, authority: job.authority, ...(job.vendor ? { vendor: job.vendor } : {}) };
         const checkedAt = new Date().toISOString();
         const destinations = job.mode === "shadow" ? [] : config.destinations;
+        // The backoff is cleared in the transaction that stores the read: a crash between the two
+        // would otherwise leave a source that just succeeded waiting out an old retry time.
         const events = measure(db, `source.persist:${job.id}`, () =>
-          saveCollection(db, collection, destinations, checkedAt, config.vendorRoles, config.allSignalsRole),
+          db.transaction(() => {
+            const emitted = saveCollection(
+              db,
+              collection,
+              destinations,
+              checkedAt,
+              config.vendorRoles,
+              config.allSignalsRole,
+            );
+            db.query("UPDATE sources SET failures=0,retry_at=NULL,failure_started_at=NULL WHERE id=?").run(job.id);
+            return emitted;
+          })(),
         );
-        db.query("UPDATE sources SET failures=0,retry_at=NULL,failure_started_at=NULL WHERE id=?").run(job.id);
         if (job.pace) pacedAt.set(job.pace.group, Date.parse(checkedAt));
         log("info", "Source collected", { source: job.id, records: collection.records.length, events });
       } catch (error) {

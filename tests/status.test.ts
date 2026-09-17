@@ -616,3 +616,15 @@ test("a board Discord refuses is an actionable issue rather than a channel that 
   expect(listActionableIssues(db, withStatus, now).some((entry) => entry.kind === "board_stalled")).toBe(false);
   db.close();
 });
+
+test("an indicator the board does not know is not reported as healthy", () => {
+  const db = openDatabase(":memory:");
+  storeSnapshot(
+    db,
+    "status:openai",
+    "2026-09-08T12:00:00.000Z",
+    JSON.stringify({ headline: "Something new", indicator: "degraded_performance", incidents: [] }),
+  );
+  const embed = platformEmbed(db, Date.parse("2026-09-08T12:00:00.000Z")) as { color: number };
+  expect(embed.color).not.toBe(0x2ecc71);
+});

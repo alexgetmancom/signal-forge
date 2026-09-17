@@ -131,6 +131,8 @@ export async function collectGithubDiscovery(
     ),
   );
   const data = githubSearchSchema.parse(body);
+  // GitHub stops a search that runs out of time and says so; a partial page is not the ranking.
+  if (data.incomplete_results) throw new Error("GitHub search returned incomplete results");
   const records: RecordData[] = data.items
     .filter((repository) => !repository.fork && !repository.archived)
     .map((repository) => {

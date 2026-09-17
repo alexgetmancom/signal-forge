@@ -25,7 +25,7 @@ const payload = JSON.stringify([
 
 test("a version bump is answered with what that version actually contained", async () => {
   const notes = await packageReleaseNotes(bump("npm:@openai/codex", "0.154.0"), config, async (url) => {
-    expect(String(url)).toBe("https://api.github.com/repos/openai/codex/releases?per_page=30");
+    expect(String(url)).toBe("https://api.github.com/repos/openai/codex/releases?per_page=100");
     return new Response(payload);
   });
   expect(notes).toContain("GPT-6-Astra");
@@ -53,6 +53,21 @@ test("a draft release is not a release", async () => {
     bump("npm:@openai/codex", "0.154.0"),
     config,
     async () => new Response(JSON.stringify([{ tag_name: "rust-v0.154.0", body: "unpublished", draft: true }])),
+  );
+  expect(notes).toBeNull();
+});
+
+test("a version is not found inside a longer version that starts with it", async () => {
+  const notes = await packageReleaseNotes(
+    bump("npm:@openai/codex", "0.154.0"),
+    config,
+    async () =>
+      new Response(
+        JSON.stringify([
+          { tag_name: "rust-v0.154.01", body: "a later release" },
+          { tag_name: "rust-v10.154.0", body: "another project line" },
+        ]),
+      ),
   );
   expect(notes).toBeNull();
 });

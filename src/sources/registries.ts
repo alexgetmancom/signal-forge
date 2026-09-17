@@ -58,9 +58,8 @@ export const HF_AUTHORS = [
 ];
 
 export function parseHuggingFace(payload: string, author: string): Collection {
-  const models = hfModels.parse(JSON.parse(payload));
-  if (models.every((model) => model.private))
-    throw new Error(`Hugging Face catalogue for ${author} has no public models`);
+  const models = hfModels.parse(JSON.parse(payload)).filter((model) => !model.private);
+  if (!models.length) throw new Error(`Hugging Face catalogue for ${author} has no public models`);
   return {
     source: `huggingface:${author}`,
     stream: "weights",
@@ -121,6 +120,13 @@ export const PYPI_PACKAGES = ["openai", "anthropic", "mistralai"];
  */
 const PLATFORM_TAG = /(^|-)(win32|darwin|linux|freebsd|android|x64|arm64|arm|ia32|musl|glibc)(-|$)/;
 
+/** npm stamps every version it publishes; a tagged version without a stamp is a malformed document. */
+function publishedAt(time: Record<string, string>, name: string, version: string): string {
+  const published = time[version];
+  if (!published) throw new Error(`npm package ${name} has no publication time for ${version}`);
+  return published;
+}
+
 export function parseNpm(payload: string): Collection {
   const data = npmPackage.parse(JSON.parse(payload));
   const tags = Object.fromEntries(Object.entries(data["dist-tags"]).filter(([tag]) => !PLATFORM_TAG.test(tag)));
@@ -136,7 +142,7 @@ export function parseNpm(payload: string): Collection {
       name: `${data.name}@${tag}`,
       url: `https://www.npmjs.com/package/${data.name}/v/${version}`,
       version,
-      published: data.time[version] ?? null,
+      published: publishedAt(data.time, data.name, version),
     })),
   };
 }

@@ -89,21 +89,30 @@ test("shadow polling keeps events and metrics but creates no delivery work", asy
 });
 
 describe("RuntimeSupervisor", () => {
-  test("stops registered resources in reverse order", async () => {
-    const events: string[] = [];
+  test("stops every resource at once, so shutdown lasts as long as the slowest", async () => {
+    const started: string[] = [];
+    let release: () => void = () => {};
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
     const supervisor = new RuntimeSupervisor();
     supervisor.register({
-      stop: () => {
-        events.push("first");
+      stop: async () => {
+        started.push("first");
+        await held;
       },
     });
     supervisor.register({
       stop: async () => {
-        events.push("second");
+        started.push("second");
+        await held;
       },
     });
-    await supervisor.stop();
-    expect(events).toEqual(["second", "first"]);
+    const stopping = supervisor.stop();
+    await sleep(0);
+    expect(started.sort()).toEqual(["first", "second"]);
+    release();
+    await stopping;
   });
 
   test("stops each resource once, however often stop is called", async () => {

@@ -10,6 +10,7 @@ import {
   MESSAGE_CHARACTERS,
   pageEmbeds,
 } from "../src/events/render/budget.js";
+import { SIGNAL_CLASSES } from "../src/events/signals.js";
 import type { Collection } from "../src/events/types.js";
 import { listActionableIssues } from "../src/issues.js";
 import { openDatabase } from "../src/storage/database.js";
@@ -484,5 +485,78 @@ test("a message turned away for hours becomes a failure an operator can see", as
   // It stops trying once it has failed, rather than retrying for ever.
   expect(attempts).toBe(8);
   expect(listActionableIssues(local, config).map((issue) => issue.kind)).toContain("delivery_failed");
+  local.close();
+});
+
+test("a digest past its cap says why each withheld story stayed quiet, and every part names what it carried", () => {
+  const local = openDatabase(":memory:");
+  const everything: Destination[] = [
+    { id: "tg", platform: "telegram", chatId: "-1", signals: [...SIGNAL_CLASSES] },
+    { id: "dc", platform: "discord", channelId: "1", signals: [...SIGNAL_CLASSES] },
+  ];
+  const status = (ids: string[]): Collection => ({
+    source: "status:openai",
+    stream: "incidents",
+    url: "https://status.openai.com",
+    raw: ids,
+    records: ids.map((id) => ({
+      id,
+      name: `OpenAI: Elevated errors on service ${id}`,
+      impact: "minor",
+      stage: "investigating",
+    })),
+  });
+  saveCollection(local, status(["seed"]), everything, "2026-09-08T10:00:00.000Z");
+  saveCollection(local, status(["seed", "s1", "s2", "s3", "s4", "s5", "s6"]), everything, "2026-09-08T10:15:00.000Z");
+  prepareDeliveries(local, Date.parse("2026-09-08T12:00:00.000Z"));
+
+  for (const destination of ["tg", "dc"]) {
+    const carried = local
+      .query<{ n: number }, [string]>(
+        "SELECT COUNT(*) AS n FROM delivery_events de JOIN deliveries d ON d.id=de.delivery_id WHERE d.destination_id=?",
+      )
+      .get(destination);
+    expect(carried?.n).toBe(5);
+    const quiet = local
+      .query<{ reason: string }, [string]>("SELECT reason FROM suppressions WHERE destination_id=?")
+      .all(destination);
+    expect(quiet).toEqual([{ reason: "past_the_digest_limit" }]);
+  }
+  local.close();
+});
+
+test("a Telegram digest split into parts links each story to the part that tells it", () => {
+  const local = openDatabase(":memory:");
+  const telegram: Destination[] = [{ id: "tg", platform: "telegram", chatId: "-1", signals: [...SIGNAL_CLASSES] }];
+  const status = (ids: string[]): Collection => ({
+    source: "status:openai",
+    stream: "incidents",
+    url: "https://status.openai.com",
+    raw: ids,
+    records: ids.map((id) => ({
+      id,
+      name: `OpenAI: Elevated errors on service ${id} ${"with a very long description ".repeat(40)}`,
+      impact: "minor",
+      stage: "investigating",
+    })),
+  });
+  saveCollection(local, status(["seed"]), telegram, "2026-09-08T10:00:00.000Z");
+  saveCollection(local, status(["seed", "s1", "s2", "s3", "s4", "s5"]), telegram, "2026-09-08T10:15:00.000Z");
+  prepareDeliveries(local, Date.parse("2026-09-08T12:00:00.000Z"));
+
+  const parts = local.query<{ id: number; body: string }, []>("SELECT id,body FROM deliveries ORDER BY part").all();
+  expect(parts.length).toBeGreaterThan(1);
+  const links = local
+    .query<{ entity_id: string; delivery_id: number }, []>(
+      "SELECT e.entity_id,de.delivery_id FROM delivery_events de JOIN events e ON e.id=de.event_id",
+    )
+    .all();
+  for (const id of ["s1", "s2", "s3", "s4", "s5"]) {
+    const bodies = parts.filter((part) => links.some((link) => link.entity_id === id && link.delivery_id === part.id));
+    expect(bodies.length).toBeGreaterThan(0);
+    expect(bodies.map((part) => part.body).join("")).toContain(`service ${id} `);
+  }
+  // The story cut in two is linked to both halves.
+  expect(links.length).toBeGreaterThan(5);
   local.close();
 });

@@ -25,6 +25,7 @@ const SUPPRESSION_REASONS = [
   "another_tier_of_a_listed_model",
   "published_by_a_followed_lab",
   "another_page_about_the_same_model",
+  "past_the_digest_limit",
 ] as const;
 
 export type SuppressionReason = (typeof SUPPRESSION_REASONS)[number];
@@ -61,6 +62,8 @@ function suppressionDetail(event: Event, reason: SuppressionReason): string {
       return "Trending weights the lab's own account already published here";
     case "another_page_about_the_same_model":
       return "A vendor page naming a model this destination was told about in the last day";
+    case "past_the_digest_limit":
+      return "The hourly digest showed its first five stories and this one came after them";
     case "alias_of_another_row":
       return "A row that points at whichever build is newest, not a model of its own";
   }

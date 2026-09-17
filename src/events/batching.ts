@@ -44,6 +44,7 @@ import {
 const DUPLICATE_STORY_WINDOW_MS = 6 * 3_600_000;
 /** How many stories an hourly digest shows before it stops being read at all. */
 const DIGEST_STORIES = 5;
+const SEPARATOR = "\n\n────────\n\n";
 
 /**
  * How long each of these events had already been visible through a different kind of source.
@@ -440,6 +441,11 @@ export function prepareDeliveries(
       const all = [...grouped.values()];
       const items = batch.digest ? all.slice(0, DIGEST_STORIES) : all;
       const withheld = all.length - items.length;
+      // A story past the cap is not delivered later either: the digest is sealed with it inside.
+      // It keeps a written reason like every other event that did not become a card.
+      for (const group of all.slice(items.length))
+        for (const event of group)
+          recordSuppression(db, event, target.destination_id, batch.id, "past_the_digest_limit", now);
       const source = sourceLabel(batch.source);
       // A digest of one story is a card; calling it a digest is a header spent on nothing.
       const header = batch.digest
@@ -449,19 +455,18 @@ export function prepareDeliveries(
         : speaking.length > 1
           ? `📡 ${source} · ${speaking.length} updates\n\n`
           : "";
-      const text = items
-        .map((group) => {
-          if (group.length > 1) return renderStoryText(group, destination.platform, summaries);
-          const event = group[0] as StoryRenderEvent;
-          const rendered = renderEvent(event, event.url, destination.platform, summaries.get(event.id));
-          const lines = rendered.split("\n");
-          const heading = lines[0] ?? `Update · ${sourceLabel(event.source)}`;
-          const footer = lines.slice(-2).join("\n");
-          const content = lines.slice(1, -2).join("\n").trim();
-          const compact = content.length > 800 ? `${content.slice(0, 800)}…` : content;
-          return [heading, compact, footer].filter(Boolean).join("\n");
-        })
-        .join("\n\n────────\n\n");
+      const blocks = items.map((group) => {
+        if (group.length > 1) return renderStoryText(group, destination.platform, summaries);
+        const event = group[0] as StoryRenderEvent;
+        const rendered = renderEvent(event, event.url, destination.platform, summaries.get(event.id));
+        const lines = rendered.split("\n");
+        const heading = lines[0] ?? `Update · ${sourceLabel(event.source)}`;
+        const footer = lines.slice(-2).join("\n");
+        const content = lines.slice(1, -2).join("\n").trim();
+        const compact = content.length > 800 ? `${content.slice(0, 800)}…` : content;
+        return [heading, compact, footer].filter(Boolean).join("\n");
+      });
+      const text = blocks.join(SEPARATOR);
       const store = (payload: string, part: number, carried: StoryRenderEvent[] = []) => {
         db.query(
           `INSERT INTO deliveries(batch_id,destination_id,destination_json,body,part,updated_at) VALUES(?,?,?,?,?,?)
@@ -550,8 +555,26 @@ export function prepareDeliveries(
         continue;
       }
       const parts = splitMessage(text, 3900 - header.length);
+      // A story is carried by every part its text reaches: a long one split across two messages
+      // was told by both. Parts are located by walking them through the text they were cut from.
+      const spans: [number, number][] = [];
+      let cursor = 0;
+      for (const body of parts) {
+        cursor = text.indexOf(body, cursor);
+        spans.push([cursor, cursor + body.length]);
+        cursor += body.length;
+      }
+      let offset = 0;
+      const told = parts.map((): StoryRenderEvent[] => []);
+      blocks.forEach((block, index) => {
+        const end = offset + block.length;
+        spans.forEach(([start, stop], part) => {
+          if (start < end && offset < stop) told[part]?.push(...(items[index] ?? []));
+        });
+        offset = end + SEPARATOR.length;
+      });
       parts.forEach((body, part) => {
-        store(header + body, part);
+        store(header + body, part, told[part]);
       });
       db.query(
         "DELETE FROM deliveries WHERE batch_id=? AND destination_id=? AND status='pending' AND attempts=0 AND part>=?",

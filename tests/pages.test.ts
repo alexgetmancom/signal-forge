@@ -150,3 +150,25 @@ test("a section the site stops reading is forgotten, not reported gone or refuse
   expect(db.query<{ n: number }, []>("SELECT COUNT(*) n FROM events").get()?.n).toBe(0);
   db.close();
 });
+
+test("a sitemap cut off mid-transfer is a failed read, not the pages before the cut", () => {
+  const cut = `<urlset><url><loc>https://www.anthropic.com/news/one</loc></url><url><loc>https://www.anthropic.com/news/tw`;
+  expect(() => parseSitemap([cut], site)).toThrow("not well-formed");
+});
+
+test("every child sitemap is read, and one this site never read before is a baseline, not news", async () => {
+  const children = Array.from({ length: 13 }, (_, index) => `https://www.anthropic.com/sitemap/part-${index}.xml`);
+  const responses: Record<string, string> = {
+    "https://www.anthropic.com/sitemap.xml": index(children),
+    ...Object.fromEntries(children.map((child, part) => [child, urlset([`/news/page-${part}`])])),
+  };
+  const request = async (url: string | URL | Request) => {
+    const body = responses[String(url)];
+    if (!body) throw new Error(`unexpected request: ${String(url)}`);
+    return new Response(body, { status: 200 });
+  };
+  const collection = await collectSitePages(site, request, undefined, children.slice(0, 12));
+  expect(collection.records).toHaveLength(13);
+  expect(collection.silentIds).toEqual(["/news/page-12"]);
+  expect(collection.raw).toEqual({ pages: 13, children });
+});
