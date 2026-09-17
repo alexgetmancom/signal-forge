@@ -10,6 +10,7 @@ import {
   MESSAGE_CHARACTERS,
   pageEmbeds,
 } from "../src/events/render/budget.js";
+import { logoFiles, sourceLogo, vendorLogo } from "../src/events/render/logos.js";
 import { SIGNAL_CLASSES } from "../src/events/signals.js";
 import type { Collection } from "../src/events/types.js";
 import { listActionableIssues } from "../src/issues.js";
@@ -559,4 +560,37 @@ test("a Telegram digest split into parts links each story to the part that tells
   // The story cut in two is linked to both halves.
   expect(links.length).toBeGreaterThan(5);
   local.close();
+});
+
+test("every maker and source with a logo has its file beside the renderer", () => {
+  const makers = [
+    "OpenAI",
+    "Anthropic",
+    "Google",
+    "xAI",
+    "DeepSeek",
+    "Qwen",
+    "NVIDIA",
+    "Moonshot",
+    "Z.ai",
+    "Meta",
+    "Mistral",
+    "MiniMax",
+    "ByteDance",
+    "Tencent",
+  ];
+  const sources = [
+    "openrouter",
+    "arena",
+    "arena-leaderboards",
+    "discovery:huggingface-trending",
+    "huggingface-blog-feed",
+    "designarena:image",
+    "cursor-changelog",
+    "gemini",
+  ];
+  const urls = [...makers.map(vendorLogo), ...sources.map(sourceLogo)];
+  expect(urls.every(Boolean)).toBe(true);
+  // Reading the files is the check: a mapping to a missing PNG throws when the message is sent.
+  expect(logoFiles({ embeds: urls.map((url) => ({ thumbnail: { url } })) })).toHaveLength(new Set(urls).size);
 });

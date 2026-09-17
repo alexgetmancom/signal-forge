@@ -16,10 +16,19 @@ const VENDOR_LOGOS: Record<string, string> = {
   DeepSeek: "deepseek",
   Qwen: "qwen",
   NVIDIA: "nvidia",
+  Moonshot: "moonshot",
+  "Z.ai": "zai",
+  Meta: "meta",
+  Mistral: "mistral",
+  MiniMax: "minimax",
+  ByteDance: "bytedance",
+  Tencent: "tencent",
 };
 
 const SOURCE_LOGOS: [RegExp, string][] = [
   [/^openrouter(?:-usage)?$/, "openrouter"],
+  [/^arena(?:-leaderboards)?$/, "arena"],
+  [/^(?:discovery:)?huggingface[-:]/, "huggingface"],
   [/^designarena:/, "designarena"],
   [/^cursor-/, "cursor"],
   [/^gemini(?:-|$)|^app:ios:gemini$/, "gemini"],
