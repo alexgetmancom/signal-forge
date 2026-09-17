@@ -476,6 +476,7 @@ test("a name's version and product line are read the way the makers write them",
   expect(signaturesConflict(of("Z.ai: GLM 5.3 Flash"), of("glm-5.3-flash-webdev"))).toBe(false);
   expect(signaturesConflict(of("DeepSeek Pro Latest"), of("deepseek-v4-pro-0424-high"))).toBe(false);
   expect(signaturesConflict(of("Qwen-Image-3.0-Pro"), of())).toBe(false);
+  expect(signaturesConflict(of("Gemini 3 Pro Preview", "Gemini Pro Latest"), of("gemini-3.1-pro"))).toBe(true);
 });
 
 test("Gemini 3.8 Flash is not filed under Gemini 3.1 Flash Lite for sharing three title words", () => {

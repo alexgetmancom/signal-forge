@@ -247,18 +247,18 @@ export function modelSignature(name: string): ModelSignature | null {
 }
 
 /**
- * True when two sets of names cannot describe one model: each side claims something, and no claim on
- * one side agrees with a claim on the other. A missing version agrees with any version; product
- * lines must match exactly, because Flash and Flash Lite are two models at every version.
+ * True when two sets of names cannot describe one model: no product line appears on both sides, or
+ * both sides name versions and share none. A name without a version bridges nothing: "Gemini Pro
+ * Latest" beside Gemini 3 Pro Preview is not a reason to take in gemini-3.1-pro as well.
  */
 export function signaturesConflict(left: readonly ModelSignature[], right: readonly ModelSignature[]): boolean {
   if (!left.length || !right.length) return false;
-  return !left.some((one) =>
-    right.some(
-      (other) =>
-        one.lines === other.lines && (one.version === null || other.version === null || one.version === other.version),
-    ),
-  );
+  if (!left.some((one) => right.some((other) => one.lines === other.lines))) return true;
+  const versions = (side: readonly ModelSignature[]) =>
+    new Set(side.flatMap((one) => (one.version === null ? [] : [one.version])));
+  const ours = versions(left);
+  const theirs = versions(right);
+  return ours.size > 0 && theirs.size > 0 && ![...ours].some((version) => theirs.has(version));
 }
 
 export function identitySignatures(identity: ModelIdentity): ModelSignature[] {
