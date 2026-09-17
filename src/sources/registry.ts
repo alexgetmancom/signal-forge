@@ -187,7 +187,8 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       vendor: "OpenAI",
       group: "Official developer feeds",
       stream: "news",
-      intervalSeconds: 1800,
+      // Answers 304 to a conditional request, measured 2026-09-17, so a poll that finds nothing costs no body.
+      intervalSeconds: 900,
       collector: () => collectOpenAIApiChangelog(fetch, cache),
       enabled: requested("openai-api-changelog"),
     },
@@ -209,7 +210,9 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       vendor: "Google",
       group: "Official news",
       stream: "news",
-      intervalSeconds: 1800,
+      // No validator, measured 2026-09-17; the stored snapshot is the parsed entries, so the database grows
+      // only when an entry does.
+      intervalSeconds: 900,
       collector: () => collectGeminiApiChangelog(fetch, cache),
       enabled: requested("gemini-api-changelog"),
     },
@@ -220,7 +223,9 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       vendor: "xAI",
       group: "Official news",
       stream: "news",
-      intervalSeconds: 1800,
+      // No validator, measured 2026-09-17; the stored snapshot is the parsed entries, so the database grows
+      // only when an entry does.
+      intervalSeconds: 900,
       collector: () => collectXaiReleaseNotes(fetch, cache),
       enabled: requested("xai-release-notes"),
     },
@@ -563,7 +568,9 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       vendor: "Google",
       group: "Official news",
       stream: "news",
-      intervalSeconds: 1800,
+      // No validator, measured 2026-09-17; the stored snapshot is the parsed entries, so the database grows
+      // only when an entry does.
+      intervalSeconds: 900,
       collector: () => collectGoogleAiBlog(fetch, cache),
       enabled: requested("google-ai-blog"),
     },
@@ -574,7 +581,8 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       vendor: "Google",
       group: "Official news",
       stream: "news",
-      intervalSeconds: 1800,
+      // Answers 304 to a conditional request, measured 2026-09-17, so a poll that finds nothing costs no body.
+      intervalSeconds: 900,
       collector: () => collectDeepMindBlog(fetch, cache),
       enabled: requested("deepmind-blog"),
     },
@@ -756,8 +764,10 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       authority: "third_party",
       group: "Catalogues",
       stream: "api-models",
-      // A quota dimension leads a listing by days, not minutes; hourly spends little of the budget.
-      intervalSeconds: 3600,
+      // Cloud Quotas allows 600 reads a minute and this is one. The page is 1.1 MB with no validator,
+      // but it parses to the same bytes when nothing moved, so a poll that finds nothing stores nothing.
+      // Measured on production 2026-09-17.
+      intervalSeconds: 300,
       capabilityId: "google-cloud",
       requiredCapabilities: ["GOOGLE_CLOUD_SERVICE_ACCOUNT"],
       collector: () => collectVertexQuotas(config),
@@ -770,7 +780,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       vendor: "xAI",
       group: "Catalogues",
       stream: "api-models",
-      intervalSeconds: 3600,
+      intervalSeconds: 300,
       capabilityId: "google-cloud",
       requiredCapabilities: ["GOOGLE_CLOUD_SERVICE_ACCOUNT"],
       collector: () => collectVertexModelGarden(config),
