@@ -434,8 +434,11 @@ export function prepareDeliveries(
       const items = batch.digest ? all.slice(0, DIGEST_STORIES) : all;
       const withheld = all.length - items.length;
       const source = sourceLabel(batch.source);
+      // A digest of one story is a card; calling it a digest is a header spent on nothing.
       const header = batch.digest
-        ? `🗞 Hourly digest · ${all.length} ${all.length === 1 ? "story" : "stories"}${withheld ? ` · showing ${items.length}` : ""}\n\n`
+        ? all.length > 1
+          ? `🗞 Hourly digest · ${all.length} stories${withheld ? ` · showing ${items.length}` : ""}\n\n`
+          : ""
         : speaking.length > 1
           ? `📡 ${source} · ${speaking.length} updates\n\n`
           : "";

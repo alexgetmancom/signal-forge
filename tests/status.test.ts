@@ -445,7 +445,7 @@ test("the platform registry includes the readable DeepSeek and Moonshot status f
     },
     {
       id: "anthropic",
-      url: "https://status.claude.com/api/v2/summary.json",
+      url: "https://anthropic.statuspage.io/api/v2/summary.json",
       page: "https://status.claude.com",
     },
     {

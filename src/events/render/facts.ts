@@ -1,8 +1,9 @@
 import { sourceLabel } from "../../sources/labels.js";
 import { canonical } from "../canonical.js";
-import { identityFor } from "../identity.js";
+import { identityFor, normalizeIdentity } from "../identity.js";
 import { SUBSTANTIVE_FIELDS } from "../oscillation.js";
 import type { Event, RecordData } from "../types.js";
+import { vendorOfName } from "../vendors.js";
 import {
   collapseDetails,
   compactCount,
@@ -25,6 +26,7 @@ import {
  */
 
 const COUNT_FIELDS = new Set(["context", "inputTokenLimit", "outputTokenLimit", "votes"]);
+const ZERO_IS_BLANK = new Set(["context", "input", "output", "inputTokenLimit", "outputTokenLimit", "parameters"]);
 /** An Elo score arrives as 1507.164171675996. Nobody reads past the first decimal. */
 const SCORE_FIELDS = new Set(["score", "scoreUpper", "scoreLower"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -51,10 +53,15 @@ function present(raw: unknown): boolean {
 function identityLine(event: Event, record: RecordData | null, title: string): string | null {
   const identity = identityFor(event, record);
   if (identity.status === "canonical") return null;
+  // `qwen-audio-3-0-tts-plus` beside the title `Qwen-Audio-3.0-TTS-Plus` is one name, not an alias.
   const aliases = identity.aliases.filter(
-    (alias) => !UUID.test(alias) && alias.toLowerCase() !== title.toLowerCase() && alias.trim().length > 0,
+    (alias) => !UUID.test(alias) && normalizeIdentity(alias) !== normalizeIdentity(title) && alias.trim().length > 0,
   );
-  if (identity.status === "unconfirmed" && !aliases.length) return "Unidentified model.";
+  if (identity.status === "unconfirmed" && !aliases.length) {
+    // `gemini-3.8-flash` on the arena names its maker; what is unconfirmed is that the maker said so.
+    const maker = vendorOfName(title);
+    return maker === "Unknown" ? "Unidentified model." : `Named like a ${maker} model; ${maker} has not confirmed it.`;
+  }
   if (!aliases.length) return null;
   return `Also known as ${aliases.join(", ")}`;
 }
@@ -250,8 +257,10 @@ export function eventFacts(event: Event & CardContext, summary?: string): string
         // that a field was empty, which is not a fact about the thing.
         if (present(raw)) lines.push(describe(raw));
       }
-      // A field a source left empty is absence of evidence, not a fact about the model.
-      else if (present(raw)) lines.push(`${fieldLabels[key] ?? key}: ${value(key, raw)}`);
+      // A field a source left empty is absence of evidence, not a fact about the model, and a count
+      // of zero is the same blank written as a number: no model has a context window of 0.
+      else if (present(raw) && !(ZERO_IS_BLANK.has(key) && Number(raw) === 0))
+        lines.push(`${fieldLabels[key] ?? key}: ${value(key, raw)}`);
     }
   }
 

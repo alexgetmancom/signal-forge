@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { AppConfig, Destination } from "./config.js";
 import { readableName } from "./events/naming.js";
-import { isOscillating, isScheduledPricingRotation } from "./events/oscillation.js";
+import { isScheduledPricingRotation } from "./events/oscillation.js";
 import { renamedEvents } from "./events/rename.js";
 import { priceMoveRatio, pricePair } from "./events/render/common.js";
 import { signalClass } from "./events/signals.js";
@@ -246,9 +246,8 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
   const byRow = new Map<string, { event: Event; name: string }[]>();
   for (const { event, signal } of classified) {
     if (signal !== "change") continue;
-    // The rules a card already lives by. A base rate rotating onto a tier the record itself
-    // publishes, or a level dithering back to where it was, is not a week's news either.
-    if (isScheduledPricingRotation(event) || isOscillating(db, event, Date.parse(to))) continue;
+    // A base rate rotating onto a tier the record itself publishes is not a move at all.
+    if (isScheduledPricingRotation(event)) continue;
     const row = byRow.get(`${event.source}\u0000${event.entity_id}`) ?? [];
     row.push({ event, name: nameOf(event) });
     byRow.set(`${event.source}\u0000${event.entity_id}`, row);
@@ -259,6 +258,12 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
     const last = row.at(-1)?.event;
     const name = row.at(-1)?.name ?? "";
     if (!first || !last) continue;
+    // A price that went both ways inside the period is a catalogue routing between providers, not a
+    // repricing. OpenRouter moved GLM 5.3 Flash 0.10 → 0.09 → 0.07 → 0.09 on 2026-09-16; dropping the
+    // step back as oscillation left the step down standing, and the day was reported 30% cheaper
+    // when it ended 10% cheaper. Neither figure is news, so the row says nothing.
+    const directions = new Set(row.flatMap(({ event }) => netPriceMoves(event, event).map((move) => move.cheaper)));
+    if (directions.size > 1) continue;
     const moves = netPriceMoves(first, last);
     // Input down and output up in the same edit is a repricing, not a cut; IBM's Granite was
     // reported seventy percent cheaper on a cached-read rate in the week its output got dearer.

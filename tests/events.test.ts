@@ -295,7 +295,9 @@ test("one story becomes one cross-source digest with every evidence link", () =>
   const telegram = local
     .query<{ body: string }, [string]>("SELECT body FROM deliveries WHERE destination_id=?")
     .get("tg")?.body;
-  expect(telegram).toContain("Hourly digest · 1 story");
+  // One story is a card, not a digest of one.
+  expect(telegram).not.toContain("Hourly digest");
+  expect(telegram).toStartWith("🧵 Story · GPT-5");
   expect(telegram).toContain("OpenRouter");
   expect(telegram).toContain("OpenAI API");
   expect(telegram).toContain("Evidence: https://openrouter.ai/models/gpt-5");
@@ -1099,4 +1101,44 @@ test("a launch that was sighted under a codename says which one", () => {
   expect(
     eventFacts({ ...launch, lead: { hours: 18, source: "npm:@google/genai", name: "@google/genai 2.0.0" } })[0],
   ).toBe("Traced 18 hours earlier · npm · @google/genai");
+});
+
+test("a card leaves out what is a blank or our own bookkeeping, and says whose name a sighting carries", () => {
+  const listing: Event = {
+    id: 3,
+    source: "vercel-gateway",
+    stream: "api-models",
+    entity_id: "typesafe-ai/jev",
+    kind: "new",
+    before_json: null,
+    after_json: JSON.stringify({
+      id: "typesafe-ai/jev",
+      name: "Jev",
+      context: 0,
+      output: 0,
+      pricing: { input: "0.000000042", output: "0" },
+      discoveryStatus: "notable",
+      notableReasons: ["novel-parameter-total"],
+    }),
+    detected_at: "2026-09-16T23:50:00.000Z",
+  };
+  const lines = eventFacts(listing).join("\n");
+  expect(lines).not.toMatch(/Context: 0|Returns: 0|Pricing output|discoveryStatus|notableReasons/);
+  expect(lines).toContain("Pricing input: 0.000000042");
+
+  const sighting: Event = {
+    id: 4,
+    source: "arena",
+    stream: "arena",
+    entity_id: "01a0ad5f-8570-7d44-88e5-53e1c0826aaf",
+    kind: "new",
+    before_json: null,
+    after_json: JSON.stringify({
+      id: "01a0ad5f-8570-7d44-88e5-53e1c0826aaf",
+      name: "gemini-3.8-flash",
+      selectable: true,
+    }),
+    detected_at: "2026-09-17T03:23:00.000Z",
+  };
+  expect(eventFacts(sighting)).toContain("Named like a Google model; Google has not confirmed it.");
 });

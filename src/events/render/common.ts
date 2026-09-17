@@ -13,6 +13,11 @@ export const NOISE = new Set([
   "sampledAt",
   // Said in words by the sentence about what a promised reset means.
   "expected",
+  // How discovery triaged a record, which is our bookkeeping rather than a fact about the model.
+  "discoveryStatus",
+  "notableReasons",
+  "attentionScore",
+  "attentionReasons",
 ]);
 
 export const fieldLabels: Record<string, string> = {
@@ -227,7 +232,9 @@ export function prices(before: unknown, after: unknown, source?: string): string
     const parts = Object.keys(shorthand)
       .filter((key) => next[key] !== undefined && next[key] !== null && next[key] !== "")
       .map((key) => `${money(next[key])} ${shorthand[key]}`);
-    const extras = Object.keys(next).filter((key) => !labels[key] && !shorthand[key]);
+    // A gateway that does not know a rate writes 0 rather than leaving it out: the Vercel AI Gateway
+    // listed Jev on 2026-09-16 with "Pricing output: 0", which reads as free and is a blank.
+    const extras = Object.keys(next).filter((key) => !labels[key] && !shorthand[key] && Number(next[key]) !== 0);
     return [
       ...(parts.length ? [`Price: ${parts.join(" · ")} / 1M tokens`] : []),
       ...extras.map((key) => `Pricing ${key}: ${describe(next[key])}`),

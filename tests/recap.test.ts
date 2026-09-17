@@ -303,3 +303,19 @@ test("the scouts get one morning message about what moved at the top of a board,
   expect(body).toContain("now leads text/overall");
   expect(body).not.toContain("<@&");
 });
+
+test("a price that went both ways inside the period is not reported as a move", () => {
+  const db = openDatabase(":memory:");
+  const row = (prompt: string): Collection => ({
+    source: "openrouter",
+    stream: "openrouter",
+    url: "https://openrouter.ai",
+    raw: [],
+    records: [{ id: "z-ai/glm-5.3-flash", name: "Z.ai: GLM 5.3 Flash", pricing: { prompt, completion: "0.0000003" } }],
+  });
+  saveCollection(db, row("0.0000001"), [], "2026-09-16T05:00:00.000Z");
+  saveCollection(db, row("0.00000009"), [], "2026-09-16T11:17:00.000Z");
+  saveCollection(db, row("0.00000007"), [], "2026-09-16T23:08:00.000Z");
+  saveCollection(db, row("0.00000009"), [], "2026-09-17T00:52:00.000Z");
+  expect(recapContext(db, "2026-09-17T06:00:00.000Z", "day").priceMoves).toEqual([]);
+});

@@ -46,12 +46,13 @@ export const PLATFORMS: { id: string; name: string; url: string; page: string; i
     page: "https://status.openai.com",
     interval: 300,
   },
-  // The Anthropic host redirects to status.claude.com, which is a different origin and therefore
-  // refused by the fetcher on purpose; the final address is used directly instead.
+  // `status.claude.com` answers every client with a CloudFront 405 challenge since 2026-09-17 01:30
+  // UTC, from production and from elsewhere alike. The Statuspage origin behind it serves the same
+  // page (`tymt9n04zgry`, "Claude") without the challenge, the way DeepSeek's does below.
   {
     id: "anthropic",
     name: "Anthropic",
-    url: "https://status.claude.com/api/v2/summary.json",
+    url: "https://anthropic.statuspage.io/api/v2/summary.json",
     page: "https://status.claude.com",
     interval: 900,
   },
