@@ -31,6 +31,8 @@ export type Collection = {
   /** A successful omission resolves a retained incident instead of deleting its evidence. */
   resolveMissing?: boolean;
   authority?: SourceAuthority;
+  /** Who the source answers for, as its registry entry declares; stored beside its authority. */
+  vendor?: string;
   /**
    * Stored records this source has stopped reading on purpose, such as a site section it now
    * ignores. They are dropped without a removal event and before the shrink guard compares counts.

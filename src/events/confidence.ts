@@ -61,63 +61,12 @@ export function evidenceTypeFor(source: string, stream: string, authority: Sourc
   return "unknown";
 }
 
-/** Ownership of the source surface, kept separate from its health and evidence confidence. */
-export function authorityForSource(source: string): SourceAuthority {
-  if (
-    [
-      "openai",
-      "anthropic",
-      "gemini",
-      "openai-news",
-      "openai-chatgpt-release-notes",
-      "openai-codex-changelog",
-      "openai-api-changelog",
-      "anthropic-news",
-      "gemini-api-changelog",
-      "xai-release-notes",
-      "mistral-release-notes",
-      "groq-changelog",
-      "deepseek-updates",
-      "deepseek-pricing",
-      "claude-code-changelog",
-      "anthropic-sdk-releases",
-      "codex-docs",
-      "claude-web",
-      "cursor-changelog",
-      "openai-deprecations",
-      "anthropic-deprecations",
-      "gemini-deprecations",
-      "vertex-deprecations",
-      "aws-bedrock-lifecycle",
-      "azure-foundry-lifecycle",
-      "groq-deprecations",
-      "cohere-deprecations",
-      "xai-deprecations",
-    ].includes(source) ||
-    source.startsWith("status:") ||
-    source.startsWith("deepseek:")
-  )
-    return "first_party";
-  if (
-    source.startsWith("huggingface:") ||
-    source === "huggingface-blog-feed" ||
-    source.startsWith("modelscope:") ||
-    source.startsWith("npm:") ||
-    source.startsWith("pypi:")
-  )
-    return "vendor_owned";
-  return "third_party";
-}
-
 /**
- * The evidence type of a stored event, falling back to the source contract for rows written before
- * the column existed. Renderers ask this rather than re-deriving the authority at each call site.
+ * The evidence type of an event, falling back to the source contract for one built in memory
+ * without it. Renderers ask this rather than re-deriving the evidence type at each call site.
  */
 export function eventEvidenceType(event: Event): EvidenceType {
-  return (
-    event.evidence_type ??
-    evidenceTypeFor(event.source, event.stream, event.authority ?? authorityForSource(event.source))
-  );
+  return event.evidence_type ?? evidenceTypeFor(event.source, event.stream, event.authority ?? "third_party");
 }
 
 export function evidenceLabel(type: EvidenceType): string {

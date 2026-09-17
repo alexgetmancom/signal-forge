@@ -68,6 +68,11 @@ test("an empty catalogue is a failed read, never an empty catalogue", async () =
   ).rejects.toThrow();
 });
 
+test("a catalogue that says it has another page is a failed read, never a shrunken catalogue", async () => {
+  const paged = JSON.stringify({ ...JSON.parse(payload), has_more: true, last_id: "glm-5" });
+  await expect(collectProviderCatalogue(zai, config, async () => new Response(paged))).rejects.toThrow();
+});
+
 test("a created that is only the time of the answer is not collected as a date", async () => {
   const mistral = provider("mistral");
   const answeredAt = Math.floor(Date.now() / 1000);

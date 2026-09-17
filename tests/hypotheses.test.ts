@@ -3,6 +3,7 @@ import { saveCollection } from "../src/events/pipeline.js";
 import type { Collection } from "../src/events/types.js";
 import { getHypothesis, listHypotheses, rebuildHypotheses } from "../src/hypotheses.js";
 import { openDatabase } from "../src/storage/database.js";
+import { registered } from "./registered.js";
 
 function introduce(
   db: ReturnType<typeof openDatabase>,
@@ -11,14 +12,15 @@ function introduce(
   record: Collection["records"][number],
   at: string,
 ): number {
-  const collection = (records: Collection["records"]): Collection => ({
-    source,
-    stream,
-    url: `https://example.test/${source}`,
-    raw: records,
-    appendOnly: true,
-    records,
-  });
+  const collection = (records: Collection["records"]): Collection =>
+    registered({
+      source,
+      stream,
+      url: `https://example.test/${source}`,
+      raw: records,
+      appendOnly: true,
+      records,
+    });
   saveCollection(db, collection([]), [], at);
   saveCollection(db, collection([record]), [], new Date(Date.parse(at) + 60_000).toISOString());
   return Number(db.query<{ id: number }, []>("SELECT MAX(id) AS id FROM events").get()?.id ?? 0);

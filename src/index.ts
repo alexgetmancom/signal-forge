@@ -15,7 +15,7 @@ import { logMemoryUsage, recordRuntimeStart, recordRuntimeStop } from "./runtime
 import { stopServerGracefully } from "./runtime/shutdown.js";
 import { RuntimeSupervisor } from "./runtime/supervisor.js";
 import { startIntervalWorker } from "./runtime/worker.js";
-import { buildSourceRegistry } from "./sources/registry.js";
+import { buildSourceRegistry, recordSourceIdentities } from "./sources/registry.js";
 import { BOARD_ORDER, publishBoard } from "./status.js";
 import { openDatabase } from "./storage/database.js";
 import { HttpCache } from "./storage/httpCache.js";
@@ -26,6 +26,7 @@ const config = loadConfig();
 configureLogger(config.NODE_ENV === "production");
 const db = openDatabase(config.DATABASE_URL);
 const storyProjection = db.transaction(() => {
+  recordSourceIdentities(db, buildSourceRegistry(db, config));
   const projection = rebuildStories(db);
   rebuildModelFacts(db);
   rebuildHypotheses(db);

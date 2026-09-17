@@ -4,6 +4,7 @@ import type { Collection } from "../src/events/types.js";
 import { getModelFacts, listModelFacts, rebuildModelFacts } from "../src/modelFacts.js";
 import { openDatabase } from "../src/storage/database.js";
 import { rebuildStories } from "../src/stories.js";
+import { registered } from "./registered.js";
 
 function observe(
   db: ReturnType<typeof openDatabase>,
@@ -15,7 +16,7 @@ function observe(
 ): void {
   saveCollection(
     db,
-    {
+    registered({
       source,
       stream,
       url: `https://example.test/${encodeURIComponent(source)}`,
@@ -23,7 +24,7 @@ function observe(
       appendOnly: true,
       ...options,
       records,
-    },
+    }),
     [],
     at,
   );
@@ -159,6 +160,21 @@ test("provider API availability comes only from first-party catalogues", () => {
   expect(getModelFacts(db, "openai/gpt-6")?.facts["availableInProviderApi:openai"]).toMatchObject({
     value: true,
     source: "openai",
+  });
+  db.close();
+});
+
+// Current records carry no authority, and a second list of it had every generic provider catalogue
+// reading as third-party: MiMo's own catalogue was `observed` and never made a provider-API fact.
+test("a generic provider catalogue's current records carry the authority its registry entry declares", () => {
+  const db = openDatabase(":memory:");
+  observe(db, "mimo", "api-models", [model()], "2026-09-10T00:00:00.000Z");
+  rebuildModelFacts(db);
+  expect(getModelFacts(db, "openai/gpt-6")?.facts["availableInProviderApi:mimo"]).toMatchObject({
+    value: true,
+    confidence: "confirmed",
+    evidenceType: "api_catalogue",
+    eventId: null,
   });
   db.close();
 });

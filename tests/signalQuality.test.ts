@@ -6,6 +6,7 @@ import { saveCollection } from "../src/events/pipeline.js";
 import type { Collection } from "../src/events/types.js";
 import { signalQuality } from "../src/signalQuality.js";
 import { openDatabase } from "../src/storage/database.js";
+import { registered } from "./registered.js";
 
 const config = loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname });
 const destination: Destination = {
@@ -213,14 +214,15 @@ test("signal quality measures independent first signals, confirmed lead time and
   };
   const modelOne = { id: "openai/model-one", name: "Model One", maker: "OpenAI" };
   const modelTwo = { id: "openai/model-two", name: "Model Two", maker: "OpenAI" };
-  const make = (source: string, stream: Collection["stream"], records: Collection["records"]): Collection => ({
-    source,
-    stream,
-    url: `https://example.test/${source}`,
-    raw: records,
-    appendOnly: true,
-    records,
-  });
+  const make = (source: string, stream: Collection["stream"], records: Collection["records"]): Collection =>
+    registered({
+      source,
+      stream,
+      url: `https://example.test/${source}`,
+      raw: records,
+      appendOnly: true,
+      records,
+    });
   saveCollection(db, make("openrouter", "openrouter", []), [], "2026-09-10T08:59:00.000Z");
   saveCollection(db, make("openrouter", "openrouter", [modelOne]), [], "2026-09-10T09:00:00.000Z");
   saveCollection(db, make("discovery:github-ai", "github", []), [], "2026-09-10T09:29:00.000Z");

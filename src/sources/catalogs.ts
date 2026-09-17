@@ -152,6 +152,8 @@ export async function collectGemini(config: AppConfig, request: Fetch = fetch): 
 export type ProviderCatalogue = {
   id: string;
   name: string;
+  /** The company answering for the catalogue, spelled as every other source of that company spells it. */
+  vendor: string;
   apiUrl: string;
   url: string;
   key: keyof AppConfig;
@@ -176,6 +178,7 @@ export const PROVIDER_CATALOGUES: ProviderCatalogue[] = [
   {
     id: "xai",
     name: "xAI",
+    vendor: "xAI",
     apiUrl: "https://api.x.ai/v1/models",
     url: "https://docs.x.ai/docs/models",
     key: "XAI_API_KEY",
@@ -183,6 +186,7 @@ export const PROVIDER_CATALOGUES: ProviderCatalogue[] = [
   {
     id: "zai",
     name: "Z.ai",
+    vendor: "Z.ai",
     apiUrl: "https://api.z.ai/api/paas/v4/models",
     url: "https://docs.z.ai/guides/llm/glm-4.6",
     key: "ZAI_API_KEY",
@@ -190,6 +194,7 @@ export const PROVIDER_CATALOGUES: ProviderCatalogue[] = [
   {
     id: "moonshot",
     name: "Moonshot",
+    vendor: "Moonshot",
     apiUrl: "https://api.moonshot.ai/v1/models",
     url: "https://platform.moonshot.ai/docs/pricing",
     key: "MOONSHOT_API_KEY",
@@ -198,6 +203,7 @@ export const PROVIDER_CATALOGUES: ProviderCatalogue[] = [
   {
     id: "mistral",
     name: "Mistral",
+    vendor: "Mistral",
     apiUrl: "https://api.mistral.ai/v1/models",
     url: "https://docs.mistral.ai/getting-started/models/models_overview/",
     key: "MISTRAL_API_KEY",
@@ -206,6 +212,7 @@ export const PROVIDER_CATALOGUES: ProviderCatalogue[] = [
   {
     id: "groq",
     name: "Groq",
+    vendor: "Groq",
     apiUrl: "https://api.groq.com/openai/v1/models",
     url: "https://console.groq.com/docs/models",
     key: "GROQ_API_KEY",
@@ -218,6 +225,7 @@ export const PROVIDER_CATALOGUES: ProviderCatalogue[] = [
   {
     id: "kimi",
     name: "Kimi",
+    vendor: "Moonshot",
     apiUrl: "https://api.kimi.com/coding/v1/models",
     url: "https://www.kimi.com/code/docs/kimi-code/models.html",
     key: "KIMI_API_KEY",
@@ -225,6 +233,7 @@ export const PROVIDER_CATALOGUES: ProviderCatalogue[] = [
   {
     id: "minimax",
     name: "MiniMax",
+    vendor: "MiniMax",
     apiUrl: "https://api.minimax.io/v1/models",
     url: "https://platform.minimax.io/docs/api-reference/text-anthropic-api",
     key: "MINIMAX_API_KEY",
@@ -234,6 +243,7 @@ export const PROVIDER_CATALOGUES: ProviderCatalogue[] = [
   {
     id: "dashscope",
     name: "Alibaba Model Studio",
+    vendor: "Alibaba",
     apiUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/models",
     url: "https://www.alibabacloud.com/help/en/model-studio/models",
     key: "DASHSCOPE_API_KEY",
@@ -243,6 +253,7 @@ export const PROVIDER_CATALOGUES: ProviderCatalogue[] = [
   {
     id: "cerebras",
     name: "Cerebras",
+    vendor: "Cerebras",
     apiUrl: "https://api.cerebras.ai/v1/models",
     url: "https://inference-docs.cerebras.ai/models/overview",
     key: "CEREBRAS_API_KEY",
@@ -250,6 +261,7 @@ export const PROVIDER_CATALOGUES: ProviderCatalogue[] = [
   {
     id: "mimo",
     name: "Xiaomi MiMo",
+    vendor: "Xiaomi",
     apiUrl: "https://api.xiaomimimo.com/v1/models",
     url: "https://mimo.mi.com/docs/en-US/api/model/list-models",
     key: "MIMO_API_KEY",
@@ -257,6 +269,7 @@ export const PROVIDER_CATALOGUES: ProviderCatalogue[] = [
   {
     id: "poolside",
     name: "Poolside",
+    vendor: "Poolside",
     apiUrl: "https://inference.poolside.ai/v1/models",
     url: "https://poolside.ai/models",
     key: "POOLSIDE_API_KEY",
@@ -270,15 +283,20 @@ const providerSchema = z.object({
         id: z.string().min(1),
         created: z.number().nullish(),
         owned_by: z.string().nullish(),
-        // Mistral and Groq add fields OpenAI never defined; they are evidence, not noise.
+        // Mistral, Groq, xAI, Moonshot and Poolside add fields OpenAI never defined; they are evidence,
+        // not noise. Each names the context window its own way.
         name: z.string().nullish(),
         description: z.string().nullish(),
         max_context_length: z.number().nullish(),
         context_window: z.number().nullish(),
+        context_length: z.number().nullish(),
         active: z.boolean().nullish(),
       }),
     )
     .min(1),
+  // Alibaba's compatible mode answers in pages and says so here. This collector reads one page, so
+  // a catalogue that has another is refused rather than stored as a shrunken one.
+  has_more: z.literal(false).nullish(),
 });
 
 export async function collectProviderCatalogue(
@@ -304,8 +322,8 @@ export async function collectProviderCatalogue(
       ...(model.created && !provider.createdIsResponseTime
         ? { created: new Date(model.created * 1000).toISOString() }
         : {}),
-      ...((model.context_window ?? model.max_context_length)
-        ? { context: model.context_window ?? model.max_context_length }
+      ...((model.context_window ?? model.max_context_length ?? model.context_length)
+        ? { context: model.context_window ?? model.max_context_length ?? model.context_length }
         : {}),
       ...(typeof model.active === "boolean" ? { selectable: model.active } : {}),
     })),

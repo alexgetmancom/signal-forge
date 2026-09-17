@@ -1,20 +1,12 @@
 import type { Database } from "bun:sqlite";
 import { canonical } from "./events/canonical.js";
-import { authorityForSource, confidenceFor, confidenceRank, evidenceTypeFor } from "./events/confidence.js";
+import { confidenceFor, confidenceRank, evidenceTypeFor } from "./events/confidence.js";
 import { identityFor, type ModelIdentity, mergeIdentities, normalizeIdentity } from "./events/identity.js";
 import { vendorOf } from "./events/interpretation.js";
 import { recordFor } from "./events/record.js";
 import { sourceFamily } from "./events/sourceFamily.js";
-import type { Confidence, Event, EvidenceType, RecordData } from "./events/types.js";
+import type { Confidence, Event, EvidenceType, RecordData, SourceAuthority } from "./events/types.js";
 import { text } from "./text.js";
-
-const FIRST_PARTY_API_CATALOGUE_SOURCES = new Set([
-  "openai",
-  "anthropic",
-  "gemini",
-  "deepseek-api",
-  "deepseek-pricing",
-]);
 
 type ModelFact<T = unknown> = {
   value: T;
@@ -58,7 +50,7 @@ const MODEL_FACT_AUTHORITY_RANK: Record<EvidenceType, number> = {
   unknown: 1,
 };
 
-type EventRow = Event & { confidence: Confidence; evidence_type: EvidenceType };
+type EventRow = Event & { confidence: Confidence; evidence_type: EvidenceType; authority: SourceAuthority };
 type StoryEventRow = EventRow & {
   story_id: number;
   stable_key: string;
@@ -77,7 +69,14 @@ type Candidate = {
   observedAt: string;
 };
 type ModelAggregate = { canonicalId: string; firstSeenAt: string; updatedAt: string };
-type CurrentRecordRow = { source: string; id: string; body: string; stream: string; observed_at: string };
+type CurrentRecordRow = {
+  source: string;
+  id: string;
+  body: string;
+  stream: string;
+  observed_at: string;
+  authority: SourceAuthority;
+};
 
 function number(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
@@ -148,7 +147,9 @@ function extractCandidates(event: EventRow, canonicalId: string, eventId: number
   }
 
   if (event.stream === "weights") add("openWeights", event.kind !== "removed");
-  if (FIRST_PARTY_API_CATALOGUE_SOURCES.has(event.source)) add("availableInProviderApi", event.kind !== "removed");
+  // The provider answering for its own catalogue, not a gateway or aggregator relisting it.
+  if (event.stream === "api-models" && event.authority === "first_party")
+    add("availableInProviderApi", event.kind !== "removed");
   if (event.stream === "openrouter") add("availableOnOpenRouter", event.kind !== "removed");
   return result;
 }
@@ -162,7 +163,7 @@ function streamStoryEvents(db: Database): IterableIterator<StoryEventRow> {
     .query<StoryEventRow, []>(
       `SELECT s.id AS story_id,s.stable_key,s.first_seen_at,s.updated_at,
               e.id,e.source,e.stream,e.entity_id,e.kind,e.before_json,e.after_json,e.detected_at,
-              e.confidence,e.evidence_type
+              e.confidence,e.evidence_type,e.authority
        FROM stories s
        JOIN story_events se ON se.story_id=s.id
        JOIN events e ON e.id=se.event_id
@@ -181,9 +182,9 @@ function currentEvent(row: CurrentRecordRow): EventRow {
     before_json: null,
     after_json: row.body,
     detected_at: row.observed_at,
-    confidence: confidenceFor(row.source, row.stream, authorityForSource(row.source)),
-    evidence_type: evidenceTypeFor(row.source, row.stream, authorityForSource(row.source)),
-    authority: authorityForSource(row.source),
+    confidence: confidenceFor(row.source, row.stream, row.authority),
+    evidence_type: evidenceTypeFor(row.source, row.stream, row.authority),
+    authority: row.authority,
   };
 }
 
@@ -299,7 +300,11 @@ export function rebuildModelFacts(db: Database): void {
   const currentCandidates: Candidate[] = [];
   const currentFieldsByModel = new Map<string, Set<string>>();
   const currentRows = db
-    .query<CurrentRecordRow, []>("SELECT source,id,body,stream,observed_at FROM records ORDER BY source,id")
+    .query<
+      CurrentRecordRow,
+      []
+    >(`SELECT r.source,r.id,r.body,r.stream,r.observed_at,COALESCE(s.authority,'third_party') AS authority
+       FROM records r LEFT JOIN sources s ON s.id=r.source ORDER BY r.source,r.id`)
     .iterate() as IterableIterator<CurrentRecordRow>;
   for (const row of currentRows) {
     const event = currentEvent(row);

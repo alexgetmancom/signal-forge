@@ -20,39 +20,46 @@ test("source families collapse discovery queries but preserve independent surfac
   expect(sourceFamily("new-surface")).toBe("new-surface");
 });
 
-test("independent confirmation collapses official surfaces from one vendor", () => {
-  expect(sourceIndependenceFamily("openai", "api-models")).toBe("first-party:OpenAI");
-  expect(sourceIndependenceFamily("openai-news", "news")).toBe("first-party:OpenAI");
-  expect(sourceIndependenceFamily("openai-codex-changelog", "news")).toBe("first-party:OpenAI");
-  expect(sourceIndependenceFamily("openai-api-changelog", "news")).toBe("first-party:OpenAI");
-  expect(sourceIndependenceFamily("status:openai", "incidents")).toBe("first-party:OpenAI");
-  expect(sourceIndependenceFamily("status:deepseek", "incidents")).toBe("first-party:DeepSeek");
-  expect(sourceIndependenceFamily("status:moonshot", "incidents")).toBe("first-party:Moonshot");
-  expect(sourceIndependenceFamily("openrouter", "openrouter")).toBe("openrouter");
+test("independent confirmation collapses every surface one vendor answers for", () => {
+  const openAi = { authority: "first_party", vendor: "OpenAI" } as const;
+  expect(sourceIndependenceFamily({ source: "openai", stream: "api-models", ...openAi })).toBe("vendor:OpenAI");
+  expect(sourceIndependenceFamily({ source: "openai-news", stream: "news", ...openAi })).toBe("vendor:OpenAI");
+  expect(
+    sourceIndependenceFamily({
+      source: "app:ios:chatgpt",
+      stream: "apps",
+      authority: "vendor_owned",
+      vendor: "OpenAI",
+    }),
+  ).toBe("vendor:OpenAI");
+  // Moonshot's coding tier is still Moonshot speaking, not a second witness.
+  expect(
+    sourceIndependenceFamily({ source: "kimi", stream: "api-models", authority: "first_party", vendor: "Moonshot" }),
+  ).toBe(
+    sourceIndependenceFamily({
+      source: "moonshot",
+      stream: "api-models",
+      authority: "first_party",
+      vendor: "Moonshot",
+    }),
+  );
+  expect(
+    sourceIndependenceFamily({ source: "openrouter", stream: "openrouter", authority: "third_party", vendor: null }),
+  ).toBe("openrouter");
+  expect(
+    sourceIndependenceFamily({
+      source: "huggingface:openai",
+      stream: "weights",
+      authority: "vendor_owned",
+      vendor: null,
+    }),
+  ).toBe("huggingface");
 });
 
-/**
- * The vendor map is a second list of something the registry already knows, so it drifts silently:
- * a first-party source missing from it counts as an independent witness to its own vendor's claim.
- */
-test("every first-party source collapses to a vendor family", () => {
-  const configPath = new URL("./fixtures/config.json", import.meta.url).pathname;
-  const config = loadConfig({
-    CONFIG_PATH: configPath,
-    XAI_API_KEY: "k",
-    ZAI_API_KEY: "k",
-    MOONSHOT_API_KEY: "k",
-    MISTRAL_API_KEY: "k",
-    GROQ_API_KEY: "k",
-    MINIMAX_API_KEY: "k",
-    DASHSCOPE_API_KEY: "k",
-    CEREBRAS_API_KEY: "k",
-    ARTIFICIAL_ANALYSIS_API_KEY: "k",
-  });
-  const deduplicated = ["api-models", "news", "deprecations", "incidents", "web", "pages"];
-  const unmapped = buildSourceRegistry(openDatabase(":memory:"), config)
-    .filter((definition) => definition.authority === "first_party" && deduplicated.includes(definition.stream))
-    .filter((definition) => !sourceIndependenceFamily(definition.id, definition.stream).startsWith("first-party:"))
-    .map((definition) => definition.id);
-  expect(unmapped).toEqual([]);
+test("a gateway reselling other makers' models never reads as a maker's catalogue", () => {
+  const registry = buildSourceRegistry(
+    openDatabase(":memory:"),
+    loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname }),
+  );
+  expect(registry.find((definition) => definition.id === "vercel-gateway")?.authority).toBe("third_party");
 });

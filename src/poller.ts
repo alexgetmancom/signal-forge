@@ -111,7 +111,8 @@ async function collectDueSources(db: Database, config: AppConfig, force: boolean
       nextJob += 1;
       if (!job) return;
       try {
-        const collection = { ...(await job.collector()), authority: job.authority };
+        const collected = await job.collector();
+        const collection = { ...collected, authority: job.authority, ...(job.vendor ? { vendor: job.vendor } : {}) };
         const checkedAt = new Date().toISOString();
         const destinations = job.mode === "shadow" ? [] : config.destinations;
         const events = measure(db, `source.persist:${job.id}`, () =>

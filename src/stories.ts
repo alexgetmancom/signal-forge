@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { authorityForSource, CONFIDENCE_LEVELS } from "./events/confidence.js";
+import { CONFIDENCE_LEVELS } from "./events/confidence.js";
 import {
   identityFor,
   identitySignatures,
@@ -12,13 +12,13 @@ import {
 } from "./events/identity.js";
 import { vendorOf } from "./events/interpretation.js";
 import { recordFor } from "./events/record.js";
-import { sourceFamily } from "./events/sourceFamily.js";
+import { sourceFamily, sourceIndependenceFamily } from "./events/sourceFamily.js";
 import type { Confidence, Event, EvidenceType, RecordData, SourceAuthority } from "./events/types.js";
 
 const CORRELATION_WINDOW_MS = 30 * 24 * 3_600_000;
 
 type StoryEvent = Event & { authority: SourceAuthority; confidence: Confidence };
-type StoryEvidenceRow = StoryEvent & { url: string | null; evidence_type: EvidenceType };
+type StoryEvidenceRow = StoryEvent & { url: string | null; evidence_type: EvidenceType; vendor: string | null };
 type StoryGroup = {
   baseKey: string;
   subject: string;
@@ -574,7 +574,7 @@ export function listStories(db: Database, query: StoryQuery = {}): StoryView[] {
   return rows.map((row) => {
     const evidence = db
       .query<StoryEvidenceRow, [number]>(
-        "SELECT e.id,e.source,e.stream,e.entity_id,e.kind,e.before_json,e.after_json,e.detected_at,e.confidence,e.evidence_type,e.authority,COALESCE(NULLIF(json_extract(e.after_json,'$.url'),''),NULLIF(json_extract(e.before_json,'$.url'),''),MIN(be.url)) AS url FROM story_events se JOIN events e ON e.id=se.event_id LEFT JOIN batch_events be ON be.event_id=e.id WHERE se.story_id=? GROUP BY e.id ORDER BY e.detected_at,e.id",
+        "SELECT e.id,e.source,e.stream,e.entity_id,e.kind,e.before_json,e.after_json,e.detected_at,e.confidence,e.evidence_type,e.authority,src.vendor,COALESCE(NULLIF(json_extract(e.after_json,'$.url'),''),NULLIF(json_extract(e.before_json,'$.url'),''),MIN(be.url)) AS url FROM story_events se JOIN events e ON e.id=se.event_id LEFT JOIN sources src ON src.id=e.source LEFT JOIN batch_events be ON be.event_id=e.id WHERE se.story_id=? GROUP BY e.id ORDER BY e.detected_at,e.id",
       )
       .all(row.id)
       .map((event) => {
@@ -585,8 +585,9 @@ export function listStories(db: Database, query: StoryQuery = {}): StoryView[] {
           kind: event.kind,
           confidence: event.confidence,
           evidenceType: event.evidence_type,
-          authority: event.authority ?? authorityForSource(event.source),
+          authority: event.authority,
           sourceFamily: sourceFamily(event.source, event.stream),
+          independenceFamily: sourceIndependenceFamily(event),
           canonicalId: identity.canonicalId,
           identityStatus: identity.status,
           aliases: identity.aliases,
@@ -598,13 +599,7 @@ export function listStories(db: Database, query: StoryQuery = {}): StoryView[] {
     const sourceFamilies = [...new Set(evidence.map((event) => event.sourceFamily))];
     const evidenceTypes = [...new Set(evidence.map((event) => event.evidenceType))];
     const authorities = [...new Set(evidence.map((event) => event.authority))];
-    const independentSources = new Set(
-      evidence.map((event) =>
-        event.authority !== "third_party" && row.vendor !== "Unknown"
-          ? `${event.authority}:${row.vendor}`
-          : `family:${event.sourceFamily}`,
-      ),
-    );
+    const independentSources = new Set(evidence.map((event) => event.independenceFamily));
     const identity = evidence.reduce<ModelIdentity>(
       (merged, event) =>
         mergeIdentities(merged, {

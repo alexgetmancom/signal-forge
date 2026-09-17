@@ -308,7 +308,8 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
     {
       id: "vercel-gateway",
       label: sourceLabel("vercel-gateway"),
-      authority: "vendor_owned",
+      // A gateway reselling other makers' models: its listing is availability, not a maker's word.
+      authority: "third_party",
       group: "Catalogues",
       stream: "api-models",
       intervalSeconds: config.pollSeconds,
@@ -536,7 +537,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
         id: provider.id,
         label: sourceLabel(provider.id),
         authority: "first_party",
-        vendor: provider.name,
+        vendor: provider.vendor,
         group: "Catalogues",
         stream: "api-models",
         intervalSeconds: config.pollSeconds + index * 30,
@@ -850,6 +851,9 @@ export function validateSourceRegistry(definitions: readonly SourceDefinition[])
     if (!definition.group.trim()) throw new Error(`Source ${definition.id} has no group`);
     if (!SOURCE_AUTHORITIES.includes(definition.authority))
       throw new Error(`Source ${definition.id} has invalid authority`);
+    // Without a vendor a first-party surface counts as an independent witness to its own vendor.
+    if (definition.authority === "first_party" && !definition.vendor?.trim())
+      throw new Error(`Source ${definition.id} is first-party and names no vendor`);
     if (definition.mode !== "active" && definition.mode !== "shadow")
       throw new Error(`Source ${definition.id} has invalid mode`);
     if (!Number.isInteger(definition.intervalSeconds) || definition.intervalSeconds <= 0)
@@ -863,6 +867,17 @@ export function validateSourceRegistry(definitions: readonly SourceDefinition[])
       pacing.set(definition.pace.group, definition.pace.seconds);
     }
   }
+}
+
+/**
+ * Stores who each source answers for, and with what authority, as the registry says, so projections
+ * rebuilt from stored rows read the values the poller collected with rather than a second list.
+ */
+export function recordSourceIdentities(db: Database, definitions: readonly SourceDefinition[]): void {
+  const upsert = db.query(
+    "INSERT INTO sources(id,authority,vendor) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET authority=excluded.authority,vendor=excluded.vendor",
+  );
+  for (const definition of definitions) upsert.run(definition.id, definition.authority, definition.vendor ?? null);
 }
 
 /** Scheduler projection: all operational metadata still comes from buildSourceRegistry. */

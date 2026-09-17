@@ -6,14 +6,16 @@ import { saveCollection } from "../src/events/pipeline.js";
 import type { Collection } from "../src/events/types.js";
 import { openDatabase } from "../src/storage/database.js";
 import { listStories, rebuildStories } from "../src/stories.js";
+import { registered } from "./registered.js";
 
-const collection = (source: string, stream: string, records: Collection["records"]): Collection => ({
-  source,
-  stream,
-  url: "https://example.test",
-  raw: records,
-  records,
-});
+const collection = (source: string, stream: string, records: Collection["records"]): Collection =>
+  registered({
+    source,
+    stream,
+    url: "https://example.test",
+    raw: records,
+    records,
+  });
 
 test("confidence labels follow source semantics instead of presentation guesses", () => {
   expect(confidenceFor("arena", "arena", "third_party")).toBe("observed");

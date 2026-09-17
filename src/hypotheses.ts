@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { confidenceRank } from "./events/confidence.js";
 import { sourceIndependenceFamily } from "./events/sourceFamily.js";
-import type { Confidence, Event, EvidenceType } from "./events/types.js";
+import type { Confidence, Event, EvidenceType, SourceAuthority } from "./events/types.js";
 
 type HypothesisStatus = "emerging" | "strengthening" | "confirmed" | "stale";
 
@@ -33,7 +33,13 @@ export type HypothesisView = {
 
 export type HypothesesQuery = { status?: HypothesisStatus | undefined; limit?: number | undefined };
 
-type TimelineEvent = Event & { confidence: Confidence; evidence_type: EvidenceType; story_id: number };
+type TimelineEvent = Event & {
+  confidence: Confidence;
+  evidence_type: EvidenceType;
+  authority: SourceAuthority;
+  vendor: string | null;
+  story_id: number;
+};
 type StoryTimeline = {
   storyId: number;
   stableKey: string;
@@ -54,10 +60,11 @@ function timelines(db: Database): StoryTimeline[] {
     >(
       `SELECT s.id AS story_id,s.stable_key,s.title,s.first_seen_at,
               e.id,e.source,e.stream,e.entity_id,e.kind,e.before_json,e.after_json,e.detected_at,
-              e.confidence,e.evidence_type
+              e.confidence,e.evidence_type,e.authority,src.vendor
        FROM stories s
        JOIN story_events se ON se.story_id=s.id
        JOIN events e ON e.id=se.event_id
+       LEFT JOIN sources src ON src.id=e.source
        ORDER BY s.id,e.detected_at,e.id`,
     )
     .all();
@@ -100,7 +107,7 @@ function hypothesisFor(
   const families = new Set<string>();
   let formed: TimelineEvent | null = null;
   for (const event of beforeConfirmation) {
-    families.add(sourceIndependenceFamily(event.source, event.stream));
+    families.add(sourceIndependenceFamily(event));
     if (families.size >= 2 && !formed) formed = event;
   }
   if (!formed || families.size < 2) return null;

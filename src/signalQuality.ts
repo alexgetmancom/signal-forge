@@ -2,8 +2,8 @@ import type { Database } from "bun:sqlite";
 import type { AppConfig, SourceMode } from "./config.js";
 import { CONFIDENCE_LEVELS } from "./events/confidence.js";
 import { hasNotificationContent } from "./events/notification.js";
-import { sourceIndependenceFamily } from "./events/sourceFamily.js";
-import type { Event } from "./events/types.js";
+import { type IndependenceEvidence, sourceIndependenceFamily } from "./events/sourceFamily.js";
+import type { Confidence, Event } from "./events/types.js";
 import { median } from "./numbers.js";
 import { sourceJobs } from "./sources/registry.js";
 
@@ -215,23 +215,23 @@ export function signalQuality(db: Database, config: AppConfig, days = 7, now = D
     .all(since, new Date(now).toISOString());
   for (const story of firstSeenStories) {
     const events = db
-      .query<Event & { confidence: NonNullable<Event["confidence"]> }, [number]>(
+      .query<IndependenceEvidence & Event & { confidence: Confidence }, [number]>(
         `SELECT e.id,e.source,e.stream,e.entity_id,e.kind,e.before_json,e.after_json,e.detected_at,
-                e.confidence,e.evidence_type,e.authority
-         FROM story_events se JOIN events e ON e.id=se.event_id
+                e.confidence,e.evidence_type,e.authority,src.vendor
+         FROM story_events se JOIN events e ON e.id=se.event_id LEFT JOIN sources src ON src.id=e.source
          WHERE se.story_id=? ORDER BY e.detected_at,e.id`,
       )
       .all(story.id);
     const first = events[0];
     if (!first) continue;
     firstSourceWins.set(first.source, (firstSourceWins.get(first.source) ?? 0) + 1);
-    const firstFamily = sourceIndependenceFamily(first.source, first.stream);
+    const firstFamily = sourceIndependenceFamily(first);
     const confirming = events
       .slice(1)
       .find(
         (event) =>
           CONFIDENCE_LEVELS.indexOf(event.confidence) >= CONFIDENCE_LEVELS.indexOf("confirmed") &&
-          sourceIndependenceFamily(event.source, event.stream) !== firstFamily,
+          sourceIndependenceFamily(event) !== firstFamily,
       );
     if (!confirming) continue;
     const firstAt = Date.parse(first.detected_at);

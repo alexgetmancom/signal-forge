@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { Destination } from "../config.js";
 import { storeSnapshot } from "../storage/snapshots.js";
 import { canonical } from "./canonical.js";
-import { authorityForSource, confidenceFor, evidenceTypeFor } from "./confidence.js";
+import { confidenceFor, evidenceTypeFor } from "./confidence.js";
 import { isRoutine } from "./interpretation.js";
 import { signalClass } from "./signals.js";
 import type { Collection, Event } from "./types.js";
@@ -153,7 +153,8 @@ export function persistCollection(
 ): number {
   if (!c.records.length && !c.appendOnly) throw new Error(`${c.source}: empty collection rejected`);
   validateRecords(c.source, c.records);
-  const authority = c.authority ?? authorityForSource(c.source);
+  // The registry declares authority and the poller carries it; a collection without one claims the least.
+  const authority = c.authority ?? "third_party";
   const initialized = db.query("SELECT last_success FROM sources WHERE id=?").get(c.source) as {
     last_success: string | null;
   } | null;
@@ -318,8 +319,8 @@ export function persistCollection(
     emitted.filter((event) => event.kind === "removed").length,
   );
   db.query(
-    "INSERT INTO sources(id,last_success,checked_at) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET last_success=excluded.last_success,checked_at=excluded.checked_at,last_error=NULL",
-  ).run(c.source, now, now);
+    "INSERT INTO sources(id,last_success,checked_at,authority,vendor) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET last_success=excluded.last_success,checked_at=excluded.checked_at,last_error=NULL,authority=excluded.authority,vendor=excluded.vendor",
+  ).run(c.source, now, now, authority, c.vendor ?? null);
   db.query(
     "DELETE FROM snapshots WHERE source=? AND id NOT IN (SELECT snapshot_id FROM events) AND id NOT IN (SELECT id FROM snapshots WHERE source=? ORDER BY id DESC LIMIT 2)",
   ).run(c.source, c.source);

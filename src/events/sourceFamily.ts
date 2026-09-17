@@ -1,3 +1,5 @@
+import type { SourceAuthority } from "./types.js";
+
 /** Source families collapse known duplicate surfaces while keeping unrelated source IDs independent. */
 export function sourceFamily(source: string, stream = ""): string {
   if (source.startsWith("discovery:github-")) return "discovery:github";
@@ -21,71 +23,22 @@ export function sourceFamily(source: string, stream = ""): string {
   return source;
 }
 
-const FIRST_PARTY_VENDOR_BY_SOURCE: Record<string, string> = {
-  openai: "OpenAI",
-  "openai-news": "OpenAI",
-  "openai-chatgpt-release-notes": "OpenAI",
-  "openai-codex-changelog": "OpenAI",
-  "openai-api-changelog": "OpenAI",
-  "openai-deprecations": "OpenAI",
-  "status:openai": "OpenAI",
-  "codex-docs": "OpenAI",
-  anthropic: "Anthropic",
-  "anthropic-news": "Anthropic",
-  "anthropic-deprecations": "Anthropic",
-  "status:anthropic": "Anthropic",
-  "status:deepseek": "DeepSeek",
-  "status:moonshot": "Moonshot",
-  "claude-code-changelog": "Anthropic",
-  "anthropic-sdk-releases": "Anthropic",
-  "claude-web": "Anthropic",
-  "pages:openai": "OpenAI",
-  "pages:anthropic": "Anthropic",
-  "pages:xai": "xAI",
-  "pages:deepmind": "Google",
-  gemini: "Google",
-  "gemini-api-changelog": "Google",
-  "gemini-deprecations": "Google",
-  "vertex-deprecations": "Google",
-  "deepseek-pricing": "DeepSeek",
-  "deepseek-updates": "DeepSeek",
-  "deepseek-news": "DeepSeek",
-  "xai-release-notes": "xAI",
-  "xai-deprecations": "xAI",
-  "mistral-release-notes": "Mistral",
-  "groq-changelog": "Groq",
-  "groq-deprecations": "Groq",
-  "cohere-deprecations": "Cohere",
-  "aws-bedrock-lifecycle": "AWS",
-  "azure-foundry-lifecycle": "Microsoft",
-  "deepseek-api": "DeepSeek",
-  "cursor-changelog": "Cursor",
-  xai: "xAI",
-  zai: "Z.ai",
-  moonshot: "Moonshot",
-  kimi: "Moonshot",
-  mistral: "Mistral",
-  groq: "Groq",
-  minimax: "MiniMax",
-  dashscope: "Alibaba",
-  cerebras: "Cerebras",
-  mimo: "Xiaomi",
-  poolside: "Poolside",
-  "pages:google": "Google",
-  "pages:google-devs": "Google",
-  "pages:zai": "Z.ai",
-  "pages:claude-docs": "Anthropic",
-  "pages:claude-support": "Anthropic",
-  "google-ai-blog": "Google",
-  "deepmind-blog": "Google",
-  "kimi-code-changelog": "Moonshot",
-  "cohere-changelog": "Cohere",
+/** What independence is judged from: the event's source, and who that source answers for. */
+export type IndependenceEvidence = {
+  source: string;
+  stream: string;
+  authority: SourceAuthority;
+  vendor: string | null;
 };
 
-/** Independent confirmation must not count two official surfaces from the same vendor twice. */
-export function sourceIndependenceFamily(source: string, stream = ""): string {
-  const vendor = FIRST_PARTY_VENDOR_BY_SOURCE[source];
-  return vendor && ["api-models", "news", "deprecations", "incidents", "web", "pages"].includes(stream)
-    ? `first-party:${vendor}`
-    : sourceFamily(source, stream);
+/**
+ * Independent confirmation must not count two surfaces of one vendor twice: its API, its newsroom
+ * and its app all say the same thing in one voice. The vendor is the one the registry declares for
+ * the source, never the vendor of the model it reported; a host listing another maker's model is
+ * still the host speaking.
+ */
+export function sourceIndependenceFamily(evidence: IndependenceEvidence): string {
+  return evidence.authority !== "third_party" && evidence.vendor
+    ? `vendor:${evidence.vendor}`
+    : sourceFamily(evidence.source, evidence.stream);
 }

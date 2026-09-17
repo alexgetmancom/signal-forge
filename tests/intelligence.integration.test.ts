@@ -8,6 +8,7 @@ import { getModelFacts, rebuildModelFacts } from "../src/modelFacts.js";
 import { signalQuality } from "../src/signalQuality.js";
 import { openDatabase } from "../src/storage/database.js";
 import { rebuildStories } from "../src/stories.js";
+import { registered } from "./registered.js";
 
 const config = loadConfig({
   CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname,
@@ -22,14 +23,14 @@ const destination: Destination = {
 };
 
 function collection(source: string, stream: Collection["stream"], records: Collection["records"]): Collection {
-  return {
+  return registered({
     source,
     stream,
     url: `https://example.test/${source}`,
     raw: records,
     appendOnly: true,
     records,
-  };
+  });
 }
 
 function observe(
