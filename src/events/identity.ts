@@ -215,6 +215,12 @@ const PRODUCT_LINES = new Set([
   "omni",
 ]);
 
+/** "Nano Banana" is Google's brand for Gemini image models, not Gemini Nano. */
+function productLines(name: string): string[] {
+  const words = normalizeIdentity(name.replace(/nano[\s_-]*banana/gi, " ")).split(" ");
+  return [...new Set(words.filter((word) => PRODUCT_LINES.has(word)))].sort();
+}
+
 const UUID_NAME = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function modelSignature(name: string): ModelSignature | null {
@@ -241,7 +247,7 @@ export function modelSignature(name: string): ModelSignature | null {
   // `gemini-3-8-flash` is 3.8; `Qwen-Image-3.0` is Qwen-Image-3.
   while (parts.length > 1 && Number(parts.at(-1)) === 0) parts.pop();
   const version = parts.length ? parts.map(Number).join(".") : null;
-  const lines = [...new Set(words.filter((word) => PRODUCT_LINES.has(word)))].sort().join(" ");
+  const lines = productLines(name).join(" ");
   if (version === null && !lines) return null;
   return { version, lines };
 }
@@ -261,11 +267,18 @@ export function signaturesConflict(left: readonly ModelSignature[], right: reado
   return ours.size > 0 && theirs.size > 0 && ![...ours].some((version) => theirs.has(version));
 }
 
+/**
+ * The signatures of one record's names. A record describes one model, so a product line any of its
+ * names carries belongs to all of them: Artificial Analysis keys "Nano Banana (Gemini 2.5 Flash
+ * Image)" as `google_gemini-2-5-flash`, and that key alone joined the image model to Gemini 2.5 Flash.
+ */
 export function identitySignatures(identity: ModelIdentity): ModelSignature[] {
+  const names = unique([identity.displayName, identity.canonicalId, ...identity.aliases]);
+  const lines = [...new Set(names.flatMap(productLines))].sort().join(" ");
   const signatures = new Map<string, ModelSignature>();
-  for (const name of unique([identity.displayName, identity.canonicalId, ...identity.aliases])) {
+  for (const name of names) {
     const signature = modelSignature(name);
-    if (signature) signatures.set(`${signature.version}|${signature.lines}`, signature);
+    if (signature) signatures.set(`${signature.version}`, { version: signature.version, lines });
   }
   return [...signatures.values()];
 }

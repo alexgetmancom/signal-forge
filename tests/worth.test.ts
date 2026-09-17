@@ -58,7 +58,10 @@ test("an arena entry that is a known model wired differently is not a sighting",
     stream: "openrouter",
     url: "https://openrouter.ai",
     raw: [],
-    records: [{ id: "moonshotai/kimi-k3", name: "MoonshotAI: Kimi K3" }],
+    records: [
+      { id: "moonshotai/kimi-k3", name: "MoonshotAI: Kimi K3" },
+      { id: "x-ai/grok-4", name: "xAI: Grok 4" },
+    ],
   };
   saveCollection(db, catalogue, [wire], "2026-09-14T00:00:00.000Z");
   const arena: Collection = {
@@ -73,6 +76,8 @@ test("an arena entry that is a known model wired differently is not a sighting",
     { id: "kimi-k3-gateway-max-v3", name: "kimi-k3-gateway-max-v3" },
     // A name that is not merely a known model plus its wiring stays a sighting.
     { id: "pointoni", name: "pointoni" },
+    // Grok 4.7 is not Grok 4 served some other way.
+    { id: "grok-4-7", name: "grok-4-7" },
   );
   saveCollection(db, arena, [wire], "2026-09-14T00:20:00.000Z");
   prepareDeliveries(db, Date.parse("2026-09-14T01:00:00.000Z"));
@@ -80,6 +85,7 @@ test("an arena entry that is a known model wired differently is not a sighting",
   const reasons = suppressed(db);
   expect(reasons["kimi-k3-gateway-max-v3"]).toBe("another_serving_of_a_known_model");
   expect(reasons.pointoni).toBeUndefined();
+  expect(reasons["grok-4-7"]).toBeUndefined();
   db.close();
 });
 
@@ -282,6 +288,8 @@ test("a model named by several vendor pages is told once", () => {
     },
     // A different model on the same site is its own news.
     { id: "/gemini-api/docs/models/gemini-3-pro", name: "/gemini-api/docs/models/gemini-3-pro" },
+    // So is another tier at the version just told.
+    { id: "/gemini-api/docs/models/gemini-3.8-pro", name: "/gemini-api/docs/models/gemini-3.8-pro" },
   );
   saveCollection(db, google, [wire], "2026-09-15T18:05:17.788Z");
   prepareDeliveries(db, Date.parse("2026-09-15T19:30:00.000Z"));
@@ -293,6 +301,7 @@ test("a model named by several vendor pages is told once", () => {
     "another_page_about_the_same_model",
   );
   expect(reasons["/gemini-api/docs/models/gemini-3-pro"]).toBeUndefined();
+  expect(reasons["/gemini-api/docs/models/gemini-3.8-pro"]).toBeUndefined();
   db.close();
 });
 

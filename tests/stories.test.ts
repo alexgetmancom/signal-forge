@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { confidenceFor, evidenceTypeFor } from "../src/events/confidence.js";
-import { identityFor, modelSignature, signaturesConflict } from "../src/events/identity.js";
+import { identityFor, identitySignatures, modelSignature, signaturesConflict } from "../src/events/identity.js";
 import { vendorOf } from "../src/events/interpretation.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import type { Collection } from "../src/events/types.js";
@@ -476,6 +476,16 @@ test("a name's version and product line are read the way the makers write them",
   expect(signaturesConflict(of("Z.ai: GLM 5.3 Flash"), of("glm-5.3-flash-webdev"))).toBe(false);
   expect(signaturesConflict(of("DeepSeek Pro Latest"), of("deepseek-v4-pro-0424-high"))).toBe(false);
   expect(signaturesConflict(of("Qwen-Image-3.0-Pro"), of())).toBe(false);
+  expect(modelSignature("Nano Banana (Gemini 2.5 Flash Image)")).toEqual({ version: "2.5", lines: "flash image" });
+  // Artificial Analysis keys the image model as plain Gemini 2.5 Flash; the record's name says otherwise.
+  const imageRecord = identitySignatures({
+    canonicalId: null,
+    displayName: "Nano Banana (Gemini 2.5 Flash Image)",
+    aliases: ["google_gemini-2-5-flash", "Nano Banana (Gemini 2.5 Flash Image)"],
+    status: "codename",
+  });
+  expect(signaturesConflict(imageRecord, of("Google: Gemini 2.5 Flash", "google/gemini-2.5-flash"))).toBe(true);
+  expect(signaturesConflict(imageRecord, of("google/gemini-2.5-flash-image"))).toBe(false);
   expect(signaturesConflict(of("Gemini 3 Pro Preview", "Gemini Pro Latest"), of("gemini-3.1-pro"))).toBe(true);
 });
 

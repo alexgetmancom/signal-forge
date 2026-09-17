@@ -70,8 +70,13 @@ const SERVING_WORDS = new Set([
   "effort",
 ]);
 
+/** A number straight after the model's name is its version: `grok 4` + `6` is Grok 4.6, not a wiring of Grok 4. */
 function servingTail(words: string[]): boolean {
-  return words.length > 0 && words.every((word) => SERVING_WORDS.has(word) || /^v?\d+$/.test(word));
+  return (
+    words.length > 0 &&
+    !/^\d+$/.test(words[0] ?? "") &&
+    words.every((word) => SERVING_WORDS.has(word) || /^v?\d+$/.test(word))
+  );
 }
 
 /** Models something in this database already identifies, as normalized word lists. */
@@ -217,9 +222,16 @@ export function isPublishedByAFollowedLab(db: Database, event: Event): boolean {
 const PAGE_MODEL =
   /(?:^|[/_\s-])(gemini|gemma|claude|opus|sonnet|haiku|gpt|grok|llama|qwen|glm|kimi|deepseek|mistral|veo|imagen|lyria)[-_\s]?(\d{1,2})(?:[.-](\d{1,2}))?(?![\d.])/i;
 
+const PAGE_TIER = /(?:^|[-_\s])(flash|pro|ultra|lite|nano|mini)(?=$|[-_\s])/i;
+
 export function pageModel(event: Event): string | null {
   if (event.stream !== "pages" || event.kind !== "new") return null;
-  const match = PAGE_MODEL.exec(decodeURIComponent(event.entity_id));
+  const path = decodeURIComponent(event.entity_id);
+  const match = PAGE_MODEL.exec(path);
   if (!match?.[1] || !match[2]) return null;
-  return `${match[1].toLowerCase()} ${match[2]}${match[3] ? `.${match[3]}` : ""}`;
+  // Live and audio are one model written two ways; Flash and Pro at the same version are two, and a
+  // Gemini 3.8 Pro page after a told 3.8 Flash page is the news, not a repeat.
+  const slug = path.slice(match.index + match[0].length).split("/")[0] ?? "";
+  const tier = PAGE_TIER.exec(slug)?.[1]?.toLowerCase();
+  return `${match[1].toLowerCase()} ${match[2]}${match[3] ? `.${match[3]}` : ""}${tier ? ` ${tier}` : ""}`;
 }
