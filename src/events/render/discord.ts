@@ -23,6 +23,7 @@ const EYEBROWS: Record<string, string> = {
   apps: "APP RELEASE",
   pages: "NEW PAGES",
   resets: "USAGE LIMITS",
+  training: "TRAINING RUN",
 };
 
 const KIND_COLORS: Record<Event["kind"], number> = { new: 0x2ecc71, changed: 0xf1c40f, removed: 0xe74c3c };

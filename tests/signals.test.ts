@@ -146,6 +146,31 @@ test("an edit to an old changelog entry is a trail, and a preview replacing a pr
   expect(signalClass(event({ stream: "news", kind: "new", source: "openai-api-changelog" }))).toBe("evidence");
 });
 
+test("a post first seen long after it was published is a trail, and Claude's blog speaks only for what shipped", () => {
+  const post = (source: string, name: string, published: string) =>
+    event(
+      { stream: "news", kind: "new", source, detected_at: "2026-09-17T18:00:00.000Z" },
+      { id: name, name, published },
+    );
+  // The newsroom fix surfaced the Fable 5.1 launch sixteen days late.
+  expect(
+    signalClass(
+      post("anthropic-news", "Introducing Claude Fable 5.1 and Claude Mythos 5.1", "2026-09-01T00:00:00.000Z"),
+    ),
+  ).toBe("evidence");
+  expect(signalClass(post("anthropic-news", "Introducing Claude Fable 5.2", "2026-09-17T00:00:00.000Z"))).toBe(
+    "launch",
+  );
+  expect(
+    signalClass(post("claude-blog", "Claude Cowork and chat are now one Claude", "2026-09-16T00:00:00.000Z")),
+  ).toBe("release");
+  expect(
+    signalClass(post("claude-blog", "What 1,000 small business owners taught us about AI", "2026-09-16T00:00:00.000Z")),
+  ).toBe("article");
+  expect(signalClass(event({ stream: "training", kind: "new", source: "mimo-training" }))).toBe("codename");
+  expect(signalClass(event({ stream: "training", kind: "changed", source: "mimo-training" }))).toBe("codename");
+});
+
 test("a tool readers work in shipping a build is a release; an app, an SDK or a hardware feed is not", () => {
   expect(signalClass(event({ stream: "apps", kind: "new", source: "app:ios:chatgpt" }))).toBe("evidence");
   expect(signalClass(event({ stream: "apps", kind: "changed", source: "app:ios:claude" }))).toBe("evidence");

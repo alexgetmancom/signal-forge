@@ -62,17 +62,44 @@ export async function collectOpenAINews(request: Fetch = fetch): Promise<Collect
 const anthropicItem =
   /<li><a href="(\/news\/[^"]+)"[^>]*>.*?<time[^>]*>([^<]+)<\/time>.*?<span[^>]*subject[^>]*>([^<]*)<\/span>.*?<span[^>]*title[^>]*>([^<]+)<\/span><\/a><\/li>/gs;
 
-export function parseAnthropicNews(html: string): Collection {
-  const records = [...html.matchAll(anthropicItem)].map((match) => {
-    const path = match[1] ?? "";
-    return {
-      id: `https://www.anthropic.com${path}`,
-      name: decodeHtml(match[4] ?? "").trim(),
-      url: `https://www.anthropic.com${path}`,
-      category: decodeHtml(match[3] ?? "").trim() || null,
-      published: newsDate(`${match[2]} UTC`),
-    };
+/**
+ * The featured grid above the list. It is where the launches go, and they do not live under `/news/`:
+ * "Introducing Claude Fable 5.1 and Claude Mythos 5.1" is `/claude-fable-and-mythos-5-1` and the
+ * September threat report is an absolute URL. Reading only the list missed both, and the source
+ * reported success with a newest entry of 2026-09-01 until 2026-09-17.
+ */
+const anthropicFeatured = /<a href="((?:https:\/\/www\.anthropic\.com)?\/[^"]+)" class="FeaturedGrid[^"]*"[^>]*>/g;
+
+/** One featured card, read up to the next link: the lead card puts its title before its date, the side cards after. */
+function anthropicFeaturedCards(html: string) {
+  return [...html.matchAll(anthropicFeatured)].flatMap((match) => {
+    const start = (match.index ?? 0) + match[0].length;
+    const end = html.indexOf("<a href", start);
+    const card = html.slice(start, end < 0 ? undefined : end);
+    const title = /<h[2-6][^>]*>([^<]+)<\/h[2-6]>/.exec(card)?.[1];
+    const date = /<time[^>]*>([^<]+)<\/time>/.exec(card)?.[1];
+    const category = /<span[^>]*>([^<]*)<\/span><time/.exec(card)?.[1] ?? "";
+    return title && date ? [anthropicRecord(match[1] ?? "", date, category, title)] : [];
   });
+}
+
+function anthropicRecord(href: string, date: string, category: string, title: string) {
+  const url = href.startsWith("https://") ? href : `https://www.anthropic.com${href}`;
+  return {
+    id: url,
+    name: decodeHtml(title).trim(),
+    url,
+    category: decodeHtml(category).trim() || null,
+    published: newsDate(`${date} UTC`),
+  };
+}
+
+export function parseAnthropicNews(html: string): Collection {
+  const listed = [...html.matchAll(anthropicItem)].map((match) =>
+    anthropicRecord(match[1] ?? "", match[2] ?? "", match[3] ?? "", match[4] ?? ""),
+  );
+  const featured = anthropicFeaturedCards(html);
+  const records = [...new Map([...featured, ...listed].map((record) => [record.id, record])).values()];
   if (!records.length) throw new Error("Anthropic newsroom entries not found");
   return {
     source: "anthropic-news",
@@ -84,8 +111,57 @@ export function parseAnthropicNews(html: string): Collection {
   };
 }
 
-export async function collectAnthropicNews(request: Fetch = fetch): Promise<Collection> {
-  return parseAnthropicNews(await fetchText("https://www.anthropic.com/news", {}, request));
+/**
+ * A newsroom whose newest entry is this old has not gone quiet, its page has changed shape. Anthropic
+ * has not gone a month without a post; a parse that still finds old entries is a failure, not a
+ * catalogue.
+ */
+const STALE_NEWSROOM_MS = 30 * 24 * 3_600_000;
+
+function freshNewsroom(collection: Collection, now: Date): Collection {
+  const newest = Math.max(...collection.records.map((record) => Date.parse(String(record.published ?? ""))));
+  if (!Number.isFinite(newest) || now.getTime() - newest > STALE_NEWSROOM_MS)
+    throw new Error(`${collection.source} newest entry is older than thirty days`);
+  return collection;
+}
+
+export async function collectAnthropicNews(request: Fetch = fetch, now = new Date()): Promise<Collection> {
+  return freshNewsroom(parseAnthropicNews(await fetchText("https://www.anthropic.com/news", {}, request)), now);
+}
+
+const claudeBlogItem =
+  /<h2 class="u-text-style-h6[^"]*">([^<]+)<\/h2><div class="u-text-style-caption[^"]*">([^<]+)<\/div><\/div><div class="clickable_wrap[^"]*"><a [^>]*href="(\/blog\/[^"]+)"/g;
+
+/**
+ * Claude's product blog, which is where Anthropic announces what Claude does rather than what the
+ * company thinks. "Claude Cowork and chat are now one Claude", with Claude Docs and Claude Slides,
+ * was posted here on 2026-09-16 and nowhere on anthropic.com/news.
+ */
+export function parseClaudeBlog(html: string): Collection {
+  const records = [
+    ...new Map(
+      [...html.matchAll(claudeBlogItem)].map((match) => {
+        const url = `https://claude.com${match[3]}`;
+        return [
+          url,
+          { id: url, name: decodeHtml(match[1] ?? "").trim(), url, published: newsDate(`${match[2]} UTC`) },
+        ] as const;
+      }),
+    ).values(),
+  ];
+  if (!records.length) throw new Error("Claude blog entries not found");
+  return {
+    source: "claude-blog",
+    stream: "news",
+    url: "https://claude.com/blog",
+    raw: html,
+    appendOnly: true,
+    records,
+  };
+}
+
+export async function collectClaudeBlog(request: Fetch = fetch, now = new Date()): Promise<Collection> {
+  return freshNewsroom(parseClaudeBlog(await fetchText("https://claude.com/blog", {}, request)), now);
 }
 
 const hackerNewsSchema = z.object({

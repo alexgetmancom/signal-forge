@@ -28,7 +28,7 @@ import {
   parseXaiDeprecations,
 } from "../src/sources/lifecycle.js";
 import { parseCohereChangelog } from "../src/sources/modelDocs.js";
-import { parseAnthropicNews, parseOpenAINews } from "../src/sources/news.js";
+import { collectAnthropicNews, parseAnthropicNews, parseClaudeBlog, parseOpenAINews } from "../src/sources/news.js";
 import { collectHuggingFace, collectNpm, collectPypi, parseHuggingFace, parseNpm } from "../src/sources/registries.js";
 import {
   collectOpenAIApiChangelog,
@@ -151,6 +151,50 @@ test("Anthropic newsroom parser keeps official title, category and date", () => 
     },
   ]);
   expect(() => parseAnthropicNews("<html>unavailable</html>")).toThrow("not found");
+});
+
+test("Anthropic newsroom parser reads the featured grid, where launches live outside /news/", () => {
+  // The shape of anthropic.com/news on 2026-09-17: the lead card puts its title before its date.
+  const html = `<a href="/claude-fable-and-mythos-5-1" class="FeaturedGrid-module__content"><h2 class="headline-4">Introducing Claude Fable 5.1 and Claude Mythos 5.1</h2><div><div class="FeaturedGrid-module__meta"><span class="caption bold">Announcements</span><time class="FeaturedGrid-module__date">Sep 1, 2026</time></div></div></a><div><a href="https://www.anthropic.com/threat-intelligence-report-september-2026" class="FeaturedGrid-module__sideLink"><div class="FeaturedGrid-module__meta"><span class="caption bold">Announcements</span><time class="FeaturedGrid-module__date">Sep 10, 2026</time></div><h4 class="headline-6">Detecting and countering misuse of AI: September 2026</h4></a></div><ul><li><a href="/news/life-sciences-verification-program" class="item"><div><time class="date">Sep 17, 2026</time><span class="subject">Announcements</span></div><span class="title">Introducing the Life Sciences Verification Program</span></a></li></ul>`;
+  expect(parseAnthropicNews(html).records.map((record) => [record.url, record.name, record.published])).toEqual([
+    [
+      "https://www.anthropic.com/claude-fable-and-mythos-5-1",
+      "Introducing Claude Fable 5.1 and Claude Mythos 5.1",
+      "2026-09-01T00:00:00.000Z",
+    ],
+    [
+      "https://www.anthropic.com/threat-intelligence-report-september-2026",
+      "Detecting and countering misuse of AI: September 2026",
+      "2026-09-10T00:00:00.000Z",
+    ],
+    [
+      "https://www.anthropic.com/news/life-sciences-verification-program",
+      "Introducing the Life Sciences Verification Program",
+      "2026-09-17T00:00:00.000Z",
+    ],
+  ]);
+});
+
+test("a newsroom whose newest entry is a month old is a failed collection", async () => {
+  const html = `<ul><li><a href="/news/old" class="item"><div><time class="date">Sep 1, 2026</time><span class="subject">Product</span></div><span class="title">Old</span></a></li></ul>`;
+  const request = (async () => new Response(html)) as unknown as typeof fetch;
+  await expect(collectAnthropicNews(request, new Date("2026-10-15T00:00:00Z"))).rejects.toThrow("thirty days");
+  expect((await collectAnthropicNews(request, new Date("2026-09-17T00:00:00Z"))).records).toHaveLength(1);
+});
+
+test("Claude blog parser keeps each post once with its date", () => {
+  const item = `<div class="marquee_cms_blog_list_item_content"><h2 class="u-text-style-h6 u-mb-1">Claude Cowork and chat are now one Claude</h2><div class="u-text-style-caption u-foreground-tertiary">September 16, 2026</div></div><div class="clickable_wrap u-cover-absolute"><a data-cta="Blog page" href="/blog/cowork-is-now-claude" class="clickable_link">`;
+  const parsed = parseClaudeBlog(item + item);
+  expect(parsed).toMatchObject({ source: "claude-blog", stream: "news", appendOnly: true });
+  expect(parsed.records).toEqual([
+    {
+      id: "https://claude.com/blog/cowork-is-now-claude",
+      name: "Claude Cowork and chat are now one Claude",
+      url: "https://claude.com/blog/cowork-is-now-claude",
+      published: "2026-09-16T00:00:00.000Z",
+    },
+  ]);
+  expect(() => parseClaudeBlog("<html></html>")).toThrow("not found");
 });
 test("DeepSeek changelog parser keeps dated official updates and rejects an empty page", () => {
   const html = `<article>

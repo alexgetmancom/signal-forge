@@ -14,6 +14,8 @@ const STATIC_LABELS: Record<string, string> = {
   "openai-codex-changelog": "OpenAI · Codex changelog",
   "openai-api-changelog": "OpenAI · API changelog",
   "anthropic-news": "Anthropic · news",
+  "claude-blog": "Claude · blog",
+  "mimo-training": "Xiaomi MiMo · training runs",
   "gemini-api-changelog": "Gemini · API changelog",
   "xai-release-notes": "xAI · release notes",
   "mistral-release-notes": "Mistral · release notes",

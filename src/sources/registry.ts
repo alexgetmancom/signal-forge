@@ -45,7 +45,7 @@ import {
 } from "./lifecycle.js";
 import { collectModelsDev, collectTrueFoundryAzure } from "./mirrors.js";
 import { collectCohereChangelog } from "./modelDocs.js";
-import { collectAnthropicNews, collectHackerNews, collectOpenAINews } from "./news.js";
+import { collectAnthropicNews, collectClaudeBlog, collectHackerNews, collectOpenAINews } from "./news.js";
 import { collectSitePages, WATCHED_SITES } from "./pages.js";
 import { collectPlatformStatus, PLATFORMS } from "./platforms.js";
 import {
@@ -68,6 +68,7 @@ import {
   collectXaiReleaseNotes,
 } from "./releaseNotes.js";
 import { collectCodexResets } from "./resets.js";
+import { collectMimoTraining } from "./training.js";
 import { collectOpenRouterUsage } from "./usage.js";
 import { collectVertexModelGarden, collectVertexQuotas } from "./vertex.js";
 
@@ -203,6 +204,28 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       intervalSeconds: 900,
       collector: () => collectAnthropicNews(),
       enabled: requested("anthropic-news"),
+    },
+    {
+      id: "claude-blog",
+      label: sourceLabel("claude-blog"),
+      authority: "first_party",
+      vendor: "Anthropic",
+      group: "Official news",
+      stream: "news",
+      intervalSeconds: 900,
+      collector: () => collectClaudeBlog(),
+      enabled: requested("claude-blog"),
+    },
+    {
+      id: "mimo-training",
+      label: sourceLabel("mimo-training"),
+      authority: "first_party",
+      vendor: "Xiaomi",
+      group: "Discovery",
+      stream: "training",
+      intervalSeconds: 1800,
+      collector: () => collectMimoTraining(),
+      enabled: requested("mimo-training"),
     },
     {
       id: "gemini-api-changelog",

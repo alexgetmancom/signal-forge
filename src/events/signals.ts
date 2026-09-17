@@ -78,7 +78,7 @@ const NEWSROOMS = new Set([
 const ANNOUNCES =
   /\b(introducing|announcing|meet|launch(?:es|ing)?|now available|available (?:now|today)|releas(?:e|es|ing))\b/i;
 const NAMES_A_MODEL =
-  /\b(?:claude|opus|sonnet|haiku|gpt|o\d|gemini|gemma|grok|codex|llama|qwen|deepseek|kimi|glm|mistral|minimax)[\s-]?\d/i;
+  /\b(?:claude|opus|sonnet|haiku|fable|mythos|gpt|o\d|gemini|gemma|grok|codex|llama|qwen|deepseek|kimi|glm|mistral|minimax)[\s-]?\d/i;
 
 /**
  * The changelogs of the tools and APIs the public channel's readers work in. A version of an SDK or
@@ -128,16 +128,27 @@ const RETIREMENT_WORDS = /\b(retire[sd]?|retirement|retiring|deprecat\w*|sunset\
 const PREVIEW_SUCCESSION = /\bpreview\S*[^.]*\b(?:replac|supersed|deprecat)\w*[^.]*\bpreview\b/i;
 
 /**
- * How old a changelog entry may be when its wording is edited and still be news. OpenAI rewrote its
+ * How old a dated entry may be when it is first seen or edited and still be news. OpenAI rewrote its
  * entry of 2026-02-24 on 2026-09-17 to name the Responses API, and the edit reached the public
- * channel as a change seven months after the feature shipped.
+ * channel as a change seven months after the feature shipped. A parser that starts reading more of a
+ * page finds old posts the same way: the Anthropic newsroom fix of 2026-09-17 surfaced "Introducing
+ * Claude Fable 5.1", sixteen days after the launch.
  */
-const EDITABLE_AS_NEWS_MS = 7 * 24 * 3_600_000;
+const NEWS_FOR_MS = 7 * 24 * 3_600_000;
 
-function editOfAnOldEntry(event: Event, published: unknown): boolean {
+function publishedLongAgo(event: Event, published: unknown): boolean {
   const at = Date.parse(text(published) ?? "");
-  return Number.isFinite(at) && Date.parse(event.detected_at) - at > EDITABLE_AS_NEWS_MS;
+  return Number.isFinite(at) && Date.parse(event.detected_at) - at > NEWS_FOR_MS;
 }
+
+/**
+ * Claude's product blog mixes launches with customer stories. A title that says something became
+ * available is the product changing for the reader; "What 1,000 small business owners taught us" is
+ * not. "Claude Cowork and chat are now one Claude" on 2026-09-16 is the case it exists for.
+ */
+const PRODUCT_BLOGS = new Set(["claude-blog"]);
+const SHIPS =
+  /\b(introducing|announcing|launch(?:es|ing)?|is now|are now|now (?:available|supports?)|generally available|new in|redesigned)\b/i;
 
 /**
  * The maker whose own models an API catalogue sells. A catalogue absent here sells other makers'
@@ -193,6 +204,8 @@ export function signalClass(event: Event): SignalClass {
   // one of the 193 was back five minutes later under the same id.
   if (event.stream === "arena") return event.kind === "new" || becameSelectable(event) ? "codename" : "evidence";
   if (event.source.startsWith("discovery:")) return "codename";
+  // A lab training a named model in public is the earliest word on it, and a run ending is the next.
+  if (event.stream === "training") return "codename";
 
   /**
    * A place on a board moving is not a number a reader budgets with. Ten of them arrive in one
@@ -220,11 +233,14 @@ export function signalClass(event: Event): SignalClass {
    * The post is what the vendor said about it.
    */
   if (event.stream === "news") {
+    if (publishedLongAgo(event, record?.published)) return "evidence";
+    if (PRODUCT_BLOGS.has(event.source))
+      return event.kind === "new" && SHIPS.test(text(record?.name) ?? "") ? "release" : "article";
     if (NEWSROOMS.has(event.source)) {
       const title = text(record?.name) ?? "";
       return event.kind === "new" && ANNOUNCES.test(title) && NAMES_A_MODEL.test(title) ? "launch" : "article";
     }
-    if (event.kind !== "new") return editOfAnOldEntry(event, record?.published) ? "evidence" : "change";
+    if (event.kind !== "new") return "change";
     /**
      * A record carrying a version is a tool shipping a build: Claude Code 2.1.271, 2.1.272 and
      * 2.1.273 landed in the invited room inside a day, and nobody there is subscribed to patch
