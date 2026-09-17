@@ -1203,10 +1203,12 @@ test("a new roster entry under a released model's name says how it differs from 
     .all()
     .map((row) => row.body)
     .join("\n");
-  expect(bodies).toContain("Already out · listed by OpenRouter");
-  expect(bodies).toContain("A separate entry from `gemini-3.8-flash-low`, `gemini-3.8-flash-medium`");
-  expect(bodies).toContain('"name":"Provider","value":"none · others: googleVertexGlobalWithThoughtSignatures"');
-  expect(bodies).toContain('"name":"Modalities","value":"Text → Web · others: Image, Text → Web"');
+  expect(bodies).toContain("Another Arena entry for Gemini 3.8 Flash, already out.");
+  expect(bodies).toContain('"name":"Differs from","value":"`gemini-3.8-flash-low`"');
+  expect(bodies).toContain('"name":"Input","value":"Text (was Image, Text)"');
+  expect(bodies).toContain('"name":"Provider","value":"none (was googleVertexGlobalWithThoughtSignatures)"');
+  // One comparison, not a list of every sibling and every catalogue.
+  expect(bodies).not.toMatch(/gemini-3\.8-flash-medium|listed by|Pickable/);
   expect(bodies).not.toMatch(/Nobody has said|Unconfirmed by Google|Unidentified/);
   local.close();
 });

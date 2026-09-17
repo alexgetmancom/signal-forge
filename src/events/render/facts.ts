@@ -1,6 +1,7 @@
 import { sourceLabel } from "../../sources/labels.js";
 import { canonical } from "../canonical.js";
 import { identityFor, normalizeIdentity } from "../identity.js";
+import { readableName } from "../naming.js";
 import { SUBSTANTIVE_FIELDS } from "../oscillation.js";
 import type { Event, RecordData } from "../types.js";
 import { vendorOfName } from "../vendors.js";
@@ -124,21 +125,43 @@ export type CardContext = {
 };
 
 /**
- * What sets a new roster entry apart from the entries already listed under its name. Only a value
- * that differs from every one of them is a difference; the rest is what they have in common.
+ * What sets a new roster entry apart from the entry it is most like: one with the same name, else the
+ * first of its line. Naming every sibling and every modality they carry made a card nobody could
+ * read; a reader wants one comparison and only the values that differ.
  */
-function siblingFacts(record: RecordData, siblings: Record<string, unknown>[]): Fact[] {
-  const names = siblings.map((sibling) => `\`${String(sibling.name)}\``).join(", ");
-  const facts: Fact[] = [`A separate entry from ${names}`];
-  const differs = (read: (row: Record<string, unknown>) => string) => {
+function siblingFacts(
+  record: RecordData,
+  siblings: Record<string, unknown>[],
+  released: boolean,
+  title: string,
+): Fact[] {
+  const closest =
+    siblings.find((sibling) => normalizeIdentity(String(sibling.name)) === normalizeIdentity(title)) ?? siblings[0];
+  if (!closest) return [];
+  const facts: Fact[] = [
+    released
+      ? `Another Arena entry for ${readableName(title)}, already out.`
+      : `Another Arena entry beside \`${String(closest.name)}\`.`,
+    { label: "Differs from", value: `\`${String(closest.name)}\`` },
+  ];
+  const names = (raw: unknown) =>
+    raw && typeof raw === "object"
+      ? Object.entries(raw)
+          .filter(([, on]) => on === true)
+          .map(([name]) => name.charAt(0).toUpperCase() + name.slice(1))
+          .join(", ") || "none"
+      : present(raw)
+        ? describe(raw)
+        : "none";
+  for (const [label, read] of [
+    ["Input", (row: Record<string, unknown>) => names(row.input)],
+    ["Output", (row: Record<string, unknown>) => names(row.output)],
+    ["Provider", (row: Record<string, unknown>) => names(row.provider)],
+  ] as const) {
     const mine = read(record);
-    const theirs = [...new Set(siblings.map(read))];
-    return theirs.every((other) => other !== mine) ? `${mine} · others: ${theirs.join(" / ")}` : null;
-  };
-  const provider = differs((row) => (present(row.provider) ? describe(row.provider) : "none"));
-  if (provider) facts.push({ label: "Provider", value: provider });
-  const kinds = differs((row) => modalities(row.input, row.output) ?? "none");
-  if (kinds) facts.push({ label: "Modalities", value: kinds });
+    const theirs = read(closest);
+    if (mine !== theirs) facts.push({ label, value: `${mine} (was ${theirs})` });
+  }
   return facts;
 }
 
@@ -175,7 +198,9 @@ export function eventFactParts(event: Event & CardContext, summary?: string): Fa
   const title = String(record?.name ?? event.entity_id);
   const lines: Fact[] = [];
   if (event.lead) lines.push(leadLine(event.lead, title));
-  if (event.elsewhere) lines.push(elsewhereLine(event.elsewhere));
+  // A roster entry beside its own siblings says "already out" in its own sentence.
+  const sibling = event.stream === "arena" && !before && Boolean(event.siblings?.length);
+  if (event.elsewhere && !(sibling && event.elsewhere.length)) lines.push(elsewhereLine(event.elsewhere));
 
   if (event.returned && after && event.kind === "new") {
     const terms = (row: Record<string, unknown>) =>
@@ -226,12 +251,14 @@ export function eventFactParts(event: Event & CardContext, summary?: string): Fa
   } else if (event.stream === "arena" && !before && after) {
     if (after.selectable === false)
       lines.push("Hidden from the model picker — usually a model being tested before announcement");
-    const apart = event.siblings?.length ? siblingFacts(after, event.siblings) : [];
-    lines.push(...apart);
-    lines.push({ label: "Pickable", value: after.selectable === false ? "No" : "Yes" });
-    const kinds = modalities(after.input, after.output);
-    if (kinds && !apart.some((fact) => typeof fact !== "string" && fact.label === "Modalities"))
-      lines.push({ label: "Modalities", value: kinds });
+    if (event.siblings?.length)
+      lines.push(...siblingFacts(after, event.siblings, Boolean(event.elsewhere?.length), title));
+    else {
+      // Pickable is the ordinary case; only its absence is worth a field.
+      if (after.selectable === false) lines.push({ label: "Pickable", value: "No" });
+      const kinds = modalities(after.input, after.output);
+      if (kinds) lines.push({ label: "Modalities", value: kinds });
+    }
     if (present(after.model) && canonical(after.model) !== canonical(after.name))
       lines.push(field("model", after.model));
   } else if (event.stream === "leaderboards" && !before && after) {
