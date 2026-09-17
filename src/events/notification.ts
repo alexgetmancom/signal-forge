@@ -87,6 +87,9 @@ export function notificationBlock(event: Event): string | null {
     }
   }
   if (event.kind !== "changed") return null;
+  // A quota is this project's allowance: it moves when the owner raises it, and says nothing new
+  // about the model once the model's arrival was the sighting.
+  if (event.source === "vertex-quotas") return "A project quota moved, not the model";
   const before = event.before_json ? (JSON.parse(event.before_json) as Record<string, unknown>) : {};
   const after = event.after_json ? (JSON.parse(event.after_json) as Record<string, unknown>) : {};
   const changed = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter(
