@@ -55,6 +55,8 @@ const STATIC_LABELS: Record<string, string> = {
   "anthropic-deprecations": "Anthropic · deprecations",
   "gemini-deprecations": "Gemini · deprecations",
   "vertex-deprecations": "Vertex AI · deprecations",
+  "vertex-quotas": "Vertex AI · quotas",
+  "vertex-model-garden": "Vertex AI · Model Garden",
   "aws-bedrock-lifecycle": "AWS Bedrock · lifecycle",
   "azure-foundry-lifecycle": "Azure Foundry · lifecycle",
   "groq-deprecations": "Groq · deprecations",

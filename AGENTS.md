@@ -1,8 +1,8 @@
 # Who this file is for
 
 The maintainer's working agreement for developing this repository, not a description of the product.
-The repository is public; the hosts, paths and credentials it operates are not in it. Somebody
-reading to understand what the service does wants [README.md](README.md).
+The repository is public; credentials and secret values it operates are not in it. The maintainer's SSH alias and deployment path below are routing details, not credentials.
+Somebody reading to understand what the service does wants [README.md](README.md).
 
 # How to work here
 
@@ -65,6 +65,32 @@ Stop and ask before anything the public can reach, anything that costs money, an
 to undo.
 
 # Production
+
+## Live access
+
+Production truth for Signal Forge is reached directly through the operator SSH alias `vm106`, in
+`/opt/signal-forge`; the compose service is `app`. The local checkout is for code and checks only:
+its `.env`, `signal-forge.json`, `data/app.db` and `backups` are never production evidence.
+
+Use the host directory for deployment files, the compose service for the live container, and the host for resource checks:
+
+```sh
+ssh vm106 'cd /opt/signal-forge && docker compose ps'
+ssh vm106 'cd /opt/signal-forge && docker compose exec -T app bun dist/src/cli.js guide'
+ssh vm106 'cd /opt/signal-forge && docker compose exec -T app bun dist/src/cli.js doctor'
+ssh vm106 'cd /opt/signal-forge && ls -la'
+ssh vm106 'cd /opt/signal-forge && grep -E "^[A-Za-z_][A-Za-z0-9_]*=" .env | cut -d= -f1 | sort'
+ssh vm106 'uptime && free -h && df -h /opt/signal-forge'
+ssh vm106 'cd /opt/signal-forge && docker compose stats --no-stream app'
+```
+
+An interactive host shell starts with `ssh vm106` followed by `cd /opt/signal-forge`; an interactive
+container shell starts with `ssh -tt vm106 'cd /opt/signal-forge && docker compose exec app sh'`. Run a
+script from `/opt/signal-forge/scripts` only after it has been explicitly requested. Never print `.env`
+values; inspect key names or file metadata only.
+
+Do not run the production CLI, inspect the production database, or interpret production state from the
+local checkout. If `vm106` is unreachable, production is unverified.
 
 `docs/runbook.md` is the route, and `bun src/cli.ts guide` is where to start when the command is not
 obvious. Get CLI output before reading source, and never run a mutation without an explicit request.

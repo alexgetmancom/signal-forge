@@ -81,6 +81,7 @@ const envSchema = z.object({
   OPENAI_API_KEY: optionalSecret,
   ANTHROPIC_API_KEY: optionalSecret,
   GEMINI_API_KEY: optionalSecret,
+  GOOGLE_CLOUD_SERVICE_ACCOUNT: optionalSecret,
   XAI_API_KEY: optionalSecret,
   ZAI_API_KEY: optionalSecret,
   MOONSHOT_API_KEY: optionalSecret,
