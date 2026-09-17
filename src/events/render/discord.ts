@@ -89,7 +89,12 @@ export function eventEmbed(event: Event & CardContext, url: string, summary?: st
   const impact = readerImpact(event, record);
   // How solid this is, before what it means: a reader decides whether to believe a card before
   // deciding whether to act on it. The footer keeps the machine-readable labels for anyone digging.
-  const standing = readerStanding(event);
+  // Gemini 3.8 Flash reached the arena's roster again on 2026-09-17, fifteen days after Google
+  // released it, and the card said nobody had said what it was.
+  const standing =
+    event.stream === "arena" && event.elsewhere?.length
+      ? "A new arena entry for a model that is already out."
+      : readerStanding(event);
   // One voice per line: the model's own summary, then how solid it is, then what it means, then the
   // evidence itself.
   const description = [

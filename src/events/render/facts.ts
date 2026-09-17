@@ -265,7 +265,10 @@ export function eventFacts(event: Event & CardContext, summary?: string): string
   }
 
   const collapsed = collapseDetails(lines);
+  // A model a catalogue already sells is not an unconfirmed name, whatever the arena calls it.
   const identity =
-    event.stream === "arena" || event.stream === "leaderboards" ? identityLine(event, record, title) : null;
+    (event.stream === "arena" || event.stream === "leaderboards") && !event.elsewhere?.length
+      ? identityLine(event, record, title)
+      : null;
   return [...(summary ? [`AI summary: ${summary}`] : []), ...collapsed, ...(identity ? [identity] : [])];
 }

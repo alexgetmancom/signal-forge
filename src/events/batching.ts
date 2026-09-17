@@ -58,8 +58,11 @@ function leadTimes(db: Database, storyIds: Map<number, number>, events: Event[])
   const stories = [...new Set(storyIds.values())];
   if (!stories.length) return leads;
   const rows = db
-    .query<{ story_id: number; source: string; stream: string; detected_at: string; name: string | null }, number[]>(
-      `SELECT se.story_id,e.source,e.stream,e.detected_at,
+    .query<
+      { story_id: number; source: string; stream: string; kind: string; detected_at: string; name: string | null },
+      number[]
+    >(
+      `SELECT se.story_id,e.source,e.stream,e.kind,e.detected_at,
          COALESCE(json_extract(e.after_json,'$.name'),json_extract(e.before_json,'$.name'),e.entity_id) AS name
        FROM story_events se JOIN events e ON e.id=se.event_id
        WHERE se.story_id IN (${stories.map(() => "?").join(",")})`,
@@ -72,10 +75,12 @@ function leadTimes(db: Database, storyIds: Map<number, number>, events: Event[])
     const detectedAt = Date.parse(event.detected_at);
     const earliest = rows
       .filter((row) => row.story_id === storyId && sourceFamily(row.source, row.stream) !== family)
-      .map((row) => ({ at: Date.parse(row.detected_at), source: row.source, name: row.name }))
+      .map((row) => ({ at: Date.parse(row.detected_at), kind: row.kind, source: row.source, name: row.name }))
       .filter((row) => Number.isFinite(row.at) && row.at < detectedAt)
       .sort((one, other) => one.at - other.at)[0];
-    if (!earliest || !Number.isFinite(detectedAt)) continue;
+    // A rank moving is a model that was already there: "Traced 8 days earlier" for Gemini 3.8 Flash
+    // measured the start of this database's history, not a source that spoke first.
+    if (earliest?.kind !== "new" || !Number.isFinite(detectedAt)) continue;
     const hours = (detectedAt - earliest.at) / 3_600_000;
     if (hours >= 1)
       leads.set(event.id, {
@@ -343,7 +348,8 @@ export function prepareDeliveries(
     // A sighting from a platform or a registry says where else the model already is; read once
     // per batch, and only when a card will need it.
     const sighted = (event: Event) =>
-      event.kind === "new" && (listsAnotherMakersModel(event) || event.source.startsWith("discovery:huggingface"));
+      event.kind === "new" &&
+      (listsAnotherMakersModel(event) || event.source.startsWith("discovery:huggingface") || event.stream === "arena");
     const listings = events.some(sighted) ? listingsBySubject(db) : null;
     // Read once per batch: the question is about the event, not about the destination.
     const known = events.some((event) => event.stream === "arena" || event.signal === "article")
@@ -406,10 +412,11 @@ export function prepareDeliveries(
           const record = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
           const name = displayName(String(record?.name ?? event.entity_id));
           const keys = new Set([subjectKey(event.entity_id), subjectKey(name)]);
-          const elsewhere = [...keys].flatMap((key) => [...(listings.get(key) ?? [])]);
-          Object.assign(event, {
-            elsewhere: [...new Set(elsewhere)].filter((source) => source !== event.source).sort(),
-          });
+          const elsewhere = [...new Set([...keys].flatMap((key) => [...(listings.get(key) ?? [])]))]
+            .filter((source) => source !== event.source)
+            .sort();
+          // An arena entry nobody lists is the ordinary case and its card already says so.
+          if (elsewhere.length || event.stream !== "arena") Object.assign(event, { elsewhere });
         }
       }
       if (!speaking.length) {

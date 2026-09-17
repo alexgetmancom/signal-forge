@@ -1146,4 +1146,12 @@ test("a card leaves out what is a blank or our own bookkeeping, and says whose n
     detected_at: "2026-09-17T03:23:00.000Z",
   };
   expect(eventFacts(sighting)).toContain("Named like a Google model; Google has not confirmed it.");
+  // The same entry for a model a catalogue already sells: Gemini 3.8 Flash was fifteen days out.
+  const released = { ...sighting, elsewhere: ["openrouter"] };
+  const facts = eventFacts(released).join("\n");
+  expect(facts).toMatch(/^Already listed by /m);
+  expect(facts).not.toMatch(/has not confirmed|Unidentified/);
+  const card = JSON.stringify(eventEmbed(released, "https://arena.ai"));
+  expect(card).toContain("A new arena entry for a model that is already out.");
+  expect(card).not.toContain("Nobody has said what it is yet");
 });

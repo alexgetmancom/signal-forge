@@ -2,10 +2,13 @@ import type { Database } from "bun:sqlite";
 import { authorityForSource, CONFIDENCE_LEVELS } from "./events/confidence.js";
 import {
   identityFor,
+  identitySignatures,
   identityTerms,
   type ModelIdentity,
+  type ModelSignature,
   mergeIdentities,
   normalizeIdentity,
+  signaturesConflict,
 } from "./events/identity.js";
 import { vendorOf } from "./events/interpretation.js";
 import { recordFor } from "./events/record.js";
@@ -33,6 +36,8 @@ type StoryGroup = {
   titleTerms: Set<string>;
   /** Identity evidence per source family, so one family cannot contradict itself inside a story. */
   familyIdentity: Map<string, { canonicals: Set<string>; terms: Set<string> }>;
+  /** Every version and product line the group's names claim; see `signaturesConflict`. */
+  signatures: ModelSignature[];
   /** Set for sources that correlate only with themselves; see `isolatedCandidate`. */
   candidate: boolean;
   storyId?: number;
@@ -160,6 +165,7 @@ function cloneProjection(projection: StoryProjection): StoryProjection {
     terms: new Set(group.terms),
     urls: new Set(group.urls),
     titleTerms: new Set(group.titleTerms),
+    signatures: [...group.signatures],
     familyIdentity: new Map(
       [...group.familyIdentity].map(([family, known]) => [
         family,
@@ -230,6 +236,7 @@ type MatchSubject = {
   terms: string[];
   url: string | null;
   titles: Set<string>;
+  signatures: ModelSignature[];
 };
 
 /**
@@ -265,6 +272,7 @@ function findLatestMatch(
     if (Math.abs(eventTime - group.lastTime) > CORRELATION_WINDOW_MS) continue;
     if (!compatibleVendor(group.vendor, subject.vendor)) continue;
     if (contradictsFamilyIdentity(group, subject.family, subject.canonical, subject.terms)) continue;
+    if (signaturesConflict(group.signatures, subject.signatures)) continue;
     if ((subject.url !== null && group.urls.has(subject.url)) || similarTitle(group.titleTerms, subject.titles))
       return group;
   }
@@ -292,19 +300,25 @@ function projectEvent(projection: StoryProjection, event: StoryEvent): StoryGrou
   const canonical = identity.canonicalId ? normalizeIdentity(identity.canonicalId) : null;
   const candidate = isolatedCandidate(event);
   const scope = candidate ? "candidate" : "confirmed";
+  // A repository event claims no identity, so it has no version to disagree with.
+  const signatures = repositoryEvent ? [] : identitySignatures(identity);
+  const agrees = (group: StoryGroup) => !signaturesConflict(group.signatures, signatures);
   const identityMatch = terms
     .map((term) => projection.aliases.get(`${scope}:${normalized(vendor)}:${term}`))
-    .find((group) => group !== undefined && withinCorrelationWindow(group, event));
+    .find((group) => group !== undefined && withinCorrelationWindow(group, event) && agrees(group));
   const currentMatch = projection.current.get(key);
   const previous =
     identityMatch ??
-    (currentMatch && currentMatch.candidate === candidate && withinCorrelationWindow(currentMatch, event)
+    (currentMatch &&
+    currentMatch.candidate === candidate &&
+    withinCorrelationWindow(currentMatch, event) &&
+    agrees(currentMatch)
       ? currentMatch
       : undefined) ??
     // Newest group first, walked in place. Copying and reversing the array here turned one boot's
     // projection into 42 seconds: the copy is eleven thousand allocations of a ten-thousand-element
     // array, and it happens before the first candidate is even looked at.
-    findLatestMatch(projection, event, { candidate, vendor, family, canonical, terms, url, titles });
+    findLatestMatch(projection, event, { candidate, vendor, family, canonical, terms, url, titles, signatures });
   const last = previous?.last;
   if (!previous || !last || Date.parse(event.detected_at) - Date.parse(last.detected_at) > CORRELATION_WINDOW_MS) {
     const group = {
@@ -320,6 +334,7 @@ function projectEvent(projection: StoryProjection, event: StoryEvent): StoryGrou
       urls: new Set(url ? [url] : []),
       titleTerms: new Set(titles),
       familyIdentity: new Map(),
+      signatures,
       candidate,
     };
     rememberFamilyIdentity(group, family, canonical, terms);
@@ -333,6 +348,9 @@ function projectEvent(projection: StoryProjection, event: StoryEvent): StoryGrou
   previous.lastTime = Date.parse(event.detected_at);
   previous.identity = mergeIdentities(previous.identity, identity);
   rememberFamilyIdentity(previous, family, canonical, terms);
+  for (const signature of signatures)
+    if (!previous.signatures.some((known) => known.version === signature.version && known.lines === signature.lines))
+      previous.signatures.push(signature);
   projection.current.set(key, previous);
   for (const term of terms) {
     previous.terms.add(term);

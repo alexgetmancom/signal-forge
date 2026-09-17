@@ -184,3 +184,88 @@ export function mergeIdentities(left: ModelIdentity, right: ModelIdentity): Mode
     status: preferred.status,
   };
 }
+
+/**
+ * Which model a name claims to be, reduced to the two things two different models never share: the
+ * version and the product line.
+ *
+ * Title-word overlap cannot see either: it drops one-character words, so `gemini-3.8-flash` is
+ * `gemini flash`, all of which `Google: Gemini 3.1 Flash Lite` contains, and on 2026-09-17 that was
+ * enough to file Gemini 3.8 Flash under
+ * OpenRouter's Gemini 3.1 Flash Lite, with Nano Banana 2 Lite pulled in by alias; 27 of the latest
+ * 100 production stories mixed versions the same way (Gemini 2.5 Flash with 3 Flash, Opus 4 with
+ * 4.1, GPT-5.2 with 5.5). A name with neither a version nor a line, such as an arena codename, claims
+ * nothing and conflicts with nothing.
+ */
+export type ModelSignature = { version: string | null; lines: string };
+
+/** Words that name a different product at the same version, not a way of serving one. */
+const PRODUCT_LINES = new Set([
+  "flash",
+  "pro",
+  "ultra",
+  "lite",
+  "mini",
+  "nano",
+  "image",
+  "video",
+  "audio",
+  "tts",
+  "edit",
+  "omni",
+]);
+
+const UUID_NAME = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+export function modelSignature(name: string): ModelSignature | null {
+  if (UUID_NAME.test(name.trim())) return null;
+  // "Google: Gemini 3.1 Flash Lite" and "google/gemini-3.1-flash-lite" name the model after the prefix.
+  const words = name
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/^[^:/]+[:/]\s*/, "")
+    .split(/[^a-z0-9.]+/)
+    .map((word) => word.replace(/^\.+|\.+$/g, ""))
+    .filter(Boolean);
+  const parts: string[] = [];
+  for (const word of words) {
+    // `v4.1`, `qwen3.8` and `5.3` carry a version; `64k`, `16k` and `ch3` do not. Four digits and more
+    // are snapshot dates (`2511`, `0813`, `20250514`), never a version.
+    const leading = parts.length === 0 ? /^[a-z]*(\d{1,2}(?:\.\d{1,2})*)$/.exec(word) : /^(\d{1,2})$/.exec(word);
+    if (leading?.[1]) {
+      parts.push(...leading[1].split("."));
+      continue;
+    }
+    if (parts.length) break;
+  }
+  // `gemini-3-8-flash` is 3.8; `Qwen-Image-3.0` is Qwen-Image-3.
+  while (parts.length > 1 && Number(parts.at(-1)) === 0) parts.pop();
+  const version = parts.length ? parts.map(Number).join(".") : null;
+  const lines = [...new Set(words.filter((word) => PRODUCT_LINES.has(word)))].sort().join(" ");
+  if (version === null && !lines) return null;
+  return { version, lines };
+}
+
+/**
+ * True when two sets of names cannot describe one model: each side claims something, and no claim on
+ * one side agrees with a claim on the other. A missing version agrees with any version; product
+ * lines must match exactly, because Flash and Flash Lite are two models at every version.
+ */
+export function signaturesConflict(left: readonly ModelSignature[], right: readonly ModelSignature[]): boolean {
+  if (!left.length || !right.length) return false;
+  return !left.some((one) =>
+    right.some(
+      (other) =>
+        one.lines === other.lines && (one.version === null || other.version === null || one.version === other.version),
+    ),
+  );
+}
+
+export function identitySignatures(identity: ModelIdentity): ModelSignature[] {
+  const signatures = new Map<string, ModelSignature>();
+  for (const name of unique([identity.displayName, identity.canonicalId, ...identity.aliases])) {
+    const signature = modelSignature(name);
+    if (signature) signatures.set(`${signature.version}|${signature.lines}`, signature);
+  }
+  return [...signatures.values()];
+}

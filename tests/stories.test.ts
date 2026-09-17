@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { confidenceFor, evidenceTypeFor } from "../src/events/confidence.js";
-import { identityFor } from "../src/events/identity.js";
+import { identityFor, modelSignature, signaturesConflict } from "../src/events/identity.js";
 import { vendorOf } from "../src/events/interpretation.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import type { Collection } from "../src/events/types.js";
@@ -455,4 +455,102 @@ test("a vendor pattern claims its own models and nobody else's", () => {
   expect(vendor("Poolside")).toBe("Poolside");
   // A cloud that resells a model does not become its maker.
   expect(vendorOf({ source: "aws-bedrock-lifecycle", entity_id: "claude-sonnet" } as never, null)).toBe("Anthropic");
+});
+
+test("a name's version and product line are read the way the makers write them", () => {
+  expect(modelSignature("gemini-3.8-flash")).toEqual({ version: "3.8", lines: "flash" });
+  expect(modelSignature("Google: Gemini 3.1 Flash Lite")).toEqual({ version: "3.1", lines: "flash lite" });
+  expect(modelSignature("claude-opus-4-1-max")?.version).toBe("4.1");
+  expect(modelSignature("claude-opus-4-20250514-thinking-16k")?.version).toBe("4");
+  expect(modelSignature("deepseek-v4.1-flash-max-20260910")?.version).toBe("4.1");
+  expect(modelSignature("Qwen3.8-Max")?.version).toBe("3.8");
+  expect(modelSignature("qwen-image-3-0")).toEqual(modelSignature("Qwen-Image-3.0"));
+  expect(modelSignature("qwen-image-edit-2511")).toEqual({ version: null, lines: "edit image" });
+  expect(modelSignature("instant-ramen-a85d")).toBeNull();
+  expect(modelSignature("01a0ad5f-8570-7d44-88e5-53e1c0826aaf")).toBeNull();
+
+  const of = (...names: string[]) => names.map(modelSignature).filter((one) => one !== null);
+  expect(signaturesConflict(of("gemini-3.8-flash"), of("gemini-3.1-flash-lite"))).toBe(true);
+  expect(signaturesConflict(of("gemini-2.5-flash"), of("gemini-3-flash"))).toBe(true);
+  expect(signaturesConflict(of("GPT-5.2 (xHigh)"), of("gpt-5.5-xhigh-webdev"))).toBe(true);
+  expect(signaturesConflict(of("Z.ai: GLM 5.3 Flash"), of("glm-5.3-flash-webdev"))).toBe(false);
+  expect(signaturesConflict(of("DeepSeek Pro Latest"), of("deepseek-v4-pro-0424-high"))).toBe(false);
+  expect(signaturesConflict(of("Qwen-Image-3.0-Pro"), of())).toBe(false);
+});
+
+test("Gemini 3.8 Flash is not filed under Gemini 3.1 Flash Lite for sharing three title words", () => {
+  const db = openDatabase(":memory:");
+  // A source's first read is its baseline; what follows it is what the stories are made of.
+  const baseline = { id: "baseline", name: "baseline" };
+  for (const [source, stream] of [
+    ["designarena:gamedev", "leaderboards"],
+    ["arena-leaderboards", "leaderboards"],
+    ["openrouter", "openrouter"],
+    ["arena", "arena"],
+  ] as const)
+    saveCollection(db, collection(source, stream, [baseline]), [], "2026-09-08T00:00:00.000Z");
+  saveCollection(
+    db,
+    collection("designarena:gamedev", "leaderboards", [
+      baseline,
+      { id: "gemini-3.8-flash", name: "gemini-3.8-flash", rank: 10 },
+    ]),
+    [],
+    "2026-09-08T18:55:00.000Z",
+  );
+  saveCollection(
+    db,
+    collection("arena-leaderboards", "leaderboards", [
+      baseline,
+      {
+        id: "text:overall:gemini-3.1-flash-lite-image",
+        name: "gemini-3.1-flash-lite-image (nano-banana-2-lite)",
+        modelKey: "instant-ramen-a85d",
+        rank: 40,
+      },
+    ]),
+    [],
+    "2026-09-08T19:27:00.000Z",
+  );
+  saveCollection(
+    db,
+    collection("openrouter", "openrouter", [
+      baseline,
+      { id: "google/gemini-3.1-flash-lite", name: "Google: Gemini 3.1 Flash Lite" },
+      { id: "google/gemini-3.8-flash", name: "Google: Gemini 3.8 Flash" },
+      { id: "z-ai/glm-5.3-flash", name: "Z.ai: GLM 5.3 Flash" },
+    ]),
+    [],
+    "2026-09-10T16:38:00.000Z",
+  );
+  saveCollection(
+    db,
+    collection("arena", "arena", [
+      baseline,
+      {
+        id: "01a0ad5f-8570-7d44-88e5-53e1c0826aaf",
+        model: "gemini-3.8-flash",
+        name: "gemini-3.8-flash",
+        maker: "google",
+        selectable: true,
+      },
+      { id: "019e0000-0000-7000-8000-000000000000", model: "glm-5.3-flash", name: "glm-5.3-flash" },
+    ]),
+    [],
+    "2026-09-17T03:23:00.000Z",
+  );
+  rebuildStories(db);
+
+  const stories = listStories(db, { limit: 50 });
+  const holding = (name: string) => stories.filter((story) => story.aliases.includes(name) || story.title === name);
+  expect(holding("gemini-3.8-flash").length).toBeGreaterThan(0);
+  for (const story of holding("gemini-3.8-flash")) {
+    expect(story.aliases.join(" ")).not.toMatch(/3\.1|nano-banana/);
+    expect(story.canonicalId === null || story.canonicalId.includes("3.8")).toBe(true);
+  }
+  // The same model under two catalogues still meets itself.
+  const glm = holding("glm-5.3-flash");
+  expect(glm).toHaveLength(1);
+  expect(glm[0]?.sources.sort()).toEqual(["arena", "openrouter"]);
+  db.close();
 });
