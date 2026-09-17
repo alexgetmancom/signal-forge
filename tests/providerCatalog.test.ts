@@ -15,6 +15,7 @@ function provider(id: string) {
 
 const zai = provider("zai");
 const mimo = provider("mimo");
+const deepinfra = provider("deepinfra");
 
 // The shape Z.ai actually answers with, which is the shape OpenAI defined.
 const payload = JSON.stringify({
@@ -60,6 +61,39 @@ test("MiMo's id-and-owner-only catalogue response is supported", async () => {
   );
 
   expect(collection.records).toEqual([{ id: "mimo-v2.5", name: "mimo-v2.5", maker: "Xiaomi MiMo", owner: "xiaomi" }]);
+});
+
+test("DeepInfra's nested metadata catalogue envelope is accepted for availability", async () => {
+  const collection = await collectProviderCatalogue(
+    deepinfra,
+    { ...config, DEEPINFRA_API_KEY: "secret" },
+    async (url, init) => {
+      expect(String(url)).toBe("https://api.deepinfra.com/v1/models");
+      expect(new Headers(init?.headers).get("authorization")).toBe("Bearer secret");
+      return new Response(
+        JSON.stringify({
+          object: "list",
+          data: [
+            {
+              id: "Qwen/Qwen3.8-Flash",
+              object: "model",
+              created: 0,
+              owned_by: "deepinfra",
+              metadata: {
+                context_length: 1_000_000,
+                pricing: { input_tokens: 0.113, output_tokens: 0.382 },
+                tags: ["chat", "reasoning"],
+              },
+            },
+          ],
+        }),
+      );
+    },
+  );
+
+  expect(collection.records).toEqual([
+    { id: "Qwen/Qwen3.8-Flash", name: "Qwen/Qwen3.8-Flash", maker: "DeepInfra", owner: "deepinfra" },
+  ]);
 });
 
 test("an empty catalogue is a failed read, never an empty catalogue", async () => {

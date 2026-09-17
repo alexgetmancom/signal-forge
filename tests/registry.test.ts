@@ -33,6 +33,12 @@ test("source registry has unique IDs, valid streams, labels and consistent pacin
     requiredCapabilities: ["POOLSIDE_API_KEY"],
     enabled: true,
   });
+  expect(definitions.find((definition) => definition.id === "deepinfra")).toMatchObject({
+    authority: "third_party",
+    stream: "api-models",
+    requiredCapabilities: ["DEEPINFRA_API_KEY"],
+    enabled: true,
+  });
   expect(definitions.find((definition) => definition.id === "vercel-gateway")?.restrictedReason).toBeUndefined();
   for (const id of [
     "openai-chatgpt-release-notes",
@@ -145,9 +151,13 @@ test("conditional sources distinguish intentional disablement from missing crede
   deepSeekDb.close();
 
   const newProviderDb = openDatabase(":memory:");
-  const newProviderConfig = config({ MIMO_API_KEY: "test-key", POOLSIDE_API_KEY: "test-key" });
+  const newProviderConfig = config({
+    MIMO_API_KEY: "test-key",
+    POOLSIDE_API_KEY: "test-key",
+    DEEPINFRA_API_KEY: "test-key",
+  });
   expect(sourceJobs(newProviderDb, newProviderConfig).map((job) => job.id)).toEqual(
-    expect.arrayContaining(["mimo", "poolside"]),
+    expect.arrayContaining(["mimo", "poolside", "deepinfra"]),
   );
   newProviderDb.close();
 });
@@ -191,5 +201,6 @@ test("source labels cover generated families", () => {
   expect(sourceLabel("status:moonshot")).toBe("Moonshot · status");
   expect(sourceLabel("mimo")).toBe("Xiaomi MiMo API");
   expect(sourceLabel("poolside")).toBe("Poolside API");
+  expect(sourceLabel("deepinfra")).toBe("DeepInfra API");
   expect(sourceLabel("unknown-source")).toBe("unknown-source");
 });

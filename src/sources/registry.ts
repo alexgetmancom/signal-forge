@@ -574,7 +574,7 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       (provider, index): Omit<SourceDefinition, "mode"> => ({
         id: provider.id,
         label: sourceLabel(provider.id),
-        authority: "first_party",
+        authority: provider.authority,
         vendor: provider.vendor,
         group: "Catalogues",
         stream: "api-models",

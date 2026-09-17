@@ -94,6 +94,7 @@ const envSchema = z.object({
   CEREBRAS_API_KEY: optionalSecret,
   MIMO_API_KEY: optionalSecret,
   POOLSIDE_API_KEY: optionalSecret,
+  DEEPINFRA_API_KEY: optionalSecret,
   ARTIFICIAL_ANALYSIS_API_KEY: optionalSecret,
 });
 export const settingsSchema = z

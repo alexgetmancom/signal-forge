@@ -78,6 +78,7 @@ const STATIC_LABELS: Record<string, string> = {
   cerebras: "Cerebras API",
   mimo: "Xiaomi MiMo API",
   poolside: "Poolside API",
+  deepinfra: "DeepInfra API",
 };
 
 /** Pure source naming used by both the registry and transport-neutral renderers. */

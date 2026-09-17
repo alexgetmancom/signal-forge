@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
-import type { Collection, RecordData } from "../events/types.js";
+import type { Collection, RecordData, SourceAuthority } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
 import { fetchText } from "./http.js";
 
@@ -157,6 +157,7 @@ export type ProviderCatalogue = {
   apiUrl: string;
   url: string;
   key: keyof AppConfig;
+  authority: SourceAuthority;
   /**
    * The provider fills OpenAI's `created` with when it answered, not when the model appeared, so
    * the field is not collected from it.
@@ -182,6 +183,7 @@ export const PROVIDER_CATALOGUES: ProviderCatalogue[] = [
     apiUrl: "https://api.x.ai/v1/models",
     url: "https://docs.x.ai/docs/models",
     key: "XAI_API_KEY",
+    authority: "first_party",
   },
   {
     id: "zai",
@@ -190,6 +192,7 @@ export const PROVIDER_CATALOGUES: ProviderCatalogue[] = [
     apiUrl: "https://api.z.ai/api/paas/v4/models",
     url: "https://docs.z.ai/guides/llm/glm-4.6",
     key: "ZAI_API_KEY",
+    authority: "first_party",
   },
   {
     id: "moonshot",
@@ -198,6 +201,7 @@ export const PROVIDER_CATALOGUES: ProviderCatalogue[] = [
     apiUrl: "https://api.moonshot.ai/v1/models",
     url: "https://platform.moonshot.ai/docs/pricing",
     key: "MOONSHOT_API_KEY",
+    authority: "first_party",
     createdIsResponseTime: true,
   },
   {
@@ -207,6 +211,7 @@ export const PROVIDER_CATALOGUES: ProviderCatalogue[] = [
     apiUrl: "https://api.mistral.ai/v1/models",
     url: "https://docs.mistral.ai/getting-started/models/models_overview/",
     key: "MISTRAL_API_KEY",
+    authority: "first_party",
     createdIsResponseTime: true,
   },
   {
@@ -216,6 +221,7 @@ export const PROVIDER_CATALOGUES: ProviderCatalogue[] = [
     apiUrl: "https://api.groq.com/openai/v1/models",
     url: "https://console.groq.com/docs/models",
     key: "GROQ_API_KEY",
+    authority: "first_party",
   },
   // Moonshot serves its coding tier from a separate host with its own key: the general Moonshot
   // key answers with kimi-k2.6 and kimi-k2.7-code and never sees the coding-tier catalogue, which
@@ -229,6 +235,7 @@ export const PROVIDER_CATALOGUES: ProviderCatalogue[] = [
     apiUrl: "https://api.kimi.com/coding/v1/models",
     url: "https://www.kimi.com/code/docs/kimi-code/models.html",
     key: "KIMI_API_KEY",
+    authority: "first_party",
   },
   {
     id: "minimax",
@@ -237,6 +244,7 @@ export const PROVIDER_CATALOGUES: ProviderCatalogue[] = [
     apiUrl: "https://api.minimax.io/v1/models",
     url: "https://platform.minimax.io/docs/api-reference/text-anthropic-api",
     key: "MINIMAX_API_KEY",
+    authority: "first_party",
   },
   // Alibaba's model studio carries the Qwen catalogue, and lists third-party models it hosts as
   // well; the international host is the one the configured key belongs to.
@@ -247,6 +255,7 @@ export const PROVIDER_CATALOGUES: ProviderCatalogue[] = [
     apiUrl: "https://dashscope-intl.aliyuncs.com/compatible-mode/v1/models",
     url: "https://www.alibabacloud.com/help/en/model-studio/models",
     key: "DASHSCOPE_API_KEY",
+    authority: "first_party",
   },
   // Cerebras serves open-weight models it did not train, so a new id here is availability rather
   // than a release; it is the first place a hosted open model becomes callable.
@@ -257,6 +266,7 @@ export const PROVIDER_CATALOGUES: ProviderCatalogue[] = [
     apiUrl: "https://api.cerebras.ai/v1/models",
     url: "https://inference-docs.cerebras.ai/models/overview",
     key: "CEREBRAS_API_KEY",
+    authority: "first_party",
   },
   {
     id: "mimo",
@@ -265,6 +275,7 @@ export const PROVIDER_CATALOGUES: ProviderCatalogue[] = [
     apiUrl: "https://api.xiaomimimo.com/v1/models",
     url: "https://mimo.mi.com/docs/en-US/api/model/list-models",
     key: "MIMO_API_KEY",
+    authority: "first_party",
   },
   {
     id: "poolside",
@@ -273,6 +284,16 @@ export const PROVIDER_CATALOGUES: ProviderCatalogue[] = [
     apiUrl: "https://inference.poolside.ai/v1/models",
     url: "https://poolside.ai/models",
     key: "POOLSIDE_API_KEY",
+    authority: "first_party",
+  },
+  {
+    id: "deepinfra",
+    name: "DeepInfra",
+    vendor: "DeepInfra",
+    apiUrl: "https://api.deepinfra.com/v1/models",
+    url: "https://docs.deepinfra.com/",
+    key: "DEEPINFRA_API_KEY",
+    authority: "third_party",
   },
 ];
 
