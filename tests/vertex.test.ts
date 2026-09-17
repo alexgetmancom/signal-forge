@@ -58,7 +58,16 @@ test("quotas are read for the key's project and folded into one record per base 
           quotaInfos: [quota("InputTokensPerMinute", "grok-4.7", ["47000", "20000"]), { quotaId: "Unrelated" }],
           nextPageToken: "p2",
         },
-        { quotaInfos: [quota("RequestsPerMinute", "grok-4.7", ["3"]), quota("RequestsPerMinute", "grok-4.6", ["60"])] },
+        {
+          quotaInfos: [
+            quota("RequestsPerMinute", "grok-4.7", ["3"]),
+            quota("RequestsPerMinute", "grok-4.6", ["60"]),
+            {
+              quotaId: "RequestsPerMinute",
+              dimensionsInfos: [{ dimensions: { base_model: "grok-4.5" }, details: {} }],
+            },
+          ],
+        },
       ],
       seen,
     ),

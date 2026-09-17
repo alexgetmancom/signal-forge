@@ -104,7 +104,16 @@ const quotaInfosSchema = z.object({
           .array(
             z.object({
               dimensions: z.record(z.string(), z.string()).optional(),
-              details: z.object({ value: z.string().regex(/^-?\d+$/) }).optional(),
+              // A dimension with no limit of its own answers `details: {}`: 1,817 of 5,904 did for the
+              // owner's project on 2026-09-17.
+              details: z
+                .object({
+                  value: z
+                    .string()
+                    .regex(/^-?\d+$/)
+                    .optional(),
+                })
+                .optional(),
             }),
           )
           .optional(),
@@ -141,7 +150,7 @@ export async function collectVertexQuotas(config: AppConfig, request: Fetch = fe
       quotaCount++;
       for (const info of quota.dimensionsInfos ?? []) {
         const model = info.dimensions?.base_model;
-        if (!model || !info.details) continue;
+        if (!model || info.details?.value === undefined) continue;
         const limits = models.get(model) ?? {};
         limits[quota.quotaId] = Math.max(limits[quota.quotaId] ?? -1, Number(info.details.value));
         models.set(model, limits);
