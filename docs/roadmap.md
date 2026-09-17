@@ -28,7 +28,8 @@ that has since moved is not a priority.
 |---|---|---|
 | Next | Read the wire back in a week. | `channel-mix 7`, taken no earlier than 2026-09-24, says what the two channels carried after the widening of 2026-09-17 (`🚀signals`: `launch`, `change`, `release`, `retirement`; `🕵scouts`: `codename`). Done when the real numbers per class are written here with their date, and every class or source that produced cards the owner calls noise is taken off the wire with its count. |
 | Next | Judge the sources a month in. | `source-verdicts 30`, first taken no earlier than 2026-10-17 so the trending list, the media arenas and Hacker News have a whole period behind them. It names every enabled source that over thirty days led no other source, reached no reader and drew no scout vote. Done when each one named is removed or kept with a one-line reason here, and the date of the next reading is written in its place. |
-| Owner decision | Cloud catalogues from Bedrock and Azure AI Foundry. | Both answer only with an account credential, and production carries none, checked 2026-09-17. Vertex is watched through a service account since that day: its quotas named `grok-4.7` while Model Garden's newest xAI entry was `grok-4.6`. Creating the other two accounts costs money and is the owner's call. |
+| Owner decision | AWS: an account for Bedrock and its quotas. | The Vertex pair is the model: Vertex quotas named `grok-4.7` on 2026-09-17 while Model Garden's newest xAI entry was `grok-4.6`. Bedrock's counterparts are `ListFoundationModels` and `ListInferenceProfiles` in `us-east-1` and `us-west-2`, and Service Quotas for service code `bedrock`, whose per-model token limits may likewise run ahead of the listing. Reading them is free; the account needs a card. Done when an IAM user holding only those three read actions has its keys in production and both collect. |
+| Owner decision | Azure: a subscription for AI Foundry. | `Microsoft.CognitiveServices/locations/{region}/models` is the deployable catalogue per region and `usages` the per-model quota; today Azure is seen only second-hand, through the TrueFoundry mirror and the lifecycle page. A pay-as-you-go subscription costs nothing unused. Done when a service principal with Reader has its tenant, client id and secret in production and both collect. |
 | Owner decision | Kimi: a key for the coding tier. | The Moonshot key answers with `kimi-k2.6` and `kimi-k2.7-code` and nothing newer, checked against production 2026-09-14, which is why the K2.8 Preview rollout of 11 September 2026 was invisible here. The coding tier is a separate host with a separate credential: `api.kimi.com/coding/v1/models` answers 401 to a key it does not accept while every neighbouring path answers 404, so the source is registered and correct ahead of the key. Set `KIMI_API_KEY` and it collects; the Kimi Code changelog already ships as its own source. |
 
 ## Settled by measurement
@@ -141,6 +142,12 @@ Kept because the reasoning cost real observation and is easy to re-litigate from
 
 Not scheduled. Written down so they stop being re-derived from scratch.
 
+- **Hosts of open models.** NVIDIA NIM (`integrate.api.nvidia.com/v1/models`), Together, Fireworks
+  and DeepInfra list a model in `/v1/models` when they start serving it, often ahead of the
+  announcement. Each needs a free key and would reach readers as a sighting only. NVIDIA first:
+  it is the one that tends to be early. GitHub Models is not a candidate: its catalogue answered
+  `410 github_models_retirement_brownout` on 2026-09-17.
+
 - **Regional lifecycle schedules.** A deprecation with different dates per region is stored as one
   record with one date, which understates the ones that matter most.
 - **A second Cohere reading with dates.** Its changelog arrives as an index with no publication
@@ -168,7 +175,8 @@ in shadow, as the only measure of what people actually run. npm, PyPI and GitHub
 selected AI tools. Official news, release notes and changelogs for OpenAI, Codex, Anthropic, Claude
 Code, Gemini, the Google AI blog, DeepMind, xAI, Mistral, Groq, DeepSeek, Kimi Code, Cohere and
 Hugging Face. Lifecycle and deprecation pages for OpenAI, Anthropic, Google, AWS, Azure, Groq,
-Cohere and xAI. Vendor site pages watched for URLs that appear before the announcement, including
+Cohere and xAI. Vertex quotas and Model Garden for thirteen publishers, and the Hugging Face
+inference router's hosts. Vendor site pages watched for URLs that appear before the announcement, including
 the Claude API reference and help centre. Eleven iOS listings, read for the vendor's own release
 notes. Codex usage-limit resets. GitHub discovery, in shadow. Two aggregated
 catalogues, in shadow: models.dev, which carries 217 providers as 2291 canonical models, and the

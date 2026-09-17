@@ -97,6 +97,60 @@ export async function collectHuggingFace(
   return parseHuggingFace(await fetchText(url, headers, request, undefined, cache), author);
 }
 
+const routerSchema = z.object({
+  data: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        created: z.number().optional(),
+        owned_by: z.string().optional(),
+        providers: z
+          .array(z.object({ provider: z.string().min(1), status: z.string(), context_length: z.number().optional() }))
+          .default([]),
+      }),
+    )
+    .min(1),
+});
+
+/**
+ * The models Hugging Face's inference router can send a request to, and who serves each: weights on
+ * the Hub become callable here, usually at a host other than the lab. Latency, throughput and price
+ * are left out, because they move on every read and none of them is a model arriving. Anonymous and
+ * validated by ETag, measured 2026-09-17 with 142 models.
+ */
+export async function collectHuggingFaceRouter(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
+  const raw: unknown = JSON.parse(
+    await fetchText(
+      "https://router.huggingface.co/v1/models",
+      { accept: "application/json" },
+      request,
+      undefined,
+      cache,
+    ),
+  );
+  const records = routerSchema.parse(raw).data.map((model) => {
+    const live = model.providers.filter((provider) => provider.status === "live");
+    const context = Math.max(0, ...live.map((provider) => provider.context_length ?? 0));
+    return {
+      id: model.id,
+      name: model.id,
+      maker: "Hugging Face",
+      url: `https://huggingface.co/${model.id}`,
+      ...(model.owned_by ? { owner: model.owned_by } : {}),
+      ...(model.created ? { created: new Date(model.created * 1000).toISOString() } : {}),
+      ...(context ? { context } : {}),
+      providers: live.map((provider) => provider.provider).sort(),
+    };
+  });
+  return {
+    source: "huggingface-router",
+    stream: "api-models",
+    url: "https://huggingface.co/inference/models",
+    raw: records,
+    records,
+  };
+}
+
 const npmPackage = z.object({
   name: z.string().min(1),
   "dist-tags": z.record(z.string(), z.string()),

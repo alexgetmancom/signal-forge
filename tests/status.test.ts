@@ -600,6 +600,22 @@ test("a board too large for Discord is trimmed to fit and says what it dropped",
   expect(fitted.fields.at(-1)?.value).toContain("more sections not shown");
 });
 
+test("the note about dropped sections still fits once a section was dropped", () => {
+  // Six sections alone come to 5,978 characters: the board fits only without the seventh and the note.
+  const fitted = fitEmbed({
+    title: "Tracker status",
+    fields: Array.from({ length: 7 }, (_, index) => ({
+      name: `Group ${index}`,
+      value: "x".repeat(986),
+      inline: false,
+    })),
+    footer: { text: "footer" },
+  }) as { fields: { name: string; value: string }[] };
+  const size = 20 + fitted.fields.reduce((sum, field) => sum + field.name.length + field.value.length, 0);
+  expect(size).toBeLessThanOrEqual(6000);
+  expect(fitted.fields.at(-1)?.value).toContain("more sections not shown");
+});
+
 test("a board Discord refuses is an actionable issue rather than a channel that looks quiet", async () => {
   const db = openDatabase(":memory:");
   seed(db, "openrouter", { last_success: new Date(now - 1000).toISOString(), checked_at: new Date(now).toISOString() });

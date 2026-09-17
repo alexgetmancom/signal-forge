@@ -191,51 +191,75 @@ const publisherModelsSchema = z.object({
         launchStage: z.string().optional(),
       }),
     )
-    .min(1),
+    .optional(),
   nextPageToken: z.string().optional(),
 });
 
 /**
- * Model Garden is where a partner model becomes something a Google Cloud customer can deploy. Only
- * the xAI publisher is read: it is the one whose listing was measured answering, on 2026-09-17 from
- * us-central1 with `grok-4.6` newest, and the one whose quota ran ahead of its listing.
+ * The publishers whose Model Garden listings answered with models on 2026-09-17 from us-central1.
+ * Their spelling is Google's and not guessable: `mistralai` and `mistral-ai` are both publishers,
+ * while `deepseek`, `moonshot-ai`, `zai`, `minimax` and `cohere` answered with an empty list.
+ */
+export const MODEL_GARDEN_PUBLISHERS = [
+  "google",
+  "anthropic",
+  "meta",
+  "mistralai",
+  "mistral-ai",
+  "deepseek-ai",
+  "qwen",
+  "moonshotai",
+  "zai-org",
+  "openai",
+  "ai21",
+  "nvidia",
+  "xai",
+] as const;
+
+/**
+ * Model Garden is where a partner model becomes something a Google Cloud customer can deploy. The
+ * id carries the publisher, as OpenRouter's does, because two publishers may name a model alike.
  */
 export async function collectVertexModelGarden(config: AppConfig, request: Fetch = fetch): Promise<Collection> {
   const { headers } = await authorized(config, request);
-  const apiUrl = "https://us-central1-aiplatform.googleapis.com/v1beta1/publishers/xai/models?pageSize=100";
   const raw: unknown[] = [];
   const records: RecordData[] = [];
-  let cursor = "";
-  for (let page = 0; page < 100; page++) {
-    const body: unknown = JSON.parse(
-      await fetchText(`${apiUrl}${cursor ? `&pageToken=${encodeURIComponent(cursor)}` : ""}`, headers, request),
-    );
-    const data = publisherModelsSchema.parse(body);
-    raw.push(body);
-    records.push(
-      ...data.publisherModels.map((model) => {
+  for (const publisher of MODEL_GARDEN_PUBLISHERS) {
+    const apiUrl = `https://us-central1-aiplatform.googleapis.com/v1beta1/publishers/${publisher}/models?pageSize=100`;
+    let cursor = "";
+    let listed = 0;
+    for (let page = 0; ; page++) {
+      if (page >= 100) throw new Error(`Model Garden pagination exceeded limit for ${publisher}`);
+      const body: unknown = JSON.parse(
+        await fetchText(`${apiUrl}${cursor ? `&pageToken=${encodeURIComponent(cursor)}` : ""}`, headers, request),
+      );
+      const data = publisherModelsSchema.parse(body);
+      raw.push(body);
+      for (const model of data.publisherModels ?? []) {
         const id = model.name.split("/").at(-1) ?? model.name;
-        return {
-          id,
+        listed++;
+        records.push({
+          id: `${publisher}/${id}`,
           name: id,
           maker: "Vertex AI",
-          url: `https://console.cloud.google.com/vertex-ai/publishers/xai/model-garden/${id}`,
+          url: `https://console.cloud.google.com/vertex-ai/publishers/${publisher}/model-garden/${id}`,
           ...(model.versionId ? { version: model.versionId } : {}),
           ...(model.launchStage ? { stage: model.launchStage } : {}),
-        };
-      }),
-    );
-    if (!data.nextPageToken) {
-      return {
-        source: "vertex-model-garden",
-        stream: "api-models",
-        url: "https://console.cloud.google.com/vertex-ai/model-garden",
-        raw,
-        records,
-      };
+        });
+      }
+      if (!data.nextPageToken) break;
+      if (data.nextPageToken === cursor) throw new Error("Model Garden pagination did not advance");
+      cursor = data.nextPageToken;
     }
-    if (data.nextPageToken === cursor) throw new Error("Model Garden pagination did not advance");
-    cursor = data.nextPageToken;
+    // Every publisher here was chosen for answering with models; one answering with none is a broken
+    // read, not a maker leaving Google Cloud.
+    if (!listed) throw new Error(`Model Garden lists no models for ${publisher}`);
   }
-  throw new Error("Model Garden pagination exceeded limit");
+  return {
+    source: "vertex-model-garden",
+    stream: "api-models",
+    url: "https://console.cloud.google.com/vertex-ai/model-garden",
+    raw,
+    records,
+  };
 }

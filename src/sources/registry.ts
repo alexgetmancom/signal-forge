@@ -50,6 +50,7 @@ import { collectSitePages, WATCHED_SITES } from "./pages.js";
 import { collectPlatformStatus, PLATFORMS } from "./platforms.js";
 import {
   collectHuggingFace,
+  collectHuggingFaceRouter,
   collectNpm,
   collectPypi,
   collectVercelGateway,
@@ -777,7 +778,6 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       id: "vertex-model-garden",
       label: sourceLabel("vertex-model-garden"),
       authority: "third_party",
-      vendor: "xAI",
       group: "Catalogues",
       stream: "api-models",
       intervalSeconds: 300,
@@ -785,6 +785,16 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       requiredCapabilities: ["GOOGLE_CLOUD_SERVICE_ACCOUNT"],
       collector: () => collectVertexModelGarden(config),
       enabled: requested("vertex-model-garden"),
+    },
+    {
+      id: "huggingface-router",
+      label: sourceLabel("huggingface-router"),
+      authority: "third_party",
+      group: "Catalogues",
+      stream: "api-models",
+      intervalSeconds: 900,
+      collector: () => collectHuggingFaceRouter(fetch, cache),
+      enabled: requested("huggingface-router"),
     },
   ];
 

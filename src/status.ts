@@ -199,7 +199,9 @@ export function fitEmbed(embed: Record<string, unknown>): Record<string, unknown
   while (
     fields.length > 0 &&
     (fields.length + 1 > EMBED_FIELD_LIMIT ||
-      embedLength({ ...fitted, fields }) + (dropped ? 0 : reserve) > EMBED_CHARACTER_LIMIT)
+      // The marker is appended after the loop, so its room is kept on every pass, not only the first:
+      // releasing it once a section was dropped let a 6,038-character board through on 2026-09-17.
+      embedLength({ ...fitted, fields }) + reserve > EMBED_CHARACTER_LIMIT)
   ) {
     fields.pop();
     dropped += 1;
@@ -227,7 +229,13 @@ export function statusEmbed(health: SourceHealth[], now = Date.now()): Record<st
       : `${DOTS.failing} ${failing.length} of ${activeCount} active collectors need attention`;
 
   const visibleHealth = health.filter((entry) => entry.state !== "missing" && entry.state !== "disabled");
-  const groups = [...new Set(visibleHealth.map((entry) => entry.group))];
+  // fitEmbed drops the last sections once the board is full, so a group with a collector that needs
+  // attention comes first: adding the Hugging Face router pushed a failing Arena off the board.
+  const groups = [...new Set(visibleHealth.map((entry) => entry.group))].sort(
+    (left, right) =>
+      Number(visibleHealth.some((entry) => entry.group === right && entry.state !== "ok")) -
+      Number(visibleHealth.some((entry) => entry.group === left && entry.state !== "ok")),
+  );
   const fields: { name: string; value: string; inline: boolean }[] = [];
   for (const group of groups) {
     const rows = health

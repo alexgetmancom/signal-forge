@@ -4,7 +4,12 @@ import { loadConfig } from "../src/config.js";
 import { notificationBlock } from "../src/events/notification.js";
 import { signalClass } from "../src/events/signals.js";
 import type { Event } from "../src/events/types.js";
-import { collectVertexModelGarden, collectVertexQuotas, signedAssertion } from "../src/sources/vertex.js";
+import {
+  collectVertexModelGarden,
+  collectVertexQuotas,
+  MODEL_GARDEN_PUBLISHERS,
+  signedAssertion,
+} from "../src/sources/vertex.js";
 
 const { privateKey, publicKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
 const account = {
@@ -103,21 +108,39 @@ test("a malformed key fails without repeating any of it", async () => {
   expect(String(error)).not.toContain("PRIVATE");
 });
 
-test("Model Garden lists xAI's models by their short id", async () => {
-  const collection = await collectVertexModelGarden(
-    config,
-    google([{ publisherModels: [{ name: "publishers/xai/models/grok-4.6", versionId: "001", launchStage: "GA" }] }]),
-  );
-  expect(collection.records).toEqual([
-    {
-      id: "grok-4.6",
-      name: "grok-4.6",
-      maker: "Vertex AI",
-      url: "https://console.cloud.google.com/vertex-ai/publishers/xai/model-garden/grok-4.6",
-      version: "001",
-      stage: "GA",
-    },
-  ]);
+test("Model Garden is read for every publisher and ids carry the publisher", async () => {
+  const seen: string[] = [];
+  const request = async (url: string) => {
+    seen.push(url);
+    if (url === account.token_uri) return Response.json({ access_token: "token-1", expires_in: 3599 });
+    const publisher = /publishers\/([^/]+)\/models/.exec(url)?.[1] ?? "";
+    if (publisher === "google" && !url.includes("pageToken"))
+      return Response.json({ publisherModels: [{ name: "publishers/google/models/gemini-3" }], nextPageToken: "g2" });
+    return Response.json({
+      publisherModels: [
+        { name: `publishers/${publisher}/models/${publisher}-model`, versionId: "001", launchStage: "GA" },
+      ],
+    });
+  };
+  const collection = await collectVertexModelGarden(config, request);
+  expect(collection.records).toHaveLength(MODEL_GARDEN_PUBLISHERS.length + 1);
+  expect(seen.some((url) => url.includes("publishers/google/models?pageSize=100&pageToken=g2"))).toBe(true);
+  expect(collection.records).toContainEqual({
+    id: "xai/xai-model",
+    name: "xai-model",
+    maker: "Vertex AI",
+    url: "https://console.cloud.google.com/vertex-ai/publishers/xai/model-garden/xai-model",
+    version: "001",
+    stage: "GA",
+  });
+});
+
+test("a publisher answering with no models fails the read instead of emptying its catalogue", async () => {
+  const request = async (url: string) =>
+    url === account.token_uri
+      ? Response.json({ access_token: "token-1", expires_in: 3599 })
+      : Response.json(url.includes("publishers/meta/") ? {} : { publisherModels: [{ name: "publishers/x/models/y" }] });
+  await expect(collectVertexModelGarden(config, request)).rejects.toThrow("no models for meta");
 });
 
 const event = (source: string, kind: Event["kind"], before: object | null, after: object | null): Event => ({
