@@ -332,8 +332,8 @@ test("a platform listing another maker's model names where it already was", () =
     .all()
     .map((row) => row.body)
     .join("\n");
-  expect(bodies).toContain("Already listed by Z.ai API");
+  expect(bodies).toContain("Already out · listed by Z.ai API");
   // The platform's own model is a launch, and a launch carries neither line.
-  expect(bodies.match(/Already listed by|No other tracked catalogue/g)).toHaveLength(1);
+  expect(bodies.match(/Already out · listed by|No other tracked catalogue/g)).toHaveLength(1);
   db.close();
 });

@@ -21,8 +21,13 @@ function cards(db: ReturnType<typeof openDatabase>): string[] {
     .query<{ body: string }, []>("SELECT body FROM deliveries ORDER BY id")
     .all()
     .flatMap((row) => {
-      const payload = JSON.parse(row.body) as { embeds?: { description?: string }[] };
-      return (payload.embeds ?? []).map((embed) => embed.description ?? "");
+      const payload = JSON.parse(row.body) as {
+        embeds?: { description?: string; fields?: { name: string; value: string }[] }[];
+      };
+      // What the card says, in reading order: its sentences, then its labelled facts.
+      return (payload.embeds ?? []).map((embed) =>
+        [embed.description ?? "", ...(embed.fields ?? []).map((field) => `${field.name}: ${field.value}`)].join("\n"),
+      );
     });
 }
 

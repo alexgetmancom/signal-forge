@@ -4,7 +4,8 @@ import { vendorOf } from "../interpretation.js";
 import { displayTitle } from "../naming.js";
 import type { Event, RecordData } from "../types.js";
 import { DESCRIPTION_CHARACTERS } from "./budget.js";
-import { type CardContext, eventFacts } from "./facts.js";
+import { type Fact, factText } from "./common.js";
+import { type CardContext, eventFactParts } from "./facts.js";
 import { sourceLogo, vendorLogo } from "./logos.js";
 
 const EYEBROWS: Record<string, string> = {
@@ -59,7 +60,6 @@ function readerImpact(event: Event, record: RecordData | null): string | null {
       ? "Visible on Arena, but not selectable yet."
       : "Visible and selectable on Arena.";
   if (event.kind === "removed") return "No longer present in this source's latest observation.";
-  if (event.stream === "packages" && event.kind === "new") return "A package release was published to the registry.";
   if (event.stream === "resets") {
     if (record?.stage !== "Applied") {
       const when = typeof record?.expected === "string" ? ` Expected ${record.expected}.` : "";
@@ -74,6 +74,40 @@ function readerImpact(event: Event, record: RecordData | null): string | null {
   return null;
 }
 
+/** "Arena · Arena roster · observed" names the arena twice; the evidence label that starts with the source says both. */
+export function footerText(source: string | null, evidence: string, confidence: string): string {
+  // A leaderboard's eyebrow is already its source's name.
+  const label = source ? sourceLabel(source) : "";
+  const said = !label || evidence.toLowerCase().startsWith(label.toLowerCase());
+  const text = [...(said ? [] : [label]), evidence, confidence].join(" · ");
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/** Discord shows at most 25 fields; a card with more than this many is a table nobody reads. */
+const MAX_FIELDS = 9;
+/** A value longer than this breaks a three-column row and gets the full width instead. */
+const INLINE_CHARACTERS = 28;
+
+/**
+ * Labelled facts become the card's fields; sentences stay in the description. The fields follow the
+ * facts' own order, and a fact past the field budget goes back into the text rather than away.
+ */
+function factLayout(facts: Fact[]): { lines: string[]; fields: Record<string, unknown>[] } {
+  const lines: string[] = [];
+  const fields: Record<string, unknown>[] = [];
+  for (const fact of facts) {
+    if (typeof fact === "string") lines.push(fact);
+    else if (fields.length < MAX_FIELDS)
+      fields.push({
+        name: fact.label.slice(0, 256),
+        value: fact.value.slice(0, 1024) || "—",
+        inline: fact.value.length <= INLINE_CHARACTERS,
+      });
+    else lines.push(factText(fact));
+  }
+  return { lines, fields };
+}
+
 export function eventEmbed(event: Event & CardContext, url: string, summary?: string): Record<string, unknown> {
   const before = event.before_json ? (JSON.parse(event.before_json) as RecordData) : null;
   const after = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
@@ -85,23 +119,28 @@ export function eventEmbed(event: Event & CardContext, url: string, summary?: st
         ? `https://openrouter.ai/${event.entity_id}`
         : url;
   const vendor = vendorOf(event, record);
-  const facts = eventFacts(event).filter((line) => line.toLowerCase() !== `maker: ${vendor.toLowerCase()}`);
+  const facts = eventFactParts(event).filter(
+    (fact) => factText(fact).toLowerCase() !== `maker: ${vendor.toLowerCase()}`,
+  );
+  const { lines, fields } = factLayout(facts);
   const impact = readerImpact(event, record);
   // How solid this is, before what it means: a reader decides whether to believe a card before
-  // deciding whether to act on it. The footer keeps the machine-readable labels for anyone digging.
-  // Gemini 3.8 Flash reached the arena's roster again on 2026-09-17, fifteen days after Google
-  // released it, and the card said nobody had said what it was.
-  const standing =
-    event.stream === "arena" && event.elsewhere?.length
-      ? "A new arena entry for a model that is already out."
-      : readerStanding(event);
+  // deciding whether to act on it. An arena entry other catalogues already list says so in its own
+  // fact line; the generic "nobody has said what it is" beside it contradicted it.
+  // A changed arena row says where it stands in its own impact sentence.
+  const standing = event.stream === "arena" && (event.elsewhere?.length || impact) ? null : readerStanding(event);
+  const rawName = String(record?.name ?? event.entity_id);
+  const title = displayTitle(rawName, event.stream, event.source);
+  // The name a reader copies into an API call, when the headline prettified it.
+  const handle = rawName !== title && !/\s/.test(rawName) ? `\`${rawName}\`` : null;
   // One voice per line: the model's own summary, then how solid it is, then what it means, then the
-  // evidence itself.
+  // evidence that is a sentence rather than a value.
   const description = [
+    ...(handle ? [handle] : []),
     ...(summary ? [`*${summary}*`] : []),
     ...(standing ? [standing] : []),
     ...(impact ? [impact] : []),
-    ...facts,
+    ...lines,
   ]
     .join("\n")
     .slice(0, DESCRIPTION_CHARACTERS);
@@ -115,12 +154,17 @@ export function eventEmbed(event: Event & CardContext, url: string, summary?: st
     },
     title: eventHeadline(event, record).slice(0, 250),
     color: KIND_COLORS[event.kind],
-    description,
+    ...(description ? { description } : {}),
+    ...(fields.length ? { fields } : {}),
     // Discord renders its own timestamp in the reader's timezone, which is one line of card spent
     // on something the client already does.
     timestamp: new Date(event.detected_at).toISOString(),
     footer: {
-      text: `${sourceLabel(event.source)} · ${event.stream === "resets" ? "usage limit reset" : evidenceLabel(evidenceType)} · ${event.confidence ?? "observed"}`,
+      text: footerText(
+        event.stream === "leaderboards" ? null : event.source,
+        event.stream === "resets" ? "usage limit reset" : evidenceLabel(evidenceType),
+        event.confidence ?? "observed",
+      ),
     },
   };
   const thumbnail = vendorLogo(vendor);

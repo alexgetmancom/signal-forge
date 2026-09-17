@@ -95,3 +95,40 @@ export function usageRanks(db: Database): Map<string, number> {
   }
   return ranks;
 }
+
+/**
+ * The other entries a roster already carries under the same name.
+ *
+ * Gemini 3.8 Flash was released on 2026-09-02 and sat on the arena as `gemini-3.8-flash-low` and
+ * `-medium` behind Google's Vertex provider. On 2026-09-17 a third entry arrived as bare
+ * `gemini-3.8-flash`, text-only and with no provider. The card called it an unidentified model; what a
+ * reader needed was the difference from the entries already there. A sibling is a row of the same
+ * source and maker whose name is this name, or this name with a suffix.
+ */
+export function rosterSiblings(
+  db: Database,
+  source: string,
+  id: string,
+  name: string,
+  maker: unknown,
+): Record<string, unknown>[] {
+  const key = subjectKey(name);
+  if (!key) return [];
+  return db
+    .query<{ id: string; body: string }, [string, string]>("SELECT id,body FROM records WHERE source=? AND id<>?")
+    .all(source, id)
+    .flatMap((row) => {
+      try {
+        return [JSON.parse(row.body) as Record<string, unknown>];
+      } catch {
+        return [];
+      }
+    })
+    .filter(
+      (record) =>
+        typeof record.name === "string" &&
+        subjectKey(record.name).startsWith(key) &&
+        String(record.maker ?? "").toLowerCase() === String(maker ?? "").toLowerCase(),
+    )
+    .sort((one, other) => String(one.name).localeCompare(String(other.name)));
+}

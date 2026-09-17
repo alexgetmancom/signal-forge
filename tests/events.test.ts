@@ -310,8 +310,8 @@ test("one story becomes one cross-source digest with every evidence link", () =>
   expect(payload.embeds).toHaveLength(1);
   expect(payload.embeds?.[0]?.description).toContain("https://openrouter.ai/models/gpt-5");
   expect(payload.embeds?.[0]?.description).toContain("https://api.openai.com/models/gpt-5");
-  expect(payload.embeds?.[0]?.description).toContain("[Open OpenRouter evidence]");
-  expect(payload.embeds?.[0]?.description).toContain("[Open OpenAI API evidence]");
+  expect(payload.embeds?.[0]?.description).toContain("**OpenRouter** · [evidence](");
+  expect(payload.embeds?.[0]?.description).toContain("**OpenAI API** · [evidence](");
   local.close();
 });
 
@@ -1055,9 +1055,9 @@ test("a card says how long another kind of source had it first", () => {
     .all()
     .map((row) => row.body)
     .join("\n");
-  expect(bodies).toContain("Traced 18 hours earlier");
+  expect(bodies).toContain("⏱ Seen 18 hours earlier");
   // The package registry spoke first, so only the catalogue card carries the lead.
-  expect(bodies.match(/Traced/g)?.length).toBe(1);
+  expect(bodies.match(/⏱ Seen/g)?.length).toBe(1);
 });
 
 test("the reveal of a codename hangs off the message that reported the sighting", () => {
@@ -1105,7 +1105,7 @@ test("a launch that was sighted under a codename says which one", () => {
   );
   expect(
     eventFacts({ ...launch, lead: { hours: 18, source: "npm:@google/genai", name: "@google/genai 2.0.0" } })[0],
-  ).toBe("Traced 18 hours earlier · npm · @google/genai");
+  ).toBe("⏱ Seen 18 hours earlier on npm · @google/genai");
 });
 
 test("a card leaves out what is a blank or our own bookkeeping, and says whose name a sighting carries", () => {
@@ -1145,13 +1145,68 @@ test("a card leaves out what is a blank or our own bookkeeping, and says whose n
     }),
     detected_at: "2026-09-17T03:23:00.000Z",
   };
-  expect(eventFacts(sighting)).toContain("Named like a Google model; Google has not confirmed it.");
+  expect(eventFacts(sighting)).toContain("Identity: Unconfirmed by Google");
   // The same entry for a model a catalogue already sells: Gemini 3.8 Flash was fifteen days out.
   const released = { ...sighting, elsewhere: ["openrouter"] };
   const facts = eventFacts(released).join("\n");
-  expect(facts).toMatch(/^Already listed by /m);
+  expect(facts).toMatch(/^Already out · listed by /m);
   expect(facts).not.toMatch(/has not confirmed|Unidentified/);
   const card = JSON.stringify(eventEmbed(released, "https://arena.ai"));
-  expect(card).toContain("A new arena entry for a model that is already out.");
+  expect(card).toContain("Already out · listed by OpenRouter");
+  expect(card).not.toContain("Nobody has said");
   expect(card).not.toContain("Nobody has said what it is yet");
+});
+
+test("a new roster entry under a released model's name says how it differs from the entries already there", () => {
+  const local = openDatabase(":memory:");
+  const destination: Destination = { id: "dc", platform: "discord", channelId: "123", signals: ["codename", "launch"] };
+  const released = (id: string, name: string) => ({
+    id,
+    name,
+    model: name,
+    maker: "google",
+    provider: "googleVertexGlobalWithThoughtSignatures",
+    input: { text: true, image: true },
+    output: { web: true },
+    selectable: true,
+  });
+  const arena: Collection = {
+    source: "arena",
+    stream: "arena",
+    url: "https://arena.ai",
+    raw: [],
+    records: [released("low", "gemini-3.8-flash-low"), released("medium", "gemini-3.8-flash-medium")],
+  };
+  const router: Collection = {
+    source: "openrouter",
+    stream: "openrouter",
+    url: "https://openrouter.ai",
+    raw: [],
+    records: [{ id: "google/gemini-3.8-flash", name: "Google: Gemini 3.8 Flash" }],
+  };
+  saveCollection(local, router, [destination], "2026-09-15T00:00:00.000Z");
+  saveCollection(local, arena, [destination], "2026-09-15T00:00:00.000Z");
+  arena.records.push({
+    id: "bare",
+    name: "gemini-3.8-flash",
+    model: "gemini-3.8-flash",
+    maker: "google",
+    provider: null,
+    input: { text: true },
+    output: { web: true },
+    selectable: true,
+  });
+  saveCollection(local, arena, [destination], "2026-09-17T03:23:00.000Z");
+  prepareDeliveries(local, Date.parse("2026-09-17T05:00:00.000Z"));
+  const bodies = local
+    .query<{ body: string }, []>("SELECT body FROM deliveries")
+    .all()
+    .map((row) => row.body)
+    .join("\n");
+  expect(bodies).toContain("Already out · listed by OpenRouter");
+  expect(bodies).toContain("A separate entry from `gemini-3.8-flash-low`, `gemini-3.8-flash-medium`");
+  expect(bodies).toContain('"name":"Provider","value":"none · others: googleVertexGlobalWithThoughtSignatures"');
+  expect(bodies).toContain('"name":"Modalities","value":"Text → Web · others: Image, Text → Web"');
+  expect(bodies).not.toMatch(/Nobody has said|Unconfirmed by Google|Unidentified/);
+  local.close();
 });

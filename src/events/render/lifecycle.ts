@@ -3,6 +3,7 @@ import type { RecapContext } from "../../recap.js";
 import { sourceLabel } from "../../sources/labels.js";
 import { eventEvidenceType, evidenceLabel } from "../confidence.js";
 import type { Event } from "../types.js";
+import { footerText } from "./discord.js";
 
 export type LifecycleReminderContext = {
   title: string;
@@ -61,14 +62,21 @@ export function renderLifecycleReminderText(context: LifecycleReminderContext, e
 }
 
 export function renderLifecycleReminderEmbed(context: LifecycleReminderContext, event: Event): Record<string, unknown> {
-  const body = lines(context, event);
-  const evidenceType = eventEvidenceType(event);
+  const deadline = Math.floor(Date.parse(context.deadlineAt) / 1000);
   return {
     author: { name: "LIFECYCLE DEADLINE" },
-    title: context.title.slice(0, 250),
-    description: body.slice(1, -1).join("\n").slice(0, 4000),
+    title: `⏳ ${context.title}`.slice(0, 250),
+    color: 0xe67e22,
+    description: `${context.title} ${verb(context.deadlineType)} in ${dayLabel(context.offsetDays)}.`,
+    fields: [
+      { name: "Deadline", value: `<t:${deadline}:D> · <t:${deadline}:R>`, inline: true },
+      ...(context.replacement
+        ? [{ name: "Replacement", value: context.replacement.slice(0, 1024), inline: true }]
+        : []),
+      { name: "Evidence", value: `[${sourceLabel(event.source)}](${context.url})`, inline: true },
+    ],
     url: context.url,
-    footer: { text: `Evidence: ${evidenceLabel(evidenceType)} · event #${event.id}` },
+    footer: { text: footerText(event.source, evidenceLabel(eventEvidenceType(event)), `event #${event.id}`) },
   };
 }
 

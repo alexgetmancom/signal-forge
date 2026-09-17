@@ -199,7 +199,17 @@ export function rankMove(before: unknown, after: unknown): string {
   return `Rank ${to} ${arrow} ${distance} (was ${from})`;
 }
 
-export function prices(before: unknown, after: unknown, source?: string): string[] {
+/**
+ * One fact on a card: a sentence, or a labelled value. Discord lays a labelled value out as a field
+ * beside the others; a text transport writes it as "Label: value". Both read the same list.
+ */
+export type Fact = string | { label: string; value: string };
+
+export function factText(fact: Fact): string {
+  return typeof fact === "string" ? fact : `${fact.label}: ${fact.value}`;
+}
+
+export function prices(before: unknown, after: unknown, source?: string): Fact[] {
   const old = before && typeof before === "object" ? (before as Record<string, unknown>) : {};
   const next = after && typeof after === "object" ? (after as Record<string, unknown>) : {};
   const labels: Record<string, string> = {
@@ -227,7 +237,7 @@ export function prices(before: unknown, after: unknown, source?: string): string
     const rounded = perMillion >= 1 ? perMillion.toFixed(2) : perMillion.toPrecision(2);
     return `$${Number(rounded)}`;
   };
-  const result: string[] = [];
+  const result: Fact[] = [];
   if (!before) {
     const parts = Object.keys(shorthand)
       .filter((key) => next[key] !== undefined && next[key] !== null && next[key] !== "")
@@ -236,8 +246,8 @@ export function prices(before: unknown, after: unknown, source?: string): string
     // listed Jev on 2026-09-16 with "Pricing output: 0", which reads as free and is a blank.
     const extras = Object.keys(next).filter((key) => !labels[key] && !shorthand[key] && Number(next[key]) !== 0);
     return [
-      ...(parts.length ? [`Price: ${parts.join(" · ")} / 1M tokens`] : []),
-      ...extras.map((key) => `Pricing ${key}: ${describe(next[key])}`),
+      ...(parts.length ? [{ label: "Price", value: `${parts.join(" · ")} / 1M tokens` }] : []),
+      ...extras.map((key) => ({ label: `Pricing ${key}`, value: describe(next[key]) })),
     ];
   }
   for (const key of new Set([...Object.keys(old), ...Object.keys(next)])) {
@@ -247,8 +257,8 @@ export function prices(before: unknown, after: unknown, source?: string): string
       const from = money(old[key]);
       const to = money(next[key]);
       if (before && from === to) continue;
-      result.push(`${labels[key]}: ${before ? `${from} → ` : ""}${to} / 1M tokens`);
-    } else result.push(`Pricing ${key}: ${before ? `${describe(old[key])} → ` : ""}${describe(next[key])}`);
+      result.push({ label: labels[key], value: `${from} → ${to} / 1M tokens` });
+    } else result.push({ label: `Pricing ${key}`, value: `${describe(old[key])} → ${describe(next[key])}` });
   }
   return result;
 }
@@ -256,10 +266,10 @@ export function prices(before: unknown, after: unknown, source?: string): string
 export const MAX_DETAIL_LINES = 8;
 const MAX_DETAIL_CHARS = 300;
 
-export function collapseDetails(details: string[], max = MAX_DETAIL_LINES): string[] {
-  const trimmed = details.map((line) =>
-    line.length > MAX_DETAIL_CHARS ? `${line.slice(0, MAX_DETAIL_CHARS - 1)}\u2026` : line,
-  );
+export function collapseDetails(details: Fact[], max = MAX_DETAIL_LINES): Fact[] {
+  const cut = (text: string) =>
+    text.length > MAX_DETAIL_CHARS ? `${text.slice(0, MAX_DETAIL_CHARS - 1)}\u2026` : text;
+  const trimmed = details.map((fact) => (typeof fact === "string" ? cut(fact) : { ...fact, value: cut(fact.value) }));
   if (trimmed.length <= max) return trimmed;
   const hidden = trimmed.length - max;
   return [...trimmed.slice(0, max), `\u2026and ${hidden} more change${hidden === 1 ? "" : "s"} not shown`];

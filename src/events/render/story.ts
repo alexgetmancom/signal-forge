@@ -4,8 +4,8 @@ import { vendorOf } from "../interpretation.js";
 import { displayTitle } from "../naming.js";
 import { recordFor } from "../record.js";
 import type { Event, RecordData } from "../types.js";
-import { utcStamp } from "./common.js";
-import { type CardContext, eventFacts } from "./facts.js";
+import { type Fact, utcStamp } from "./common.js";
+import { type CardContext, eventFactParts, eventFacts } from "./facts.js";
 import { vendorLogo } from "./logos.js";
 
 export type StoryRenderEvent = Event & CardContext & { url: string };
@@ -35,12 +35,6 @@ function latestEvent(events: StoryRenderEvent[]): StoryRenderEvent {
   );
 }
 
-function linkEvidence(line: string, source: string): string {
-  if (!line.startsWith("Evidence: ")) return line;
-  const link = line.slice("Evidence: ".length).trim();
-  return `[Open ${sourceLabel(source)} evidence](${link})`;
-}
-
 /** One reader-facing message for a correlated story, retaining every event link as evidence. */
 export function renderStoryText(
   events: StoryRenderEvent[],
@@ -68,7 +62,10 @@ export function renderStoryText(
   return lines.join("\n");
 }
 
-/** Discord representation of a story: one embed with links to every independent evidence event. */
+/**
+ * Discord representation of a story: one block per update, each with its evidence link, and the
+ * story's shape — how many sources, how sure, how recent — as fields beside it.
+ */
 export function storyEmbed(
   events: StoryRenderEvent[],
   summaries: Map<number, string> = new Map(),
@@ -77,37 +74,46 @@ export function storyEmbed(
   const first = events[0] as StoryRenderEvent;
   const latest = latestEvent(events);
   const firstRecord = recordFor(first);
-  const sources = [...new Set(events.map((event) => sourceLabel(event.source)))];
-  const body = renderStoryText(events, "discord", summaries).split("\n");
-  let evidenceIndex = 0;
-  const description = body
-    .slice(2, -1)
-    .map((line) => {
-      if (!line.startsWith("Evidence: ")) return line;
-      const source = events[evidenceIndex]?.source ?? first.source;
-      evidenceIndex++;
-      return linkEvidence(line, source);
+  const description = events
+    .map((event) => {
+      const link = recordUrl(event, recordFor(event));
+      const facts = eventFactParts(event, summaries.get(event.id));
+      const sentences = facts.filter((fact): fact is string => typeof fact === "string");
+      // Values ride on one line per update: a story is several cards' worth, and a column of labels
+      // for each of them is the wall of text this layout exists to avoid.
+      const values = facts
+        .filter((fact): fact is Exclude<Fact, string> => typeof fact !== "string")
+        .map((fact) => `**${fact.label}** ${fact.value}`);
+      return [
+        `${KIND_LABELS[event.kind]} **${sourceLabel(event.source)}** · [evidence](${link})`,
+        ...sentences,
+        ...(values.length ? [values.join(" · ")] : []),
+      ].join("\n");
     })
-    .join("\n")
-    .trim()
+    .join("\n\n")
     .slice(0, 4000);
   const kinds = events.map((event) => event.kind);
   const kind = kinds.includes("changed") ? "changed" : kinds.includes("new") ? "new" : "removed";
   const vendor = vendorOf(latest, recordFor(latest));
+  const sources = new Set(events.map((event) => event.source));
   const types = [...new Set(events.map((event) => evidenceLabel(eventEvidenceType(event))))];
   const confidences = [...new Set(events.map((event) => event.confidence ?? "observed"))];
   const latestStamp = Math.floor(Date.parse(latest.detected_at) / 1000);
   const embed: Record<string, unknown> = {
     author: { name: ["STORY", vendor === "Unknown" ? null : vendor.toUpperCase()].filter(Boolean).join(" · ") },
-    title: `🧵 Story · ${storyTitle(events)}`.slice(0, 250),
+    title: `🧵 ${storyTitle(events)}`.slice(0, 250),
     color: KIND_COLORS[kind],
     description,
     fields: [
-      { name: "Sources", value: `${events.length} updates · ${sources.join(" → ")}`, inline: false },
+      {
+        name: "Sources",
+        value: `${sources.size} source${sources.size === 1 ? "" : "s"} · ${events.length} updates`,
+        inline: true,
+      },
       { name: "Confidence", value: confidences.join(", "), inline: true },
-      { name: "Latest", value: `<t:${latestStamp}:R>\n<t:${latestStamp}:f>`, inline: true },
+      { name: "Latest", value: `<t:${latestStamp}:R>`, inline: true },
     ],
-    footer: { text: `Evidence: ${types.join(", ")} · Confidence: ${confidences.join(", ")}` },
+    footer: { text: types.join(" · ") },
   };
   const thumbnail = vendorLogo(vendor);
   if (thumbnail) embed.thumbnail = { url: thumbnail };

@@ -28,7 +28,7 @@ import { sourceFamily } from "./sourceFamily.js";
 import { clearSuppression, recordSuppression, type SuppressionReason } from "./suppression.js";
 import type { Event, RecordData } from "./types.js";
 import { displayName } from "./variants.js";
-import { listingsBySubject, subjectKey } from "./witness.js";
+import { listingsBySubject, rosterSiblings, subjectKey } from "./witness.js";
 import {
   isAboutTheCompanyNotAModel,
   isAliasRow,
@@ -418,6 +418,10 @@ export function prepareDeliveries(
             .sort();
           // An arena entry nobody lists is the ordinary case and its card already says so.
           if (elsewhere.length || event.stream !== "arena") Object.assign(event, { elsewhere });
+          if (event.stream === "arena" && record) {
+            const siblings = rosterSiblings(db, event.source, event.entity_id, String(record.name ?? ""), record.maker);
+            if (siblings.length) Object.assign(event, { siblings });
+          }
         }
       }
       if (!speaking.length) {

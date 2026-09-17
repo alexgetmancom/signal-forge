@@ -73,7 +73,9 @@ test("first-place movement is immediate, stable rechecks are silent, and a real 
     saveCollection(db, textBoard([ranked("riverflow-2.5-pro", 2)]), [destination], "2026-09-10T10:15:00.000Z"),
   ).toBe(1);
   expect(deliveries(db)).toHaveLength(2);
-  const second = JSON.parse(deliveries(db)[1]?.body ?? "{}") as { embeds: { description: string }[] };
+  const second = JSON.parse(deliveries(db)[1]?.body ?? "{}") as {
+    embeds: { description: string; fields?: unknown[] }[];
+  };
   expect(second.embeds[0]?.description).toContain("Rank 2 🔽 1 (was 1)");
   db.close();
 });
@@ -110,9 +112,11 @@ test("a leaderboard departure waits for two successful snapshots and does not re
   expect(deliveries(db)).toHaveLength(0);
 
   expect(saveCollection(db, collection(missing), [destination], "2026-09-10T11:15:00.000Z")).toBe(1);
-  const body = JSON.parse(deliveries(db)[0]?.body ?? "{}") as { embeds: { description: string }[] };
+  const body = JSON.parse(deliveries(db)[0]?.body ?? "{}") as {
+    embeds: { description: string; fields?: unknown[] }[];
+  };
   expect(body.embeds[0]?.description).toContain("Leaves designarena/image");
-  expect(body.embeds[0]?.description).toContain("Last observed rank: 1");
+  expect(body.embeds[0]?.fields).toContainEqual({ name: "Last observed rank", value: "1", inline: true });
   expect(deliveries(db)).toHaveLength(1);
   db.close();
 });
