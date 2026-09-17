@@ -4,7 +4,7 @@ import { prepareDeliveries } from "../src/events/batching.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import { renderRecapLines } from "../src/events/render/lifecycle.js";
 import type { Collection } from "../src/events/types.js";
-import { lastRecapPeriod, recapContext, scheduleRecaps } from "../src/recap.js";
+import { lastRecapPeriod, recapContext, recapContextSchema, scheduleRecaps } from "../src/recap.js";
 import { openDatabase } from "../src/storage/database.js";
 
 const wire: Destination = { id: "wire", platform: "discord", channelId: "1", signals: ["launch", "change"] };
@@ -174,7 +174,7 @@ test("a price line is what a reader pays, and says nothing when the rows disagre
     { name: "Qwen: Qwen3 14B", percent: 2.7916666666666665, cheaper: false, discountEnded: false },
   ]);
   // Nearly quadrupling is not "up 74%", whatever the ranking arithmetic says.
-  expect(renderRecapLines(context)).toContain("📊 Qwen3 14B · 3.8× more expensive");
+  expect(renderRecapLines(context, ["launch"])).toContain("📊 Qwen3 14B · 3.8× more expensive");
 });
 
 test("a price only speaks for a model something other than a price list knows", () => {
@@ -220,7 +220,9 @@ test("a price only speaks for a model something other than a price list knows", 
   expect(context.priceMoves).toEqual([
     { name: "Upstage: Solar Pro 4", percent: 2, cheaper: false, discountEnded: true },
   ]);
-  expect(renderRecapLines(context)).toContain("📊 Solar Pro 4 · launch pricing ended · 3.0× more expensive");
+  expect(renderRecapLines(context, ["launch"])).toContain(
+    "📊 Solar Pro 4 · launch pricing ended · 3.0× more expensive",
+  );
 });
 
 test("a price that goes up and comes back down again is not a week's news", () => {
@@ -318,4 +320,21 @@ test("a price that went both ways inside the period is not reported as a move", 
   saveCollection(db, row("0.00000007"), [], "2026-09-16T23:08:00.000Z");
   saveCollection(db, row("0.00000009"), [], "2026-09-17T00:52:00.000Z");
   expect(recapContext(db, "2026-09-17T06:00:00.000Z", "day").priceMoves).toEqual([]);
+});
+
+test("a day's prices go to the room that carries changes and its leaders to the room that carries sightings", () => {
+  const day = recapContextSchema.parse({
+    period: "day",
+    from: "2026-09-16T06:00:00.000Z",
+    to: "2026-09-17T06:00:00.000Z",
+    arrivals: [],
+    arrivalCount: 0,
+    priceMoves: [{ name: "Z.ai: GLM 5.3 Flash", percent: 0.3, cheaper: true }],
+    codenameCount: 0,
+    leaders: [{ board: "text/overall", name: "GPT-6 Astra" }],
+  });
+  expect(renderRecapLines(day, ["launch", "change"]).join("\n")).toContain("📊 GLM 5.3 Flash · down 30%");
+  expect(renderRecapLines(day, ["launch", "change"]).join("\n")).not.toContain("GPT-6 Astra");
+  expect(renderRecapLines(day, ["codename"]).join("\n")).not.toContain("GLM");
+  expect(renderRecapLines(day, ["launch"])).toEqual([]);
 });

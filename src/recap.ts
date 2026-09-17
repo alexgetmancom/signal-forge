@@ -35,9 +35,15 @@ import { subjectKey, usageRanks, witnessedSubjects } from "./events/witness.js";
  * happens and nothing about the numbers that move too little to speak on their own: a price cut,
  * a board changing hands at the top. One message a morning says those, and never pings.
  */
+/**
+ * Which destinations a period's recap goes to, by the classes they carry. A day is two things for
+ * two rooms: price moves are `change`, read by the public wire as news of what they pay; a board
+ * changing hands at the top is read by the scouts beside their sightings. A destination gets the
+ * part of the day its classes ask for, and nothing when that part is empty.
+ */
 const PERIODS = {
-  week: { source: "weekly-recap", ms: 7 * 24 * 3_600_000, signal: "launch" },
-  day: { source: "daily-recap", ms: 24 * 3_600_000, signal: "codename" },
+  week: { source: "weekly-recap", ms: 7 * 24 * 3_600_000, signals: ["launch"] },
+  day: { source: "daily-recap", ms: 24 * 3_600_000, signals: ["change", "codename"] },
 } as const;
 export type RecapPeriod = keyof typeof PERIODS;
 /** Where a thing shows up before anyone announces it. */
@@ -67,6 +73,8 @@ export const recapContextSchema = z.object({
   ),
   codenameCount: z.number(),
   leaders: z.array(z.object({ board: z.string(), name: z.string() })).default([]),
+  // Absent in the recaps stored before a week named what is going away.
+  retirements: z.array(z.object({ name: z.string(), date: z.string().nullable() })).default([]),
 });
 export type RecapContext = z.infer<typeof recapContextSchema>;
 
@@ -308,9 +316,24 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
     })
     .filter((leader, index, all) => all.findIndex((other) => other.board === leader.board) === index)
     .slice(0, 5);
+  // What the maker said is going away this week, with the date it goes when the notice gives one.
+  // A retirement card came off the public wire after five of them; one line a week is the size
+  // of it for a reader who does not run the model.
+  const retirements = classified
+    .filter(({ event, signal }) => signal === "retirement" || (event.stream === "deprecations" && event.kind === "new"))
+    .map(({ event }) => {
+      const record = recordOf(event);
+      const date = [record?.shutdown, record?.retirement, record?.deprecated].find(
+        (value): value is string => typeof value === "string" && value.trim().length > 0,
+      );
+      return { name: readableName(nameOf(event)), date: date ?? null };
+    })
+    .filter((retirement, index, all) => all.findIndex((other) => other.name === retirement.name) === index)
+    .slice(0, 5);
   return recapContextSchema.parse({
     period,
     leaders,
+    retirements: period === "week" ? retirements : [],
     from,
     to,
     arrivals: arrivals.slice(0, ARRIVAL_GROUPS),
@@ -343,9 +366,11 @@ export function scheduleRecaps(db: Database, config: AppConfig, now = Date.now()
 }
 
 function scheduleRecap(db: Database, config: AppConfig, period: RecapPeriod, now: number): boolean {
-  const { source, signal } = PERIODS[period];
+  const { source, signals } = PERIODS[period];
   const readyAt = lastRecapPeriod(now, period);
-  const targets = (config.destinations as Destination[]).filter((destination) => destination.signals.includes(signal));
+  const targets = (config.destinations as Destination[]).filter((destination) =>
+    signals.some((signal) => destination.signals.includes(signal)),
+  );
   if (!targets.length) return false;
   const existing = db
     .query<{ id: number }, [string, string]>(
@@ -359,7 +384,7 @@ function scheduleRecap(db: Database, config: AppConfig, period: RecapPeriod, now
   const empty =
     period === "day"
       ? !context.priceMoves.length && !context.leaders.length
-      : !context.arrivalCount && !context.priceMoves.length && !context.codenameCount;
+      : !context.arrivalCount && !context.priceMoves.length && !context.codenameCount && !context.retirements.length;
   if (empty) return false;
   const batch = db
     .query<{ id: number }, [string, string, string]>(

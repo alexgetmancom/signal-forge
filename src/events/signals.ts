@@ -3,6 +3,7 @@ import { incidentIsSevere } from "./incidents.js";
 import { recordFor } from "./record.js";
 import type { Event } from "./types.js";
 import { vendorOfName } from "./vendors.js";
+import { meaningfulWebString, tellingWebString } from "./web.js";
 
 /**
  * What a reader came for, which is a different question from how solid the evidence is.
@@ -59,7 +60,43 @@ export type SignalClass = (typeof SIGNAL_CLASSES)[number];
  * classed `release`, which is the class reserved for a changelog entry, and the newsroom filter --
  * which reads the class -- never looked at them.
  */
-const NEWSROOMS = new Set(["openai-news", "anthropic-news", "huggingface-blog-feed", "google-ai-blog", "hackernews"]);
+const NEWSROOMS = new Set([
+  "openai-news",
+  "anthropic-news",
+  "huggingface-blog-feed",
+  "google-ai-blog",
+  "deepmind-blog",
+  "hackernews",
+]);
+
+/**
+ * A newsroom post that announces a model is the launch as its maker tells it. "Introducing Gemini
+ * 3.8 Live and 3.8 Live Extended Thinking" on 2026-09-15 was classed an article and reached nobody,
+ * in a week when the public channel carried two models. The title has to say it is an arrival and
+ * name a maker's model; a customer story naming GPT is neither.
+ */
+const ANNOUNCES =
+  /\b(introducing|announcing|meet|launch(?:es|ing)?|now available|available (?:now|today)|releas(?:e|es|ing))\b/i;
+const NAMES_A_MODEL =
+  /\b(?:claude|opus|sonnet|haiku|gpt|o\d|gemini|gemma|grok|codex|llama|qwen|deepseek|kimi|glm|mistral|minimax)[\s-]?\d/i;
+
+/**
+ * The changelogs of the tools and APIs the public channel's readers work in. A version of an SDK or
+ * a vendor's hardware feed is a build, not something a Claude Code or Codex user changes their day
+ * for, and stays evidence.
+ */
+const TOOL_CHANGELOGS = new Set([
+  "claude-code-changelog",
+  "openai-codex-changelog",
+  "cursor-changelog",
+  "kimi-code-changelog",
+  "openai-chatgpt-release-notes",
+  "openai-api-changelog",
+  "gemini-api-changelog",
+  "xai-release-notes",
+  "mistral-release-notes",
+  "deepseek-updates",
+]);
 
 /**
  * Watched sites whose new pages are not the tell a product page is.
@@ -164,7 +201,10 @@ export function signalClass(event: Event): SignalClass {
    * The post is what the vendor said about it.
    */
   if (event.stream === "news") {
-    if (NEWSROOMS.has(event.source)) return "article";
+    if (NEWSROOMS.has(event.source)) {
+      const title = text(record?.name) ?? "";
+      return event.kind === "new" && ANNOUNCES.test(title) && NAMES_A_MODEL.test(title) ? "launch" : "article";
+    }
     if (event.kind !== "new") return "change";
     /**
      * A record carrying a version is a tool shipping a build: Claude Code 2.1.271, 2.1.272 and
@@ -172,13 +212,16 @@ export function signalClass(event: Event): SignalClass {
      * notes. A dated entry with no version is the vendor saying something, and the only thing it
      * says that a reader must act on by a date is that a model is going away.
      */
-    if (text(record?.version)) return "release";
-    return RETIREMENT_WORDS.test(`${text(record?.name)} ${text(record?.summary)} ${text(record?.description)}`)
-      ? "retirement"
-      : "release";
+    if (
+      !text(record?.version) &&
+      RETIREMENT_WORDS.test(`${text(record?.name)} ${text(record?.summary)} ${text(record?.description)}`)
+    )
+      return "retirement";
+    return TOOL_CHANGELOGS.has(event.source) ? "release" : "evidence";
   }
 
-  if (event.stream === "apps") return "release";
+  // An app build is a version number and store copy; nothing here reads what changed in it yet.
+  if (event.stream === "apps") return "evidence";
 
   // A page appearing on a vendor site before any announcement is the same kind of tell as an
   // unreleased model on an arena. A page that leaves is evidence, not a signal to wake anyone.
@@ -188,7 +231,19 @@ export function signalClass(event: Event): SignalClass {
     return event.kind === "new" ? "codename" : "evidence";
   }
 
-  if (event.stream === "web") return "evidence";
+  // An interface that starts naming a versioned model or a preview is a sighting; the rest of its
+  // copy edits are a trail.
+  if (event.stream === "web") {
+    const before = event.before_json ? (JSON.parse(event.before_json) as { strings?: unknown }) : null;
+    const after = recordFor(event) as { strings?: unknown } | null;
+    const old = new Set(Array.isArray(before?.strings) ? before.strings : []);
+    const added = (Array.isArray(after?.strings) ? after.strings : []).filter(
+      (value): value is string => typeof value === "string" && !old.has(value),
+    );
+    return event.kind === "changed" && added.some((value) => meaningfulWebString(value) && tellingWebString(value))
+      ? "codename"
+      : "evidence";
+  }
   if (event.stream === "packages") return "evidence";
   // A major outage is the one incident that has to interrupt: it travels with the launches, which
   // is where everything a reader must act on right now already goes. Everything else the vendors

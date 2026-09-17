@@ -26,7 +26,7 @@ that has since moved is not a priority.
 
 | Priority | Task | Definition of done |
 |---|---|---|
-| Next | Read the wire back in a week. | `channel-mix 7`, taken no earlier than 2026-09-23, says what the two channels carried after the routing and filters of 2026-09-16 (`🚀signals`: `launch`; `🕵scouts`: `codename`). Replaying the week to 2026-09-16 19:00 through every delivery filter on a copy of production predicted 3 wire cards and 89 scout cards, of which 49 were site pages the section rules of the same day no longer collect and 2 were ModelScope: about 38. Hugging Face trending was not in that week and adds whatever enters its list. Done when the real numbers are written here with their date, `unrouted` and `shadow` are read per class, and anything that reached the scouts without being a sighting is named with its source. |
+| Next | Read the wire back in a week. | `channel-mix 7`, taken no earlier than 2026-09-24, says what the two channels carried after the widening of 2026-09-17 (`🚀signals`: `launch`, `change`, `release`, `retirement`; `🕵scouts`: `codename`). Done when the real numbers per class are written here with their date, and every class or source that produced cards the owner calls noise is taken off the wire with its count. |
 | Next | Judge the sources a month in. | `source-verdicts 30`, first taken no earlier than 2026-10-17 so the trending list, the media arenas and Hacker News have a whole period behind them. It names every enabled source that over thirty days led no other source, reached no reader and drew no scout vote. Done when each one named is removed or kept with a one-line reason here, and the date of the next reading is written in its place. |
 | Owner decision | Cloud catalogues from the clouds themselves. | Bedrock, Vertex and Azure AI Foundry answer only with an account credential, and production carries none, checked 2026-09-17. The aggregators already show those rows second-hand. Creating the accounts costs money and is the owner's call; until then there is nothing to build against. |
 | Owner decision | Kimi: a key for the coding tier. | The Moonshot key answers with `kimi-k2.6` and `kimi-k2.7-code` and nothing newer, checked against production 2026-09-14, which is why the K2.8 Preview rollout of 11 September 2026 was invisible here. The coding tier is a separate host with a separate credential: `api.kimi.com/coding/v1/models` answers 401 to a key it does not accept while every neighbouring path answers 404, so the source is registered and correct ahead of the key. Set `KIMI_API_KEY` and it collects; the Kimi Code changelog already ships as its own source. |
@@ -35,17 +35,21 @@ that has since moved is not a priority.
 
 Kept because the reasoning cost real observation and is easy to re-litigate from intuition.
 
-- **One public channel, one invited one.** `🚀signals` is public (`launch`),
-  `🕵scouts` is invited (`codename`), `📡status` is behind an opt-in role. Read card by card by the
-  owner over 2026-09-14 to 2026-09-16: the wire had carried three weight drops nobody can call, one
-  outage told three times and a reseller listing worded as a vendor announcement, and the scouts had
-  carried 193 arena withdrawals and patch notes for tools nobody subscribed to. So the wire carries a
-  model somebody can call, listed in its own maker's catalogue, and the start of an outage the vendor
-  graded major; the scouts carry sightings and nothing else; retirements, versions, articles,
-  evidence, changes and ranks are collected and delivered nowhere. Retirements were on the wire for
-  one afternoon and came off it on the owner's reading of five of them. The classes stay independent of the channels,
-  because routing is a line in `signal-forge.json` and reversing a channel decision must never need
-  a deployment.
+- **One public channel, one invited one.** `🚀signals` is public (`launch`, `change`, `release`,
+  `retirement`, cards at `detail: brief`), `🕵scouts` is invited (`codename`, `detail: evidence`),
+  `📡status` is behind an opt-in role. On 2026-09-16 the wire was cut to `launch` and the scouts to
+  `codename` after the owner read 2026-09-14..16 card by card: three weight drops nobody can call,
+  one outage told three times, a reseller listing worded as a vendor announcement, 193 arena
+  withdrawals and patch notes nobody subscribed to. `channel-mix 7` on 2026-09-17 then showed the
+  wire carried 7 `launch` events in a week, two of them models, and the owner widened it the same
+  day: a newsroom post announcing a maker's model is `launch`; the changelogs of the tools readers
+  work in are `release` (apps, SDK builds and hardware feeds are evidence); retirements go on the
+  wire and as one line of the weekly recap; the day's price moves go to the wire and its board
+  leaders stay with the scouts. The scouts additionally get interface diffs whose new strings name a
+  versioned model or a preview. Widened on the owner's word ahead of a replay, so the week after is
+  the measurement: whatever `channel-mix 7` shows is noise comes back off. The classes stay
+  independent of the channels, because routing is a line in `signal-forge.json` and reversing a
+  channel decision must never need a deployment.
 - **`launch` and `codename` stay separate classes.** Merging them was proposed and rejected: the
   ping is the same but the trust is not, and a reader who came for released models does not want
   arena sightings arriving with the same weight. Lumina keeps them apart for the same reason.

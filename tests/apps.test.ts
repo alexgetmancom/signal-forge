@@ -67,7 +67,7 @@ test("the collector asks Apple for one listing and keeps credentials out of the 
   expect(collection.records).toHaveLength(1);
 });
 
-test("a released app version is a release, which never wakes a vendor role", () => {
+test("an app build is evidence until something reads what changed in it", () => {
   const event: Event = {
     id: 1,
     source: "app:ios:chatgpt",
@@ -78,5 +78,5 @@ test("a released app version is a release, which never wakes a vendor role", () 
     after_json: JSON.stringify({ id: "ios:6448311069", name: "ChatGPT for iOS", version: "1.2026.244" }),
     detected_at: "2026-09-11T00:00:00.000Z",
   };
-  expect(signalClass(event)).toBe("release");
+  expect(signalClass(event)).toBe("evidence");
 });

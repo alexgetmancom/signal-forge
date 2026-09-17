@@ -5,6 +5,7 @@ import { readableName } from "../naming.js";
 import { SUBSTANTIVE_FIELDS } from "../oscillation.js";
 import type { Event, RecordData } from "../types.js";
 import { vendorOfName } from "../vendors.js";
+import { tellingWebString } from "../web.js";
 import {
   collapseDetails,
   compactCount,
@@ -219,7 +220,13 @@ export function eventFactParts(event: Event & CardContext, summary?: string): Fa
   }
 
   if (event.stream === "web" && before && after && Array.isArray(before.strings) && Array.isArray(after.strings)) {
-    const { added, removed, meaningfulAdded, meaningfulRemoved } = webStringChanges(before.strings, after.strings);
+    const changes = webStringChanges(before.strings, after.strings);
+    const { added, removed, meaningfulRemoved } = changes;
+    // What names a model or a preview is what the card quotes first.
+    const meaningfulAdded = [
+      ...changes.meaningfulAdded.filter(tellingWebString),
+      ...changes.meaningfulAdded.filter((value) => !tellingWebString(value)),
+    ];
     lines.push({
       label: "Changes",
       value: `+${meaningfulAdded.length} / −${meaningfulRemoved.length} meaningful · ${added.length + removed.length} total`,

@@ -120,12 +120,35 @@ test("a number that moved is a change, whatever produced it", () => {
   expect(signalClass(event({ stream: "news", kind: "changed", source: "groq-changelog" }))).toBe("change");
 });
 
-test("software shipped around the models is a release and never interrupts", () => {
-  expect(signalClass(event({ stream: "apps", kind: "new", source: "app:ios:chatgpt" }))).toBe("release");
-  expect(signalClass(event({ stream: "apps", kind: "changed", source: "app:ios:claude" }))).toBe("release");
+test("a tool readers work in shipping a build is a release; an app, an SDK or a hardware feed is not", () => {
+  expect(signalClass(event({ stream: "apps", kind: "new", source: "app:ios:chatgpt" }))).toBe("evidence");
+  expect(signalClass(event({ stream: "apps", kind: "changed", source: "app:ios:claude" }))).toBe("evidence");
   expect(signalClass(event({ stream: "news", kind: "new", source: "claude-code-changelog" }))).toBe("release");
+  expect(signalClass(event({ stream: "news", kind: "new", source: "anthropic-sdk-releases" }))).toBe("evidence");
+  expect(signalClass(event({ stream: "news", kind: "new", source: "nvidia-ai-feed" }))).toBe("evidence");
   expect(signalClass(event({ stream: "github", kind: "new", source: "github:openai/codex:releases" }))).toBe("release");
   expect(pingWorthy(event({ stream: "apps", kind: "new", source: "app:ios:chatgpt" }))).toBe(false);
+});
+
+test("a newsroom post announcing a maker's model is the launch as its maker tells it", () => {
+  const post = (name: string) =>
+    event({ stream: "news", kind: "new", source: "google-ai-blog", after_json: JSON.stringify({ name }) });
+  expect(signalClass(post("Introducing Gemini 3.8 Live and 3.8 Live Extended Thinking"))).toBe("launch");
+  expect(signalClass(post("How Fyxer built an AI executive assistant on GPT-5"))).toBe("article");
+  expect(signalClass(post("Introducing our new office in Zurich"))).toBe("article");
+});
+
+test("an interface that starts naming a versioned model or a preview is a sighting", () => {
+  const diff = (added: string) =>
+    event({
+      stream: "web",
+      kind: "changed",
+      source: "claude-web",
+      before_json: JSON.stringify({ strings: ["Start a new chat with Claude"] }),
+      after_json: JSON.stringify({ strings: ["Start a new chat with Claude", added] }),
+    });
+  expect(signalClass(diff("Try Claude Opus 5 in research preview for your project"))).toBe("codename");
+  expect(signalClass(diff("A connector named ‘{name}’ already exists in this project"))).toBe("evidence");
 });
 
 test("a newsroom post is what the vendor said, not a model a reader can use", () => {

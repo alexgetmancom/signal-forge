@@ -97,15 +97,20 @@ function priceMove(move: { percent: number; cheaper: boolean; discountEnded?: bo
  * The week, in the order a reader would ask about it: what can I use now, what got cheaper, and
  * what did the people watching early see before anybody announced it.
  */
-export function renderRecapLines(context: RecapContext): string[] {
+/** The recap a destination reads, by the classes it carries; empty when none of its part moved. */
+export function renderRecapLines(context: RecapContext, signals: readonly string[]): string[] {
   const day = (at: string) =>
     new Date(at).toLocaleDateString("en-GB", { day: "numeric", month: "long", timeZone: "UTC" });
   if (context.period === "day") {
     const moved = [
-      ...context.priceMoves.map((move) => `📊 ${withoutMakerPrefix(move.name)} · ${priceMove(move)}`),
-      ...context.leaders.map((leader) => `🏆 ${withoutMakerPrefix(leader.name)} now leads ${leader.board}`),
+      ...(signals.includes("change")
+        ? context.priceMoves.map((move) => `📊 ${withoutMakerPrefix(move.name)} · ${priceMove(move)}`)
+        : []),
+      ...(signals.includes("codename")
+        ? context.leaders.map((leader) => `🏆 ${withoutMakerPrefix(leader.name)} now leads ${leader.board}`)
+        : []),
     ];
-    return [`**${day(context.from)} → ${day(context.to)}**`, "", ...moved];
+    return moved.length ? [`**${day(context.from)} → ${day(context.to)}**`, "", ...moved] : [];
   }
   const lines = [`**${day(context.from)} – ${day(context.to)}**`, ""];
   if (!context.arrivalCount) lines.push("🚀 **No new models this week.**");
@@ -123,6 +128,12 @@ export function renderRecapLines(context: RecapContext): string[] {
     if (others > 0) lines.push(`· ${others} more from smaller makers`);
   }
   for (const move of context.priceMoves) lines.push(`📊 ${withoutMakerPrefix(move.name)} · ${priceMove(move)}`);
+  if (context.retirements.length)
+    lines.push(
+      `⚠️ **Retiring:** ${context.retirements
+        .map((retirement) => (retirement.date ? `${retirement.name} (${retirement.date})` : retirement.name))
+        .join(", ")}`,
+    );
   if (context.codenameCount)
     lines.push(
       `🕵 **${context.codenameCount} early ${context.codenameCount === 1 ? "sighting" : "sightings"}** in scouts, before any announcement`,
@@ -130,10 +141,12 @@ export function renderRecapLines(context: RecapContext): string[] {
   return lines;
 }
 
-export function renderRecapEmbed(context: RecapContext): Record<string, unknown> {
+export function renderRecapEmbed(context: RecapContext, signals: readonly string[]): Record<string, unknown> | null {
+  const lines = renderRecapLines(context, signals);
+  if (!lines.length) return null;
   return {
     author: { name: context.period === "day" ? "WHAT MOVED" : "THE WEEK IN MODELS" },
-    description: renderRecapLines(context).join("\n").slice(0, 4000),
+    description: lines.join("\n").slice(0, 4000),
     footer: {
       text:
         context.period === "day"

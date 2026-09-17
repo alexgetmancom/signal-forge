@@ -285,10 +285,12 @@ export function prepareDeliveries(
       const context = recapContextSchema.parse(JSON.parse(batch.context_json ?? "{}"));
       for (const target of targets) {
         const destination = JSON.parse(target.destination_json) as Destination;
+        const lines = renderRecapLines(context, destination.signals);
+        // A day is prices for one room and leaders for the other; a room whose part is empty hears nothing.
+        if (!lines.length) continue;
+        const embed = renderRecapEmbed(context, destination.signals);
         const body =
-          destination.platform === "discord"
-            ? JSON.stringify({ content: "", embeds: [renderRecapEmbed(context)] })
-            : renderRecapLines(context).join("\n");
+          destination.platform === "discord" ? JSON.stringify({ content: "", embeds: [embed] }) : lines.join("\n");
         db.query(
           `INSERT INTO deliveries(batch_id,destination_id,destination_json,body,part,updated_at) VALUES(?,?,?,?,0,?)
            ON CONFLICT(batch_id,destination_id,part) DO UPDATE SET body=excluded.body,updated_at=excluded.updated_at
