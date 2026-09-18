@@ -6,7 +6,7 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!dist", "!node_modules", "!data", "!*.log"]
+    "includes": ["**", "!dist", "!node_modules", "!data", "!*.log", "!.claude"]
   },
   "formatter": {
     "enabled": true,
