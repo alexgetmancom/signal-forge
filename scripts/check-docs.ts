@@ -20,7 +20,6 @@ const root = resolve(import.meta.dir, "..");
 /** Path, what it is for, and the line budget past which it is being written instead of the code. */
 const DOCUMENTS: Record<string, { purpose: string; lines: number }> = {
   "README.md": { purpose: "what this service is, for somebody who has never seen it", lines: 420 },
-  "AGENTS.md": { purpose: "how work is done here", lines: 120 },
   "docs/roadmap.md": { purpose: "the plan, and the decisions measurement already settled", lines: 200 },
   "docs/runbook.md": { purpose: "which script to run when, and what a script cannot know", lines: 140 },
 };
@@ -31,7 +30,6 @@ function walk(directory: string, found: string[] = []): string[] {
   for (const entry of readdirSync(directory, { withFileTypes: true })) {
     if (entry.name.startsWith(".") || SKIP.has(entry.name)) continue;
     const path = join(directory, entry.name);
-    // CLAUDE.md is a symlink to AGENTS.md: one file, two names an agent might look for.
     if (entry.isSymbolicLink()) continue;
     if (entry.isDirectory()) walk(path, found);
     else if (entry.isFile() && entry.name.endsWith(".md")) found.push(relative(root, path));
