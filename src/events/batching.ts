@@ -35,12 +35,15 @@ import {
   isAlreadyOutAtItsMaker,
   isAnotherServing,
   isAnotherTierOfAListedModel,
+  isAResellerFillingInAPrice,
   isFixesOnlyRelease,
   isLabelOnlyChange,
   isLeftToTheDailyRecap,
   isLongPublishedWeights,
   isMinorBoardMove,
+  isPageWithoutAProduct,
   isPublishedByAFollowedLab,
+  isTrendingFromAnUnfollowedLab,
   isWeightsBesideTheRelease,
   knownModelNames,
   namesOnlyKnownModels,
@@ -414,6 +417,9 @@ export function prepareDeliveries(
           if (isLongPublishedWeights(event)) return quiet(event, "weights_published_long_ago");
           if (isScheduledPricingRotation(event)) return quiet(event, "scheduled_pricing_rotation");
           if (isLeftToTheDailyRecap(event)) return quiet(event, "left_to_the_daily_recap");
+          if (isAResellerFillingInAPrice(event)) return quiet(event, "a_reseller_filled_in_a_price");
+          if (isPageWithoutAProduct(event)) return quiet(event, "a_page_about_no_product");
+          if (isTrendingFromAnUnfollowedLab(event)) return quiet(event, "trending_from_an_unfollowed_lab");
           if (
             event.signal === "codename" &&
             listings &&

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { loadConfig } from "../src/config.js";
 import { saveCollection } from "../src/events/pipeline.js";
-import { selectMeaningfulWebStrings } from "../src/events/web.js";
+import { selectMeaningfulWebStrings, tellingWebString } from "../src/events/web.js";
 import { parseArena, parseLeaderboards } from "../src/sources/arena.js";
 import { parseSimpleBench, parseVoxelBench, parseWeirdMl } from "../src/sources/benchmarks.js";
 import { collectAnthropic, collectOpenAI, collectOpenRouter } from "../src/sources/catalogs.js";
@@ -1358,4 +1358,12 @@ test("a date naming a day its month does not have is rejected, not rolled into t
   expect(calendarDate("2026-02-30T00:00:00Z")).toBeNull();
   expect(calendarDate("Thu, 17 Sep 2026 10:00:00 GMT")?.toISOString()).toBe("2026-09-17T10:00:00.000Z");
   expect(calendarDate("Feb 29, 2028 UTC")?.toISOString()).toBe("2028-02-29T00:00:00.000Z");
+});
+
+test("preview tells as a stage and not as a verb", () => {
+  // The one tell among 516 strings claude.ai added on 2026-09-18.
+  expect(tellingWebString("Allow Claude to preview this page?")).toBe(false);
+  expect(tellingWebString("Opus 5 is in research preview")).toBe(true);
+  expect(tellingWebString("Cowork (preview)")).toBe(true);
+  expect(tellingWebString("Claude Opus 6")).toBe(true);
 });

@@ -5,9 +5,12 @@ const WEB_SIGNAL_TERMS =
  * A string on a vendor's own site that tells something before it is announced: a versioned model
  * name, or the words a product uses for what is not out yet. "Opus 5 is in research preview" tells;
  * "A connector named ‘{name}’ already exists" is copy. Only the first kind is worth a scout.
+ *
+ * "Preview" tells as a stage, not as a verb: "Allow Claude to preview this page?" was the one tell
+ * among 516 strings claude.ai added on 2026-09-18, and it reached the scouts.
  */
 const TELLING_WEB_STRING =
-  /\b(?:(?:claude|opus|sonnet|haiku|gpt|o\d|gemini|grok|codex|llama|qwen|deepseek|kimi|glm|mistral)[\s-]?\d[\w.-]*|beta|preview|coming soon|waitlist|early access|research preview|new model|introducing|now available)\b/i;
+  /\b(?:(?:claude|opus|sonnet|haiku|gpt|o\d|gemini|grok|codex|llama|qwen|deepseek|kimi|glm|mistral)[\s-]?\d[\w.-]*|beta|(?:in|research|public|developer|early|limited) preview|preview(?=\))|coming soon|waitlist|early access|new model|introducing|now available)\b/i;
 
 export function tellingWebString(value: string): boolean {
   return TELLING_WEB_STRING.test(normalizeWebString(value));

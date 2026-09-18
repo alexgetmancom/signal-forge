@@ -72,6 +72,9 @@ const SERVING_WORDS = new Set([
   "medium",
   "low",
   "effort",
+  // Search Arena lists Claude Opus 5 as `claude-opus-5-search`: the released model with a search
+  // tool attached, two of them on 2026-09-18.
+  "search",
 ]);
 
 /** A number straight after the model's name is its version: `grok 4` + `6` is Grok 4.6, not a wiring of Grok 4. */
@@ -284,6 +287,63 @@ export function isLeftToTheDailyRecap(event: Event): boolean {
     (key) => canonical(before[key]) !== canonical(after[key]),
   );
   return changed.length > 0 && changed.every((key) => key === "pricing");
+}
+
+/**
+ * A reseller filling in a price it had left empty.
+ *
+ * Fish Audio's four voice models reached the public channel from the Vercel gateway on 2026-09-18
+ * because the gateway started showing prices for models it already listed. A price that moves at a
+ * reseller still speaks: that is what its customers pay. One that appears says only that the
+ * listing was finished.
+ */
+export function isAResellerFillingInAPrice(event: Event): boolean {
+  if (event.kind !== "changed" || CATALOGUE_MAKER[event.source]) return false;
+  if (event.stream !== "api-models" && event.stream !== "openrouter") return false;
+  const before = event.before_json ? (JSON.parse(event.before_json) as Record<string, unknown>) : null;
+  const after = event.after_json ? (JSON.parse(event.after_json) as Record<string, unknown>) : null;
+  if (!before || !after) return false;
+  const changed = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter(
+    (key) => canonical(before[key]) !== canonical(after[key]),
+  );
+  const unpriced = (value: unknown) =>
+    value === null || value === undefined || (typeof value === "object" && !Object.keys(value).length);
+  return changed.length === 1 && changed[0] === "pricing" && unpriced(before.pricing);
+}
+
+/**
+ * A new page on a vendor's site whose address names no product of theirs.
+ *
+ * A page appearing before the announcement is a sighting when it is about something to use.
+ * "/news/accenture-embedded-evaluation" reached the scouts on 2026-09-18, and the disrupting-
+ * malicious-uses series sent eight in one minute on 2026-09-16: customer stories and reports, which
+ * the vendor's newsroom feed tells as what they are.
+ */
+const PAGE_PRODUCT =
+  /(?:^|[/_\s-])(?:claude|cowork|opus|sonnet|haiku|fable|mythos|gpt|o\d|chatgpt|codex|sora|gemini|gemma|veo|imagen|lyria|notebooklm|antigravity|jules|grok|aurora|llama|muse|qwen|glm|kimi|deepseek|mistral|models?)(?=$|[/_\s.-]|\d)/i;
+
+/**
+ * Only the sections a vendor writes stories in. Documentation is the product itself: the Claude CLI's
+ * `sessions connect` and `apply` pages named no product and were new commands.
+ */
+const EDITORIAL_SECTION =
+  /^\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?(?:news|index|research|institute|business|solutions|customers|stories|blog)\//i;
+
+export function isPageWithoutAProduct(event: Event): boolean {
+  if (event.stream !== "pages" || event.kind !== "new") return false;
+  const path = decodeURIComponent(event.entity_id);
+  return EDITORIAL_SECTION.test(path) && !PAGE_PRODUCT.test(path);
+}
+
+/**
+ * A repository trending on Hugging Face from a lab nobody follows here.
+ *
+ * Trending lists open models that are already out, which is the opposite of a sighting; a followed
+ * lab's own weights are told from its organisation first. `Cactus-Compute/needle3` reached the
+ * scouts on 2026-09-18, two days after it was published. A lab worth hearing from is followed.
+ */
+export function isTrendingFromAnUnfollowedLab(event: Event): boolean {
+  return event.kind === "new" && event.source.startsWith("discovery:huggingface");
 }
 
 /**

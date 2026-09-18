@@ -259,7 +259,8 @@ test("trending weights a followed lab already published are not a second sightin
 
   const reasons = suppressed(db);
   expect(reasons["deepseek-ai/DeepSeek-V4.1-Flash"]).toBe("published_by_a_followed_lab");
-  expect(reasons["nex-agi/Nex-N2.5-mini"]).toBeUndefined();
+  // A lab nobody follows is not heard from trending either: see isTrendingFromAnUnfollowedLab.
+  expect(reasons["nex-agi/Nex-N2.5-mini"]).toBe("trending_from_an_unfollowed_lab");
   db.close();
 });
 
@@ -577,5 +578,126 @@ test("an arena entry under a name its maker already sells is still a sighting", 
 
   expect(suppressed(db)).toEqual({});
   expect(db.query<{ c: number }, []>("SELECT COUNT(*) c FROM deliveries").get()?.c).toBe(1);
+  db.close();
+});
+
+test("a reseller filling in a price it had left empty is quiet, a price it moves still speaks", () => {
+  const db = openDatabase(":memory:");
+  const vercel = (pricing: Record<string, string>): Collection => ({
+    source: "vercel-gateway",
+    stream: "api-models",
+    url: "https://ai-gateway.vercel.sh/v1/models",
+    raw: [],
+    records: [
+      { id: "fish-audio/s1", name: "S1", maker: "fish-audio", pricing },
+      {
+        id: "deepseek/deepseek-v4-pro",
+        name: "DeepSeek V4 Pro",
+        pricing: { completion: pricing.moved ?? "0.0000032" },
+      },
+    ],
+  });
+  saveCollection(db, vercel({}), [wire], "2026-09-18T20:00:00.000Z");
+  saveCollection(db, vercel({ input: "0.000015", moved: "0.00000188672" }), [wire], "2026-09-18T21:00:00.000Z");
+  prepareDeliveries(db, Date.parse("2026-09-18T22:00:00.000Z"));
+
+  expect(suppressed(db)["fish-audio/s1"]).toBe("a_reseller_filled_in_a_price");
+  expect(suppressed(db)["deepseek/deepseek-v4-pro"]).toBeUndefined();
+  db.close();
+});
+
+test("a vendor page naming none of its products is quiet, one naming a product is a sighting", () => {
+  const db = openDatabase(":memory:");
+  const pages = (paths: string[], source = "pages:anthropic"): Collection => ({
+    source,
+    stream: "pages",
+    url: "https://www.anthropic.com",
+    raw: [],
+    records: paths.map((path) => ({ id: path, name: path, path })),
+  });
+  saveCollection(db, pages(["/news"]), [wire], "2026-09-18T19:00:00.000Z");
+  saveCollection(db, pages(["/news/grok-voice-transcribe-2"], "pages:xai"), [wire], "2026-09-18T19:00:00.000Z");
+  saveCollection(
+    db,
+    pages([
+      "/news",
+      "/news/accenture-embedded-evaluation",
+      "/news/claude-for-life-sciences",
+      "/docs/en/cli-sdks-libraries/cli/sessions-connect",
+    ]),
+    [wire],
+    "2026-09-18T20:04:32.306Z",
+  );
+  saveCollection(
+    db,
+    pages(["/news/grok-voice-transcribe-2", "/news/grok-voice-transcribe-3"], "pages:xai"),
+    [wire],
+    "2026-09-18T20:04:32.306Z",
+  );
+  prepareDeliveries(db, Date.parse("2026-09-18T21:00:00.000Z"));
+
+  const reasons = suppressed(db);
+  expect(reasons["/news/accenture-embedded-evaluation"]).toBe("a_page_about_no_product");
+  expect(reasons["/news/claude-for-life-sciences"]).toBeUndefined();
+  expect(reasons["/news/grok-voice-transcribe-3"]).toBeUndefined();
+  expect(reasons["/docs/en/cli-sdks-libraries/cli/sessions-connect"]).toBeUndefined();
+  db.close();
+});
+
+test("a repository trending from a lab nobody follows here is quiet", () => {
+  const db = openDatabase(":memory:");
+  const trending: Collection = {
+    source: "discovery:huggingface-trending",
+    stream: "weights",
+    url: "https://huggingface.co/models?sort=trending",
+    raw: [],
+    appendOnly: true,
+    records: [{ id: "org/anchor", name: "org/anchor", created: "2026-09-16T00:00:00.000Z" }],
+  };
+  saveCollection(db, trending, [wire], "2026-09-18T20:00:00.000Z");
+  trending.records.push({
+    id: "Cactus-Compute/needle3",
+    name: "Cactus-Compute/needle3",
+    created: "2026-09-16T06:41:36.000Z",
+  });
+  saveCollection(db, trending, [wire], "2026-09-18T21:22:05.322Z");
+  prepareDeliveries(db, Date.parse("2026-09-18T22:00:00.000Z"));
+
+  expect(suppressed(db)["Cactus-Compute/needle3"]).toBe("trending_from_an_unfollowed_lab");
+  db.close();
+});
+
+test("a released model with a search tool attached is another serving, a codename is a sighting", () => {
+  const db = openDatabase(":memory:");
+  saveCollection(
+    db,
+    {
+      source: "anthropic",
+      stream: "api-models",
+      url: "https://api.anthropic.com/v1/models",
+      raw: [],
+      records: [{ id: "claude-opus-5", name: "Claude Opus 5" }],
+    },
+    [wire],
+    "2026-09-10T00:00:00.000Z",
+  );
+  const arena: Collection = {
+    source: "arena",
+    stream: "arena",
+    url: "https://lmarena.ai",
+    raw: [],
+    records: [{ id: "a", name: "claude-opus-5", maker: "anthropic" }],
+  };
+  saveCollection(db, arena, [wire], "2026-09-18T20:00:00.000Z");
+  arena.records.push(
+    { id: "b", name: "claude-opus-5-search", maker: "anthropic" },
+    { id: "c", name: "river-route", maker: null },
+  );
+  saveCollection(db, arena, [wire], "2026-09-18T22:24:39.141Z");
+  prepareDeliveries(db, Date.parse("2026-09-18T23:00:00.000Z"));
+
+  const reasons = suppressed(db);
+  expect(reasons.b).toBe("another_serving_of_a_known_model");
+  expect(reasons.c).toBeUndefined();
   db.close();
 });

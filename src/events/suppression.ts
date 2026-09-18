@@ -32,6 +32,9 @@ const SUPPRESSION_REASONS = [
   "already_out_at_its_maker",
   "names_only_known_models",
   "fixes_only_release",
+  "a_reseller_filled_in_a_price",
+  "a_page_about_no_product",
+  "trending_from_an_unfollowed_lab",
 ] as const;
 
 export type SuppressionReason = (typeof SUPPRESSION_REASONS)[number];
@@ -82,6 +85,12 @@ function suppressionDetail(event: Event, reason: SuppressionReason): string {
       return "A documentation change whose only tell is a model already known here";
     case "fixes_only_release":
       return "A tool build whose notes only fix things";
+    case "a_reseller_filled_in_a_price":
+      return "A reseller showing a price for a model it already listed without one";
+    case "a_page_about_no_product":
+      return "A new vendor page whose address names none of the vendor's products";
+    case "trending_from_an_unfollowed_lab":
+      return "A trending repository from a lab this service does not follow";
     case "alias_of_another_row":
       return "A row that points at whichever build is newest, not a model of its own";
   }
