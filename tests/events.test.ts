@@ -266,9 +266,9 @@ test("one story becomes one cross-source digest with every evidence link", () =>
     { id: "dc", platform: "discord", channelId: "123", signals: ["launch", "codename", "evidence", "change"] },
   ];
   const router: Collection = {
-    source: "openrouter",
-    stream: "openrouter",
-    url: "https://openrouter.ai/models/gpt-5",
+    source: "vercel-gateway",
+    stream: "api-models",
+    url: "https://vercel.com/ai-gateway/models/gpt-5",
     raw: [],
     records: [{ id: "gpt-5", name: "GPT-5", maker: "OpenAI", pricing: { prompt: "1" } }],
   };
@@ -298,9 +298,9 @@ test("one story becomes one cross-source digest with every evidence link", () =>
   // One story is a card, not a digest of one.
   expect(telegram).not.toContain("Hourly digest");
   expect(telegram).toStartWith("🧵 Story · GPT-5");
-  expect(telegram).toContain("OpenRouter");
+  expect(telegram).toContain("Vercel AI Gateway");
   expect(telegram).toContain("OpenAI API");
-  expect(telegram).toContain("Evidence: https://openrouter.ai/models/gpt-5");
+  expect(telegram).toContain("Evidence: https://vercel.com/ai-gateway/models/gpt-5");
   expect(telegram).toContain("Evidence: https://api.openai.com/models/gpt-5");
 
   const discord = local
@@ -313,7 +313,7 @@ test("one story becomes one cross-source digest with every evidence link", () =>
   // One sentence for the story, one line per update, and every source linked once.
   expect(payload.embeds?.[0]?.description).toStartWith("2 updates from 2 sources.");
   const seen = payload.embeds?.[0]?.fields?.find((field) => field.name === "Seen on")?.value;
-  expect(seen).toBe("OpenRouter · OpenAI API");
+  expect(seen).toBe("Vercel AI Gateway · OpenAI API");
   local.close();
 });
 
@@ -425,8 +425,8 @@ test("a cross-stream digest stays scoped to each destination", () => {
     { id: "benchmarks", platform: "discord", channelId: "456", signals: ["codename"] },
   ];
   const router: Collection = {
-    source: "openrouter",
-    stream: "openrouter",
+    source: "vercel-gateway",
+    stream: "api-models",
     url: "https://openrouter.ai/models",
     raw: [],
     records: [{ id: "router-model", name: "Router model", pricing: { prompt: "1" } }],

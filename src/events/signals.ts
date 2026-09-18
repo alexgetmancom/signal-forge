@@ -154,7 +154,7 @@ const SHIPS =
  * The maker whose own models an API catalogue sells. A catalogue absent here sells other makers'
  * models -- Groq, Cerebras, the Vercel gateway -- and never launches anything itself.
  */
-const CATALOGUE_MAKER: Readonly<Record<string, string>> = {
+export const CATALOGUE_MAKER: Readonly<Record<string, string>> = {
   openai: "OpenAI",
   anthropic: "Anthropic",
   gemini: "Google",

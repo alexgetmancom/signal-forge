@@ -42,8 +42,10 @@ import { subjectKey, usageRanks, witnessedSubjects } from "./events/witness.js";
  * part of the day its classes ask for, and nothing when that part is empty.
  */
 const PERIODS = {
-  week: { source: "weekly-recap", ms: 7 * 24 * 3_600_000, signals: ["launch"] },
-  day: { source: "daily-recap", ms: 24 * 3_600_000, signals: ["change", "codename"] },
+  // `untold`: only moves no card carried. A week is what moved furthest, told or not; a day is the
+  // moves too small for a card of their own, and says so in its footer.
+  week: { source: "weekly-recap", ms: 7 * 24 * 3_600_000, signals: ["launch"], untold: false },
+  day: { source: "daily-recap", ms: 24 * 3_600_000, signals: ["change", "codename"], untold: true },
 } as const;
 export type RecapPeriod = keyof typeof PERIODS;
 /** Where a thing shows up before anyone announces it. */
@@ -259,8 +261,24 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
     row.push({ event, name: nameOf(event) });
     byRow.set(`${event.source}\u0000${event.entity_id}`, row);
   }
+  // On 2026-09-18 the morning recap repeated GLM 5.2, Kimi K3 and gpt-oss-120b from cards sent
+  // hours before.
+  const carded = new Set(
+    !PERIODS[period].untold
+      ? []
+      : db
+          .query<{ event_id: number }, [string, string]>(
+            `SELECT DISTINCT de.event_id FROM delivery_events de JOIN deliveries d ON d.id=de.delivery_id
+         JOIN events e ON e.id=de.event_id
+         WHERE d.status IN ('pending','sending','sent','ambiguous','verification_required')
+           AND e.detected_at>=? AND e.detected_at<?`,
+          )
+          .all(from, to)
+          .map((row) => row.event_id),
+  );
   const bySubjectMove = new Map<string, PriceMove[]>();
   for (const row of byRow.values()) {
+    if (row.some(({ event }) => carded.has(event.id))) continue;
     const first = row[0]?.event;
     const last = row.at(-1)?.event;
     const name = row.at(-1)?.name ?? "";

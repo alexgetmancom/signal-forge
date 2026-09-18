@@ -1,8 +1,11 @@
 import type { Database } from "bun:sqlite";
 import { canonical } from "./canonical.js";
 import { normalizeIdentity } from "./identity.js";
+import { CATALOGUE_MAKER } from "./signals.js";
 import type { Event, RecordData } from "./types.js";
 import { isBesideTheRelease } from "./variants.js";
+import { vendorOfName } from "./vendors.js";
+import { meaningfulWebString, normalizeWebString, tellingWebString } from "./web.js";
 
 /**
  * Observations that are true, cheap to make, and not worth a message.
@@ -261,4 +264,89 @@ export function isLongPublishedWeights(event: Event): boolean {
   if (event.kind !== "new" || event.source !== "huggingface-router") return false;
   const created = Date.parse(String(record(event)?.created ?? ""));
   return Number.isFinite(created) && Date.parse(event.detected_at) - created > LONG_PUBLISHED_MS;
+}
+
+/**
+ * A price OpenRouter shows moving, which is usually the provider it routes to changing.
+ *
+ * Measured on production 2026-09-18 over the fourteen days before: 178 moves of a quarter or more
+ * on OpenRouter, 108 of them back at the starting price within a day and 51 within six hours.
+ * DeepSeek V4 Pro reached the public channel 41% cheaper at 04:09 and 70% dearer at 06:43. The
+ * daily recap reads each row's net move and drops a row that went both ways, which is the only
+ * reading of these numbers that survives the routing.
+ */
+export function isLeftToTheDailyRecap(event: Event): boolean {
+  if (event.kind !== "changed" || event.source !== "openrouter") return false;
+  const before = event.before_json ? (JSON.parse(event.before_json) as Record<string, unknown>) : null;
+  const after = event.after_json ? (JSON.parse(event.after_json) as Record<string, unknown>) : null;
+  if (!before || !after) return false;
+  const changed = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter(
+    (key) => canonical(before[key]) !== canonical(after[key]),
+  );
+  return changed.length > 0 && changed.every((key) => key === "pricing");
+}
+
+/**
+ * A sighting of a model its maker already sells.
+ *
+ * `glm-5.3-flashx` reached the scouts from the Vercel gateway on 2026-09-18 three minutes after Z.ai's
+ * own catalogue put it on the public channel, and a fourth Arena entry for the released
+ * `mimo-v2.5-pro` followed. A sighting is the earliest word on a model; after the maker's own
+ * catalogue it is the latest.
+ */
+export function isAlreadyOutAtItsMaker(event: Event, elsewhere: readonly string[]): boolean {
+  if (event.kind !== "new") return false;
+  const maker = vendorOfName(`${event.entity_id} ${String(record(event)?.name ?? "")}`);
+  return maker !== "Unknown" && elsewhere.some((source) => CATALOGUE_MAKER[source] === maker);
+}
+
+/** The versioned model names a string mentions. */
+const MODEL_NAME =
+  /\b(?:claude|opus|sonnet|haiku|gpt|o\d|gemini|grok|codex|llama|qwen|deepseek|kimi|glm|mistral)[\s-]?\d[\w.-]*/gi;
+
+/**
+ * A documentation diff whose only tell is a model this deployment already knows.
+ *
+ * Codex's subagent page swapped `gpt-5.3-codex-spark` for `gpt-5.6-luna` in two TOML examples on
+ * 2026-09-18 and reached the scouts as a sighting; GPT-5.6 Luna had been on OpenRouter and the
+ * Arena since 2026-09-09. A string that also says preview, beta or coming soon still speaks.
+ */
+export function namesOnlyKnownModels(event: Event, known: readonly string[][]): boolean {
+  if (event.stream !== "web" || event.kind !== "changed") return false;
+  const before = event.before_json ? (JSON.parse(event.before_json) as { strings?: unknown }) : null;
+  const after = event.after_json ? (JSON.parse(event.after_json) as { strings?: unknown }) : null;
+  const old = new Set(Array.isArray(before?.strings) ? before.strings : []);
+  const telling = (Array.isArray(after?.strings) ? after.strings : []).filter(
+    (value): value is string =>
+      typeof value === "string" && !old.has(value) && meaningfulWebString(value) && tellingWebString(value),
+  );
+  if (!telling.length) return false;
+  const names = known.map((words) => words.join(" "));
+  return telling.every((value) => {
+    const normalized = normalizeWebString(value);
+    const models = normalized.match(MODEL_NAME) ?? [];
+    if (!models.length || tellingWebString(normalized.replace(MODEL_NAME, " "))) return false;
+    return models.every((model) => {
+      const name = normalizeIdentity(model);
+      return names.some((knownName) => knownName === name || knownName.startsWith(`${name} `));
+    });
+  });
+}
+
+/**
+ * A tool build that only fixes things.
+ *
+ * Claude Code 2.1.276 reached the public channel on 2026-09-18 to say one proxy regression from
+ * 2.1.275 was fixed; 2.1.270 and 2.1.272 ("Bug fixes and reliability improvements") had done the
+ * same in the week before. A reader who uses the tool updates anyway; one who does not learns nothing.
+ */
+const ADDS = /\b(added|adds|new|introduc\w*|now (?:supports?|available)|launch\w*)\b/i;
+const FIXES = /^\s*(fixed|fixes|bug fixes)\b/i;
+
+export function isFixesOnlyRelease(event: Event): boolean {
+  if (event.kind !== "new" || event.stream !== "news") return false;
+  const body = record(event);
+  if (!body?.version) return false;
+  const summary = String(body.summary ?? body.description ?? "");
+  return FIXES.test(summary) && !ADDS.test(summary);
 }

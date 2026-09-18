@@ -28,6 +28,10 @@ const SUPPRESSION_REASONS = [
   "weights_published_long_ago",
   "another_page_about_the_same_model",
   "past_the_digest_limit",
+  "left_to_the_daily_recap",
+  "already_out_at_its_maker",
+  "names_only_known_models",
+  "fixes_only_release",
 ] as const;
 
 export type SuppressionReason = (typeof SUPPRESSION_REASONS)[number];
@@ -70,6 +74,14 @@ function suppressionDetail(event: Event, reason: SuppressionReason): string {
       return "A vendor page naming a model this destination was told about in the last day";
     case "past_the_digest_limit":
       return "The hourly digest showed its first five stories and this one came after them";
+    case "left_to_the_daily_recap":
+      return "An OpenRouter price, which the daily recap reports as the day's net move";
+    case "already_out_at_its_maker":
+      return "A sighting of a model its maker's own catalogue already lists";
+    case "names_only_known_models":
+      return "A documentation change whose only tell is a model already known here";
+    case "fixes_only_release":
+      return "A tool build whose notes only fix things";
     case "alias_of_another_row":
       return "A row that points at whichever build is newest, not a model of its own";
   }

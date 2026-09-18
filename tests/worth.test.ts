@@ -345,7 +345,7 @@ test("a model named by several vendor pages is told once", () => {
   db.close();
 });
 
-test("a platform listing another maker's model names where it already was", () => {
+test("a platform listing another maker's model is a sighting until the maker lists it", () => {
   const db = openDatabase(":memory:");
   const zai: Collection = {
     source: "zai",
@@ -363,7 +363,11 @@ test("a platform listing another maker's model names where it already was", () =
     records: [{ id: "qwen-anchor", name: "qwen-anchor" }],
   };
   saveCollection(db, dashscope, [wire], "2026-09-15T00:00:00.000Z");
-  dashscope.records.push({ id: "glm-5.3", name: "glm-5.3" }, { id: "qwen3.9-max", name: "qwen3.9-max" });
+  dashscope.records.push(
+    { id: "glm-5.3", name: "glm-5.3" },
+    { id: "kimi-k9", name: "kimi-k9" },
+    { id: "qwen3.9-max", name: "qwen3.9-max" },
+  );
   saveCollection(db, dashscope, [wire], "2026-09-15T10:00:00.000Z");
   prepareDeliveries(db, Date.parse("2026-09-15T12:00:00.000Z"));
 
@@ -372,8 +376,102 @@ test("a platform listing another maker's model names where it already was", () =
     .all()
     .map((row) => row.body)
     .join("\n");
-  expect(bodies).toContain("Already out · listed by Z.ai API");
+  // Z.ai sells GLM-5.3 itself, so DashScope carrying it is not the first word on anything.
+  expect(suppressed(db)["glm-5.3"]).toBe("already_out_at_its_maker");
+  expect(bodies).toContain("No other tracked catalogue lists it yet");
   // The platform's own model is a launch, and a launch carries neither line.
   expect(bodies.match(/Already out · listed by|No other tracked catalogue/g)).toHaveLength(1);
+  db.close();
+});
+
+test("an OpenRouter price is left to the daily recap, and a reseller's still speaks", () => {
+  const db = openDatabase(":memory:");
+  const prices = (source: string, price: string): Collection => ({
+    source,
+    stream: source === "openrouter" ? "openrouter" : "api-models",
+    url: "https://example.test/models",
+    raw: [],
+    records: [{ id: "deepseek/deepseek-v4-pro", name: "DeepSeek V4 Pro", pricing: { completion: price } }],
+  });
+  for (const source of ["openrouter", "vercel-gateway"]) {
+    saveCollection(db, prices(source, "0.0000032"), [wire], "2026-09-18T03:00:00.000Z");
+    saveCollection(db, prices(source, "0.00000188672"), [wire], "2026-09-18T04:09:00.000Z");
+  }
+  prepareDeliveries(db, Date.parse("2026-09-18T05:00:00.000Z"));
+
+  expect(
+    db
+      .query<{ source: string; reason: string }, []>(
+        "SELECT e.source,s.reason FROM suppressions s JOIN events e ON e.id=s.event_id",
+      )
+      .all(),
+  ).toEqual([{ source: "openrouter", reason: "left_to_the_daily_recap" }]);
+  db.close();
+});
+
+test("a documentation example naming a model already known is not a sighting, a new one is", () => {
+  const db = openDatabase(":memory:");
+  saveCollection(
+    db,
+    {
+      source: "openrouter",
+      stream: "openrouter",
+      url: "https://openrouter.ai",
+      raw: [],
+      records: [{ id: "openai/gpt-5.6-luna", name: "OpenAI: GPT-5.6 Luna" }],
+    },
+    [],
+    "2026-09-09T00:00:00.000Z",
+  );
+  const page = (id: string, strings: string[]): Collection["records"][number] => ({ id, name: id, strings });
+  const docs: Collection = {
+    source: "codex-docs",
+    stream: "web",
+    url: "https://learn.chatgpt.com/docs",
+    raw: [],
+    records: [
+      page("subagents", ['```toml name = "ui_fixer" model = "gpt-5.3-codex-spark" agent config```']),
+      page("models", ["Pick a model for the agent in Codex."]),
+    ],
+  };
+  saveCollection(db, docs, [wire], "2026-09-18T01:00:00.000Z");
+  docs.records = [
+    page("subagents", ['```toml name = "ui_fixer" model = "gpt-5.6-luna" agent config```']),
+    page("models", ["Pick a model for the agent in Codex.", "GPT-5.7 Nova is the default model for the agent."]),
+  ];
+  saveCollection(db, docs, [wire], "2026-09-18T02:00:00.000Z");
+  prepareDeliveries(db, Date.parse("2026-09-18T03:00:00.000Z"));
+
+  expect(suppressed(db)).toEqual({ subagents: "names_only_known_models" });
+  expect(db.query<{ c: number }, []>("SELECT COUNT(*) c FROM deliveries").get()?.c).toBe(1);
+  db.close();
+});
+
+test("a tool build that only fixes things stays quiet, one that adds something speaks", () => {
+  const db = openDatabase(":memory:");
+  const build = (version: string, summary: string) => ({
+    id: `claude-code:${version}`,
+    name: `Claude Code ${version}`,
+    version,
+    published: "2026-09-18T00:00:00.000Z",
+    summary,
+  });
+  const changelog: Collection = {
+    source: "claude-code-changelog",
+    stream: "news",
+    url: "https://code.claude.com/docs/en/changelog",
+    raw: [],
+    appendOnly: true,
+    records: [build("2.1.274", "Added a warning when memory is critical")],
+  };
+  saveCollection(db, changelog, [wire], "2026-09-17T00:00:00.000Z");
+  changelog.records.push(
+    build("2.1.275", "Added a send-now key Fixed a scroll bug"),
+    build("2.1.276", "Fixed every request failing with 400 when the base URL points at a proxy"),
+  );
+  saveCollection(db, changelog, [wire], "2026-09-18T02:31:00.000Z");
+  prepareDeliveries(db, Date.parse("2026-09-18T03:00:00.000Z"));
+
+  expect(suppressed(db)).toEqual({ "claude-code:2.1.276": "fixes_only_release" });
   db.close();
 });

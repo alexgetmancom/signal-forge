@@ -1217,6 +1217,18 @@ test("a Kimi Code release is dated from its own entry, and a month without a day
   });
 });
 
+test("a Kimi Code release marked as the page's hero is still an entry", () => {
+  const collection = parseKimiCodeChangelog(`
+<div class="wn-entry wn-hero"><div class="wn-meta"><span class="wn-badge">Latest</span><span class="wn-product">Kimi Code Desktop</span><h2 id="d"><span class="ignore-header">Kimi Code Desktop is here</span> <span class="wn-date">September 17, 2026</span></h2></div><div class="wn-content"><p>The desktop client is available.</p></div></div>
+<div class="wn-entry wn-hero"><div class="wn-meta"><span class="wn-product">Model Release</span><h2 id="k"><span class="ignore-header">K2.8 Preview</span> <span class="wn-date">September 11, 2026</span></h2></div><div class="wn-content"><p>K2.8 Preview is available in Kimi Code.</p></div></div>
+${kimiChangelog}`);
+  expect(collection.records.map((record) => record.name)).toEqual([
+    "Kimi Code Desktop is here",
+    "K2.8 Preview",
+    "Kimi Code CLI v0.43.0",
+  ]);
+});
+
 test("a Kimi Code page that stopped carrying dated entries is a failed read", () => {
   expect(() => parseKimiCodeChangelog('<div class="wn-entry"></div>')).toThrow();
 });

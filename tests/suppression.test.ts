@@ -10,8 +10,8 @@ import { openDatabase } from "../src/storage/database.js";
 const destination: Destination = { id: "changes", platform: "discord", channelId: "1", signals: ["change"] };
 
 const catalogue = (completion: string): Collection => ({
-  source: "openrouter",
-  stream: "openrouter",
+  source: "vercel-gateway",
+  stream: "api-models",
   url: "https://openrouter.ai/models",
   raw: [],
   records: [{ id: "deepseek/v4-pro", name: "DeepSeek: V4 Pro", pricing: { completion } }],

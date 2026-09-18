@@ -398,7 +398,11 @@ export async function collectGroqChangelog(request: Fetch = fetch, cache?: HttpC
  */
 export function parseKimiCodeChangelog(html: string): Collection {
   const records = [
-    ...html.matchAll(/<div class="wn-entry">([\s\S]*?)<div class="wn-content">([\s\S]*?)<\/div>/g),
+    // `wn-entry` is a class token: the newest release and every model release also carry `wn-hero`,
+    // and matching the attribute exactly lost four of them on 2026-09-18, Kimi K3 among them.
+    ...html.matchAll(
+      /<div class="(?:[^"]*\s)?wn-entry(?:\s[^"]*)?">([\s\S]*?)<div class="wn-content">([\s\S]*?)<\/div>/g,
+    ),
   ].flatMap((match) => {
     const meta = match[1] ?? "";
     const version = htmlText(meta.match(/<span class="ignore-header">([\s\S]*?)<\/span>/)?.[1] ?? "");
@@ -418,7 +422,9 @@ export function parseKimiCodeChangelog(html: string): Collection {
     return [
       {
         id: `kimi-code:${published.slice(0, 10)}:${slug(version)}`,
-        name: `${product} ${version}`,
+        // A heading can already name the product ("Kimi Code Desktop is here"), and "Model Release"
+        // is the page's category for a model, not a product the model belongs to.
+        name: version.startsWith(product) || product === "Model Release" ? version : `${product} ${version}`,
         url: KIMI_CODE_CHANGELOG_URL,
         maker: "Moonshot",
         version,

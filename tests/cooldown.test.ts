@@ -8,8 +8,8 @@ import { openDatabase } from "../src/storage/database.js";
 const destination: Destination = { id: "changes", platform: "discord", channelId: "1", signals: ["change"] };
 
 const catalogue = (price: string): Collection => ({
-  source: "openrouter",
-  stream: "openrouter",
+  source: "vercel-gateway",
+  stream: "api-models",
   url: "https://openrouter.ai/models",
   raw: [],
   records: [{ id: "moonshotai/kimi-k3", name: "MoonshotAI: Kimi K3", pricing: { completion: price } }],

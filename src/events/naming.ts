@@ -18,6 +18,7 @@ const SHOUTED = new Set([
   "ai",
   "api",
   "gpt",
+  "glm",
   "llm",
   "vl",
   "ocr",
@@ -54,9 +55,18 @@ function isLiteralSighting(stream: string, source: string): boolean {
   return stream === "arena" || stream === "leaderboards" || source.startsWith("discovery:");
 }
 
+/**
+ * Words a maker capitalises inside, which no rule derives. Z.ai's `glm-5.3-flashx` reached the
+ * public channel on 2026-09-18 as "Glm 5.3 Flashx" while the Vercel card for the same model said
+ * "GLM 5.3 FlashX".
+ */
+const SPELLED: Readonly<Record<string, string>> = { flashx: "FlashX" };
+
 function word(part: string): string {
   if (!part) return part;
   if (/[A-Z]/.test(part)) return part;
+  const spelled = SPELLED[part.toLowerCase()];
+  if (spelled) return spelled;
   const maker = vendorSpelling(part);
   if (maker) return maker;
   if (SHOUTED.has(part.toLowerCase())) return part.toUpperCase();

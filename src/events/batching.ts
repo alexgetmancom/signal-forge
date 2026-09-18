@@ -32,14 +32,18 @@ import { listingsBySubject, rosterSiblings, subjectKey } from "./witness.js";
 import {
   isAboutTheCompanyNotAModel,
   isAliasRow,
+  isAlreadyOutAtItsMaker,
   isAnotherServing,
   isAnotherTierOfAListedModel,
+  isFixesOnlyRelease,
   isLabelOnlyChange,
+  isLeftToTheDailyRecap,
   isLongPublishedWeights,
   isMinorBoardMove,
   isPublishedByAFollowedLab,
   isWeightsBesideTheRelease,
   knownModelNames,
+  namesOnlyKnownModels,
   pageModel,
 } from "./worth.js";
 
@@ -356,8 +360,17 @@ export function prepareDeliveries(
       event.kind === "new" &&
       (listsAnotherMakersModel(event) || event.source.startsWith("discovery:huggingface") || event.stream === "arena");
     const listings = events.some(sighted) ? listingsBySubject(db) : null;
+    /** The other catalogues that already carry a sighted model, by the card's own name for it. */
+    const elsewhereOf = (event: Event): string[] => {
+      const record = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
+      const name = displayName(String(record?.name ?? event.entity_id));
+      const keys = new Set([subjectKey(event.entity_id), subjectKey(name)]);
+      return [...new Set([...keys].flatMap((key) => [...(listings?.get(key) ?? [])]))]
+        .filter((source) => source !== event.source)
+        .sort();
+    };
     // Read once per batch: the question is about the event, not about the destination.
-    const known = events.some((event) => event.stream === "arena" || event.signal === "article")
+    const known = events.some((event) => ["arena", "web"].includes(event.stream) || event.signal === "article")
       ? knownModelNames(db)
       : [];
     for (const target of targets) {
@@ -400,6 +413,17 @@ export function prepareDeliveries(
           if (isWeightsBesideTheRelease(event)) return quiet(event, "weights_with_nothing_to_run");
           if (isLongPublishedWeights(event)) return quiet(event, "weights_published_long_ago");
           if (isScheduledPricingRotation(event)) return quiet(event, "scheduled_pricing_rotation");
+          if (isLeftToTheDailyRecap(event)) return quiet(event, "left_to_the_daily_recap");
+          if (
+            event.signal === "codename" &&
+            listings &&
+            sighted(event) &&
+            isAlreadyOutAtItsMaker(event, elsewhereOf(event))
+          )
+            return quiet(event, "already_out_at_its_maker");
+          if (event.signal === "codename" && namesOnlyKnownModels(event, known))
+            return quiet(event, "names_only_known_models");
+          if (event.signal === "release" && isFixesOnlyRelease(event)) return quiet(event, "fixes_only_release");
           if (isOscillating(db, event, now)) return quiet(event, "oscillating");
           if (isReappearance(db, event, now)) return quiet(event, "flapping_in_and_out");
           if (repeatsDeliveredStory(db, event, target.destination_id, storyIds.get(event.id), batch.id))
@@ -417,11 +441,7 @@ export function prepareDeliveries(
         if (returned) Object.assign(event, { returned });
         if (listings && sighted(event)) {
           const record = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
-          const name = displayName(String(record?.name ?? event.entity_id));
-          const keys = new Set([subjectKey(event.entity_id), subjectKey(name)]);
-          const elsewhere = [...new Set([...keys].flatMap((key) => [...(listings.get(key) ?? [])]))]
-            .filter((source) => source !== event.source)
-            .sort();
+          const elsewhere = elsewhereOf(event);
           // An arena entry nobody lists is the ordinary case and its card already says so.
           if (elsewhere.length || event.stream !== "arena") Object.assign(event, { elsewhere });
           if (event.stream === "arena" && record) {

@@ -190,7 +190,7 @@ export const PROVIDER_CATALOGUES: ProviderCatalogue[] = [
     name: "Z.ai",
     vendor: "Z.ai",
     apiUrl: "https://api.z.ai/api/paas/v4/models",
-    url: "https://docs.z.ai/guides/llm/glm-4.6",
+    url: "https://docs.z.ai/guides/overview/overview",
     key: "ZAI_API_KEY",
     authority: "first_party",
   },

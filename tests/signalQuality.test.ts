@@ -175,8 +175,8 @@ test("signal quality counts a shared digest only for subscribed signal classes",
     { id: "benchmarks", platform: "discord", channelId: "456", signals: ["codename", "rank"] },
   ];
   const router: Collection = {
-    source: "openrouter",
-    stream: "openrouter",
+    source: "vercel-gateway",
+    stream: "api-models",
     url: "https://openrouter.ai/models",
     raw: [],
     records: [{ id: "router-model", name: "Router model", pricing: { prompt: "1" } }],
@@ -197,7 +197,7 @@ test("signal quality counts a shared digest only for subscribed signal classes",
   prepareDeliveries(db, Date.parse("2026-09-08T11:00:00.000Z"));
 
   const report = signalQuality(db, config, 7, Date.parse("2026-09-08T12:00:00.000Z"));
-  expect(report.sources.find((source) => source.id === "openrouter")).toMatchObject({ digestDeliveries: 1 });
+  expect(report.sources.find((source) => source.id === "vercel-gateway")).toMatchObject({ digestDeliveries: 1 });
   expect(report.sources.find((source) => source.id === "arena-leaderboards")).toMatchObject({
     immediateDeliveries: 1,
     digestDeliveries: 0,
