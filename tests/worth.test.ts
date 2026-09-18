@@ -376,7 +376,8 @@ test("a platform listing another maker's model is a sighting until the maker lis
     .all()
     .map((row) => row.body)
     .join("\n");
-  // Z.ai sells GLM-5.3 itself, so DashScope carrying it is not the first word on anything.
+  // Z.ai sells GLM-5.3 itself, so DashScope carrying it is not the first word on anything. An arena
+  // entry under a released name is left alone: see isAlreadyOutAtItsMaker.
   expect(suppressed(db)["glm-5.3"]).toBe("already_out_at_its_maker");
   expect(bodies).toContain("No other tracked catalogue lists it yet");
   // The platform's own model is a launch, and a launch carries neither line.
@@ -473,5 +474,45 @@ test("a tool build that only fixes things stays quiet, one that adds something s
   prepareDeliveries(db, Date.parse("2026-09-18T03:00:00.000Z"));
 
   expect(suppressed(db)).toEqual({ "claude-code:2.1.276": "fixes_only_release" });
+  db.close();
+});
+
+test("an arena entry under a name its maker already sells is still a sighting", () => {
+  const db = openDatabase(":memory:");
+  saveCollection(
+    db,
+    {
+      source: "mimo",
+      stream: "api-models",
+      url: "https://mimo.test",
+      raw: [],
+      records: [{ id: "mimo-v2.5-pro", name: "mimo-v2.5-pro" }],
+    },
+    [],
+    "2026-09-10T00:00:00.000Z",
+  );
+  const entry = (id: string, provider: string | null) => ({
+    id,
+    name: "mimo-v2.5-pro",
+    model: "mimo-v2.5-pro",
+    maker: "xiaomi",
+    provider,
+    output: { web: true },
+    selectable: true,
+  });
+  const arena: Collection = {
+    source: "arena",
+    stream: "arena",
+    url: "https://arena.ai",
+    raw: [],
+    records: [entry("019db650", "xiaomiV1")],
+  };
+  saveCollection(db, arena, [wire], "2026-09-17T00:00:00.000Z");
+  arena.records.push(entry("01a0b31c", null));
+  saveCollection(db, arena, [wire], "2026-09-18T06:06:00.000Z");
+  prepareDeliveries(db, Date.parse("2026-09-18T06:07:00.000Z"));
+
+  expect(suppressed(db)).toEqual({});
+  expect(db.query<{ c: number }, []>("SELECT COUNT(*) c FROM deliveries").get()?.c).toBe(1);
   db.close();
 });

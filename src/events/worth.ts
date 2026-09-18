@@ -293,9 +293,15 @@ export function isLeftToTheDailyRecap(event: Event): boolean {
  * own catalogue put it on the public channel, and a fourth Arena entry for the released
  * `mimo-v2.5-pro` followed. A sighting is the earliest word on a model; after the maker's own
  * catalogue it is the latest.
+ *
+ * Not on an arena. That Arena entry was created at 06:02 on 2026-09-18 (its id is a UUIDv7) with no
+ * provider, while the released one is served by `xiaomiV1` and Xiaomi had been training
+ * mimo-v2.6-pro in public since 2026-09-15; a bare `gemini-3.8-flash` appeared the same way on
+ * 2026-09-17, which readers took for the next Gemini. A released name is how a successor is tested
+ * blind, so a new entry under one is a sighting, not a repeat.
  */
 export function isAlreadyOutAtItsMaker(event: Event, elsewhere: readonly string[]): boolean {
-  if (event.kind !== "new") return false;
+  if (event.kind !== "new" || event.stream === "arena") return false;
   const maker = vendorOfName(`${event.entity_id} ${String(record(event)?.name ?? "")}`);
   return maker !== "Unknown" && elsewhere.some((source) => CATALOGUE_MAKER[source] === maker);
 }
