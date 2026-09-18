@@ -455,6 +455,13 @@ test("a vendor pattern claims its own models and nobody else's", () => {
   expect(vendor("xAI")).toBe("xAI");
   expect(vendor("Xiaomi MiMo")).toBe("Xiaomi");
   expect(vendor("Poolside")).toBe("Poolside");
+  // Stories for these three reached Unknown in the week of 2026-09-08.
+  expect(vendor("", "muse-spark-1.2")).toBe("Meta");
+  expect(vendor("", "internlm/Atria-Dawn-Preview-Ascend-w8a8")).toBe("Shanghai AI Lab");
+  expect(vendor("prism-ml", "prism-ml/Ternary-Bonsai-2-27B-gguf-dev")).toBe("PrismML");
+  expect(vendor("abacusai", "abacusai/Smaug-Mini")).toBe("Abacus.AI");
+  // Somebody else's fine-tune of a PrismML model is not PrismML's news.
+  expect(vendor("", "Continuum-AI-Corp/OrcaBonsai-27B-Uncensored")).toBe("Unknown");
   // A cloud that resells a model does not become its maker.
   expect(vendorOf({ source: "aws-bedrock-lifecycle", entity_id: "claude-sonnet" } as never, null)).toBe("Anthropic");
 });

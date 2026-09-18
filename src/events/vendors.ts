@@ -15,7 +15,7 @@ const VENDORS: [RegExp, string][] = [
   [/\bx-ai\b|\bxai\b|grok/i, "xAI"],
   [/deepseek/i, "DeepSeek"],
   [/qwen|alibaba/i, "Qwen"],
-  [/meta-llama|llama|\bmeta\b/i, "Meta"],
+  [/meta-llama|llama|\bmeta\b|muse[\s-]spark/i, "Meta"],
   [/mistral/i, "Mistral"],
   [/groq/i, "Groq"],
   [/moonshot|kimi/i, "Moonshot"],
@@ -41,6 +41,11 @@ const VENDORS: [RegExp, string][] = [
   [/microsoft|azure|\bphi-\d/i, "Microsoft"],
   [/amazon|\baws\b|bedrock/i, "Amazon"],
   [/poolside/i, "Poolside"],
+  // The lab behind InternLM brands its models Atria; `internlm` is where both are published.
+  [/internlm|shanghai ai lab|\batria[\s-]dawn/i, "Shanghai AI Lab"],
+  // `bonsai` alone also names other people's fine-tunes of PrismML's models.
+  [/prism-?ml\b/i, "PrismML"],
+  [/abacus|\bsmaug-(?:agentic|flash|mini)\b/i, "Abacus.AI"],
 ];
 
 /**

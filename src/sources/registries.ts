@@ -55,6 +55,11 @@ export const HF_AUTHORS = [
   // Shanghai AI Lab publishes under the InternLM organisation on both registries, whatever the
   // model is branded; Atria Dawn Preview landed here three days before its announcement.
   "internlm",
+  // PrismML publishes its compressed models only here and in a press release; Ternary Bonsai 2 27B
+  // landed on 2026-09-17 with no feed of its own to read.
+  "prism-ml",
+  // Abacus.AI's Smaug models (Agentic, Flash, Mini) reached the Hub weeks before any listing.
+  "abacusai",
 ];
 
 export function parseHuggingFace(payload: string, author: string): Collection {

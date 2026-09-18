@@ -36,6 +36,7 @@ import {
   parseGeminiApiChangelog,
   parseGroqChangelog,
   parseKimiCodeChangelog,
+  parseMiniMaxCodeChangelog,
   parseMistralReleaseNotes,
   parseOpenAIApiChangelog,
   parseOpenAIChatGPTReleaseNotes,
@@ -1227,6 +1228,67 @@ ${kimiChangelog}`);
     "K2.8 Preview",
     "Kimi Code CLI v0.43.0",
   ]);
+});
+
+const minimaxChangelog = `# Changelog
+
+<Tabs>
+  <Tab title="Desktop">
+    ## v3.0.72 — 2026-09-14
+
+    <CardGroup cols={3}>
+      <Card title="macOS (Apple silicon)" icon="apple" href="https://file.cdn.minimax.io/x.dmg">
+        Download v3.0.72
+      </Card>
+    </CardGroup>
+
+    ### What's New
+
+    * **Voice input:** Use the microphone in the input box to dictate ideas.
+
+    ***
+
+    ## v3.0.47
+
+    ### Fixes
+
+    * Fixed known issues.
+  </Tab>
+
+  <Tab title="CLI">
+    ## 0.4.12 · 2026-09-18
+
+    ### Fixed
+
+    * Terminal scrollback is preserved.
+  </Tab>
+
+  <Tab title="Web">
+    ## 2026-04-16
+
+    ### Feature
+
+    **MaxHermes Launch**: A cloud-based AI assistant.
+  </Tab>
+</Tabs>
+`;
+
+test("a MiniMax Code release is read from every product tab, and a heading without a date is left out", () => {
+  const collection = parseMiniMaxCodeChangelog(minimaxChangelog);
+  expect(collection.appendOnly).toBe(true);
+  expect(collection.records.map((record) => [record.id, record.name, record.published])).toEqual([
+    ["minimax-code:2026-09-14:desktop-v3-0-72", "MiniMax Code Desktop v3.0.72", "2026-09-14T00:00:00.000Z"],
+    ["minimax-code:2026-09-18:cli-0-4-12", "MiniMax Code CLI 0.4.12", "2026-09-18T00:00:00.000Z"],
+    ["minimax-code:2026-04-16:web", "MiniMax Agent · 2026-04-16", "2026-04-16T00:00:00.000Z"],
+  ]);
+  // The download cards are not the release.
+  expect(collection.records[0]?.summary).toBe(
+    "What's New Voice input: Use the microphone in the input box to dictate ideas.",
+  );
+});
+
+test("a MiniMax Code page without its product tabs is a failed read", () => {
+  expect(() => parseMiniMaxCodeChangelog("# Changelog\n\n## v1 — 2026-09-18\n")).toThrow();
 });
 
 test("a Kimi Code page that stopped carrying dated entries is a failed read", () => {

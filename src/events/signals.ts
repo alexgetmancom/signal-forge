@@ -92,6 +92,7 @@ const TOOL_CHANGELOGS = new Set([
   "openai-codex-changelog",
   "cursor-changelog",
   "kimi-code-changelog",
+  "minimax-code-changelog",
   "openai-chatgpt-release-notes",
   "xai-release-notes",
   "mistral-release-notes",

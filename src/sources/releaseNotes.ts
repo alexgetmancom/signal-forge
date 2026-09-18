@@ -15,6 +15,8 @@ const XAI_RELEASE_NOTES_URL = "https://docs.x.ai/developers/release-notes";
 const MISTRAL_RELEASE_NOTES_URL = "https://docs.mistral.ai/resources/release-notes";
 const GROQ_CHANGELOG_URL = "https://console.groq.com/docs/changelog";
 const KIMI_CODE_CHANGELOG_URL = "https://www.kimi.com/code/docs/en/kimi-code/whats-new.html";
+const MINIMAX_CODE_CHANGELOG_URL = "https://agent.minimax.io/docs/changelog";
+const MINIMAX_CODE_CHANGELOG_FETCH_URL = `${MINIMAX_CODE_CHANGELOG_URL}.md`;
 
 const releaseRecordSchema = z
   .object({
@@ -438,4 +440,53 @@ export function parseKimiCodeChangelog(html: string): Collection {
 
 export async function collectKimiCodeChangelog(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
   return parseKimiCodeChangelog(await fetchText(KIMI_CODE_CHANGELOG_URL, {}, request, undefined, cache));
+}
+
+/**
+ * MiniMax Code ships a desktop build or a CLI release most days, and none of it reaches the MiniMax
+ * API catalogue or the Hugging Face organisation this service already reads. The changelog is one
+ * page with a tab per product; its Markdown rendering carries the same entries without the download
+ * cards' markup.
+ *
+ * Each tab spells a heading its own way: `v3.0.73 — 2026-09-18` on the desktop, `0.4.12 · 2026-09-18`
+ * for the CLI and a bare date for the web agent. A heading without a date (two desktop builds of
+ * June 2026) is left out rather than dated by its neighbours.
+ */
+export function parseMiniMaxCodeChangelog(markdown: string): Collection {
+  const records = [...markdown.matchAll(/<Tab title="([^"]+)">([\s\S]*?)<\/Tab>/g)].flatMap((tab) => {
+    const product = tab[1] === "Web" ? "MiniMax Agent" : `MiniMax Code ${tab[1]}`;
+    return (tab[2] ?? "")
+      .split(/^\s*## /m)
+      .slice(1)
+      .flatMap((entry) => {
+        const heading = entry.slice(0, entry.indexOf("\n")).trim();
+        const dated = /^(?:(.+?)\s+[—·]\s+)?(\d{4}-\d{2}-\d{2})$/.exec(heading);
+        if (!dated) return [];
+        const version = (dated[1] ?? "").replace(/\\/g, "").replace(/\s+/g, "");
+        const published = publicationDate(dated[2] ?? "", "minimax-code-changelog");
+        const summary = markdownSummary(
+          entry
+            .slice(heading.length)
+            .replace(/<CardGroup[\s\S]*?<\/CardGroup>/g, " ")
+            .replace(/<[^>]+>/g, " "),
+        ).slice(0, 1_200);
+        if (!summary) return [];
+        return [
+          {
+            id: `minimax-code:${published.slice(0, 10)}:${slug(`${tab[1]} ${version}`)}`,
+            name: version ? `${product} ${version}` : `${product} · ${published.slice(0, 10)}`,
+            url: MINIMAX_CODE_CHANGELOG_URL,
+            maker: "MiniMax",
+            ...(version ? { version } : {}),
+            published,
+            summary,
+          } satisfies RecordData,
+        ];
+      });
+  });
+  return releaseCollection("minimax-code-changelog", MINIMAX_CODE_CHANGELOG_URL, records);
+}
+
+export async function collectMiniMaxCodeChangelog(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
+  return parseMiniMaxCodeChangelog(await fetchText(MINIMAX_CODE_CHANGELOG_FETCH_URL, {}, request, undefined, cache));
 }
