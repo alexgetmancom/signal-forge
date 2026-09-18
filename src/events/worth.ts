@@ -303,7 +303,18 @@ export function isLeftToTheDailyRecap(event: Event): boolean {
 export function isAlreadyOutAtItsMaker(event: Event, elsewhere: readonly string[]): boolean {
   if (event.kind !== "new" || event.stream === "arena") return false;
   const maker = vendorOfName(`${event.entity_id} ${String(record(event)?.name ?? "")}`);
-  return maker !== "Unknown" && elsewhere.some((source) => CATALOGUE_MAKER[source] === maker);
+  return maker !== "Unknown" && elsewhere.some((source) => makerOfListing(source) === maker);
+}
+
+/**
+ * The maker a listing belongs to, when the listing is the maker's own. Weights under the maker's own
+ * Hugging Face organisation are that maker releasing the model: GLM-4.7 Flash reached the scouts
+ * from Vertex Model Garden on 2026-09-18, eight months after `zai-org` published it, because Z.ai's
+ * API catalogue no longer lists it.
+ */
+function makerOfListing(source: string): string | undefined {
+  if (source.startsWith("huggingface:")) return vendorOfName(source.slice("huggingface:".length));
+  return CATALOGUE_MAKER[source];
 }
 
 /** The versioned model names a string mentions. */

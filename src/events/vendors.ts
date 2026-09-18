@@ -20,7 +20,7 @@ const VENDORS: [RegExp, string][] = [
   [/groq/i, "Groq"],
   [/moonshot|kimi/i, "Moonshot"],
   [/minimax/i, "MiniMax"],
-  [/z-ai|zhipu|glm/i, "Z.ai"],
+  [/z-ai|\bzai\b|zhipu|glm/i, "Z.ai"],
   [/cohere/i, "Cohere"],
   [/perplexity/i, "Perplexity"],
   [/tencent|hunyuan/i, "Tencent"],

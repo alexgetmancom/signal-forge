@@ -385,6 +385,33 @@ test("a platform listing another maker's model is a sighting until the maker lis
   db.close();
 });
 
+test("a platform listing a model its maker published on Hugging Face long ago is not a sighting", () => {
+  const db = openDatabase(":memory:");
+  const weights: Collection = {
+    source: "huggingface:zai-org",
+    stream: "weights",
+    url: "https://huggingface.co/zai-org",
+    raw: [],
+    appendOnly: true,
+    records: [{ id: "zai-org/GLM-4.7-Flash", name: "zai-org/GLM-4.7-Flash", created: "2026-01-19T06:28:10.000Z" }],
+  };
+  saveCollection(db, weights, [wire], "2026-09-10T00:00:00.000Z");
+  const garden: Collection = {
+    source: "vertex-model-garden",
+    stream: "api-models",
+    url: "https://console.cloud.google.com/vertex-ai/model-garden",
+    raw: [],
+    records: [{ id: "google/gemini-anchor", name: "gemini-anchor" }],
+  };
+  saveCollection(db, garden, [wire], "2026-09-15T00:00:00.000Z");
+  garden.records.push({ id: "zai-org/glm-4.7-flash", name: "glm-4.7-flash", maker: "Vertex AI" });
+  saveCollection(db, garden, [wire], "2026-09-18T17:04:20.729Z");
+  prepareDeliveries(db, Date.parse("2026-09-18T17:10:00.000Z"));
+
+  expect(suppressed(db)["zai-org/glm-4.7-flash"]).toBe("already_out_at_its_maker");
+  db.close();
+});
+
 test("an OpenRouter price is left to the daily recap, and a reseller's still speaks", () => {
   const db = openDatabase(":memory:");
   const prices = (source: string, price: string): Collection => ({
