@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { capabilityReport } from "./capabilities.js";
 import type { AppConfig } from "./config.js";
+import { openCredentialCircuits } from "./credentials.js";
 import { backupStatus } from "./doctor.js";
 import { boardFailures, sourceHealth } from "./status.js";
 import { databaseSize } from "./storage/retention.js";
@@ -72,7 +73,16 @@ export function listActionableIssues(db: Database, config: AppConfig, now = Date
   const sourceWorker = db.query<{ value: string }, []>("SELECT value FROM app_state WHERE key='worker:sources'").get();
   const sourceWorkerState = sourceWorker ? readJson<WorkerState>(sourceWorker.value, {}) : {};
   const sourceCycleFinished = sourceWorkerState.state === "idle" && Boolean(sourceWorkerState.lastFinishedAt);
+  const capabilities = capabilityReport(db, config);
+  const circuits = new Map(openCredentialCircuits(db).map((circuit) => [circuit.capabilityId, circuit]));
+  // A refused credential is one fix, and its capability issue already counts the sources it stopped.
+  // Listing each of them again turned one expired Artificial Analysis key into six issues on
+  // production on 2026-09-18.
+  const refused = new Set(
+    capabilities.filter((capability) => capability.status === "rejected").flatMap((entry) => entry.enabledSources),
+  );
   for (const entry of health) {
+    if (refused.has(entry.id)) continue;
     const rateLimited = entry.state === "blocked" && entry.detail.startsWith("rate limited");
     const unobservedAfterCycle = entry.state === "idle" && sourceCycleFinished;
     if (
@@ -283,17 +293,18 @@ export function listActionableIssues(db: Database, config: AppConfig, now = Date
     });
   }
 
-  for (const capability of capabilityReport(db, config)) {
+  for (const capability of capabilities) {
     if (capability.status !== "missing" && capability.status !== "rejected") continue;
-    const timestamp = new Date(now).toISOString();
     const rejected = capability.status === "rejected";
+    // A refusal has a recorded start; a credential that was never configured has none.
+    const circuit = rejected ? circuits.get(capability.id) : undefined;
     issues.push({
       id: `capability:${capability.id}`,
       kind: rejected ? "capability_rejected" : "capability_missing",
       severity: "error",
       entity: capability.id,
-      firstSeenAt: timestamp,
-      updatedAt: timestamp,
+      firstSeenAt: issueTime(circuit?.openedAt, now),
+      updatedAt: issueTime(circuit?.lastRejectedAt, now),
       message: rejected
         ? `Capability ${capability.id} was refused by its upstream; ${capability.enabledSources.length} source${capability.enabledSources.length === 1 ? " is" : "s are"} not being collected`
         : `Capability ${capability.id} is missing ${capability.missingCount} required credential${capability.missingCount === 1 ? "" : "s"}`,

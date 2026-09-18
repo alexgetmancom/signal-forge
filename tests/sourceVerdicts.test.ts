@@ -34,5 +34,6 @@ test("a source that never led, never reached a reader and drew no votes is named
   });
   // A source that has not collected for the whole period is not judged at all.
   expect(verdict("anthropic")).toBeUndefined();
+  expect(report.notYetJudged).toContainEqual({ source: "anthropic", collectingSince: null });
   db.close();
 });

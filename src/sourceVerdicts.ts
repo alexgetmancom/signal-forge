@@ -27,7 +27,7 @@ export function sourceVerdicts(
   config: AppConfig,
   days = 30,
   now = Date.now(),
-): { since: string; sources: SourceVerdict[] } {
+): { since: string; sources: SourceVerdict[]; notYetJudged: { source: string; collectingSince: string | null }[] } {
   const since = new Date(now - days * 24 * 3_600_000).toISOString();
   const leads = new Map(leadTime(db, days, now).sources.map((row) => [row.source, row]));
   const delivered = new Map(
@@ -59,9 +59,16 @@ export function sourceVerdicts(
       .all()
       .map((row) => [row.source, row.first]),
   );
-  const sources = buildSourceRegistry(db, config)
-    .filter((definition) => definition.enabled)
-    .filter((definition) => (collectingSince.get(definition.id) ?? "9999") <= since)
+  const enabled = buildSourceRegistry(db, config).filter((definition) => definition.enabled);
+  const judged = (id: string) => (collectingSince.get(id) ?? "9999") <= since;
+  // Named rather than dropped: on production the metrics began on 2026-09-09, so for its first
+  // month every source was too young and the report answered an empty list with no reason.
+  const notYetJudged = enabled
+    .filter((definition) => !judged(definition.id))
+    .map((definition) => ({ source: definition.id, collectingSince: collectingSince.get(definition.id) ?? null }))
+    .sort((left, right) => left.source.localeCompare(right.source));
+  const sources = enabled
+    .filter((definition) => judged(definition.id))
     .map((definition): SourceVerdict => {
       const lead = leads.get(definition.id);
       const row = {
@@ -80,5 +87,5 @@ export function sourceVerdicts(
         Number(left.verdict === "earning") - Number(right.verdict === "earning") ||
         left.source.localeCompare(right.source),
     );
-  return { since, sources };
+  return { since, sources, notYetJudged };
 }

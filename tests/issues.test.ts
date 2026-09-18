@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { capabilityReport } from "../src/capabilities.js";
 import type { Destination } from "../src/config.js";
 import { loadConfig } from "../src/config.js";
+import { recordCredentialRejection } from "../src/credentials.js";
 import { listActionableIssues } from "../src/issues.js";
 import { openDatabase } from "../src/storage/database.js";
 
@@ -135,5 +136,31 @@ test("a failed delivery stops being actionable once the channel sends again", ()
   // A later failure is the current state of the wire and says so.
   add(3, "failed");
   expect(listActionableIssues(db, config, now).some((issue) => issue.id === "delivery:3")).toBe(true);
+  db.close();
+});
+
+test("a refused credential is one issue, dated from the refusal, not one per source it stopped", () => {
+  const db = openDatabase(":memory:");
+  const config = loadConfig({ CONFIG_PATH: configPath, ARTIFICIAL_ANALYSIS_API_KEY: "test-key" });
+  const report = capabilityReport(db, config).find((entry) => entry.id === "artificial-analysis");
+  if (!report?.enabledSources.length) throw new Error("Artificial Analysis enables no source in the fixture");
+  const [source] = report.enabledSources as [string];
+  db.query("INSERT INTO sources(id,last_error,checked_at,failures) VALUES(?,'Source returned HTTP 401',?,1)").run(
+    source,
+    "2026-09-18T14:07:17.000Z",
+  );
+  recordCredentialRejection(db, {
+    capabilityId: report.id,
+    source,
+    statusCode: 401,
+    detail: "Source returned HTTP 401",
+  });
+  const openedAt = (db.query("SELECT opened_at FROM credential_circuits").get() as { opened_at: string }).opened_at;
+  const issues = listActionableIssues(db, config, Date.parse("2026-09-19T00:00:00.000Z"));
+  expect(issues.filter((issue) => issue.source === source)).toEqual([]);
+  expect(issues.find((issue) => issue.id === `capability:${report.id}`)).toMatchObject({
+    kind: "capability_rejected",
+    firstSeenAt: openedAt,
+  });
   db.close();
 });
