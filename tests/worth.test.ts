@@ -504,6 +504,42 @@ test("a tool build that only fixes things stays quiet, one that adds something s
   db.close();
 });
 
+test("a Codex patch that only fixes things stays quiet from its release and from its changelog", () => {
+  const db = openDatabase(":memory:");
+  const summary =
+    "## Bug Fixes\n\n- New local TUI sessions now leave reasoning summaries disabled by default. (#46467)\n";
+  const releases: Collection = {
+    source: "github:openai/codex:releases",
+    stream: "github",
+    url: "https://github.com/openai/codex/releases",
+    raw: [],
+    appendOnly: true,
+    records: [{ id: "1", name: "0.155.0", tag: "rust-v0.155.0", summary: "## New Features\n\n- Plugins." }],
+  };
+  const changelog: Collection = {
+    source: "openai-codex-changelog",
+    stream: "news",
+    url: "https://developers.openai.com/codex/changelog",
+    raw: [],
+    appendOnly: true,
+    records: [{ id: "a", name: "Codex CLI Release: 0.155.0", description: "New Features Plugins." }],
+  };
+  saveCollection(db, releases, [wire], "2026-09-17T00:00:00.000Z");
+  saveCollection(db, changelog, [wire], "2026-09-17T00:00:00.000Z");
+  releases.records.push({ id: "2", name: "0.155.1", tag: "rust-v0.155.1", summary });
+  changelog.records.push({
+    id: "b",
+    name: "Codex CLI Release: 0.155.1",
+    description: "Bug Fixes New local TUI sessions now leave reasoning summaries disabled by default.",
+  });
+  saveCollection(db, releases, [wire], "2026-09-18T20:03:04.000Z");
+  saveCollection(db, changelog, [wire], "2026-09-18T20:40:00.000Z");
+  prepareDeliveries(db, Date.parse("2026-09-18T21:00:00.000Z"));
+
+  expect(suppressed(db)).toMatchObject({ "2": "fixes_only_release", b: "fixes_only_release" });
+  db.close();
+});
+
 test("an arena entry under a name its maker already sells is still a sighting", () => {
   const db = openDatabase(":memory:");
   saveCollection(
