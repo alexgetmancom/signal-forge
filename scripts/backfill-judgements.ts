@@ -13,10 +13,10 @@
  *
  * Usage: bun scripts/backfill-judgements.ts [--db path] [--days N] [--limit N] [--dry-run]
  */
-import { Database } from "bun:sqlite";
 import { resolve } from "node:path";
 import { loadConfig } from "../src/config.js";
 import { jevCallsToday, judgeEvents } from "../src/jev.js";
+import { openDatabase, readonlyDatabase } from "../src/storage/database.js";
 
 const args = new Map<string, string>();
 const flags = new Set<string>();
@@ -32,8 +32,8 @@ const days = Number(args.get("--days") ?? 30);
 const limit = Number(args.get("--limit") ?? 1_000);
 const dryRun = flags.has("--dry-run");
 
-// See backfill-summaries: an explicit `{readonly: false}` is SQLITE_MISUSE, not the default.
-const db = dryRun ? new Database(resolve(dbPath), { readonly: true }) : new Database(resolve(dbPath));
+// See backfill-summaries for why the write case opens through openDatabase and not by hand.
+const db = dryRun ? readonlyDatabase(resolve(dbPath)) : openDatabase(resolve(dbPath));
 const sinceMs = days * 24 * 3_600_000;
 
 const counts = db

@@ -15,11 +15,11 @@
  *
  * Usage: bun scripts/backfill-summaries.ts [--db path] [--days N] [--limit N] [--dry-run]
  */
-import { Database } from "bun:sqlite";
 import { resolve } from "node:path";
 import { loadConfig } from "../src/config.js";
 import type { Event } from "../src/events/types.js";
 import { DEEPSEEK_MAX_ATTEMPTS } from "../src/runtime/deepseekUsage.js";
+import { openDatabase, readonlyDatabase } from "../src/storage/database.js";
 import { summarizeEvents } from "../src/summary.js";
 
 const args = new Map<string, string>();
@@ -36,9 +36,10 @@ const days = Number(args.get("--days") ?? 30);
 const limit = Number(args.get("--limit") ?? 50);
 const dryRun = flags.has("--dry-run");
 
-// Only the readonly case passes options: bun:sqlite answers an explicit `{readonly: false}` with
-// SQLITE_MISUSE, so spelling out the default is how this script never once opened for writing.
-const db = dryRun ? new Database(resolve(dbPath), { readonly: true }) : new Database(resolve(dbPath));
+// The write case goes through openDatabase, which is the only opener that sets a busy timeout: a
+// bare handle has none, so the first write the running app makes refuses this one with SQLITE_BUSY.
+// (An explicit `{readonly: false}` is a second trap: bun:sqlite answers it with SQLITE_MISUSE.)
+const db = dryRun ? readonlyDatabase(resolve(dbPath)) : openDatabase(resolve(dbPath));
 const since = new Date(Date.now() - days * 24 * 3_600_000).toISOString();
 
 // Delivered, because a sentence is for a reader: an event nobody was told about needs none.
