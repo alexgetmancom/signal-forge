@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import type { Destination } from "../src/config.js";
 import { prepareDeliveries } from "../src/events/batching.js";
+import { displayTitle } from "../src/events/naming.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import type { Collection } from "../src/events/types.js";
 import { openDatabase } from "../src/storage/database.js";
@@ -700,4 +701,54 @@ test("a released model with a search tool attached is another serving, a codenam
   expect(reasons.b).toBe("another_serving_of_a_known_model");
   expect(reasons.c).toBeUndefined();
   db.close();
+});
+
+test("a Codex release told from its GitHub page stays quiet when the changelog carries it again", () => {
+  const db = openDatabase(":memory:");
+  const releases: Collection = {
+    source: "github:openai/codex:releases",
+    stream: "github",
+    url: "https://github.com/openai/codex/releases",
+    raw: [],
+    appendOnly: true,
+    records: [{ id: "1", name: "0.154.0", tag: "rust-v0.154.0", summary: "## New Features\n\n- Hooks." }],
+  };
+  const changelog: Collection = {
+    source: "openai-codex-changelog",
+    stream: "news",
+    url: "https://developers.openai.com/codex/changelog",
+    raw: [],
+    appendOnly: true,
+    records: [
+      { id: "https://developers.openai.com/codex/changelog/#github-release-1", name: "Codex CLI Release: 0.154.0" },
+    ],
+  };
+  saveCollection(db, releases, [wire], "2026-09-17T00:00:00.000Z");
+  saveCollection(db, changelog, [wire], "2026-09-17T00:00:00.000Z");
+  releases.records.push({
+    id: "391752266",
+    name: "0.155.0",
+    tag: "rust-v0.155.0",
+    summary: "## New Features\n\n- Plugins.",
+  });
+  saveCollection(db, releases, [wire], "2026-09-18T20:03:04.000Z");
+  prepareDeliveries(db, Date.parse("2026-09-18T21:00:00.000Z"));
+  changelog.records.push({
+    id: "https://developers.openai.com/codex/changelog/#github-release-391752266",
+    name: "Codex CLI Release: 0.155.0",
+    description: "New Features Plugins.",
+  });
+  saveCollection(db, changelog, [wire], "2026-09-18T21:30:00.000Z");
+  prepareDeliveries(db, Date.parse("2026-09-18T22:00:00.000Z"));
+
+  expect(suppressed(db)).toMatchObject({
+    "https://developers.openai.com/codex/changelog/#github-release-391752266": "same_release_on_another_page",
+  });
+  db.close();
+});
+
+test("a release named only by its version is titled with its repository", () => {
+  expect(displayTitle("0.155.1", "github", "github:openai/codex:releases")).toBe("Codex 0.155.1");
+  expect(displayTitle("v2.1.0", "github", "github:anthropics/claude-code:releases")).toBe("Claude Code 2.1.0");
+  expect(displayTitle("Codex 1.0", "github", "github:openai/codex:releases")).toBe("Codex 1.0");
 });

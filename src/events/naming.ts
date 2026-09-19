@@ -93,5 +93,18 @@ export function readableName(raw: string): string {
 
 /** The title of a card: the published name where there is one, the literal sighting where there is not. */
 export function displayTitle(name: string, stream: string, source: string): string {
+  const product = releasedProduct(name, source);
+  if (product) return product;
   return isLiteralSighting(stream, source) ? name : readableName(name);
+}
+
+/**
+ * A release named only by its version says nothing on its own: openai/codex titles releases
+ * "0.155.0", which reached #signals as a bare number on 2026-09-18. The repository names the product.
+ */
+function releasedProduct(name: string, source: string): string | null {
+  const repo = /^github:[^/]+\/([^:]+):releases$/.exec(source)?.[1];
+  if (!repo || !/^v?\d+(\.\d+)+\S*$/.test(name.trim())) return null;
+  const product = readableName(repo);
+  return `${product.charAt(0).toUpperCase()}${product.slice(1)} ${name.trim().replace(/^v/, "")}`;
 }

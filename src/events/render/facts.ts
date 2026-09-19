@@ -142,7 +142,10 @@ function siblingFacts(
   const facts: Fact[] = [
     released
       ? `Another Arena entry for ${readableName(title)}, already out.`
-      : `Another Arena entry beside \`${String(closest.name)}\`.`,
+      : normalizeIdentity(String(closest.name)) === normalizeIdentity(title)
+        ? // #560 and #567 on 2026-09-18 announced an entry "beside" itself.
+          "Another Arena entry under the same name."
+        : `Another Arena entry beside \`${String(closest.name)}\`.`,
     { label: "Differs from", value: `\`${String(closest.name)}\`` },
   ];
   const names = (raw: unknown) =>

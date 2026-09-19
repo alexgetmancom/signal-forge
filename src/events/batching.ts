@@ -139,6 +139,39 @@ function firstTelling(
   return told.find((row) => !carried.has(row.event_id))?.external_id ?? null;
 }
 
+/** How long one GitHub release stays the same news for one destination. */
+const RELEASE_WINDOW_MS = 7 * 24 * 3_600_000;
+
+/**
+ * The GitHub release a record stands for, whichever page carried it. OpenAI's Codex changelog links
+ * each entry as `#github-release-<id>` while the repository's releases feed keys the same release by
+ * `<id>`, so 0.155.1 reached #signals twice on 2026-09-18.
+ */
+function releaseKey(event: Pick<Event, "source" | "entity_id"> & { signal: string }): string | null {
+  if (event.signal !== "release") return null;
+  const linked = /#github-release-(\d+)$/.exec(event.entity_id);
+  if (linked) return linked[1] as string;
+  if (/^github:[^:]+:releases$/.test(event.source) && /^\d+$/.test(event.entity_id)) return event.entity_id;
+  return null;
+}
+
+function releaseTold(db: Database, key: string, destinationId: string, batchId: number, now: number): boolean {
+  const since = new Date(now - RELEASE_WINDOW_MS).toISOString();
+  return Boolean(
+    db
+      .query(
+        `SELECT 1 FROM batch_events be
+         JOIN events e ON e.id=be.event_id
+         JOIN deliveries d ON d.batch_id=be.batch_id
+         WHERE be.batch_id<>? AND d.destination_id=? AND e.detected_at>=?
+           AND ((e.source LIKE 'github:%:releases' AND e.entity_id=?) OR e.entity_id LIKE ?)
+           AND d.status IN ('pending','sending','sent','ambiguous','verification_required')
+         LIMIT 1`,
+      )
+      .get(batchId, destinationId, since, key, `%#github-release-${key}`),
+  );
+}
+
 function repeatsDeliveredStory(
   db: Database,
   event: Event,
@@ -388,6 +421,7 @@ export function prepareDeliveries(
       const toldPages = events.some((event) => pageModel(event) && subscribed.has(event.signal))
         ? pageModelsTold(db, target.destination_id, batch.id, now)
         : new Set<string>();
+      const releases = new Set<string>();
       const speaking = events
         .filter((event) => subscribed.has(event.signal))
         .flatMap((event) => {
@@ -431,6 +465,9 @@ export function prepareDeliveries(
           if (event.signal === "codename" && namesOnlyKnownModels(event, known))
             return quiet(event, "names_only_known_models");
           if (event.signal === "release" && isFixesOnlyRelease(event)) return quiet(event, "fixes_only_release");
+          const release = releaseKey(event);
+          if (release && (releases.has(release) || releaseTold(db, release, target.destination_id, batch.id, now)))
+            return quiet(event, "same_release_on_another_page");
           if (isOscillating(db, event, now)) return quiet(event, "oscillating");
           if (isReappearance(db, event, now)) return quiet(event, "flapping_in_and_out");
           if (repeatsDeliveredStory(db, event, target.destination_id, storyIds.get(event.id), batch.id))
@@ -440,6 +477,7 @@ export function prepareDeliveries(
           const model = pageModel(event);
           if (model && toldPages.has(model)) return quiet(event, "another_page_about_the_same_model");
           if (model) toldPages.add(model);
+          if (release) releases.add(release);
           return [caughtUp];
         });
       for (const event of speaking) clearSuppression(db, event.id, target.destination_id);

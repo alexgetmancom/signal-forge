@@ -1216,3 +1216,22 @@ test("a new roster entry under a released model's name says how it differs from 
   expect(bodies).not.toMatch(/Nobody has said|Unconfirmed by Google|Unidentified/);
   local.close();
 });
+
+test("an arena entry whose sibling carries its own name is not said to stand beside itself", () => {
+  const entry = {
+    id: 1,
+    source: "arena",
+    stream: "arena",
+    entity_id: "b",
+    kind: "new",
+    signal: "codename",
+    detected_at: "2026-09-18T19:00:00.000Z",
+    before_json: null,
+    after_json: JSON.stringify({ id: "b", name: "amber-fern", maker: "Unknown", input: { text: true, image: true } }),
+  } as unknown as Parameters<typeof eventFacts>[0];
+  const facts = eventFacts({
+    ...entry,
+    siblings: [{ id: "a", name: "amber-fern", maker: "Unknown", input: { text: true } }],
+  });
+  expect(facts[0]).toBe("Another Arena entry under the same name.");
+});

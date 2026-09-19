@@ -35,6 +35,7 @@ const SUPPRESSION_REASONS = [
   "a_reseller_filled_in_a_price",
   "a_page_about_no_product",
   "trending_from_an_unfollowed_lab",
+  "same_release_on_another_page",
 ] as const;
 
 export type SuppressionReason = (typeof SUPPRESSION_REASONS)[number];
@@ -45,6 +46,8 @@ function suppressionDetail(event: Event, reason: SuppressionReason): string {
       return notificationBlock(event) ?? "Nothing a reader would act on";
     case "scheduled_pricing_rotation":
       return "Base rates rotated onto a tier this record already publishes";
+    case "same_release_on_another_page":
+      return "The same GitHub release already reached this destination from another page";
     case "oscillating":
       return "The value returned to one it held earlier today";
     case "flapping_in_and_out":
