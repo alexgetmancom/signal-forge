@@ -247,6 +247,108 @@ function awaitingSummary(db: Database, events: readonly Event[], now: number): b
   });
 }
 
+type PendingBatch = { id: number; context_json: string | null };
+type BatchTarget = { destination_id: string; destination_json: string };
+
+/**
+ * Writes one message part for a destination, replacing it only while it is still unsent.
+ * `refreshDestination` also rewrites the stored destination, which event and reminder cards do and
+ * promotions and recaps, carried as first written, do not.
+ */
+function upsertDelivery(
+  db: Database,
+  batchId: number,
+  target: BatchTarget,
+  body: string,
+  part: number,
+  now: number,
+  refreshDestination: boolean,
+): void {
+  const refresh = refreshDestination ? "destination_json=excluded.destination_json," : "";
+  db.query(
+    `INSERT INTO deliveries(batch_id,destination_id,destination_json,body,part,updated_at) VALUES(?,?,?,?,?,?)
+     ON CONFLICT(batch_id,destination_id,part) DO UPDATE SET ${refresh}body=excluded.body,updated_at=excluded.updated_at
+     WHERE deliveries.status='pending' AND deliveries.attempts=0`,
+  ).run(batchId, target.destination_id, target.destination_json, body, part, new Date(now).toISOString());
+}
+
+function sealBatch(db: Database, batchId: number): void {
+  db.query("UPDATE batches SET sealed=1 WHERE id=?").run(batchId);
+}
+
+function preparePromotion(db: Database, batch: PendingBatch, targets: BatchTarget[], now: number): void {
+  const context = promotionContextSchema.parse(JSON.parse(batch.context_json ?? "{}"));
+  const original = db
+    .query<{ body: string }, [number]>("SELECT body FROM deliveries WHERE id=?")
+    .get(context.deliveryId);
+  // The card the scouts approved, carried as it was written. Nothing is re-rendered, because a
+  // record that has moved since would publish something they never saw.
+  if (original)
+    for (const target of targets) {
+      const destination = JSON.parse(target.destination_json) as Destination;
+      if (destination.platform !== "discord") continue;
+      const payload = JSON.parse(original.body) as Record<string, unknown>;
+      const vouched =
+        context.reason === "owner"
+          ? "🔎 Vouched for by the tracker's owner, first seen by the scouts"
+          : `🔎 ${context.votes} scouts vouched for this, first seen in the invited room`;
+      // A promotion never pings: the room already decided, and a role mention would make the
+      // public channel louder than the observation deserves.
+      const body = JSON.stringify({ ...payload, content: vouched, allowed_mentions: { parse: [] } });
+      upsertDelivery(db, batch.id, target, body, 0, now, false);
+    }
+  sealBatch(db, batch.id);
+}
+
+function prepareRecap(db: Database, batch: PendingBatch, targets: BatchTarget[], now: number): void {
+  const context = recapContextSchema.parse(JSON.parse(batch.context_json ?? "{}"));
+  for (const target of targets) {
+    const destination = JSON.parse(target.destination_json) as Destination;
+    const lines = renderRecapLines(context, destination.signals);
+    // A day is prices for one room and leaders for the other; a room whose part is empty hears nothing.
+    if (!lines.length) continue;
+    const embed = renderRecapEmbed(context, destination.signals);
+    const body =
+      destination.platform === "discord" ? JSON.stringify({ content: "", embeds: [embed] }) : lines.join("\n");
+    upsertDelivery(db, batch.id, target, body, 0, now, false);
+  }
+  sealBatch(db, batch.id);
+}
+
+function prepareLifecycleReminder(
+  db: Database,
+  batch: PendingBatch,
+  events: Event[],
+  targets: BatchTarget[],
+  now: number,
+): void {
+  const event = events[0];
+  if (!event || !batch.context_json) {
+    sealBatch(db, batch.id);
+    return;
+  }
+  const context = parseLifecycleReminderContext(JSON.parse(batch.context_json));
+  for (const target of targets) {
+    const destination = JSON.parse(target.destination_json) as Destination;
+    if (destination.platform === "discord") {
+      upsertDelivery(
+        db,
+        batch.id,
+        target,
+        JSON.stringify({ content: "", embeds: [renderLifecycleReminderEmbed(context, event)] }),
+        0,
+        now,
+        true,
+      );
+    } else {
+      splitMessage(renderLifecycleReminderText(context, event), 3900).forEach((body, part) => {
+        upsertDelivery(db, batch.id, target, body, part, now, true);
+      });
+    }
+  }
+  sealBatch(db, batch.id);
+}
+
 export function prepareDeliveries(
   db: Database,
   now = Date.now(),
@@ -279,106 +381,29 @@ export function prepareDeliveries(
     // version of the card and seals the batch before the sentence can ever arrive. Hourly digests
     // never hit this because they sit unsealed for an hour; every delivered package release did.
     if (batch.kind === "event" && !batch.digest && awaitingSummary(db, events, now)) continue;
-    const summaries = new Map(
-      db
-        .query<{ event_id: number; text: string }, []>("SELECT event_id,text FROM summaries")
-        .all()
-        .map((row) => [row.event_id, row.text] as const),
-    );
     const targets = db
       .query<{ destination_id: string; destination_json: string }, [number]>(
         "SELECT destination_id,destination_json FROM batch_targets WHERE batch_id=? ORDER BY rowid",
       )
       .all(batch.id);
     if (batch.kind === "promotion") {
-      const context = promotionContextSchema.parse(JSON.parse(batch.context_json ?? "{}"));
-      const original = db
-        .query<{ body: string }, [number]>("SELECT body FROM deliveries WHERE id=?")
-        .get(context.deliveryId);
-      // The card the scouts approved, carried as it was written. Nothing is re-rendered, because a
-      // record that has moved since would publish something they never saw.
-      if (original)
-        for (const target of targets) {
-          const destination = JSON.parse(target.destination_json) as Destination;
-          if (destination.platform !== "discord") continue;
-          const payload = JSON.parse(original.body) as Record<string, unknown>;
-          const vouched =
-            context.reason === "owner"
-              ? "🔎 Vouched for by the tracker's owner, first seen by the scouts"
-              : `🔎 ${context.votes} scouts vouched for this, first seen in the invited room`;
-          db.query(
-            `INSERT INTO deliveries(batch_id,destination_id,destination_json,body,part,updated_at) VALUES(?,?,?,?,0,?)
-             ON CONFLICT(batch_id,destination_id,part) DO UPDATE SET body=excluded.body,updated_at=excluded.updated_at
-             WHERE deliveries.status='pending' AND deliveries.attempts=0`,
-          ).run(
-            batch.id,
-            target.destination_id,
-            target.destination_json,
-            // A promotion never pings: the room already decided, and a role mention would make the
-            // public channel louder than the observation deserves.
-            JSON.stringify({ ...payload, content: vouched, allowed_mentions: { parse: [] } }),
-            new Date(now).toISOString(),
-          );
-          hasSpeakingEvents = true;
-        }
-      db.query("UPDATE batches SET sealed=1 WHERE id=?").run(batch.id);
+      preparePromotion(db, batch, targets, now);
       continue;
     }
     if (batch.kind === "weekly_recap") {
-      const context = recapContextSchema.parse(JSON.parse(batch.context_json ?? "{}"));
-      for (const target of targets) {
-        const destination = JSON.parse(target.destination_json) as Destination;
-        const lines = renderRecapLines(context, destination.signals);
-        // A day is prices for one room and leaders for the other; a room whose part is empty hears nothing.
-        if (!lines.length) continue;
-        const embed = renderRecapEmbed(context, destination.signals);
-        const body =
-          destination.platform === "discord" ? JSON.stringify({ content: "", embeds: [embed] }) : lines.join("\n");
-        db.query(
-          `INSERT INTO deliveries(batch_id,destination_id,destination_json,body,part,updated_at) VALUES(?,?,?,?,0,?)
-           ON CONFLICT(batch_id,destination_id,part) DO UPDATE SET body=excluded.body,updated_at=excluded.updated_at
-           WHERE deliveries.status='pending' AND deliveries.attempts=0`,
-        ).run(batch.id, target.destination_id, target.destination_json, body, new Date(now).toISOString());
-      }
-      db.query("UPDATE batches SET sealed=1 WHERE id=?").run(batch.id);
-      hasSpeakingEvents = true;
+      prepareRecap(db, batch, targets, now);
       continue;
     }
     if (batch.kind === "lifecycle_reminder") {
-      const event = events[0];
-      if (!event || !batch.context_json) {
-        db.query("UPDATE batches SET sealed=1 WHERE id=?").run(batch.id);
-        continue;
-      }
-      const context = parseLifecycleReminderContext(JSON.parse(batch.context_json));
-      for (const target of targets) {
-        const destination = JSON.parse(target.destination_json) as Destination;
-        if (destination.platform === "discord") {
-          db.query(
-            `INSERT INTO deliveries(batch_id,destination_id,destination_json,body,part,updated_at) VALUES(?,?,?,?,?,?)
-             ON CONFLICT(batch_id,destination_id,part) DO UPDATE SET destination_json=excluded.destination_json,body=excluded.body,updated_at=excluded.updated_at
-             WHERE deliveries.status='pending' AND deliveries.attempts=0`,
-          ).run(
-            batch.id,
-            target.destination_id,
-            target.destination_json,
-            JSON.stringify({ content: "", embeds: [renderLifecycleReminderEmbed(context, event)] }),
-            0,
-            new Date(now).toISOString(),
-          );
-        } else {
-          splitMessage(renderLifecycleReminderText(context, event), 3900).forEach((body, part) => {
-            db.query(
-              `INSERT INTO deliveries(batch_id,destination_id,destination_json,body,part,updated_at) VALUES(?,?,?,?,?,?)
-               ON CONFLICT(batch_id,destination_id,part) DO UPDATE SET destination_json=excluded.destination_json,body=excluded.body,updated_at=excluded.updated_at
-               WHERE deliveries.status='pending' AND deliveries.attempts=0`,
-            ).run(batch.id, target.destination_id, target.destination_json, body, part, new Date(now).toISOString());
-          });
-        }
-      }
-      db.query("UPDATE batches SET sealed=1 WHERE id=?").run(batch.id);
+      prepareLifecycleReminder(db, batch, events, targets, now);
       continue;
     }
+    const summaries = new Map(
+      db
+        .query<{ event_id: number; text: string }, []>("SELECT event_id,text FROM summaries")
+        .all()
+        .map((row) => [row.event_id, row.text] as const),
+    );
     const storyIds = new Map(
       db
         .query<{ event_id: number; story_id: number }, [number]>(
@@ -543,11 +568,7 @@ export function prepareDeliveries(
       });
       const text = blocks.join(SEPARATOR);
       const store = (payload: string, part: number, carried: StoryRenderEvent[] = []) => {
-        db.query(
-          `INSERT INTO deliveries(batch_id,destination_id,destination_json,body,part,updated_at) VALUES(?,?,?,?,?,?)
-             ON CONFLICT(batch_id,destination_id,part) DO UPDATE SET destination_json=excluded.destination_json,body=excluded.body,updated_at=excluded.updated_at
-             WHERE deliveries.status='pending' AND deliveries.attempts=0`,
-        ).run(batch.id, target.destination_id, target.destination_json, payload, part, new Date(now).toISOString());
+        upsertDelivery(db, batch.id, target, payload, part, now, true);
         // Which message carried which event, recorded where it is known exactly rather than
         // inferred later from batch membership, which is wrong as soon as a batch pages.
         const delivery = db
@@ -661,6 +682,6 @@ export function prepareDeliveries(
         "DELETE FROM deliveries WHERE batch_id=? AND destination_id=? AND status='pending' AND attempts=0 AND part>=?",
       ).run(batch.id, target.destination_id, parts.length);
     }
-    if (seal || !hasSpeakingEvents) db.query("UPDATE batches SET sealed=1 WHERE id=?").run(batch.id);
+    if (seal || !hasSpeakingEvents) sealBatch(db, batch.id);
   }
 }
