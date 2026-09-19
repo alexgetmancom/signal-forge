@@ -853,6 +853,40 @@ test("package collectors reject a registry response for a different package", as
   ).rejects.toThrow("expected openai");
 });
 
+test("an npm package whose channels have not moved is read from its dist-tags alone", async () => {
+  const full = {
+    name: "@openai/codex",
+    "dist-tags": { latest: "1.2.3", alpha: "1.3.0-alpha.1", "linux-x64": "1.2.3-linux-x64" },
+    time: { "1.2.3": "2026-09-01T00:00:00.000Z", "1.3.0-alpha.1": "2026-09-02T00:00:00.000Z" },
+  };
+  const expected = parseNpm(JSON.stringify(full)).records;
+  const known = new Map(expected.map((r) => [r.id, { version: String(r.version), published: String(r.published) }]));
+  const urls: string[] = [];
+  const request = async (url: string | URL | Request) => {
+    urls.push(String(url));
+    return String(url).endsWith("/dist-tags") ? Response.json(full["dist-tags"]) : Response.json(full);
+  };
+
+  const light = await collectNpm("@openai/codex", request, undefined, known);
+  expect(urls).toEqual(["https://registry.npmjs.org/-/package/@openai%2Fcodex/dist-tags"]);
+  expect(light.records).toEqual(expected);
+
+  // A channel that moved needs its publication date, which only the full document has.
+  urls.length = 0;
+  known.set("latest", { version: "1.2.2", published: "2026-08-01T00:00:00.000Z" });
+  const moved = await collectNpm("@openai/codex", request, undefined, known);
+  expect(urls).toEqual([
+    "https://registry.npmjs.org/-/package/@openai%2Fcodex/dist-tags",
+    "https://registry.npmjs.org/@openai%2Fcodex",
+  ]);
+  expect(moved.records).toEqual(expected);
+
+  // Nothing known yet: straight to the full document.
+  urls.length = 0;
+  await collectNpm("@openai/codex", request, undefined, new Map());
+  expect(urls).toEqual(["https://registry.npmjs.org/@openai%2Fcodex"]);
+});
+
 test("Vercel gateway models carry maker, context and pricing", async () => {
   const { parseVercelGateway } = await import("../src/sources/registries.js");
   const c = parseVercelGateway(

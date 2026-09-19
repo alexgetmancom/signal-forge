@@ -186,28 +186,78 @@ function publishedAt(time: Record<string, string>, name: string, version: string
   return published;
 }
 
-export function parseNpm(payload: string): Collection {
-  const data = npmPackage.parse(JSON.parse(payload));
-  const tags = Object.fromEntries(Object.entries(data["dist-tags"]).filter(([tag]) => !PLATFORM_TAG.test(tag)));
+/** One record per channel rather than per version: "latest moved" is the event, and a record per
+ * published version would emit one message for every nightly. */
+function npmCollection(
+  name: string,
+  tags: Record<string, string>,
+  published: (version: string) => string,
+  raw: string,
+): Collection {
   return {
-    source: `npm:${data.name}`,
+    source: `npm:${name}`,
     stream: "packages",
-    url: `https://www.npmjs.com/package/${data.name}`,
-    raw: payload,
-    // One record per channel rather than per version: "latest moved" is the event, and a record
-    // per published version would emit one message for every nightly.
-    records: Object.entries(tags).map(([tag, version]) => ({
-      id: tag,
-      name: `${data.name}@${tag}`,
-      url: `https://www.npmjs.com/package/${data.name}/v/${version}`,
-      version,
-      published: publishedAt(data.time, data.name, version),
-    })),
+    url: `https://www.npmjs.com/package/${name}`,
+    raw,
+    records: Object.entries(tags)
+      .filter(([tag]) => !PLATFORM_TAG.test(tag))
+      .map(([tag, version]) => ({
+        id: tag,
+        name: `${name}@${tag}`,
+        url: `https://www.npmjs.com/package/${name}/v/${version}`,
+        version,
+        published: published(version),
+      })),
   };
 }
 
-export async function collectNpm(name: string, request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
-  const url = `https://registry.npmjs.org/${name.replace("/", "%2F")}`;
+export function parseNpm(payload: string): Collection {
+  const data = npmPackage.parse(JSON.parse(payload));
+  return npmCollection(data.name, data["dist-tags"], (version) => publishedAt(data.time, data.name, version), payload);
+}
+
+/** What the last collection said each channel pointed at, and when that version was published. */
+export type NpmChannels = Map<string, { version: string; published: string }>;
+
+const distTags = z.record(z.string(), z.string());
+
+/**
+ * The full package document is the only place npm states when a version was published, and it
+ * carries every version ever released: 14 MB for @openai/codex, 4,623 versions, about 85 MB of
+ * memory each time it is read, every fifteen minutes. The channels alone are a 600-byte document.
+ * They are read first, and the full document only when a channel points somewhere new, which is
+ * the only time a publication date is not already known.
+ */
+export async function collectNpm(
+  name: string,
+  request: Fetch = fetch,
+  cache?: HttpCache,
+  known?: NpmChannels,
+): Promise<Collection> {
+  const encoded = name.replace("/", "%2F");
+  if (known?.size) {
+    const raw = await fetchText(
+      `https://registry.npmjs.org/-/package/${encoded}/dist-tags`,
+      { accept: "application/json" },
+      request,
+    );
+    const tags = distTags.parse(JSON.parse(raw));
+    const unchanged = Object.entries(tags)
+      .filter(([tag]) => !PLATFORM_TAG.test(tag))
+      .every(([tag, version]) => known.get(tag)?.version === version);
+    if (unchanged)
+      return npmCollection(
+        name,
+        tags,
+        (version) => {
+          const channel = [...known.values()].find((entry) => entry.version === version);
+          if (!channel) throw new Error(`npm package ${name} has no publication time for ${version}`);
+          return channel.published;
+        },
+        raw,
+      );
+  }
+  const url = `https://registry.npmjs.org/${encoded}`;
   const collection = parseNpm(await fetchText(url, { accept: "application/json" }, request, undefined, cache));
   if (collection.source !== `npm:${name}`)
     throw new Error(`npm returned package ${collection.source.slice("npm:".length)}, expected ${name}`);

@@ -57,6 +57,7 @@ import {
   collectVercelGateway,
   HF_AUTHORS,
   NPM_PACKAGES,
+  type NpmChannels,
   PYPI_PACKAGES,
 } from "./registries.js";
 import {
@@ -89,6 +90,8 @@ export type SourceDefinition = {
   enabled: boolean;
   mode: SourceMode;
   restrictedReason?: string;
+  /** Answers with tens of megabytes; collected one at a time with other heavy sources. */
+  heavy?: boolean;
 };
 
 /**
@@ -101,6 +104,19 @@ function childSitemapsRead(db: Database, source: string): string[] | null {
   const payload = readLatestSnapshot(db, source);
   const children = payload ? (JSON.parse(payload) as { children?: unknown }).children : undefined;
   return Array.isArray(children) ? children.filter((child): child is string => typeof child === "string") : null;
+}
+
+/** The channels a package's accepted records point at, so an unchanged package is read cheaply. */
+function npmChannels(db: Database, source: string): NpmChannels {
+  const channels: NpmChannels = new Map();
+  for (const row of db
+    .query<{ id: string; body: string }, [string]>("SELECT id,body FROM records WHERE source=?")
+    .all(source)) {
+    const body = JSON.parse(row.body) as { version?: unknown; published?: unknown };
+    if (typeof body.version === "string" && typeof body.published === "string")
+      channels.set(row.id, { version: body.version, published: body.published });
+  }
+  return channels;
 }
 
 export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefinition[] {
@@ -117,6 +133,8 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
     },
     {
       id: "models-dev",
+      // The whole models.dev catalogue, 4.5 MB.
+      heavy: true,
       authority: "third_party",
       group: "Catalogues",
       stream: "api-models",
@@ -360,6 +378,8 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
     },
     {
       id: "claude-web",
+      // Every JavaScript bundle claude.ai loads, about 22 MB a read.
+      heavy: true,
       authority: "first_party",
       vendor: "Anthropic",
       group: "Web",
@@ -639,7 +659,9 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
         group: "Packages",
         stream: "packages",
         intervalSeconds: 900 + index * 45,
-        collector: () => collectNpm(name, fetch, cache),
+        // Usually 600 bytes; the full document, up to 15 MB, whenever a channel moves.
+        heavy: true,
+        collector: () => collectNpm(name, fetch, cache, npmChannels(db, `npm:${name}`)),
       }),
     ),
     ...PYPI_PACKAGES.map(
