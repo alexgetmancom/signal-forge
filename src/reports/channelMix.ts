@@ -1,8 +1,8 @@
 import type { Database } from "bun:sqlite";
-import type { AppConfig, Destination } from "./config.js";
-import { signalClass } from "./events/signals.js";
-import type { Event } from "./events/types.js";
-import { buildSourceRegistry } from "./sources/registry.js";
+import type { AppConfig, Destination } from "../config.js";
+import { signalClass } from "../events/signals.js";
+import type { Event } from "../events/types.js";
+import { buildSourceRegistry } from "../sources/registry.js";
 
 /**
  * What each channel actually carried, as opposed to what the routing says it should.

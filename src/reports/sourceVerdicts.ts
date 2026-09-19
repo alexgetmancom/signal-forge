@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
-import type { AppConfig } from "./config.js";
+import type { AppConfig } from "../config.js";
+import { buildSourceRegistry } from "../sources/registry.js";
 import { leadTime } from "./leadTime.js";
-import { buildSourceRegistry } from "./sources/registry.js";
 
 /**
  * Which collectors earn their place, read once a month.

@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
-import { median, round } from "./numbers.js";
-import { sourceLabel } from "./sources/labels.js";
+import { median, round } from "../numbers.js";
+import { sourceLabel } from "../sources/labels.js";
 
 /**
  * Which sources actually break news, and how far ahead of the rest.

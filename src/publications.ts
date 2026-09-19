@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { AppConfig } from "./config.js";
 import type { Fetch } from "./http-client.js";
 import { lockHolder, withActionLock } from "./runtime/actionLock.js";
+import { readState, writeState } from "./storage/appState.js";
 
 /**
  * The editorial archive, read from Solo Publisher and never written to.
@@ -67,8 +68,8 @@ const syncState = z.object({
 const STATE_KEY = "solo-publisher";
 
 function storedState(db: Database) {
-  const row = db.query<{ value: string }, [string]>("SELECT value FROM app_state WHERE key=?").get(STATE_KEY);
-  return row ? syncState.parse(JSON.parse(row.value)) : null;
+  const value = readState(db, STATE_KEY);
+  return value ? syncState.parse(JSON.parse(value)) : null;
 }
 
 /** Only the two existing read operations are callable; the Studio never receives a write. */
@@ -160,7 +161,8 @@ export async function syncPublications(db: Database, config: AppConfig, request:
           JSON.stringify(row.targets),
           checkedAt,
         );
-      db.query("INSERT INTO app_state(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(
+      writeState(
+        db,
         STATE_KEY,
         JSON.stringify({ endpoint, checkedAt, windowRefs: rows.map((row) => row.ref), gapDetected }),
       );

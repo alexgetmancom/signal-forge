@@ -3,8 +3,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../src/config.js";
-import { backupStatus, doctorReport } from "../src/doctor.js";
-import { listActionableIssues } from "../src/issues.js";
+import { backupStatus, doctorReport } from "../src/reports/doctor.js";
+import { listActionableIssues } from "../src/reports/issues.js";
 import { openDatabase } from "../src/storage/database.js";
 
 const configPath = new URL("./fixtures/config.json", import.meta.url).pathname;

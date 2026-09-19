@@ -5,7 +5,7 @@ import type { Collection } from "../src/events/types.js";
 import { listHypotheses, rebuildHypotheses } from "../src/hypotheses.js";
 import { listLifecycleDeadlines, rebuildLifecycleDeadlines, scheduleLifecycleReminders } from "../src/lifecycle.js";
 import { getModelFacts, rebuildModelFacts } from "../src/modelFacts.js";
-import { signalQuality } from "../src/signalQuality.js";
+import { signalQuality } from "../src/reports/signalQuality.js";
 import { openDatabase } from "../src/storage/database.js";
 import { rebuildStories } from "../src/stories.js";
 import { registered } from "./registered.js";

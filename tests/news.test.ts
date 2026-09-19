@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { readMessage, sentByChannel } from "../src/news.js";
+import { readMessage, sentByChannel } from "../src/reports/news.js";
 import { openDatabase } from "../src/storage/database.js";
 
 test("a Discord body reads as its headline and embeds, without the transport", () => {

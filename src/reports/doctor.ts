@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
-import type { AppConfig } from "./config.js";
+import type { AppConfig } from "../config.js";
 
 /**
  * What must be true for this deployment to be doing its job, answered without a story about it.

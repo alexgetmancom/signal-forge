@@ -2,8 +2,8 @@ import { expect, test } from "bun:test";
 import { loadConfig } from "../src/config.js";
 import { deliverPending } from "../src/delivery.js";
 import { requireDeliveryVerification, resolveDeliveryVerification } from "../src/deliveryVerification.js";
-import { listActionableIssues } from "../src/issues.js";
 import { callOperation, operations } from "../src/operations.js";
+import { listActionableIssues } from "../src/reports/issues.js";
 import { openDatabase } from "../src/storage/database.js";
 
 const config = loadConfig({

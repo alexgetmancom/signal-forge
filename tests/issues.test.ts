@@ -3,7 +3,7 @@ import { capabilityReport } from "../src/capabilities.js";
 import type { Destination } from "../src/config.js";
 import { loadConfig } from "../src/config.js";
 import { recordCredentialRejection } from "../src/credentials.js";
-import { listActionableIssues } from "../src/issues.js";
+import { listActionableIssues } from "../src/reports/issues.js";
 import { openDatabase } from "../src/storage/database.js";
 
 const configPath = new URL("./fixtures/config.json", import.meta.url).pathname;

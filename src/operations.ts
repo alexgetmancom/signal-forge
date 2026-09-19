@@ -1,11 +1,9 @@
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import { capabilityReport } from "./capabilities.js";
-import { channelMix } from "./channelMix.js";
 import type { AppConfig } from "./config.js";
 import { clearCredentialCircuit, openCredentialCircuits } from "./credentials.js";
 import { requireDeliveryVerification, resolveDeliveryVerification } from "./deliveryVerification.js";
-import { doctorReport } from "./doctor.js";
 import {
   buildOperationsGuide,
   OPERATION_SECTIONS,
@@ -14,19 +12,21 @@ import {
   usageLine,
 } from "./guide.js";
 import { getHypothesis, listHypotheses } from "./hypotheses.js";
-import { listActionableIssues } from "./issues.js";
 import { listOperatorActions } from "./journal.js";
-import { leadTime } from "./leadTime.js";
 import { listLifecycleDeadlines } from "./lifecycle.js";
 import { getModelFacts, listModelFacts } from "./modelFacts.js";
-import { isSignalClass, news, sentByChannel } from "./news.js";
 import { pollSources } from "./poller.js";
 import { listPublications, syncPublications } from "./publications.js";
+import { channelMix } from "./reports/channelMix.js";
+import { doctorReport } from "./reports/doctor.js";
+import { listActionableIssues } from "./reports/issues.js";
+import { leadTime } from "./reports/leadTime.js";
+import { isSignalClass, news, sentByChannel } from "./reports/news.js";
+import { signalQuality } from "./reports/signalQuality.js";
+import { sourceVerdicts } from "./reports/sourceVerdicts.js";
 import { deepSeekUsage } from "./runtime/deepseekUsage.js";
 import { codeAnalytics } from "./runtime/metrics.js";
-import { signalQuality } from "./signalQuality.js";
 import { sourceJobs } from "./sources/registry.js";
-import { sourceVerdicts } from "./sourceVerdicts.js";
 import { dateIntegrity } from "./storage/dateIntegrity.js";
 import { listStories } from "./stories.js";
 import { seedWeightTotals } from "./weights.js";

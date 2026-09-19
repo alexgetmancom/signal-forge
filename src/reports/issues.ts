@@ -1,10 +1,11 @@
 import type { Database } from "bun:sqlite";
-import { capabilityReport } from "./capabilities.js";
-import type { AppConfig } from "./config.js";
-import { openCredentialCircuits } from "./credentials.js";
+import { capabilityReport } from "../capabilities.js";
+import type { AppConfig } from "../config.js";
+import { openCredentialCircuits } from "../credentials.js";
+import { boardFailures, sourceHealth } from "../status.js";
+import { readState } from "../storage/appState.js";
+import { databaseSize } from "../storage/retention.js";
 import { backupStatus } from "./doctor.js";
-import { boardFailures, sourceHealth } from "./status.js";
-import { databaseSize } from "./storage/retention.js";
 
 /** Where growth stops being normal and becomes something to look at, rather than to discover. */
 const DATABASE_SIZE_BUDGET = 5 * 1024 ** 3;
@@ -71,8 +72,8 @@ function readJson<T>(value: string, fallback: T): T {
 export function listActionableIssues(db: Database, config: AppConfig, now = Date.now()): ActionableIssue[] {
   const issues: ActionableIssue[] = [];
   const health = sourceHealth(db, config, now);
-  const sourceWorker = db.query<{ value: string }, []>("SELECT value FROM app_state WHERE key='worker:sources'").get();
-  const sourceWorkerState = sourceWorker ? readJson<WorkerState>(sourceWorker.value, {}) : {};
+  const sourceWorker = readState(db, "worker:sources");
+  const sourceWorkerState = sourceWorker ? readJson<WorkerState>(sourceWorker, {}) : {};
   const sourceCycleFinished = sourceWorkerState.state === "idle" && Boolean(sourceWorkerState.lastFinishedAt);
   const capabilities = capabilityReport(db, config);
   const circuits = new Map(openCredentialCircuits(db).map((circuit) => [circuit.capabilityId, circuit]));
@@ -305,8 +306,8 @@ export function listActionableIssues(db: Database, config: AppConfig, now = Date
     }
   }
 
-  const runtime = db.query<{ value: string }, []>("SELECT value FROM app_state WHERE key='runtime'").get();
-  const runtimeState = runtime ? readJson<{ uncleanRestarts?: string[] }>(runtime.value, {}) : {};
+  const runtime = readState(db, "runtime");
+  const runtimeState = runtime ? readJson<{ uncleanRestarts?: string[] }>(runtime, {}) : {};
   const restarts = (runtimeState.uncleanRestarts ?? []).filter((value) => Date.parse(value) >= now - 30 * 60 * 1000);
   if (restarts.length >= 3) {
     const first = restarts[0];

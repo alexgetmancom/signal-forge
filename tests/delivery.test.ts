@@ -13,7 +13,7 @@ import {
 import { logoFiles, sourceLogo, vendorLogo } from "../src/events/render/logos.js";
 import { SIGNAL_CLASSES } from "../src/events/signals.js";
 import type { Collection } from "../src/events/types.js";
-import { listActionableIssues } from "../src/issues.js";
+import { listActionableIssues } from "../src/reports/issues.js";
 import { openDatabase } from "../src/storage/database.js";
 
 const db = openDatabase(":memory:");

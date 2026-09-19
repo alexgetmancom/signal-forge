@@ -1,11 +1,11 @@
 import type { Database } from "bun:sqlite";
-import type { AppConfig, SourceMode } from "./config.js";
-import { CONFIDENCE_LEVELS } from "./events/confidence.js";
-import { hasNotificationContent } from "./events/notification.js";
-import { type IndependenceEvidence, sourceIndependenceFamily } from "./events/sourceFamily.js";
-import type { Confidence, Event } from "./events/types.js";
-import { median } from "./numbers.js";
-import { sourceJobs } from "./sources/registry.js";
+import type { AppConfig, SourceMode } from "../config.js";
+import { CONFIDENCE_LEVELS } from "../events/confidence.js";
+import { hasNotificationContent } from "../events/notification.js";
+import { type IndependenceEvidence, sourceIndependenceFamily } from "../events/sourceFamily.js";
+import type { Confidence, Event } from "../events/types.js";
+import { median } from "../numbers.js";
+import { sourceJobs } from "../sources/registry.js";
 
 type SignalQualitySource = {
   id: string;

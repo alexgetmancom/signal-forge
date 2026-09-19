@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { loadConfig } from "../src/config.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import type { Collection } from "../src/events/types.js";
-import { sourceVerdicts } from "../src/sourceVerdicts.js";
+import { sourceVerdicts } from "../src/reports/sourceVerdicts.js";
 import { openDatabase } from "../src/storage/database.js";
 import { updateStories } from "../src/stories.js";
 

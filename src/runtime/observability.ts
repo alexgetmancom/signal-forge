@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { readFileSync } from "node:fs";
 import { log } from "../logger.js";
+import { readState, writeState } from "../storage/appState.js";
 
 type RuntimeState = {
   bootId: string;
@@ -13,10 +14,10 @@ const RUNTIME_KEY = "runtime";
 const RESTART_WINDOW_MS = 30 * 60 * 1000;
 
 function readRuntime(db: Database): RuntimeState | null {
-  const row = db.query<{ value: string }, [string]>("SELECT value FROM app_state WHERE key=?").get(RUNTIME_KEY);
-  if (!row) return null;
+  const stored = readState(db, RUNTIME_KEY);
+  if (!stored) return null;
   try {
-    return JSON.parse(row.value) as RuntimeState;
+    return JSON.parse(stored) as RuntimeState;
   } catch {
     return null;
   }
@@ -24,10 +25,7 @@ function readRuntime(db: Database): RuntimeState | null {
 
 function writeRuntime(db: Database, state: RuntimeState): void {
   const value = JSON.stringify(state);
-  db.query("INSERT INTO app_state(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(
-    RUNTIME_KEY,
-    value,
-  );
+  writeState(db, RUNTIME_KEY, value);
 }
 
 export function recordRuntimeStart(

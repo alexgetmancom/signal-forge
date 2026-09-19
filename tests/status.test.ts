@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { publishAlerts, recoverInterruptedAlerts } from "../src/alerts.js";
 import { loadConfig } from "../src/config.js";
 import { saveCollection } from "../src/events/pipeline.js";
-import { listActionableIssues } from "../src/issues.js";
+import { listActionableIssues } from "../src/reports/issues.js";
 import { PLATFORMS, parsePlatformStatus } from "../src/sources/platforms.js";
 import { activityEmbed, fitEmbed, platformEmbed, publishBoard, sourceHealth, statusEmbed } from "../src/status.js";
 import { openDatabase } from "../src/storage/database.js";

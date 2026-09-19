@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
-import { SIGNAL_CLASSES, type SignalClass, signalClass } from "./events/signals.js";
-import type { Event } from "./events/types.js";
-import { listStories } from "./stories.js";
+import { SIGNAL_CLASSES, type SignalClass, signalClass } from "../events/signals.js";
+import type { Event } from "../events/types.js";
+import { listStories } from "../stories.js";
 
 /**
  * What came out over a window, in the shape a person asks for it: "what was news today".

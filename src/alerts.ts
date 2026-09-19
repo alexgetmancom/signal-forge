@@ -2,9 +2,10 @@ import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { AppConfig } from "./config.js";
 import type { Fetch } from "./http-client.js";
-import { type ActionableIssue, type IssueKind, listActionableIssues } from "./issues.js";
 import { log } from "./logger.js";
+import { type ActionableIssue, type IssueKind, listActionableIssues } from "./reports/issues.js";
 import { measure } from "./runtime/metrics.js";
+import { readState, writeState } from "./storage/appState.js";
 import { clip } from "./text.js";
 
 /**
@@ -31,9 +32,9 @@ const ALERT_STRIKES_KEY = "alert_strikes";
 const ALERT_CLEAR_KEY = "alert_clear_strikes";
 
 function readCounters(db: Database, key: string): Record<string, number> {
-  const row = db.query<{ value: string }, [string]>("SELECT value FROM app_state WHERE key=?").get(key);
+  const stored = readState(db, key);
   try {
-    const parsed: unknown = row ? JSON.parse(row.value) : {};
+    const parsed: unknown = stored ? JSON.parse(stored) : {};
     return parsed && typeof parsed === "object" ? (parsed as Record<string, number>) : {};
   } catch {
     return {};
@@ -42,11 +43,7 @@ function readCounters(db: Database, key: string): Record<string, number> {
 
 function writeCounters(db: Database, key: string, counters: Record<string, number>): void {
   const value = JSON.stringify(counters);
-  db.query("INSERT INTO app_state(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=?").run(
-    key,
-    value,
-    value,
-  );
+  writeState(db, key, value);
 }
 
 /**
@@ -98,10 +95,10 @@ const instant = (epochMs: number): string => new Date(epochMs).toISOString();
 export type AlertOutcome = { down: string[]; recovered: string[]; posted: boolean };
 
 function readStringSet(db: Database, key: string): Set<string> {
-  const row = db.query<{ value: string }, [string]>("SELECT value FROM app_state WHERE key=?").get(key);
-  if (!row) return new Set();
+  const stored = readState(db, key);
+  if (!stored) return new Set();
   try {
-    const value: unknown = JSON.parse(row.value);
+    const value: unknown = JSON.parse(stored);
     return new Set(Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []);
   } catch {
     return new Set();
@@ -109,10 +106,7 @@ function readStringSet(db: Database, key: string): Set<string> {
 }
 
 function readStateVersion(db: Database): number {
-  const row = db
-    .query<{ value: string }, [string]>("SELECT value FROM app_state WHERE key=?")
-    .get(ALERT_STATE_VERSION_KEY);
-  const value = Number(row?.value ?? 0);
+  const value = Number(readState(db, ALERT_STATE_VERSION_KEY) ?? 0);
   return Number.isSafeInteger(value) && value >= 0 ? value : 0;
 }
 
@@ -124,14 +118,8 @@ function writeAlertState(db: Database, active: Set<string>, version: number): vo
 }
 
 function writeAlertStateRows(db: Database, value: string, version: number): void {
-  db.query("INSERT INTO app_state(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(
-    ALERT_DOWN_KEY,
-    value,
-  );
-  db.query("INSERT INTO app_state(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(
-    ALERT_STATE_VERSION_KEY,
-    String(version),
-  );
+  writeState(db, ALERT_DOWN_KEY, value);
+  writeState(db, ALERT_STATE_VERSION_KEY, String(version));
 }
 
 function parseAlertState(value: string): Set<string> | null {

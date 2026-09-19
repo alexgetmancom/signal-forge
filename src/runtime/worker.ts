@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { log } from "../logger.js";
+import { writeState } from "../storage/appState.js";
 import { measure } from "./metrics.js";
 
 export type WorkerHandle = {
@@ -21,10 +22,7 @@ type WorkerState = {
 function storeState(db: Database, name: string, state: WorkerState): void {
   try {
     const value = JSON.stringify(state);
-    db.query("INSERT INTO app_state(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(
-      `worker:${name}`,
-      value,
-    );
+    writeState(db, `worker:${name}`, value);
   } catch (error) {
     log("warn", "Worker state could not be stored", { worker: name, error });
   }

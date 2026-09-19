@@ -8,6 +8,7 @@ import { log } from "./logger.js";
 import { sourceLabel } from "./sources/labels.js";
 import { PLATFORMS } from "./sources/platforms.js";
 import { buildSourceRegistry } from "./sources/registry.js";
+import { clearState, readState, writeState } from "./storage/appState.js";
 import { readLatestSnapshot } from "./storage/snapshots.js";
 import { clip } from "./text.js";
 
@@ -289,25 +290,22 @@ export type BoardFailure = { board: BoardKey; reason: string; firstSeenAt: strin
  */
 function recordBoardFailure(db: Database, board: BoardKey, reason: string, now: number): void {
   const key = `${BOARD_FAILURE_PREFIX}${board}`;
-  const existing = db.query<{ value: string }, [string]>("SELECT value FROM app_state WHERE key=?").get(key);
+  const existing = readState(db, key);
   let firstSeenAt = new Date(now).toISOString();
   if (existing) {
     try {
-      const parsed = JSON.parse(existing.value) as Partial<BoardFailure>;
+      const parsed = JSON.parse(existing) as Partial<BoardFailure>;
       if (parsed.firstSeenAt && Number.isFinite(Date.parse(parsed.firstSeenAt))) firstSeenAt = parsed.firstSeenAt;
     } catch {
       // A value this service cannot read is replaced by one it can.
     }
   }
   const value = JSON.stringify({ board, reason, firstSeenAt, updatedAt: new Date(now).toISOString() });
-  db.query("INSERT INTO app_state(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(
-    key,
-    value,
-  );
+  writeState(db, key, value);
 }
 
 function clearBoardFailure(db: Database, board: BoardKey): void {
-  db.query("DELETE FROM app_state WHERE key=?").run(`${BOARD_FAILURE_PREFIX}${board}`);
+  clearState(db, `${BOARD_FAILURE_PREFIX}${board}`);
 }
 
 /** Every board Discord is currently refusing, for the read model that has to report it. */
@@ -370,13 +368,13 @@ async function sendBoard(
   const comparable = JSON.stringify({ ...embed, timestamp: undefined });
   const renderKey = `${key}_render`;
   const messageKey = `${key}_message`;
-  const state = db.query<{ value: string }, [string]>("SELECT value FROM app_state WHERE key=?").get(renderKey);
-  const messageId = db.query<{ value: string }, [string]>("SELECT value FROM app_state WHERE key=?").get(messageKey);
-  if (state?.value === comparable && messageId) {
+  const state = readState(db, renderKey);
+  const messageId = readState(db, messageKey);
+  if (state === comparable && messageId) {
     // An unchanged board still has to exist. Deleting one by hand is how its position in the
     // channel gets fixed, and without this check the board would never come back: the content
     // matches, so nothing would ever be sent again.
-    const present = await request(`https://discord.com/api/v10/channels/${channelId}/messages/${messageId.value}`, {
+    const present = await request(`https://discord.com/api/v10/channels/${channelId}/messages/${messageId}`, {
       headers: { Authorization: `Bot ${config.DISCORD_BOT_TOKEN}` },
       signal: AbortSignal.timeout(DISCORD_TIMEOUT_MS),
       redirect: "error",
@@ -400,23 +398,17 @@ async function sendBoard(
   // 404 includes the old message ID, so a hand-deleted board can still be recreated.
   const createPayload = JSON.stringify({
     ...message,
-    nonce: boardNonce(key, comparable, messageId?.value ?? null),
+    nonce: boardNonce(key, comparable, messageId),
     enforce_nonce: true,
   });
 
   const remember = (id: string) => {
-    db.query("INSERT INTO app_state(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(
-      messageKey,
-      id,
-    );
-    db.query("INSERT INTO app_state(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(
-      renderKey,
-      comparable,
-    );
+    writeState(db, messageKey, id);
+    writeState(db, renderKey, comparable);
   };
 
   if (messageId) {
-    const edited = await request(`${base}/${messageId.value}`, {
+    const edited = await request(`${base}/${messageId}`, {
       method: "PATCH",
       headers,
       body: payload,
@@ -424,7 +416,7 @@ async function sendBoard(
       redirect: "error",
     });
     if (edited.ok) {
-      remember(messageId.value);
+      remember(messageId);
       clearBoardFailure(db, key);
       return "edited";
     }

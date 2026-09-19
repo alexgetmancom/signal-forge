@@ -4,7 +4,7 @@ import { loadConfig } from "../src/config.js";
 import { prepareDeliveries } from "../src/events/batching.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import type { Collection } from "../src/events/types.js";
-import { signalQuality } from "../src/signalQuality.js";
+import { signalQuality } from "../src/reports/signalQuality.js";
 import { openDatabase } from "../src/storage/database.js";
 import { registered } from "./registered.js";
 

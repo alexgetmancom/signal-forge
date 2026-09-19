@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { saveCollection } from "../src/events/pipeline.js";
 import type { Collection } from "../src/events/types.js";
-import { leadTime } from "../src/leadTime.js";
+import { leadTime } from "../src/reports/leadTime.js";
 import { openDatabase } from "../src/storage/database.js";
 import { listStories } from "../src/stories.js";
 

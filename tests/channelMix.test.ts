@@ -1,10 +1,10 @@
 import { expect, test } from "bun:test";
-import { channelMix } from "../src/channelMix.js";
 import type { Destination } from "../src/config.js";
 import { loadConfig } from "../src/config.js";
 import { prepareDeliveries } from "../src/events/batching.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import type { Collection } from "../src/events/types.js";
+import { channelMix } from "../src/reports/channelMix.js";
 import { openDatabase } from "../src/storage/database.js";
 
 const base = loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname });
