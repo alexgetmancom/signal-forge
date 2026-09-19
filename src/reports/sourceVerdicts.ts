@@ -19,6 +19,11 @@ import { leadTime } from "./leadTime.js";
  * reader is held-back value: the source is good and the routing has not caught up with it. An
  * event nobody else ever saw is not proof of noise, since a leading source is alone at first, which
  * is why the rate is reported beside the lead rather than turned into a verdict of its own.
+ *
+ * Only arrivals are corroborated. On production on 2026-09-19 every one of Moonshot's 354 `created`
+ * drift events read as corroborated, and so did every rank move, because the story they sit in is
+ * a real model that other sources carry. Another source seeing the same model says nothing about a
+ * number that moved; another source seeing the same thing appear is the question being asked.
  */
 export type SourceVerdict = {
   source: string;
@@ -29,9 +34,11 @@ export type SourceVerdict = {
   scoutVotes: number;
   /** Events the source recorded in the period. */
   events: number;
-  /** Of those, how many share a story with another source's event. */
+  /** Of those, how many were arrivals that share a story with another source's event. */
   corroborated: number;
-  /** corroborated / events, rounded to two places; null with no events. */
+  /** Arrivals the source recorded in the period. */
+  arrivals: number;
+  /** corroborated / arrivals, rounded to two places; null with no arrivals. */
   corroborationRate: number | null;
   /** Corroborated events that never reached a reader: value the routing is not carrying. */
   heldBack: number;
@@ -74,13 +81,14 @@ export function sourceVerdicts(
   );
   const witnessed = new Map(
     db
-      .query<{ source: string; events: number; corroborated: number; held: number }, [string]>(
+      .query<{ source: string; events: number; arrivals: number; corroborated: number; held: number }, [string]>(
         `SELECT e.source,
                 COUNT(*) events,
-                SUM(EXISTS (
+                SUM(e.kind='new') arrivals,
+                SUM(e.kind='new' AND EXISTS (
                   SELECT 1 FROM story_events other JOIN events o ON o.id=other.event_id
                   WHERE other.story_id=se.story_id AND o.source<>e.source)) corroborated,
-                SUM(EXISTS (
+                SUM(e.kind='new' AND EXISTS (
                   SELECT 1 FROM story_events other JOIN events o ON o.id=other.event_id
                   WHERE other.story_id=se.story_id AND o.source<>e.source)
                   AND NOT EXISTS (
@@ -113,6 +121,7 @@ export function sourceVerdicts(
     const lead = leads.get(definition.id);
     const seen = witnessed.get(definition.id);
     const events = seen?.events ?? 0;
+    const arrivals = seen?.arrivals ?? 0;
     const corroborated = seen?.corroborated ?? 0;
     const row = {
       source: definition.id,
@@ -122,8 +131,9 @@ export function sourceVerdicts(
       delivered: delivered.get(definition.id) ?? 0,
       scoutVotes: votes.get(definition.id) ?? 0,
       events,
+      arrivals,
       corroborated,
-      corroborationRate: events ? Math.round((corroborated / events) * 100) / 100 : null,
+      corroborationRate: arrivals ? Math.round((corroborated / arrivals) * 100) / 100 : null,
       heldBack: seen?.held ?? 0,
     };
     const earning = row.ledOthers > 0 || row.delivered > 0 || row.scoutVotes > 0;

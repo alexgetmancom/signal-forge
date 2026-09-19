@@ -33,6 +33,7 @@ test("a source that never led, never reached a reader and drew no votes is named
     delivered: 0,
     scoutVotes: 0,
     events: 1,
+    arrivals: 1,
     corroborated: 1,
     heldBack: 1,
     verdict: "held_back",
@@ -76,5 +77,47 @@ test("a source whose events nobody else saw and nobody received has no measurabl
   expect(report.preliminary.every((row) => report.notYetJudged.some((young) => young.source === row.source))).toBe(
     true,
   );
+  db.close();
+});
+
+test("a number that moved on a model others carry is not corroboration", () => {
+  const db = openDatabase(":memory:");
+  const config = loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname });
+  const catalogue = (
+    source: string,
+    stream: string,
+    records: { id: string; name: string; created?: number }[],
+  ): Collection => ({
+    source,
+    stream,
+    url: `https://${source}.example`,
+    raw: [],
+    records,
+  });
+  saveCollection(
+    db,
+    catalogue("openrouter", "openrouter", [{ id: "kimi-k3", name: "kimi-k3" }]),
+    [],
+    "2026-08-01T00:00:00.000Z",
+  );
+  saveCollection(
+    db,
+    catalogue("moonshot", "api-models", [{ id: "kimi-k3", name: "kimi-k3", created: 1 }]),
+    [],
+    "2026-08-01T00:00:00.000Z",
+  );
+  // Moonshot stamps the poll time into `created`: a change nobody else could have seen.
+  saveCollection(
+    db,
+    catalogue("moonshot", "api-models", [{ id: "kimi-k3", name: "kimi-k3", created: 2 }]),
+    [],
+    "2026-09-10T00:00:00.000Z",
+  );
+  updateStories(db);
+
+  const row = sourceVerdicts(db, config, 30, Date.parse("2026-09-16T00:00:00.000Z")).sources.find(
+    (verdict) => verdict.source === "moonshot",
+  );
+  expect(row).toMatchObject({ arrivals: 0, corroborated: 0, heldBack: 0, verdict: "no_measurable_value" });
   db.close();
 });
