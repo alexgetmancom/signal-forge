@@ -209,17 +209,19 @@ async function audit(db: Database, config: AppConfig, request: Fetch, now: numbe
   // Worth knowing and never carried: an independent judgement said so, the item was new when it
   // was seen, and no message named it. A post a newsroom re-listed months later is not a miss.
   const missed = db
-    .query<{ source: string; title: string; v: string; at: string; published: string | null }, [string]>(
+    .query<
+      { source: string; title: string; worth: number; kind: string; at: string; published: string | null },
+      [string]
+    >(
       `SELECT e.source, coalesce(json_extract(e.after_json,'$.name'),json_extract(e.after_json,'$.title'),e.entity_id) title,
-              s.value v, e.detected_at at, json_extract(e.after_json,'$.published') published
-         FROM events e JOIN app_state s ON s.key='jev:'||e.id
+              v.worth, v.kind, e.detected_at at, json_extract(e.after_json,'$.published') published
+         FROM events e JOIN event_evaluations v ON v.event_id=e.id AND v.evaluator='jev'
         WHERE e.detected_at>=? AND NOT EXISTS (
           SELECT 1 FROM batch_events b JOIN deliveries d ON d.batch_id=b.batch_id AND d.status='sent' WHERE b.event_id=e.id)`,
     )
     .all(from)
     .filter((row) => {
-      const judgement = JSON.parse(row.v) as { worth: number; kind: string };
-      if (judgement.worth < 2 || ["internal", "other", "business"].includes(judgement.kind)) return false;
+      if (row.worth < 2 || ["internal", "other", "business"].includes(row.kind)) return false;
       if (row.published && Date.parse(row.at) - Date.parse(row.published) > 3 * 24 * 3_600_000) return false;
       return !told.includes(String(row.title).toLowerCase());
     })

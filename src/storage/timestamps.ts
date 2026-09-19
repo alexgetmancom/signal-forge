@@ -56,6 +56,7 @@ export const TIMESTAMP_COLUMNS: readonly (readonly [table: string, column: strin
   ["card_amendments", "updated_at"],
   ["scout_reactions", "read_at"],
   ["memory_samples", "sampled_at"],
+  ["event_evaluations", "evaluated_at"],
 ];
 
 /**

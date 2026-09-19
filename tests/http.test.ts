@@ -37,18 +37,19 @@ test("health is public, operational state requires token, MCP lists matching sch
   expect(tools).not.toContain("guide");
   expect(tools).not.toContain("sync_publications");
   expect(tools).toEqual([
-    "publications",
     "doctor",
     "status",
     "issues",
     "capabilities",
     "date_integrity",
+    "memory",
     "deliveries",
     "deliveries_needing_verification",
     "require_delivery_verification",
     "resolve_delivery_verification",
     "suppressions",
     "sent",
+    "publications",
     "news",
     "events",
     "event",
@@ -64,7 +65,6 @@ test("health is public, operational state requires token, MCP lists matching sch
     "channel_mix",
     "signal_quality",
     "code_analytics",
-    "memory",
     "deepseek_usage",
     "credential_circuits",
     "journal",

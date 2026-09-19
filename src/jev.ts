@@ -28,7 +28,13 @@ const MODEL = "jev-latest";
 const JEV_DAILY_CALLS = 3_000;
 const PER_CYCLE = 40;
 const MAX_STATE_CHARS = 4_000;
-const JUDGEMENT_PREFIX = "jev:";
+/**
+ * Raise this whenever QUESTIONS, KINDS or what evidenceOf hands over changes. Judgements are stored
+ * per prompt version, so the new questions are asked again of the recent window and the two sets
+ * can be compared instead of being mixed in one column.
+ */
+const PROMPT_VERSION = "1";
+const EVALUATOR = "jev";
 const CALLS_PREFIX = "jev-calls:";
 const TOKENS_PREFIX = "jev-tokens:";
 
@@ -97,8 +103,16 @@ export function jevCallsToday(db: Database, now = new Date()): number {
 
 /** The judgement stored for one event, or null when Jev has not read it. */
 export function judgementOf(db: Database, eventId: number): Judgement | null {
-  const stored = readState(db, `${JUDGEMENT_PREFIX}${eventId}`);
-  return stored ? (JSON.parse(stored) as Judgement) : null;
+  const row = db
+    .query<
+      { kind: JevKind; worth: number; codename: number; confidence: number | null; rules: string; at: string },
+      [number, string]
+    >(
+      `SELECT kind, worth, codename, confidence, rules, evaluated_at at FROM event_evaluations
+        WHERE event_id=? AND evaluator=? ORDER BY evaluated_at DESC, prompt_version DESC LIMIT 1`,
+    )
+    .get(eventId, EVALUATOR);
+  return row ?? null;
 }
 
 /** One call. Null on any failure: a judgement is an addition, and its absence changes nothing. */
@@ -193,17 +207,31 @@ export async function judgeEvents(
     .query<Event, string[]>(
       `SELECT e.* FROM events e WHERE e.detected_at>=? AND e.stream IN (${streams})
          AND (e.kind='new' OR (e.stream='web' AND e.kind='changed')) AND NOT (e.stream='web' AND e.kind='new')
-         AND NOT EXISTS (SELECT 1 FROM app_state s WHERE s.key='${JUDGEMENT_PREFIX}'||e.id)
+         AND NOT EXISTS (SELECT 1 FROM event_evaluations v WHERE v.event_id=e.id AND v.evaluator=? AND v.prompt_version=?)
        ORDER BY e.id DESC LIMIT ${Math.max(1, Math.floor(window.limit ?? PER_CYCLE))}`,
     )
-    .all(since, ...JUDGED_STREAMS)
+    .all(since, ...JUDGED_STREAMS, EVALUATOR, PROMPT_VERSION)
     .filter(judgeable);
   let judged = 0;
   for (const event of pending) {
     const answer = await askJev(db, config, evidenceOf(event), request, now);
     if (!answer) break;
     const judgement: Judgement = { ...answer, rules: signalClass(event), at: now.toISOString() };
-    writeState(db, `${JUDGEMENT_PREFIX}${event.id}`, JSON.stringify(judgement));
+    db.query(
+      `INSERT INTO event_evaluations(event_id, evaluator, model, prompt_version, kind, worth, codename, confidence, rules, evaluated_at)
+       VALUES(?,?,?,?,?,?,?,?,?,?)`,
+    ).run(
+      event.id,
+      EVALUATOR,
+      MODEL,
+      PROMPT_VERSION,
+      judgement.kind,
+      judgement.worth,
+      judgement.codename,
+      judgement.confidence,
+      judgement.rules,
+      judgement.at,
+    );
     judged++;
   }
   return judged;

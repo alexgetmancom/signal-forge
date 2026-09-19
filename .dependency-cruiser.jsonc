@@ -78,6 +78,24 @@
       "to": { "dependencyTypes": ["npm"], "path": "^(hono|@hono/)" }
     },
     {
+      "name": "collectors-do-not-write-events",
+      "comment": "A collector returns a collection and nothing else. Diffing it against the last snapshot, deciding what changed and writing the event happen together in the pipeline's transaction; a collector that could write an event directly would make one that no snapshot explains and no suppression saw.",
+      "from": { "path": "^src/sources/" },
+      "to": { "path": "^src/events/(store|pipeline|record)\\.ts$" }
+    },
+    {
+      "name": "policy-does-not-reach-the-network",
+      "comment": "Whether an event is worth a card is decided from the event and the database alone. A rule that could fetch, or ask a model, would decide differently on replay than it did live, and replaying the history is how a change to these rules is judged before it ships.",
+      "from": { "path": "^src/events/(worth|signals|suppression|notification|confidence)\\.ts$" },
+      "to": { "path": "^src/(http-client|jev|summary|review|deepseek)\\.ts$|^src/sources/" }
+    },
+    {
+      "name": "models-do-not-write-evidence",
+      "comment": "What a language model says about an event sits beside the evidence, never in it. Jev may think a reseller listing is a release; if its module could write events or snapshots, that opinion could become the record the rules read, and a third-party listing would turn into a confirmed launch with nothing behind it.",
+      "from": { "path": "^src/(jev|summary|review)\\.ts$" },
+      "to": { "path": "^src/events/(store|pipeline|record)\\.ts$|^src/storage/snapshots\\.ts$" }
+    },
+    {
       "name": "production-does-not-import-tests",
       "comment": "Test helpers stand in for the clock, the network and the database. An import from src/ would ship one into production, where it would quietly answer for the real thing.",
       "from": { "path": "^src/" },

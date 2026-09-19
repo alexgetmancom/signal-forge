@@ -25,7 +25,7 @@ import {
 } from "./render/lifecycle.js";
 import { renderStoryText, type StoryRenderEvent, storyEmbed } from "./render/story.js";
 import { renderEvent } from "./render/telegram.js";
-import { listsAnotherMakersModel, pingWorthy, type SignalClass } from "./signals.js";
+import { listsAnotherMakersModel, pingWorthy, type SignalClass, signalClass } from "./signals.js";
 import { sourceFamily } from "./sourceFamily.js";
 import { clearSuppression, recordSuppression, type SuppressionReason } from "./suppression.js";
 import type { Event, RecordData } from "./types.js";
@@ -438,6 +438,50 @@ function standingReason(
   return null;
 }
 
+/** Everything the standing judgement reads about a batch, built once and shared by its destinations. */
+function batchViewOf(db: Database, events: readonly (Event & { signal: SignalClass | "" })[]): BatchView {
+  // A re-keyed catalogue speaks once per row, twice: the row that left and the identical row that
+  // arrived. Found once per batch, because the answer does not depend on the destination.
+  const renamed = renamedEvents(db, events);
+  // A sighting from a platform or a registry says where else the model already is; read once
+  // per batch, and only when a card will need it.
+  const sighted = (event: Event) =>
+    event.kind === "new" &&
+    (listsAnotherMakersModel(event) || event.source.startsWith("discovery:huggingface") || event.stream === "arena");
+  const listings = events.some(sighted) ? listingsBySubject(db) : null;
+  /** The other catalogues that already carry a sighted model, by the card's own name for it. */
+  const elsewhereOf = (event: Event): string[] => {
+    const record = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
+    const name = displayName(String(record?.name ?? event.entity_id));
+    const keys = new Set([subjectKey(event.entity_id), subjectKey(name)]);
+    return [...new Set([...keys].flatMap((key) => [...(listings?.get(key) ?? [])]))]
+      .filter((source) => source !== event.source)
+      .sort();
+  };
+  // Read once per batch: the question is about the event, not about the destination.
+  const known = events.some(
+    (event) => ["arena", "web"].includes(event.stream) || event.signal === "article" || event.signal === "business",
+  )
+    ? knownModelNames(db)
+    : [];
+  return { renamed, known, listings, sighted, elsewhereOf };
+}
+
+/**
+ * The destination-independent half of the delivery policy, for replay: the class the rules give each
+ * event and the standing reason, if any, that holds it back from everyone. The destination-dependent
+ * checks (already told, oscillating, waiting to settle) read delivery history as it is now rather
+ * than as it was, so they are left out rather than answered wrongly. Reads only.
+ */
+export function replayVerdicts(
+  db: Database,
+  events: readonly Event[],
+): { eventId: number; signal: SignalClass; reason: SuppressionReason | null }[] {
+  const classed = events.map((event) => ({ ...event, signal: signalClass(event) }));
+  const view = batchViewOf(db, classed);
+  return classed.map((event) => ({ eventId: event.id, signal: event.signal, reason: standingReason(db, event, view) }));
+}
+
 export function prepareDeliveries(
   db: Database,
   now = Date.now(),
@@ -502,31 +546,8 @@ export function prepareDeliveries(
         .map((row) => [row.event_id, row.story_id] as const),
     );
     const leads = leadTimes(db, storyIds, events);
-    // A re-keyed catalogue speaks once per row, twice: the row that left and the identical row that
-    // arrived. Found once per batch, because the answer does not depend on the destination.
-    const renamed = renamedEvents(db, events);
-    // A sighting from a platform or a registry says where else the model already is; read once
-    // per batch, and only when a card will need it.
-    const sighted = (event: Event) =>
-      event.kind === "new" &&
-      (listsAnotherMakersModel(event) || event.source.startsWith("discovery:huggingface") || event.stream === "arena");
-    const listings = events.some(sighted) ? listingsBySubject(db) : null;
-    /** The other catalogues that already carry a sighted model, by the card's own name for it. */
-    const elsewhereOf = (event: Event): string[] => {
-      const record = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
-      const name = displayName(String(record?.name ?? event.entity_id));
-      const keys = new Set([subjectKey(event.entity_id), subjectKey(name)]);
-      return [...new Set([...keys].flatMap((key) => [...(listings?.get(key) ?? [])]))]
-        .filter((source) => source !== event.source)
-        .sort();
-    };
-    // Read once per batch: the question is about the event, not about the destination.
-    const known = events.some(
-      (event) => ["arena", "web"].includes(event.stream) || event.signal === "article" || event.signal === "business",
-    )
-      ? knownModelNames(db)
-      : [];
-    const batchView: BatchView = { renamed, known, listings, sighted, elsewhereOf };
+    const batchView = batchViewOf(db, events);
+    const { listings, sighted, elsewhereOf } = batchView;
     for (const target of targets) {
       const destination = JSON.parse(target.destination_json) as Destination;
       const subscribed = new Set<string>(destination.signals);
