@@ -36,8 +36,14 @@ function cliInput(defs: OperationMap, name: string, argv: readonly string[]): Re
   return input;
 }
 
-const config = loadConfig(),
-  db = openDatabase(config.DATABASE_URL);
+const config = loadConfig();
+// Outside the container this is a local copy, and a question about what the service saw is almost
+// never a question about it. stderr, so stdout stays parseable.
+if (config.NODE_ENV !== "production")
+  process.stderr.write(
+    `Local database (${config.DATABASE_URL}), not production. For production: bun run prod ${Bun.argv.slice(2).join(" ") || "<command>"}\n`,
+  );
+const db = openDatabase(config.DATABASE_URL);
 try {
   const defs = operations(db, config);
   const byCommand = new Map(Object.keys(defs).map((name) => [cliCommand(name), name]));

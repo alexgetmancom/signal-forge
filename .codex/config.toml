@@ -1,0 +1,5 @@
+# Production signal-forge over an ssh tunnel; the token is MCP_TOKEN from .env.
+[mcp_servers.signal-forge-prod]
+command = "bun"
+args = ["scripts/prod-mcp.ts"]
+cwd = "."

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "signal-forge-prod": {
+      "command": "bun",
+      "args": ["scripts/prod-mcp.ts"]
+    }
+  }
+}

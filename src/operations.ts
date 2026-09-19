@@ -19,6 +19,7 @@ import { listOperatorActions } from "./journal.js";
 import { leadTime } from "./leadTime.js";
 import { listLifecycleDeadlines } from "./lifecycle.js";
 import { getModelFacts, listModelFacts } from "./modelFacts.js";
+import { isSignalClass, news } from "./news.js";
 import { pollSources } from "./poller.js";
 import { listPublications, syncPublications } from "./publications.js";
 import { deepSeekUsage } from "./runtime/deepseekUsage.js";
@@ -330,6 +331,30 @@ export function operations(db: Database, config: AppConfig): OperationMap {
              ORDER BY s.recorded_at DESC, s.event_id DESC LIMIT ?2`,
           )
           .all(input.destinationId ?? null, input.limit),
+    },
+    news: {
+      section: "evidence",
+      summary:
+        "What reached readers over the last N hours (default 24), by signal class, with raw event volume beside it.",
+      startHere: "what was news today",
+      mutates: false,
+      agent: true,
+      schema: z.object({
+        hours: count(168, 24),
+        signal: z.string().refine(isSignalClass, "unknown signal class").optional(),
+      }),
+      cli: {
+        args: [
+          { name: "hours", optional: true },
+          { name: "signal", optional: true },
+        ],
+      },
+      http: { method: "get", path: "/api/news" },
+      handler: (input: { hours: number; signal?: string | undefined }) =>
+        news(db, {
+          hours: input.hours,
+          signal: input.signal && isSignalClass(input.signal) ? input.signal : undefined,
+        }),
     },
     events: {
       section: "evidence",

@@ -29,7 +29,9 @@
     "poll": "bun src/cli.ts poll",
     "status": "bun src/cli.ts status",
     "events": "bun src/cli.ts events",
-    "suppressions": "bun src/cli.ts suppressions"
+    "suppressions": "bun src/cli.ts suppressions",
+    "prod": "bun scripts/prod.ts",
+    "prod:mcp": "bun scripts/prod-mcp.ts"
   },
   "dependencies": {
     "hono": "^4.12.31",
