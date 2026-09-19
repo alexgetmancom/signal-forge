@@ -8,7 +8,7 @@ const event = (
 ): Event => ({
   id: 1,
   source: "openrouter",
-  entity_id: "vendor/model",
+  entity_id: "model",
   before_json: null,
   after_json: record ? JSON.stringify(record) : JSON.stringify({ name: "Model" }),
   detected_at: "2026-09-11T00:00:00.000Z",
@@ -326,4 +326,21 @@ test("a lab's post is sorted into what it is about", () => {
   // Somebody else saying a product changed is not the vendor shipping it.
   expect(post("Claude Code now reads AGENTS.md if there is no Claude.md", "hackernews")).toBe("article");
   expect(post("ZCode, the GLM coding agent, silently uploads your Git history", "hackernews")).toBe("safety");
+});
+
+test("a reseller listing a small company's model is a trail, a followed lab's or a stealth model's a sighting", () => {
+  const listed = (id: string, name: string, maker?: string) =>
+    signalClass(
+      event({ stream: "api-models", kind: "new", source: "vercel-gateway" }, { id, name, ...(maker ? { maker } : {}) }),
+    );
+  // What reached the scouts on 2026-09-19.
+  expect(listed("mixedbread/toast-1", "Toast 1", "mixedbread")).toBe("evidence");
+  expect(listed("quiverai/arrow-2", "Arrow 2", "quiverai")).toBe("evidence");
+  // First seen on the gateway before their makers listed them.
+  expect(listed("alibaba/qwen3.8-omni-flash", "Qwen 3.8 Omni Flash", "alibaba")).toBe("codename");
+  expect(listed("zai/glm-5.3-flashx", "GLM 5.3 FlashX", "zai")).toBe("codename");
+  // Hiding the maker is the point of a stealth model, and it is what the scouts are for.
+  expect(listed("stealth/union-alpha", "Union Alpha")).toBe("codename");
+  // A row that names nobody cannot be judged small.
+  expect(listed("union", "Union")).toBe("codename");
 });

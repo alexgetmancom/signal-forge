@@ -64,6 +64,12 @@ function withUntrackedMaker(name: string, vendor: string, record: RecordData | n
 function eventHeadline(event: Event, name: string, incident: Incident | null): string {
   if (event.stream === "deprecations" && event.kind === "new") return `⚠️ ${name} is being retired`;
   if (incident) return `${incident.icon} ${name}`;
+  if (event.stream === "training") {
+    const record = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
+    const maker = typeof record?.maker === "string" ? `${record.maker} ` : "";
+    if (record?.ended) return `🏁 ${maker}finished training ${name}`;
+    if (event.kind === "new") return `🧪 ${maker}is training ${name}`;
+  }
   // A debut is read for one number, the place, so the title says it before the reader opens the card.
   if (event.stream === "leaderboards" && event.kind === "new") {
     const place = boardPlace(event);
@@ -75,6 +81,10 @@ function eventHeadline(event: Event, name: string, incident: Incident | null): s
 /** What the observation means for someone deciding whether to care. */
 function readerImpact(event: Event, record: RecordData | null): string | null {
   if (event.stream === "github" && !event.source.endsWith(":releases")) return "Repository activity is not a release.";
+  if (event.stream === "training")
+    return record?.ended
+      ? "The training run is over, which is the step before a release. Nothing is announced yet."
+      : "A training run in public, before any release or announcement.";
   // A first Arena sighting already says this in its own words; repeating it costs a line.
   if (event.stream === "arena" && event.kind !== "new")
     return record?.selectable === false

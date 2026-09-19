@@ -779,3 +779,38 @@ test("a release named only by its version is titled with its repository", () => 
   expect(displayTitle("v2.1.0", "github", "github:anthropics/claude-code:releases")).toBe("Claude Code 2.1.0");
   expect(displayTitle("Codex 1.0", "github", "github:openai/codex:releases")).toBe("Codex 1.0");
 });
+
+test("a reseller filling in a blank context is quiet, a context that moves still speaks", () => {
+  const db = openDatabase(":memory:");
+  const gateway = (rows: Record<string, unknown>[]): Collection => ({
+    source: "vercel-gateway",
+    stream: "api-models",
+    url: "https://vercel.com/ai-gateway",
+    raw: [],
+    records: rows.map((row) => ({ id: String(row.id), name: String(row.name), ...row })),
+  });
+  saveCollection(
+    db,
+    gateway([
+      { id: "typesafe-ai/jev", name: "Jev", context: 0 },
+      { id: "openai/gpt-6", name: "GPT-6", context: 200000 },
+    ]),
+    [wire],
+    "2026-09-17T00:00:00.000Z",
+  );
+  saveCollection(
+    db,
+    gateway([
+      // "Context 0 → 32K" reached the public wire on 2026-09-19.
+      { id: "typesafe-ai/jev", name: "Jev", context: 32000 },
+      { id: "openai/gpt-6", name: "GPT-6", context: 400000 },
+    ]),
+    [wire],
+    "2026-09-19T00:00:00.000Z",
+  );
+  prepareDeliveries(db, Date.parse("2026-09-19T02:00:00.000Z"));
+  const reasons = suppressed(db);
+  expect(reasons["typesafe-ai/jev"]).toBe("a_reseller_filled_in_a_price");
+  expect(reasons["openai/gpt-6"]).toBeUndefined();
+  db.close();
+});

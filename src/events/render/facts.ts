@@ -293,6 +293,22 @@ export function eventFactParts(event: Event & CardContext, summary?: string): Fa
   } else if (event.stream === "leaderboards" && before && !after) {
     lines.push(`Leaves ${describe(before.category)}`);
     if (present(before.rank)) lines.push({ label: "Last observed rank", value: describe(before.rank) });
+  } else if (event.stream === "training" && after) {
+    // "mode live → ended" and an ISO instant were what the scouts read on 2026-09-19 for the most
+    // useful thing this source can say: a run started, or a run finished.
+    const day = (value: unknown) =>
+      typeof value === "string" && Number.isFinite(Date.parse(value))
+        ? new Date(value).toLocaleDateString("en-GB", { day: "numeric", month: "long", timeZone: "UTC" })
+        : null;
+    const started = day(after.started);
+    const ended = day(after.ended);
+    if (started) lines.push({ label: "Started", value: started });
+    if (ended) lines.push({ label: "Finished", value: ended });
+    const days =
+      typeof after.started === "string" && typeof after.ended === "string"
+        ? Math.round((Date.parse(after.ended) - Date.parse(after.started)) / 86_400_000)
+        : null;
+    if (days !== null && days > 0) lines.push({ label: "Ran for", value: `${days} day${days === 1 ? "" : "s"}` });
   } else if (event.stream === "github") {
     if (record?.stage) lines.push(describe(record.stage));
     else if (event.source.endsWith(":commits")) lines.push("Repository change; not a release yet");

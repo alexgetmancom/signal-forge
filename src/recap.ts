@@ -90,6 +90,7 @@ function boardName(source: string, category: unknown): string {
   const site = sourceLabel(source).split(" · ")[0] ?? source;
   const board = String(category ?? "")
     .split("/")
+    .map((part) => (part === "quality" ? "Intelligence Index" : part))
     .filter((part) => part && part !== "overall" && part !== "artificial-analysis" && part !== "designarena")
     .join(" ");
   return board ? `${site} ${board}` : site;
@@ -141,6 +142,8 @@ export const recapContextSchema = z.object({
   // Absent in the recaps stored before the scouts were told about climbs and new boards.
   climbers: z.array(z.object({ board: z.string(), name: z.string(), from: z.number(), to: z.number() })).default([]),
   newBoards: z.array(z.object({ board: z.string(), leader: z.string().nullable() })).default([]),
+  // Absent in the recaps stored before the Intelligence Index was read for new entries.
+  indexed: z.array(z.object({ name: z.string(), index: z.number(), place: z.number().nullable() })).default([]),
 });
 export type RecapContext = z.infer<typeof recapContextSchema>;
 
@@ -396,7 +399,9 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
     .flatMap(({ event }) => {
       const before = event.before_json ? (JSON.parse(event.before_json) as RecordData) : null;
       const after = recordOf(event);
-      if (Number(after?.rank) !== 1 || Number(before?.rank) === 1) return [];
+      // A board that starts counting places is not a model taking first: the Intelligence Index gained
+      // ranks on 2026-09-20, and every row's first place would otherwise read as a new leader.
+      if (Number(after?.rank) !== 1 || !Number.isInteger(Number(before?.rank)) || Number(before?.rank) === 1) return [];
       return [{ board: String(after?.category ?? event.source), name: readableName(nameOf(event)) }];
     })
     .filter((leader, index, all) => all.findIndex((other) => other.board === leader.board) === index)
@@ -482,6 +487,22 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
           .sort((one, other) => other.from - other.to - (one.from - one.to))
           .filter((climb, index, all) => all.findIndex((other) => other.name === climb.name) === index)
           .slice(0, 5);
+  // Every model Artificial Analysis scored for the first time, wherever it landed: a debut card
+  // already told the top ten, and the rest is still the first independent reading of a new model.
+  const indexed =
+    period !== "day"
+      ? []
+      : classified
+          .filter(({ event }) => event.source === "artificial-analysis" && event.kind === "new")
+          .flatMap(({ event }) => {
+            const record = recordOf(event);
+            const score = record?.score as Record<string, unknown> | undefined;
+            const index = score?.artificial_analysis_intelligence_index;
+            if (typeof index !== "number") return [];
+            return [{ name: readableName(nameOf(event)), index, place: boardPlace(event) }];
+          })
+          .sort((one, other) => other.index - one.index)
+          .slice(0, 5);
   const newBoards: RecapContext["newBoards"] = [];
   if (period === "day") {
     // A board is new when every row it has arrived inside the day. Asking whether any event named it
@@ -514,6 +535,7 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
     headlines: headlines.slice(0, HEADLINES),
     climbers,
     newBoards: newBoards.slice(0, 3),
+    indexed,
     leaders,
     retirements: period === "week" ? retirements : [],
     from,
@@ -567,7 +589,11 @@ function scheduleRecap(db: Database, config: AppConfig, period: RecapPeriod, now
     period === "news"
       ? !context.headlines.length
       : period === "day"
-        ? !context.priceMoves.length && !context.leaders.length && !context.climbers.length && !context.newBoards.length
+        ? !context.priceMoves.length &&
+          !context.leaders.length &&
+          !context.climbers.length &&
+          !context.newBoards.length &&
+          !context.indexed.length
         : !context.arrivalCount && !context.priceMoves.length && !context.codenameCount && !context.retirements.length;
   if (empty) return false;
   const batch = db

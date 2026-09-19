@@ -131,6 +131,10 @@ export function renderRecapLines(context: RecapContext, signals: readonly string
             ...context.climbers.map(
               (climb) => `📈 ${withoutMakerPrefix(climb.name)} · #${climb.from} → #${climb.to} on ${climb.board}`,
             ),
+            ...context.indexed.map(
+              (entry) =>
+                `🧠 ${withoutMakerPrefix(entry.name)} scored ${entry.index.toFixed(1)} on the Intelligence Index${entry.place ? ` · #${entry.place}` : ""}`,
+            ),
             ...context.newBoards.map(
               (board) =>
                 `🆕 New board: ${board.board}${board.leader ? ` · led by ${withoutMakerPrefix(board.leader)}` : ""}`,

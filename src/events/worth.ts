@@ -306,9 +306,18 @@ export function isAResellerFillingInAPrice(event: Event): boolean {
   const changed = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter(
     (key) => canonical(before[key]) !== canonical(after[key]),
   );
-  const unpriced = (value: unknown) =>
-    value === null || value === undefined || (typeof value === "object" && !Object.keys(value).length);
-  return changed.length === 1 && changed[0] === "pricing" && unpriced(before.pricing);
+  // Any field a reseller had left blank and now fills in, not only the price: Vercel's gateway listed
+  // Typesafe's Jev with a context of 0 and wrote 32K two days later, and "Context 0 → 32K" reached
+  // the public wire on 2026-09-19 as a change. A zero is the same blank written as a number.
+  const blank = (value: unknown) =>
+    value === null ||
+    value === undefined ||
+    value === 0 ||
+    value === "" ||
+    (typeof value === "object" && !Object.keys(value).length);
+  // Only the numbers a listing is finished with; a description or a timestamp appearing is an edit.
+  const fillable = (key: string) => /pricing|context|limit|tokens|max_?output/i.test(key);
+  return changed.length > 0 && changed.every((key) => fillable(key) && blank(before[key]));
 }
 
 /**

@@ -1300,3 +1300,28 @@ test("a board that opens today speaks for nobody, and a newcomer on a board that
   expect(routed).toEqual([{ entity_id: "newcomer", signal: "debut" }]);
   local.close();
 });
+
+test("a training run that ends reads as a finished run, not as fields that moved", () => {
+  const run = { id: "mimo-v2.6-flash", name: "mimo-v2.6-flash", maker: "Xiaomi", started: "2026-09-05T10:00:00.000Z" };
+  const embed = eventEmbed(
+    {
+      id: 1,
+      source: "mimo-training",
+      stream: "training",
+      entity_id: run.id,
+      kind: "changed",
+      before_json: JSON.stringify({ ...run, mode: "live" }),
+      after_json: JSON.stringify({ ...run, mode: "ended", ended: "2026-09-19T02:22:09.264Z" }),
+      detected_at: "2026-09-19T02:48:00.000Z",
+      confidence: "observed",
+    },
+    "https://mimo.xiaomi.com/rl/",
+  ) as { title: string; description: string; fields: { name: string; value: string }[] };
+  expect(embed.title).toBe("🏁 Xiaomi finished training Mimo V2.6 Flash");
+  expect(embed.description).toContain("the step before a release");
+  expect(embed.fields.map((field) => `${field.name}: ${field.value}`)).toEqual([
+    "Started: 5 September",
+    "Finished: 19 September",
+    "Ran for: 14 days",
+  ]);
+});

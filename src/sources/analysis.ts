@@ -25,9 +25,32 @@ const schema = z.object({
     .min(1),
 });
 
+/**
+ * The Intelligence Index is the number people quote from this site, and the API gives the index
+ * without the place, so the place is counted here. Only the leading places carry one: a model
+ * arriving near the top moves every row below it, and a rank on six hundred rows would turn each
+ * arrival into six hundred events nobody reads. Twenty is enough to see a model climb into the ten
+ * a debut is told for.
+ */
+const INDEX_RANKED_PLACES = 20;
+function intelligenceIndex(evaluations: Record<string, unknown> | null | undefined): number | null {
+  const value = evaluations?.artificial_analysis_intelligence_index;
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
 function parseArtificialAnalysis(payload: string): Collection {
   const raw: unknown = JSON.parse(payload);
   const data = schema.parse(raw);
+  const places = new Map(
+    data.data
+      .flatMap((model) => {
+        const index = intelligenceIndex(model.evaluations);
+        return index === null ? [] : [{ id: model.id, index }];
+      })
+      .sort((one, other) => other.index - one.index || one.id.localeCompare(other.id))
+      .slice(0, INDEX_RANKED_PLACES)
+      .map((model, place) => [model.id, place + 1] as const),
+  );
   return {
     source: "artificial-analysis",
     stream: "leaderboards",
@@ -42,6 +65,7 @@ function parseArtificialAnalysis(payload: string): Collection {
       ...(model.model_creator?.name ? { maker: model.model_creator.name } : {}),
       // Latency and throughput move with load on every reading and would make each poll an event.
       ...(model.evaluations ? { score: model.evaluations } : {}),
+      ...(places.has(model.id) ? { rank: places.get(model.id) } : {}),
     })),
   };
 }

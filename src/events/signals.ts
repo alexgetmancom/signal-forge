@@ -242,6 +242,7 @@ const MAIN_BOARDS = new Set([
   "image-edit/overall",
   "text-to-video/overall",
   "image-to-video/overall",
+  "artificial-analysis/quality",
   "artificial-analysis/text-to-image",
   "artificial-analysis/image-editing",
   "artificial-analysis/text-to-speech",
@@ -292,6 +293,32 @@ function becameSelectable(event: Event): boolean {
   const before = JSON.parse(event.before_json) as { selectable?: unknown };
   const after = JSON.parse(event.after_json) as { selectable?: unknown };
   return before.selectable === false && after.selectable === true;
+}
+
+/**
+ * A lab nobody follows here, listed by a reseller. Six of these reached the scouts between
+ * 2026-09-16 and 19 -- Typesafe's Jev, Unbiased's Pareto, PrismML's Bonsai, Mixedbread's Toast,
+ * QuiverAI's Arrow twice -- each a released model from a small company, which is a catalogue
+ * growing rather than anything arriving early. A followed lab's model at a reseller before its
+ * maker lists it stays a sighting: Qwen 3.8 Omni Flash and GLM 5.3 FlashX were first seen on the
+ * Vercel gateway.
+ *
+ * A stealth model is the exception that decides the rule's shape. `stealth/union-alpha` names no
+ * maker because hiding it is the point, and it is exactly what the scouts are for, so a row the
+ * reseller marks as cloaked is never taken for a small company.
+ */
+const STEALTH = /^(?:stealth|openrouter|cloaked|anonymous)\/|\b(?:stealth|cloaked)\b/i;
+function isUnfollowedMakerAtAReseller(event: Event): boolean {
+  const record = recordFor(event);
+  const id = text(record?.id) || event.entity_id;
+  const words = `${id} ${text(record?.name) ?? ""}`;
+  if (STEALTH.test(id) || STEALTH.test(words)) return false;
+  // Only a row that names its maker can be judged: the reseller's own attribution, or the namespace
+  // of the id. A row naming nobody is left a sighting, since not knowing is not the same as knowing
+  // it is small.
+  const maker = text(record?.maker) || (id.includes("/") ? (id.split("/")[0] ?? "") : "");
+  if (!maker) return false;
+  return vendorOfName(`${maker} ${words}`) === "Unknown";
 }
 
 /** True when a catalogue arrival is a platform listing somebody else's model, not its maker shipping it. */
@@ -443,7 +470,8 @@ export function signalClass(event: Event): SignalClass {
        * `maker`: the DashScope collector stamps "Alibaba Model Studio" on every row, GLM included.
        * A name that names nobody -- `whisper-1`, `codestral`, `wan2.5` -- is the catalogue's own.
        */
-      return listsAnotherMakersModel(event) ? "codename" : "launch";
+      if (!listsAnotherMakersModel(event)) return "launch";
+      return isUnfollowedMakerAtAReseller(event) ? "evidence" : "codename";
     }
     // Listed first and switched on later: the switch is the release. In the maker's own catalogue it
     // is a launch like any arrival would have been; anywhere else it is still a sighting.
