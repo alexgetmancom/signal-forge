@@ -87,6 +87,16 @@ const NAMES_A_MODEL =
  * "Responses API accepts more file types" and a swap of one Antigravity preview for the next on
  * the public channel and called both noise. A model reaching those APIs is seen in the catalogue.
  */
+/**
+ * A build whose last number moved is a patch. Claude Code shipped 2.1.268 to 2.1.278 in nine days
+ * and every one reached the signals channel as a release card; nobody reading it acts on a patch.
+ * A minor or major build (X.Y.0), and a release named rather than numbered, still travel.
+ */
+const PATCH_BUILD = /(?:^|[^\w.])v?\d+\.\d+\.([1-9]\d*)(?![\w.])/;
+function patchBuild(record: Record<string, unknown> | null | undefined): boolean {
+  return PATCH_BUILD.test(`${text(record?.version) ?? ""} ${text(record?.name) ?? ""}`);
+}
+
 const TOOL_CHANGELOGS = new Set([
   "claude-code-changelog",
   "openai-codex-changelog",
@@ -250,7 +260,7 @@ export function signalClass(event: Event): SignalClass {
      */
     const words = `${text(record?.name)} ${text(record?.summary)} ${text(record?.description)}`;
     if (!text(record?.version) && RETIREMENT_WORDS.test(words) && !PREVIEW_SUCCESSION.test(words)) return "retirement";
-    return TOOL_CHANGELOGS.has(event.source) ? "release" : "evidence";
+    return TOOL_CHANGELOGS.has(event.source) && !patchBuild(record) ? "release" : "evidence";
   }
 
   // An app build is a version number and store copy; nothing here reads what changed in it yet.
@@ -294,7 +304,9 @@ export function signalClass(event: Event): SignalClass {
   if (event.stream === "resets") return "launch";
 
   if (event.stream === "github")
-    return event.source.endsWith(":releases") && event.kind === "new" ? "release" : "evidence";
+    return event.source.endsWith(":releases") && event.kind === "new" && !patchBuild(recordFor(event))
+      ? "release"
+      : "evidence";
 
   if (["api-models", "openrouter", "weights"].includes(event.stream)) {
     if (event.kind === "new") {

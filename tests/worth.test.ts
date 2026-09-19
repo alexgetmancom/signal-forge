@@ -477,8 +477,22 @@ test("a documentation example naming a model already known is not a sighting, a 
   db.close();
 });
 
-test("a tool build that only fixes things stays quiet, one that adds something speaks", () => {
+/** Entity ids of patch builds that reached a release-only room. */
+function releaseCards(db: ReturnType<typeof openDatabase>): string[] {
+  return db
+    .query<{ entity_id: string }, []>(
+      `SELECT DISTINCT e.entity_id FROM delivery_events de JOIN events e ON e.id=de.event_id
+       WHERE e.entity_id IN ('claude-code:2.1.275','claude-code:2.1.276','2','b')`,
+    )
+    .all()
+    .map((row) => row.entity_id);
+}
+
+test("a tool patch build reaches nobody, whether it fixes or adds", () => {
+  // Claude Code shipped 2.1.268 to 2.1.278 in nine days; the ones that added something reached the
+  // signals channel as release cards, and a reader asked for them to stop.
   const db = openDatabase(":memory:");
+  const releaseRoom: Destination = { id: "signals", platform: "discord", channelId: "2", signals: ["release"] };
   const build = (version: string, summary: string) => ({
     id: `claude-code:${version}`,
     name: `Claude Code ${version}`,
@@ -494,20 +508,21 @@ test("a tool build that only fixes things stays quiet, one that adds something s
     appendOnly: true,
     records: [build("2.1.274", "Added a warning when memory is critical")],
   };
-  saveCollection(db, changelog, [wire], "2026-09-17T00:00:00.000Z");
+  saveCollection(db, changelog, [releaseRoom], "2026-09-17T00:00:00.000Z");
   changelog.records.push(
     build("2.1.275", "Added a send-now key Fixed a scroll bug"),
     build("2.1.276", "Fixed every request failing with 400 when the base URL points at a proxy"),
   );
-  saveCollection(db, changelog, [wire], "2026-09-18T02:31:00.000Z");
+  saveCollection(db, changelog, [releaseRoom], "2026-09-18T02:31:00.000Z");
   prepareDeliveries(db, Date.parse("2026-09-18T03:00:00.000Z"));
 
-  expect(suppressed(db)).toEqual({ "claude-code:2.1.276": "fixes_only_release" });
+  expect(releaseCards(db)).toEqual([]);
   db.close();
 });
 
-test("a Codex patch that only fixes things stays quiet from its release and from its changelog", () => {
+test("a Codex patch stays quiet from its release and from its changelog", () => {
   const db = openDatabase(":memory:");
+  const releaseRoom: Destination = { id: "signals", platform: "discord", channelId: "2", signals: ["release"] };
   const summary =
     "## Bug Fixes\n\n- New local TUI sessions now leave reasoning summaries disabled by default. (#46467)\n";
   const releases: Collection = {
@@ -526,19 +541,19 @@ test("a Codex patch that only fixes things stays quiet from its release and from
     appendOnly: true,
     records: [{ id: "a", name: "Codex CLI Release: 0.155.0", description: "New Features Plugins." }],
   };
-  saveCollection(db, releases, [wire], "2026-09-17T00:00:00.000Z");
-  saveCollection(db, changelog, [wire], "2026-09-17T00:00:00.000Z");
+  saveCollection(db, releases, [releaseRoom], "2026-09-17T00:00:00.000Z");
+  saveCollection(db, changelog, [releaseRoom], "2026-09-17T00:00:00.000Z");
   releases.records.push({ id: "2", name: "0.155.1", tag: "rust-v0.155.1", summary });
   changelog.records.push({
     id: "b",
     name: "Codex CLI Release: 0.155.1",
     description: "Bug Fixes New local TUI sessions now leave reasoning summaries disabled by default.",
   });
-  saveCollection(db, releases, [wire], "2026-09-18T20:03:04.000Z");
-  saveCollection(db, changelog, [wire], "2026-09-18T20:40:00.000Z");
+  saveCollection(db, releases, [releaseRoom], "2026-09-18T20:03:04.000Z");
+  saveCollection(db, changelog, [releaseRoom], "2026-09-18T20:40:00.000Z");
   prepareDeliveries(db, Date.parse("2026-09-18T21:00:00.000Z"));
 
-  expect(suppressed(db)).toMatchObject({ "2": "fixes_only_release", b: "fixes_only_release" });
+  expect(releaseCards(db)).toEqual([]);
   db.close();
 });
 

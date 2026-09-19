@@ -255,3 +255,27 @@ test("a listed entry becoming selectable is a sighting on an arena and a launch 
     }),
   ).toBe("evidence");
 });
+
+test("a patch build stays out of the release class; a minor, major or named release does not", () => {
+  const changelog = (source: string, record: { name: string; version?: string }) =>
+    event({ stream: "news", kind: "new", source }, { id: "entry", ...record });
+  const release = (name: string) =>
+    event({ stream: "github", kind: "new", source: "github:openai/codex:releases" }, { id: name, name });
+  expect(signalClass(changelog("claude-code-changelog", { name: "Claude Code 2.1.278", version: "2.1.278" }))).toBe(
+    "evidence",
+  );
+  expect(signalClass(changelog("openai-codex-changelog", { name: "Codex CLI Release: 0.155.1" }))).toBe("evidence");
+  expect(signalClass(release("0.155.1"))).toBe("evidence");
+  expect(signalClass(changelog("claude-code-changelog", { name: "Claude Code 2.2.0", version: "2.2.0" }))).toBe(
+    "release",
+  );
+  expect(signalClass(changelog("openai-codex-changelog", { name: "Codex CLI Release: 0.155.0" }))).toBe("release");
+  expect(signalClass(release("0.155.0"))).toBe("release");
+  expect(signalClass(changelog("kimi-code-changelog", { name: "Kimi Code CLI v2.0.0", version: "v2.0.0" }))).toBe(
+    "release",
+  );
+  expect(signalClass(changelog("kimi-code-changelog", { name: "Kimi K2.7 Code", version: "Kimi K2.7 Code" }))).toBe(
+    "release",
+  );
+  expect(signalClass(changelog("cursor-changelog", { name: "Cursor Projects" }))).toBe("release");
+});
