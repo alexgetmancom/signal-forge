@@ -16,7 +16,14 @@ export type NewsReport = {
   signal: SignalClass | null;
   totals: { events: number; messages: number; stories: number };
   classes: { signal: string; events: number; delivered: number; topSources: { source: string; events: number }[] }[];
-  messages: { sentAt: string; destinations: string[]; signals: string[]; events: number; body: string }[];
+  messages: {
+    sentAt: string;
+    destinations: string[];
+    signals: string[];
+    events: number;
+    headline: string | null;
+    items: NewsItem[];
+  }[];
   stories: {
     id: string;
     title: string;
@@ -27,6 +34,51 @@ export type NewsReport = {
     updatedAt: string;
   }[];
 };
+
+export type NewsItem = { label: string | null; title: string; description: string | null; url: string | null };
+
+const DESCRIPTION_LIMIT = 400;
+const clip = (text: string): string =>
+  text.length > DESCRIPTION_LIMIT ? `${text.slice(0, DESCRIPTION_LIMIT - 1).trimEnd()}…` : text;
+const orNull = (text: string | undefined): string | null => (text?.trim() ? text.trim() : null);
+
+type Embed = { author?: { name?: string }; title?: string; description?: string; url?: string };
+
+/**
+ * A sent body is what the platform was handed: Discord embeds as JSON, or plain text. A reader wants
+ * the title and what it says, not the transport, so both shapes come back as the same items.
+ */
+export function readMessage(body: string): { headline: string | null; items: NewsItem[] } {
+  if (body.startsWith("{")) {
+    try {
+      const payload = JSON.parse(body) as { content?: string; embeds?: Embed[] };
+      const headline = orNull(payload.content?.split("\n")[0]?.replace(/<@&?\d+>/g, ""));
+      const items = (payload.embeds ?? []).map((embed) => ({
+        label: orNull(embed.author?.name),
+        title: embed.title?.trim() || embed.author?.name?.trim() || "(untitled)",
+        description: embed.description?.trim() ? clip(embed.description.trim()) : null,
+        url: orNull(embed.url),
+      }));
+      return { headline, items };
+    } catch {
+      // Not JSON after all; read it as text.
+    }
+  }
+  // Text cards: a header, tags, a blank line, then title, details, link and footer.
+  const blocks = body.split(/\n\s*\n/);
+  const header = blocks.length > 1 ? (blocks.shift() ?? "") : "";
+  const lines = blocks
+    .join("\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const url = lines.find((line) => /^https?:\/\//.test(line)) ?? null;
+  const rest = lines.filter((line) => line !== url && !line.startsWith("Signal Forge ·"));
+  return {
+    headline: orNull(header.split("\n")[0]),
+    items: [{ label: null, title: rest[0] ?? "(untitled)", description: orNull(clip(rest.slice(1).join("\n"))), url }],
+  };
+}
 
 export function isSignalClass(value: string): value is SignalClass {
   return (SIGNAL_CLASSES as readonly string[]).includes(value);
@@ -96,7 +148,7 @@ export function news(
       destinations: [row.destination_id],
       signals,
       events: ids.length,
-      body: row.body,
+      ...readMessage(row.body),
     });
   }
 
