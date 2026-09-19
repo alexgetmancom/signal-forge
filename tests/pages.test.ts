@@ -156,7 +156,7 @@ test("a sitemap cut off mid-transfer is a failed read, not the pages before the 
   expect(() => parseSitemap([cut], site)).toThrow("not well-formed");
 });
 
-test("every child sitemap is read, and one this site never read before is a baseline, not news", async () => {
+test("every child sitemap is read, and a page in a new shard of a site already read is news", async () => {
   const children = Array.from({ length: 13 }, (_, index) => `https://www.anthropic.com/sitemap/part-${index}.xml`);
   const responses: Record<string, string> = {
     "https://www.anthropic.com/sitemap.xml": index(children),
@@ -169,6 +169,10 @@ test("every child sitemap is read, and one this site never read before is a base
   };
   const collection = await collectSitePages(site, request, undefined, children.slice(0, 12));
   expect(collection.records).toHaveLength(13);
-  expect(collection.silentIds).toEqual(["/news/page-12"]);
+  // A site shards by month or by size; the pages in its newest shard are its newest pages.
+  expect(collection.silentIds).toBeUndefined();
   expect(collection.raw).toEqual({ pages: 13, children });
+  // A site with no record of what was read before is a baseline, whole.
+  const first = await collectSitePages(site, request, undefined, null);
+  expect(first.silentIds).toHaveLength(13);
 });

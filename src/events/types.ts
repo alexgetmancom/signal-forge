@@ -38,6 +38,11 @@ export type Collection = {
    * ignores. They are dropped without a removal event and before the shrink guard compares counts.
    */
   forget?: (id: string) => boolean;
+  /**
+   * Records this answer could not speak for -- a part of the catalogue that answered empty. They are
+   * neither counted missing nor compared by the shrink guard; the stored rows stand as they were.
+   */
+  keepMissing?: (id: string) => boolean;
 };
 
 export type Event = {

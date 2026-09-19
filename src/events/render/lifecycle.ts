@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { RecapContext } from "../../recap.js";
 import { sourceLabel } from "../../sources/labels.js";
+import { clip } from "../../text.js";
 import type { Event } from "../types.js";
 import { withoutMakerPrefix } from "./common.js";
 import { footerText } from "./discord.js";
@@ -146,7 +147,7 @@ export function renderRecapEmbed(context: RecapContext, signals: readonly string
   if (!lines.length) return null;
   return {
     author: { name: context.period === "day" ? "WHAT MOVED" : "THE WEEK IN MODELS" },
-    description: lines.join("\n").slice(0, 4000),
+    description: clip(lines.join("\n"), 4000),
     footer: {
       text:
         context.period === "day"

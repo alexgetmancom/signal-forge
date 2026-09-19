@@ -32,7 +32,8 @@ export async function collectOpenRouter(request: Fetch = fetch): Promise<Collect
     raw,
     records: data.data.map((m) => ({
       id: m.id,
-      name: m.name,
+      // A listing with no display name is still a model; an empty name would fail the catalogue.
+      name: m.name.trim() || m.id,
       url: `https://openrouter.ai/${m.id}`,
       created: new Date(m.created * 1000).toISOString(),
       context: m.context_length,

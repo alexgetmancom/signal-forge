@@ -169,7 +169,12 @@ function parseXml(payload: string): { urls: string[]; children: string[] } {
 /** A slug is a filename; a reader wants the name of the page. */
 function titleFor(path: string): string {
   const slug = path.split("/").filter(Boolean).at(-1) ?? path;
-  const words = decodeURIComponent(slug).replace(/[-_]+/g, " ").trim();
+  // A malformed escape is the vendor's typo, not a reason to stop reading the whole site.
+  let decoded = slug;
+  try {
+    decoded = decodeURIComponent(slug);
+  } catch {}
+  const words = decoded.replace(/[-_]+/g, " ").trim();
   return words ? words.charAt(0).toUpperCase() + words.slice(1) : path;
 }
 
@@ -246,9 +251,10 @@ export async function collectSitePages(
     throw new Error(`Sitemap for ${site.name} lists more than ${MAX_CHILD_SITEMAPS} child sitemaps`);
   const payloads: string[] = [];
   for (const child of children) payloads.push(await fetchText(child, headers, request, undefined, cache));
-  const baseline = readBefore
-    ? children.flatMap((child, index) => (readBefore.includes(child) ? [] : [index]))
-    : children.map((_, index) => index);
+  // Only a site read for the first time is a baseline. A child sitemap that appears later is how
+  // many sites shard by month or by size, and the pages in a new shard are the new pages; a page
+  // that merely moved between shards keeps its id and is not announced again.
+  const baseline = readBefore ? [] : children.map((_, index) => index);
   const collection = parseSitemap(payloads, site, baseline);
   return { ...collection, raw: { pages: collection.records.length, children } };
 }

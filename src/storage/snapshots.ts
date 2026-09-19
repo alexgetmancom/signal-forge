@@ -18,11 +18,13 @@ export function hashPayload(raw: string): string {
 export function storeSnapshot(db: Database, source: string, collectedAt: string, raw: string): StoredSnapshot {
   const hash = hashPayload(raw);
   const latest = db
-    .query<{ id: number; hash: string; bytes: number }, [string]>(
-      "SELECT id,hash,bytes FROM snapshots WHERE source=? ORDER BY id DESC LIMIT 1",
+    .query<{ id: number; hash: string; bytes: number; kept: number }, [string]>(
+      "SELECT id,hash,bytes,body IS NOT NULL AS kept FROM snapshots WHERE source=? ORDER BY id DESC LIMIT 1",
     )
     .get(source);
-  if (latest && latest.hash === hash) return latest;
+  // A row whose body retention released is a receipt, not a copy: reusing it would make the latest
+  // payload unreadable for as long as the source keeps answering the same bytes.
+  if (latest && latest.hash === hash && latest.kept) return { id: latest.id, hash: latest.hash, bytes: latest.bytes };
   const bytes = Buffer.byteLength(raw);
   const stored = db
     .query<{ id: number }, [string, string, Uint8Array, string, number]>(

@@ -63,7 +63,8 @@ export function parseDeepSeekUpdates(html: string): Collection {
     const updates = [...section.matchAll(/<h3\b([^>]*)>([\s\S]*?)<\/h3>/gi)];
     return updates.map((update, updateIndex) => {
       const title = htmlText(update[2] ?? "");
-      const anchor = attribute(update[1] ?? "", "id") ?? slug(title);
+      // A heading with no id and a title with no latin letters still needs a stable anchor.
+      const anchor = attribute(update[1] ?? "", "id") || slug(title) || `update-${updateIndex + 1}`;
       const bodyStart = (update.index ?? 0) + update[0].length;
       const bodyEnd = updates[updateIndex + 1]?.index ?? section.length;
       return { date, anchor, title, summary: htmlText(section.slice(bodyStart, bodyEnd)).slice(0, 1_200) };
@@ -117,7 +118,12 @@ function priceKey(section: string, period: string): string {
 export function parseDeepSeekPricing(html: string): Collection {
   const rows = tableRows(html);
   const modelRow = rows.find((row) => row.some((cell) => cell.toUpperCase() === "MODEL"));
-  const models = (modelRow ?? []).filter((cell) => cell && cell.toUpperCase() !== "MODEL");
+  // A footnote marker is typography, not the model's name: `deepseek-flash (1)` is deepseek-flash,
+  // and keeping the marker would remove and re-announce the model when the footnotes are renumbered.
+  const models = (modelRow ?? [])
+    .filter((cell) => cell && cell.toUpperCase() !== "MODEL")
+    .map((cell) => cell.replace(/(?:\s*[([]\d+[)\]]|\s+\d+|[\s*†‡¹²³⁴⁵⁶⁷⁸⁹⁰]+)+$/u, "").trim())
+    .filter(Boolean);
   if (!models.length) throw new Error("DeepSeek pricing models not found");
 
   const records = models.map<RecordData>((model) => ({
@@ -131,6 +137,11 @@ export function parseDeepSeekPricing(html: string): Collection {
   }));
   let section = "";
   let period = "";
+  // A label cell spanning several rows is written on the first of them only. Which group a row
+  // belongs to is carried forward, as the section and the period are, or every row after the first
+  // in a group reads as unlabelled.
+  let group: "features" | "pricing" | null = null;
+  const priced = { rows: 0, stored: 0 };
   for (const row of rows) {
     if (row === modelRow) continue;
     const values = row.slice(-models.length);
@@ -144,6 +155,12 @@ export function parseDeepSeekPricing(html: string): Collection {
         : upper.match(/1M OUTPUT TOKENS/)
           ? "output"
           : null;
+    if (upper.includes("FEATURES")) group = "features";
+    else if (upper.includes("PRICING") || currentSection) group = "pricing";
+    else if (/MODEL VERSION|CONTEXT LENGTH|MAX OUTPUT|CONCURRENCY LIMIT/.test(upper)) group = null;
+    // A new price section starts without a period until it names one; inheriting the previous
+    // section's would file a price under the wrong key.
+    if (currentSection && currentSection !== section) period = "";
     if (currentSection) section = currentSection;
     const currentPeriod = upper.match(/\b(OFF-PEAK|PEAK)\b/)?.[1];
     if (currentPeriod) period = currentPeriod;
@@ -164,21 +181,27 @@ export function parseDeepSeekPricing(html: string): Collection {
         const value = Number(values[index]);
         record.concurrencyLimit = Number.isInteger(value) && value >= 0 ? value : null;
       });
-    } else if (upper.includes("FEATURES")) {
+    } else if (group === "features") {
       records.forEach((record, index) => {
         if (values[index] === "✓") {
           const feature = labels.at(-1);
           if (feature && Array.isArray(record.capabilities)) record.capabilities.push(feature);
         }
       });
-    } else if (section && period) {
+    } else if (section) {
+      // A table without peak and off-peak rows has one price per section, under the section's name.
+      priced.rows++;
       records.forEach((record, index) => {
         const value = money(values[index] ?? "");
-        if (value !== null && record.pricing && typeof record.pricing === "object")
-          (record.pricing as Record<string, number>)[priceKey(section, period)] = value;
+        if (value !== null && record.pricing && typeof record.pricing === "object") {
+          (record.pricing as Record<string, number>)[period ? priceKey(section, period) : section] = value;
+          priced.stored++;
+        }
       });
     }
   }
+  // Price rows that yielded no price are a table this parser no longer understands, not free models.
+  if (priced.rows && !priced.stored) throw new Error("DeepSeek pricing rows carried no readable price");
   const parsed = pricingRecordsSchema.parse(records);
   return {
     source: "deepseek-pricing",

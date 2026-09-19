@@ -223,7 +223,7 @@ export async function summarize(
   const contentValue = parsed.data.choices?.[0]?.message?.content;
   if (typeof contentValue !== "string") return result("invalid", content.length, null, response.status, usage);
   const cleaned = sanitize(contentValue);
-  if (!cleaned || /^UNC/i.test(cleaned)) return result("unclear", content.length, null, response.status, usage);
+  if (!cleaned || /^UNCLEAR\b/i.test(cleaned)) return result("unclear", content.length, null, response.status, usage);
   const sentence = completeSentences(cleaned);
   const wordCount = sentence ? sentence.split(/\s+/).length : 0;
   if (!sentence) return result("unclear", content.length, null, response.status, usage);
@@ -264,14 +264,18 @@ export async function fillSummaries(
        JOIN batch_events be ON be.batch_id = b.id
        JOIN events e ON e.id = be.event_id
        WHERE b.sealed = 0
-         AND b.ready_at <= ?
+         AND (b.ready_at <= ? OR b.digest = 1)
          AND NOT EXISTS (SELECT 1 FROM summaries s WHERE s.event_id=e.id)
          AND NOT EXISTS (SELECT 1 FROM deepseek_usage u WHERE u.event_id=e.id)
-       ORDER BY e.id LIMIT 20`,
+       ORDER BY e.id`,
     )
     .all(now.toISOString());
   let written = 0;
+  // Twenty attempts a cycle, counted where they are spent: an event that needs no sentence is
+  // passed over without taking a place, so it can never keep one that does waiting behind it.
+  let claimed = 0;
   for (const event of pending) {
+    if (claimed >= 20) break;
     if (deepSeekAttemptsToday(db, now) >= DEEPSEEK_SUMMARY_DAILY_ATTEMPT_LIMIT) {
       log("warn", "Summary budget reached for today");
       break;
@@ -310,6 +314,7 @@ export async function fillSummaries(
       attemptedAt: now,
     });
     if (usageId === null) continue;
+    claimed++;
     let summary: SummaryResult;
     try {
       summary = await summarize(body, config, request, context);

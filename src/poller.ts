@@ -167,7 +167,7 @@ async function collectDueSources(db: Database, config: AppConfig, force: boolean
         // A refused credential is not a link that dropped: the backoff would keep asking, and the
         // answer would keep being no. Stop every source carrying that credential until it is
         // replaced, and say which credential it was rather than which collector noticed.
-        const status = error instanceof SourceHttpError ? error.status : null;
+        const status = error instanceof SourceHttpError && !error.rateLimited ? error.status : null;
         if (isCredentialRejection(status) && (job.requiredCapabilities ?? []).length)
           recordCredentialRejection(db, {
             capabilityId: job.capabilityId ?? job.id,

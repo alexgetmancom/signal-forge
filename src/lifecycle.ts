@@ -5,6 +5,7 @@ import { identityFor } from "./events/identity.js";
 import { recordFor } from "./events/record.js";
 import { type LifecycleReminderContext, lifecycleReminderContextSchema } from "./events/render/lifecycle.js";
 import type { Event, RecordData } from "./events/types.js";
+import { calendarDate } from "./sources/feeds.js";
 import { buildSourceRegistry } from "./sources/registry.js";
 import { text } from "./text.js";
 
@@ -35,13 +36,21 @@ type DeadlineCandidate = LifecycleReminderContext & {
 function normalizeDate(value: unknown): string | null {
   const raw = text(value);
   if (!raw) return null;
-  const date = /^\d{4}-\d{2}-\d{2}$/.test(raw)
-    ? new Date(`${raw}T00:00:00.000Z`)
-    : /^(?:January|February|March|April|May|June|July|August|September|October|November|December)\s+\d{1,2},\s+\d{4}$|^\d{1,2}\/\d{1,2}\/\d{2,4}$/i.test(
-          raw,
-        )
-      ? new Date(`${raw} UTC`)
-      : new Date(raw);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const date = new Date(`${raw}T00:00:00.000Z`);
+    return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+  }
+  // A written day with no time is that day in UTC, whatever zone the host runs in: `new Date` reads
+  // "15 September 2026" and "Sept 15, 2026" as local midnight, a day early east of Greenwich.
+  if (/^\d{1,2}\/\d{1,2}\/\d{2,4}$/.test(raw)) {
+    const date = new Date(`${raw} UTC`);
+    return Number.isFinite(date.getTime()) ? date.toISOString() : null;
+  }
+  if (!/\d{1,2}:\d{2}/.test(raw)) {
+    const day = calendarDate(raw);
+    if (day) return day.toISOString();
+  }
+  const date = new Date(raw);
   return Number.isFinite(date.getTime()) ? date.toISOString() : null;
 }
 

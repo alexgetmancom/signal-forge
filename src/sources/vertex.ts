@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { AppConfig } from "../config.js";
 import type { Collection, RecordData } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
+import { log } from "../logger.js";
 import { fetchText } from "./http.js";
 
 /**
@@ -223,7 +224,8 @@ export const MODEL_GARDEN_PUBLISHERS = [
 export async function collectVertexModelGarden(config: AppConfig, request: Fetch = fetch): Promise<Collection> {
   const { headers } = await authorized(config, request);
   const raw: unknown[] = [];
-  const records: RecordData[] = [];
+  const records = new Map<string, RecordData>();
+  const silent: string[] = [];
   for (const publisher of MODEL_GARDEN_PUBLISHERS) {
     const apiUrl = `https://us-central1-aiplatform.googleapis.com/v1beta1/publishers/${publisher}/models?pageSize=100`;
     let cursor = "";
@@ -238,7 +240,8 @@ export async function collectVertexModelGarden(config: AppConfig, request: Fetch
       for (const model of data.publisherModels ?? []) {
         const id = model.name.split("/").at(-1) ?? model.name;
         listed++;
-        records.push({
+        // One listing may name a model twice, across pages or versions; one record per id.
+        records.set(`${publisher}/${id}`, {
           id: `${publisher}/${id}`,
           name: id,
           maker: "Vertex AI",
@@ -251,15 +254,25 @@ export async function collectVertexModelGarden(config: AppConfig, request: Fetch
       if (data.nextPageToken === cursor) throw new Error("Model Garden pagination did not advance");
       cursor = data.nextPageToken;
     }
-    // Every publisher here was chosen for answering with models; one answering with none is a broken
-    // read, not a maker leaving Google Cloud.
-    if (!listed) throw new Error(`Model Garden lists no models for ${publisher}`);
+    // Every publisher here was chosen for answering with models, so one answering with none is more
+    // likely a broken read than a maker leaving Google Cloud -- but failing the whole read for it
+    // stopped the other twelve too, on every poll, until the list was edited.
+    if (!listed) {
+      log("warn", "Model Garden lists no models for a publisher", { publisher });
+      silent.push(publisher);
+    }
   }
+  if (silent.length === MODEL_GARDEN_PUBLISHERS.length)
+    throw new Error("Model Garden lists no models for any publisher");
   return {
     source: "vertex-model-garden",
     stream: "api-models",
     url: "https://console.cloud.google.com/vertex-ai/model-garden",
     raw,
-    records,
+    records: [...records.values()],
+    // A publisher that answered empty keeps its rows: absence from a broken read is not a removal.
+    ...(silent.length
+      ? { keepMissing: (id: string) => silent.some((publisher) => id.startsWith(`${publisher}/`)) }
+      : {}),
   };
 }

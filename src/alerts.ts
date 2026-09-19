@@ -5,6 +5,7 @@ import type { Fetch } from "./http-client.js";
 import { type ActionableIssue, type IssueKind, listActionableIssues } from "./issues.js";
 import { log } from "./logger.js";
 import { measure } from "./runtime/metrics.js";
+import { clip } from "./text.js";
 
 /**
  * The status board is passive: it shows the truth to whoever opens the channel. A collector that
@@ -176,6 +177,13 @@ function attemptForState(
        ) VALUES(?,?,?,?, 'pending',0,?,?)
        ON CONFLICT(state_version) DO NOTHING`,
     ).run(version, fromState, toState, body, instant(now), instant(now));
+    // An attempt nobody received describes a transition that no longer exists once the problems
+    // move on. It is rewritten to the one that does, rather than wedging every later cycle on the
+    // mismatch. A sent or ambiguous attempt is history and is never rewritten.
+    db.query(
+      `UPDATE alert_attempts SET from_state_json=?,to_state_json=?,body=?,updated_at=?
+       WHERE state_version=? AND status IN ('pending','failed') AND (from_state_json<>? OR to_state_json<>?)`,
+    ).run(fromState, toState, body, instant(now), version, fromState, toState);
   })();
   const attempt = db
     .query<AlertAttempt, [number]>(
@@ -282,7 +290,7 @@ export async function publishAlerts(
         ];
   const embed = {
     title: outcome.down.length ? "Signal Forge problem" : "Signal Forge recovered",
-    description: lines.join("\n").slice(0, 4000),
+    description: clip(lines.join("\n"), 4000),
     color: outcome.down.length ? 0xe74c3c : 0x2ecc71,
     footer: { text: alertFooter(current.size, issues.length - current.size) },
     timestamp: new Date(now).toISOString(),

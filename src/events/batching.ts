@@ -3,6 +3,7 @@ import type { Destination } from "../config.js";
 import { promotionContextSchema } from "../promotion.js";
 import { recapContextSchema } from "../recap.js";
 import { sourceLabel } from "../sources/labels.js";
+import { clip } from "../text.js";
 import { splitMessage } from "./canonical.js";
 import { CONFIDENCE_LEVELS } from "./confidence.js";
 import { deliveryBaseline, withBaseline } from "./cooldown.js";
@@ -499,7 +500,7 @@ export function prepareDeliveries(
         const heading = lines[0] ?? `Update · ${sourceLabel(event.source)}`;
         const footer = lines.slice(-2).join("\n");
         const content = lines.slice(1, -2).join("\n").trim();
-        const compact = content.length > 800 ? `${content.slice(0, 800)}…` : content;
+        const compact = content.length > 800 ? `${clip(content, 800)}…` : content;
         return [heading, compact, footer].filter(Boolean).join("\n");
       });
       const text = blocks.join(SEPARATOR);
@@ -517,6 +518,11 @@ export function prepareDeliveries(
           )
           .get(batch.id, target.destination_id, part);
         if (!delivery) return;
+        // A re-render may move an event to another page or drop it; the links describe this render,
+        // so an unsent part forgets what an earlier render put on it.
+        db.query(
+          "DELETE FROM delivery_events WHERE delivery_id IN (SELECT id FROM deliveries WHERE id=? AND status='pending' AND attempts=0)",
+        ).run(delivery.id);
         for (const event of carried)
           db.query("INSERT OR IGNORE INTO delivery_events(delivery_id,event_id) VALUES(?,?)").run(
             delivery.id,

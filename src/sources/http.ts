@@ -10,6 +10,8 @@ export class SourceHttpError extends Error {
     readonly retryAt: string | null = null,
     /** The status is kept because 401 and 403 are a refused credential, not a flaky link. */
     readonly status: number | null = null,
+    /** A refusal that names a time to come back: a rate limit, whatever status carried it. */
+    readonly rateLimited = false,
   ) {
     super(message);
   }
@@ -76,10 +78,12 @@ export async function fetchText(
   let response: Response | undefined;
   const origin = new URL(url).origin;
   let cached: CacheEntry | null = null;
-  for (let hop = 0; hop < 4; hop++) {
+  // Set when a 304 arrived with no cached body to stand for: the next ask is unconditional.
+  let unconditional = false;
+  for (let hop = 0; hop < 5; hop++) {
     // Validators belong to the URL that issued them. A redirect asks again about the target with
     // the target's own cache entry, or a 304 from it would hand back the body of the start URL.
-    cached = send ? null : (cache?.get(url) ?? null);
+    cached = send || unconditional ? null : (cache?.get(url) ?? null);
     if (cached && cached.freshUntil > Date.now()) {
       cache?.touch(url, cached.freshUntil);
       return cached.body;
@@ -107,6 +111,13 @@ export async function fetchText(
       url = next.href;
       continue;
     }
+    // A 304 is only an answer about a body we hold. Without one -- an entry evicted between the ask
+    // and the answer, or a server that sends it unasked -- ask again without validators.
+    if (response.status === 304 && !cached && !unconditional) {
+      await response.body?.cancel();
+      unconditional = true;
+      continue;
+    }
     break;
   }
   if (!response) throw new Error("Source returned no response");
@@ -124,10 +135,17 @@ export async function fetchText(
   }
   if (!response.ok) {
     await response.body?.cancel();
+    // GitHub answers an exhausted or secondary rate limit with 403, not 429. That is a limit with a
+    // reset time, not a refused credential, and treating it as one stops every source on the token.
+    const rateLimited =
+      response.status === 429 ||
+      (response.status === 403 &&
+        (response.headers.get("x-ratelimit-remaining") === "0" || response.headers.has("retry-after")));
     throw new SourceHttpError(
-      `Source returned HTTP ${response.status}`,
-      response.status === 429 ? retryAt(response.headers) : null,
+      `Source returned HTTP ${response.status}${rateLimited && response.status !== 429 ? " (rate limited)" : ""}`,
+      rateLimited ? retryAt(response.headers) : null,
       response.status,
+      rateLimited,
     );
   }
   const reader = response.body?.getReader();

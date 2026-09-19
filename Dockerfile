@@ -51,6 +51,8 @@ RUN install -d -o bun -g bun /app/data
 USER bun
 
 ENV NODE_ENV=production
+# Dates a page writes without a zone are parsed as UTC in code; this keeps anything else honest too.
+ENV TZ=UTC
 ENV BIND_HOST=0.0.0.0
 ENV PORT=8080
 

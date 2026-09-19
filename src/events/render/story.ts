@@ -1,4 +1,5 @@
 import { sourceLabel } from "../../sources/labels.js";
+import { clip } from "../../text.js";
 import { eventEvidenceType, evidenceLabel } from "../confidence.js";
 import { vendorOf } from "../interpretation.js";
 import { displayTitle } from "../naming.js";
@@ -148,7 +149,7 @@ export function storyEmbed(
     author: { name: ["STORY", vendor === "Unknown" ? null : vendor.toUpperCase()].filter(Boolean).join(" · ") },
     title: `🧵 ${title}`.slice(0, 250),
     color: KIND_COLORS[kind],
-    description: [sentence, ...others].join("\n").slice(0, 4000),
+    description: clip([sentence, ...others].join("\n"), 4000),
     fields,
     footer: {
       text:

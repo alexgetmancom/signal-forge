@@ -2,8 +2,8 @@ import { XMLParser, XMLValidator } from "fast-xml-parser";
 import { z } from "zod";
 import type { Collection, RecordData } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
+import { log } from "../logger.js";
 import type { HttpCache } from "../storage/httpCache.js";
-import { slug } from "../text.js";
 import { htmlText } from "./html.js";
 import { fetchText } from "./http.js";
 
@@ -101,7 +101,10 @@ export function calendarDate(value: string): Date | null {
         : [undefined, -1, undefined];
   if (month < 0) return date;
   const written = new Date(Date.UTC(Number(year), month, Number(day)));
-  return written.getUTCDate() === Number(day) && written.getUTCMonth() === month ? date : null;
+  if (written.getUTCDate() !== Number(day) || written.getUTCMonth() !== month) return null;
+  // A day with no time of its own is that day in UTC. `new Date("September 15, 2026")` reads it in
+  // the host's zone, so the same page parsed to the 14th on a machine three hours east of UTC.
+  return /\d{1,2}:\d{2}/.test(normalized) ? date : written;
 }
 
 function publishedDate(value: string): string {
@@ -137,7 +140,31 @@ export function parseOfficialFeed(text: string, options: FeedOptions): Collectio
   const atom = atomSchema.safeParse(raw);
   const items = rss.success ? rss.data.rss.channel.item : atom.success ? atom.data.feed.entry : null;
   if (!items) throw new Error(`${options.source}: unsupported feed shape`);
-  const records = items.map((unknownItem) => {
+  // One malformed item is the publisher's mistake in one post. Failing the feed for it stopped every
+  // later post from being read until the item was fixed; it is skipped and named instead, and only a
+  // feed in which nothing parses is a failed read.
+  let rejected = 0;
+  const records = items.flatMap((unknownItem) => {
+    try {
+      return [feedRecord(unknownItem, options)];
+    } catch (error) {
+      rejected++;
+      log("warn", "Feed item skipped", {
+        source: options.source,
+        reason: error instanceof Error ? error.message.slice(0, 120) : "unknown",
+      });
+      return [];
+    }
+  });
+  if (!records.length && rejected) throw new Error(`${options.source}: no feed item could be read`);
+  const filtered = options.include
+    ? records.filter((record) => options.include?.(record.name, String(record.description ?? "")))
+    : records;
+  return sourceCollection(options, raw, [...new Map(filtered.map((record) => [record.id, record])).values()]);
+}
+
+function feedRecord(unknownItem: unknown, options: FeedOptions): RecordData & { name: string } {
+  {
     const item = feedItemSchema.passthrough().parse(unknownItem);
     const title = textValue(item.title, "title", true).trim();
     const encoded = item.encoded === undefined ? "" : textValue(item.encoded, "description");
@@ -154,11 +181,7 @@ export function parseOfficialFeed(text: string, options: FeedOptions): Collectio
       published: publishedDate(date),
       description: description.slice(0, 1_200),
     } satisfies RecordData;
-  });
-  const filtered = options.include
-    ? records.filter((record) => options.include?.(record.name, String(record.description ?? "")))
-    : records;
-  return sourceCollection(options, raw, [...new Map(filtered.map((record) => [record.id, record])).values()]);
+  }
 }
 
 function markdownText(value: string): string {
@@ -208,9 +231,20 @@ export function parseAnthropicSdkReleases(markdown: string): Collection {
     const body = markdown.slice(start, end);
     const date = publishedDate(dateText);
     const summary = markdownText(body).slice(0, 1_200);
+    // Identity is the dated section, counted from the bottom of the page so a section added above an
+    // existing one on the same day does not renumber it. The text is content: an edit to it is a
+    // change, not a second release.
+    const day = date.slice(0, 10);
+    const later = headings.slice(index + 1).filter((other) => {
+      try {
+        return publishedDate(other[1] ?? "").slice(0, 10) === day;
+      } catch {
+        return false;
+      }
+    }).length;
     return [
       {
-        id: `anthropic-sdk:${date.slice(0, 10)}:${slug(summary.slice(0, 80))}`,
+        id: `anthropic-sdk:${day}${later ? `:${later + 1}` : ""}`,
         name: `Anthropic SDK and API · ${date.slice(0, 10)}`,
         url: ANTHROPIC_SDK_RELEASES_URL.replace(/\.md$/, ""),
         maker: "Anthropic",

@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { AppConfig } from "../config.js";
 import type { Collection, RecordData } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
+import { log } from "../logger.js";
 import type { HttpCache } from "../storage/httpCache.js";
 import { fetchText } from "./http.js";
 
@@ -88,12 +89,21 @@ export async function collectGithubCommits(
       pending.push(commit);
     }
     if (reachedKnown || !initialized || commits.length < 100) break;
-    if (page === 10) throw new Error("GitHub catch-up exceeds 1000 commits; cursor preserved");
   }
   // Catch up oldest-first in bounded batches, so a busy repository cannot exhaust the public API limit.
-  for (const commit of pending.reverse().slice(0, initialized ? 10 : pending.length)) {
+  //
+  // A backlog the batches cannot drain -- a repository busier than ten commits a poll, a long
+  // outage, or a force-push that left no known commit to stop at -- used to end in a throw that
+  // recurred on every poll, because nothing moved the cursor. Past five batches the older commits
+  // are recorded silently, without a detail request, and only the newest batch is read and told.
+  const BATCH = 10;
+  const oldestFirst = pending.reverse();
+  const skipped =
+    initialized && (!reachedKnown || oldestFirst.length > BATCH * 5) ? Math.max(0, oldestFirst.length - BATCH) : 0;
+  if (skipped > 0) log("warn", "GitHub backlog recorded without details", { source, skipped });
+  for (const [index, commit] of oldestFirst.slice(0, initialized ? skipped + BATCH : oldestFirst.length).entries()) {
     let summary = "";
-    if (initialized) {
+    if (initialized && index >= skipped) {
       const detail: unknown = JSON.parse(await fetchText(`${url}/${commit.sha}?per_page=100`, headers, request));
       const parsed = detailSchema.parse(detail);
       raw.push(detail);
@@ -114,7 +124,8 @@ export async function collectGithubCommits(
     if (!summary) silentIds.push(commit.sha);
     records.push({
       id: commit.sha,
-      name: commit.commit.message.split("\n")[0] ?? commit.sha,
+      // An empty subject is a real commit; an empty name would fail the whole collection on every poll.
+      name: commit.commit.message.split("\n")[0]?.trim() || commit.sha,
       url: commit.html_url,
       summary,
     });

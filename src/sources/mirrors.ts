@@ -105,7 +105,10 @@ export async function collectModelsDev(request: Fetch = fetch, cache?: HttpCache
   const raw: unknown = JSON.parse(await fetchText(MODELS_DEV_URL, {}, request, undefined, cache));
   const catalogue = modelsDevSchema.parse(raw);
   const grouped = new Map<string, { entry: ModelsDevEntry; providers: Set<string> }>();
-  for (const [providerId, provider] of Object.entries(catalogue))
+  // Providers are read in a fixed order. Where no vendor directory is known, the model's fields come
+  // from the first provider that lists it; in file order, a provider added near the top changed the
+  // context, name and modalities of every model it serves, and each read as a change of the model.
+  for (const [providerId, provider] of Object.entries(catalogue).sort(([left], [right]) => left.localeCompare(right)))
     for (const model of Object.values(provider.models)) {
       const slug = bareModelSlug(model.id);
       const existing = grouped.get(slug);

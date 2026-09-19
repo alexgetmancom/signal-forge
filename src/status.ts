@@ -9,6 +9,7 @@ import { sourceLabel } from "./sources/labels.js";
 import { PLATFORMS } from "./sources/platforms.js";
 import { buildSourceRegistry } from "./sources/registry.js";
 import { readLatestSnapshot } from "./storage/snapshots.js";
+import { clip } from "./text.js";
 
 /**
  * A source can be silent for several different reasons, and a status board that calls all of them
@@ -181,11 +182,11 @@ function embedLength(embed: Record<string, unknown>): number {
  */
 export function fitEmbed(embed: Record<string, unknown>): Record<string, unknown> {
   const fitted = { ...embed };
-  if (typeof fitted.description === "string") fitted.description = fitted.description.slice(0, DESCRIPTION_LIMIT);
+  if (typeof fitted.description === "string") fitted.description = clip(fitted.description, DESCRIPTION_LIMIT);
   const fields = (
     ((fitted.fields as EmbedField[] | undefined) ?? []).map((field) => ({
       ...field,
-      value: field.value.slice(0, FIELD_VALUE_LIMIT),
+      value: clip(field.value, FIELD_VALUE_LIMIT),
     })) satisfies EmbedField[]
   ).slice();
 
@@ -196,7 +197,10 @@ export function fitEmbed(embed: Record<string, unknown>): Record<string, unknown
     inline: false,
   });
   const reserve = marker(fields.length).name.length + marker(fields.length).value.length;
+  // Nothing is dropped when everything fits; the marker's room is only reserved once it is needed.
+  const fits = fields.length <= EMBED_FIELD_LIMIT && embedLength({ ...fitted, fields }) <= EMBED_CHARACTER_LIMIT;
   while (
+    !fits &&
     fields.length > 0 &&
     (fields.length + 1 > EMBED_FIELD_LIMIT ||
       // The marker is appended after the loop, so its room is kept on every pass, not only the first:
@@ -492,7 +496,7 @@ export function platformEmbed(db: Database, now = Date.now()): Record<string, un
   }
   return {
     title: "Platform health",
-    description: lines.join("\n").slice(0, 4000),
+    description: clip(lines.join("\n"), 4000),
     color: worst === "none" ? COLORS.ok : worst === "critical" || worst === "major" ? COLORS.down : COLORS.degraded,
     footer: { text: "Read from each vendor's own status page · updates itself in place" },
     timestamp: new Date(now).toISOString(),

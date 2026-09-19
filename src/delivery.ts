@@ -3,6 +3,7 @@ import { z } from "zod";
 import { applyCardAmendments, queueIncidentAmendments } from "./amendments.js";
 import { type AppConfig, type Destination, destinationSchema } from "./config.js";
 import { prepareDeliveries } from "./events/batching.js";
+import { releaseSettledMoves } from "./events/cooldown.js";
 import { logoFiles } from "./events/render/logos.js";
 import type { Fetch } from "./http-client.js";
 import { log } from "./logger.js";
@@ -79,6 +80,7 @@ export async function deliverPending(db: Database, config: AppConfig, request: F
   // Summaries are written before the message is built; a failure here leaves the message unchanged.
   await fillSummaries(db, config, request);
   db.transaction(() => {
+    releaseSettledMoves(db, Date.now());
     prepareDeliveries(db, Date.now(), config.vendorRoles, config.allSignalsRole);
     queueIncidentAmendments(db);
   })();

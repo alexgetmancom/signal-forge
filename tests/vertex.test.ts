@@ -135,12 +135,23 @@ test("Model Garden is read for every publisher and ids carry the publisher", asy
   });
 });
 
-test("a publisher answering with no models fails the read instead of emptying its catalogue", async () => {
+test("a publisher answering with no models keeps its catalogue, and the other publishers are still read", async () => {
   const request = async (url: string) =>
     url === account.token_uri
       ? Response.json({ access_token: "token-1", expires_in: 3599 })
       : Response.json(url.includes("publishers/meta/") ? {} : { publisherModels: [{ name: "publishers/x/models/y" }] });
-  await expect(collectVertexModelGarden(config, request)).rejects.toThrow("no models for meta");
+  const collection = await collectVertexModelGarden(config, request);
+  expect(collection.records.some((record) => record.id === "google/y")).toBe(true);
+  expect(collection.records.some((record) => record.id.startsWith("meta/"))).toBe(false);
+  // Meta's stored rows are not counted missing: an empty answer is not a removal.
+  expect(collection.keepMissing?.("meta/llama-5")).toBe(true);
+  expect(collection.keepMissing?.("google/y")).toBe(false);
+});
+
+test("no publisher answering with models is a failed read", async () => {
+  const request = async (url: string) =>
+    url === account.token_uri ? Response.json({ access_token: "token-1", expires_in: 3599 }) : Response.json({});
+  await expect(collectVertexModelGarden(config, request)).rejects.toThrow("no models for any publisher");
 });
 
 const event = (source: string, kind: Event["kind"], before: object | null, after: object | null): Event => ({

@@ -174,6 +174,7 @@ export function persistCollection(
         db.query("DELETE FROM records WHERE source=? AND id=?").run(c.source, id);
         previous.delete(id);
       }
+  if (c.keepMissing) for (const id of [...previous.keys()]) if (c.keepMissing(id)) previous.delete(id);
   if (!c.appendOnly && initialized?.last_success && suspiciousShrink(previous.size, c.records.length))
     throw new CollectionDegradedError(c.source, previous.size, c.records.length);
   let count = 0;
@@ -226,8 +227,11 @@ export function persistCollection(
       if (c.confirmChanges) {
         if (before.candidate_body === comparableBody) emit(record.id, "changed", before.body, body);
         else {
-          db.query("UPDATE records SET candidate_body=? WHERE source=? AND id=?").run(
+          // The record was seen, so it is not missing: an unconfirmed change still resets the misses,
+          // or a record that returns changed between two misses is reported gone while present.
+          db.query("UPDATE records SET candidate_body=?,missing_count=0,observed_at=? WHERE source=? AND id=?").run(
             comparableBody,
+            now,
             c.source,
             record.id,
           );

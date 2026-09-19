@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import type { Destination } from "../src/config.js";
 import { prepareDeliveries } from "../src/events/batching.js";
+import { releaseSettledMoves } from "../src/events/cooldown.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import type { Collection } from "../src/events/types.js";
 import { openDatabase } from "../src/storage/database.js";
@@ -57,8 +58,10 @@ test("once the wait is over the card covers the whole move, not the last step", 
     saveCollection(db, catalogue(price), [destination], new Date(start + index * hour).toISOString());
     prepareDeliveries(db, start + index * hour + hour / 2);
   });
-  // Seven hours after the first message the wait is over and the held drift can speak.
-  prepareDeliveries(db, start + 7 * hour);
+  // Once six hours have passed since the first card was rendered, the held drift is released and
+  // speaks, with no newer step needed to wake it.
+  releaseSettledMoves(db, start + 9 * hour);
+  prepareDeliveries(db, start + 9 * hour);
 
   const delivered = cards(db);
   expect(delivered).toHaveLength(2);

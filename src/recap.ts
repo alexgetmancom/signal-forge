@@ -277,8 +277,11 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
           .map((row) => row.event_id),
   );
   const bySubjectMove = new Map<string, PriceMove[]>();
-  for (const row of byRow.values()) {
-    if (row.some(({ event }) => carded.has(event.id))) continue;
+  for (const whole of byRow.values()) {
+    // Only what came after the last card is untold. Skipping the whole row once any step was carded
+    // dropped the step after it too, which is the step a held move never got a card for.
+    const lastCarded = whole.map(({ event }) => carded.has(event.id)).lastIndexOf(true);
+    const row = whole.slice(lastCarded + 1);
     const first = row[0]?.event;
     const last = row.at(-1)?.event;
     const name = row.at(-1)?.name ?? "";

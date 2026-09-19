@@ -50,8 +50,11 @@ export function deliveryBaseline(
   now = Date.now(),
 ): DeliveryBaseline {
   const previous = db
-    .query<{ after_json: string | null; detected_at: string }, [string, string, string, number, number]>(
-      `SELECT e.after_json,e.detected_at
+    .query<
+      { after_json: string | null; detected_at: string; told_at: string | null },
+      [string, string, string, number, number]
+    >(
+      `SELECT e.after_json,e.detected_at,d.updated_at AS told_at
        FROM events e
        JOIN batch_events be ON be.event_id=e.id
        JOIN deliveries d ON d.batch_id=be.batch_id AND d.destination_id=?
@@ -60,6 +63,16 @@ export function deliveryBaseline(
        ORDER BY e.id DESC LIMIT 1`,
     )
     .get(destinationId, event.source, event.entity_id, event.id, batchId);
+  // A delivered departure is still what this destination last heard: it holds like any other card,
+  // and there is no state of the record to compare against, so nothing is rewritten.
+  if (previous && !previous.after_json) {
+    const toldAt = Date.parse(previous.told_at ?? previous.detected_at);
+    return {
+      hold: Number.isFinite(toldAt) && now - toldAt < COOLDOWN_MS,
+      sinceJson: null,
+      sinceAt: null,
+    };
+  }
   if (!previous?.after_json) {
     const earliest = db
       .query<{ before_json: string | null; detected_at: string }, [string, string, number, string]>(
@@ -73,7 +86,9 @@ export function deliveryBaseline(
       : { hold: false, sinceJson: null, sinceAt: null };
   }
 
-  const seenAt = Date.parse(previous.detected_at);
+  // The clock starts when the destination was told, not when the change was seen: a card that
+  // waited in a retry queue was read later than its evidence was collected.
+  const seenAt = Date.parse(previous.told_at ?? previous.detected_at);
   const hold = Number.isFinite(seenAt) && now - seenAt < COOLDOWN_MS;
   return { hold, sinceJson: previous.after_json, sinceAt: previous.detected_at };
 }
@@ -81,4 +96,56 @@ export function deliveryBaseline(
 /** Renders the whole move a destination missed, without rewriting the event it came from. */
 export function withBaseline(event: Event, baseline: DeliveryBaseline): Event {
   return baseline.sinceJson ? { ...event, before_json: baseline.sinceJson } : event;
+}
+
+/**
+ * A move that was held and then stopped moving.
+ *
+ * A hold only ever spoke again when the next step arrived, so the last step of every slide was the
+ * one nobody heard: $15 → $13 (told) → $11.70 (held) and then nothing, forever. Once the cooldown
+ * has passed and no newer step exists for the subject, the held event is put back into a digest of
+ * its own for that destination, where it is judged again -- against the state the destination last
+ * saw, so the card covers the whole move -- and either speaks or leaves a new written reason.
+ */
+export function releaseSettledMoves(db: Database, now = Date.now()): number {
+  const held = db
+    .query<
+      Event & { destination_id: string; held_batch: number; url: string; signal: string; destination_json: string },
+      []
+    >(
+      `SELECT e.*,s.destination_id,s.batch_id AS held_batch,be.url,be.signal,bt.destination_json
+       FROM suppressions s
+       JOIN events e ON e.id=s.event_id
+       JOIN batch_events be ON be.batch_id=s.batch_id AND be.event_id=s.event_id
+       JOIN batch_targets bt ON bt.batch_id=s.batch_id AND bt.destination_id=s.destination_id
+       WHERE s.reason='waiting_for_the_move_to_settle'
+         AND NOT EXISTS (SELECT 1 FROM events later WHERE later.source=e.source AND later.entity_id=e.entity_id AND later.id>e.id)
+       ORDER BY e.id`,
+    )
+    .all();
+  let released = 0;
+  for (const row of held) {
+    if (deliveryBaseline(db, row, row.destination_id, row.held_batch, now).hold) continue;
+    const batch = db
+      .query<{ id: number }, [string]>(
+        "INSERT INTO batches(source,digest,ready_at) VALUES('story-digest',1,?) RETURNING id",
+      )
+      .get(new Date(now).toISOString());
+    if (!batch) throw new Error("Batch insert failed");
+    db.query("INSERT INTO batch_events(batch_id,event_id,url,signal) VALUES(?,?,?,?)").run(
+      batch.id,
+      row.id,
+      row.url,
+      row.signal,
+    );
+    db.query("INSERT INTO batch_targets(batch_id,destination_id,destination_json) VALUES(?,?,?)").run(
+      batch.id,
+      row.destination_id,
+      row.destination_json,
+    );
+    // Released once: the new batch writes its own reason if it stays quiet.
+    db.query("DELETE FROM suppressions WHERE event_id=? AND destination_id=?").run(row.id, row.destination_id);
+    released++;
+  }
+  return released;
 }
