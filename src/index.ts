@@ -10,7 +10,7 @@ import { pollSources } from "./poller.js";
 import { promoteVouchedMessages } from "./promotion.js";
 import { syncPublications } from "./publications.js";
 import { scheduleRecaps } from "./recap.js";
-import { pruneCodeMetrics } from "./runtime/metrics.js";
+import { measure, pruneCodeMetrics } from "./runtime/metrics.js";
 import { logMemoryUsage, recordRuntimeStart, recordRuntimeStop } from "./runtime/observability.js";
 import { stopServerGracefully } from "./runtime/shutdown.js";
 import { RuntimeSupervisor } from "./runtime/supervisor.js";
@@ -69,27 +69,30 @@ supervisor.register(
     // sent must not stop the rest.
     for (const board of BOARD_ORDER) {
       try {
-        await publishBoard(db, config, board);
+        await measure(db, `status.board:${board}`, () => publishBoard(db, config, board));
       } catch (error) {
         log("error", "Board probe failed", { board, error });
       }
     }
     try {
-      await publishAlerts(db, config);
+      await measure(db, "status.alerts", () => publishAlerts(db, config));
     } catch (error) {
       log("error", "Operational alert probe failed", { error });
     }
-    pruneCodeMetrics(db);
-    pruneSnapshots(db);
-    expireSnapshotBodies(db);
-    pruneShadowCandidates(
-      db,
-      buildSourceRegistry(db, config)
-        .filter((source) => source.mode === "shadow")
-        .map((source) => source.id),
+    // Each step is timed on its own: the cycle takes seconds and its total does not say which.
+    measure(db, "status.prune:metrics", () => pruneCodeMetrics(db));
+    measure(db, "status.prune:snapshots", () => pruneSnapshots(db));
+    measure(db, "status.prune:snapshot-bodies", () => expireSnapshotBodies(db));
+    measure(db, "status.prune:shadow-candidates", () =>
+      pruneShadowCandidates(
+        db,
+        buildSourceRegistry(db, config)
+          .filter((source) => source.mode === "shadow")
+          .map((source) => source.id),
+      ),
     );
     // Cached bodies for files nobody links to any more; a rebuilt bundle renames everything.
-    new HttpCache(db).prune();
+    measure(db, "status.prune:http-cache", () => new HttpCache(db).prune());
   }),
 );
 supervisor.register(startIntervalWorker(db, "memory", 3_600_000, logMemoryUsage));
