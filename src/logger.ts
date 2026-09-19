@@ -1,6 +1,47 @@
+import { appendFileSync, mkdirSync, readdirSync, rmSync } from "node:fs";
+import { join } from "node:path";
+
 let production = false;
-export function configureLogger(isProduction: boolean): void {
+let directory: string | null = null;
+let currentDay = "";
+
+/** Daily files kept beside the database. A month covers any weekly review with room to spare. */
+const LOG_RETENTION_DAYS = 30;
+const LOG_FILE = /^(\d{4}-\d{2}-\d{2})\.jsonl$/;
+
+/**
+ * `logDirectory` also writes every line to a daily JSONL file there. The container's own log is
+ * rotated at 30 MB and discarded whenever the container is recreated, which every deploy does; a
+ * file on the data volume survives both, so a restart can be explained after it happened.
+ */
+export function configureLogger(isProduction: boolean, logDirectory?: string): void {
   production = isProduction;
+  directory = logDirectory ?? null;
+  currentDay = "";
+  if (directory) mkdirSync(directory, { recursive: true });
+}
+
+function pruneLogFiles(dir: string, today: string): void {
+  const cutoff = new Date(Date.parse(today) - LOG_RETENTION_DAYS * 86_400_000).toISOString().slice(0, 10);
+  for (const name of readdirSync(dir)) {
+    const day = LOG_FILE.exec(name)?.[1];
+    if (day && day < cutoff) rmSync(join(dir, name), { force: true });
+  }
+}
+
+/** Synchronous on purpose: the lines that matter most are the last ones before a process is killed. */
+function persist(line: string, timestamp: string): void {
+  if (!directory) return;
+  try {
+    const day = timestamp.slice(0, 10);
+    if (day !== currentDay) {
+      currentDay = day;
+      pruneLogFiles(directory, day);
+    }
+    appendFileSync(join(directory, `${day}.jsonl`), `${line}\n`);
+  } catch {
+    // A full or read-only disk must not take the service down with it; stdout still has the line.
+  }
 }
 
 type LogLevel = "debug" | "info" | "warn" | "error";
@@ -43,10 +84,13 @@ export function log(level: LogLevel, message: string, details?: unknown): void {
   const safeDetails = details === undefined ? undefined : redact(details);
   const timestamp = new Date().toISOString();
 
+  const payload: Record<string, unknown> = { timestamp, level, message };
+  if (safeDetails !== undefined) payload.details = safeDetails;
+  const line = redactExternalSecrets(JSON.stringify(payload));
+  persist(line, timestamp);
+
   if (production) {
-    const payload: Record<string, unknown> = { timestamp, level, message };
-    if (safeDetails !== undefined) payload.details = safeDetails;
-    console.log(redactExternalSecrets(JSON.stringify(payload)));
+    console.log(line);
     return;
   }
 
