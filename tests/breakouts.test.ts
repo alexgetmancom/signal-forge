@@ -66,6 +66,18 @@ test("three new repositories count, unless the name was already in use", () => {
   expect(detectBreakouts(old.db, [scouts], now)).toEqual([]);
 });
 
+test("a mirror catalogue does not count, and a model already carded is not carded again", () => {
+  const { db, add } = setup();
+  add(
+    "models-dev",
+    "api-models",
+    "acme-labs/zorblax-1",
+    { id: "acme-labs/zorblax-1", name: "Zorblax 1" },
+    "2026-09-17T10:00:00.000Z",
+  );
+  expect(detectBreakouts(db, [scouts], now)).toEqual([]);
+});
+
 test("a Hacker News story counts", () => {
   const { db, add, arrival } = setup();
   add("hackernews", "stories", "hn-1", { name: "Zorblax 1 beats everything" }, "2026-09-17T12:00:00.000Z");

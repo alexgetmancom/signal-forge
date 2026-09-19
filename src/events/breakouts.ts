@@ -26,6 +26,12 @@ const WATCH_MS = 48 * 3_600_000;
 const NOVELTY_MS = 30 * 24 * 3_600_000;
 /** Repositories named after a model in the days after it appears: three is a pattern, one a hobby. */
 const REPOSITORIES = 3;
+/**
+ * Catalogues that copy other catalogues. models.dev lists what Vercel and OpenRouter list within
+ * hours, so on 2026-09-19 it made Mixedbread's Toast, Quiver's Arrow and Unbiased's Pareto look like
+ * breakouts; a second listing only counts when somebody chose to host the model.
+ */
+const MIRRORS = new Set(["models-dev"]);
 /** Words too common to identify a model by. */
 const GENERIC = new Set([
   "model",
@@ -94,6 +100,7 @@ function measure(db: Database, event: Event, token: string, now: number): Breako
       )
       .all(event.source, event.detected_at)
       .filter((row) => {
+        if (MIRRORS.has(row.source)) return false;
         const record = JSON.parse(row.after_json ?? "{}") as { name?: unknown };
         return mentions(token, `${row.entity_id} ${String(record.name ?? "")}`);
       })
@@ -141,11 +148,18 @@ function tookOff(measured: Breakout): boolean {
 export function detectBreakouts(db: Database, destinations: readonly Destination[], now = Date.now()): number[] {
   const targets = destinations.filter((destination) => destination.signals.includes("codename"));
   const candidates = db
-    .query<Event, [string]>(
-      "SELECT * FROM events WHERE kind='new' AND stream IN ('api-models','openrouter') AND detected_at>=? ORDER BY id",
+    .query<Event, [string, string]>(
+      "SELECT * FROM events WHERE kind='new' AND stream IN ('api-models','openrouter') AND detected_at>=? AND detected_at<=? ORDER BY id",
     )
-    .all(new Date(now - WATCH_MS).toISOString())
-    .filter((event) => isUnfollowedMakerAtAReseller(event) && !breakoutOf(db, event.id));
+    .all(new Date(now - WATCH_MS).toISOString(), new Date(now).toISOString())
+    .filter((event) => isUnfollowedMakerAtAReseller(event) && !breakoutOf(db, event.id))
+    // A model that already reached a reader as a card is not news again when it takes off.
+    .filter(
+      (event) =>
+        !db
+          .query("SELECT 1 FROM batch_events be JOIN deliveries d ON d.batch_id=be.batch_id WHERE be.event_id=?")
+          .get(event.id),
+    );
   const broke: number[] = [];
   for (const event of candidates) {
     const maker = resellerMaker(event);
