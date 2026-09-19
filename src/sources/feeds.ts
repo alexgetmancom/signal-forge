@@ -4,7 +4,7 @@ import type { Collection, RecordData } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
 import { log } from "../logger.js";
 import type { HttpCache } from "../storage/httpCache.js";
-import { htmlText } from "./html.js";
+import { decodeHtml, htmlText } from "./html.js";
 import { fetchText } from "./http.js";
 
 const CLAUDE_CODE_CHANGELOG_URL = "https://code.claude.com/docs/en/changelog.md";
@@ -306,4 +306,43 @@ export async function collectNvidiaDeveloperBlog(request: Fetch = fetch, cache?:
     maker: "NVIDIA",
     url: NVIDIA_DEVELOPER_BLOG_URL,
   });
+}
+
+const OPENAI_ALIGNMENT_FEED_URL = "https://alignment.openai.com/rss.xml";
+const OPENAI_ALIGNMENT_URL = "https://alignment.openai.com/";
+const OPENAI_MISALIGNMENT_REPORTS_URL = "https://alignment.openai.com/misalignment-reports/";
+const misalignmentReport =
+  /<a class="ap-report-link" href="(\/misalignment-reports\/[^"]+)"><div><h2 class="ap-report-title">([^<]+)<\/h2>(?:<p class="ap-report-summary">([^<]*)<\/p>)?/g;
+
+/**
+ * The reports on the misalignment-reports page, which the blog's feed does not carry. "Self-generated
+ * prompt injections in compaction summaries" reached the Hacker News front page on 2026-09-18 and
+ * nothing here had it; it also named an unreleased Astra-family model.
+ */
+export function parseMisalignmentReports(html: string): RecordData[] {
+  return [...html.matchAll(misalignmentReport)].map((match) => {
+    const url = new URL(match[1] ?? "", OPENAI_ALIGNMENT_URL).toString();
+    return {
+      id: url,
+      name: decodeHtml(match[2] ?? "").trim(),
+      url,
+      maker: "OpenAI",
+      description: decodeHtml(match[3] ?? "").trim(),
+    } satisfies RecordData;
+  });
+}
+
+/** OpenAI's alignment research blog: its feed, and the misalignment reports the feed leaves out. */
+export async function collectOpenAIAlignment(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
+  const feed = parseOfficialFeed(await fetchText(OPENAI_ALIGNMENT_FEED_URL, {}, request, undefined, cache), {
+    source: "openai-alignment",
+    maker: "OpenAI",
+    url: OPENAI_ALIGNMENT_URL,
+  });
+  const reports = parseMisalignmentReports(
+    await fetchText(OPENAI_MISALIGNMENT_REPORTS_URL, {}, request, undefined, cache),
+  );
+  if (!reports.length) throw new Error("openai-alignment: misalignment reports not found");
+  const records = [...new Map([...feed.records, ...reports].map((record) => [record.id, record])).values()];
+  return { ...feed, records };
 }

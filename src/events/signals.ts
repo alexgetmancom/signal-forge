@@ -80,6 +80,7 @@ const NEWSROOMS = new Set([
   "google-ai-blog",
   "deepmind-blog",
   "nvidia-developer-blog",
+  "openai-alignment",
   "hackernews",
 ]);
 
@@ -218,7 +219,8 @@ function articleTopic(event: Event): "feature" | "safety" | "research" | "busine
   const record = recordFor(event);
   const title = `${text(record?.name) ?? ""} ${event.stream === "pages" ? (text(record?.id) ?? "").replaceAll(/[/_-]+/g, " ") : ""}`;
   const firstParty = event.source !== "hackernews" && event.kind === "new";
-  if (SAFETY.test(title)) return "safety";
+  // Everything an alignment team publishes is about how models misbehave, whatever its title says.
+  if (event.source === "openai-alignment" || SAFETY.test(title)) return "safety";
   // "Build voice experiences with GPT-Live-1 in the API" reads like a customer story and is a
   // capability reaching developers.
   if (firstParty && /\bin the api\b/i.test(title)) return "feature";

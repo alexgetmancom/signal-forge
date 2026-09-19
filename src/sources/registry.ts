@@ -31,6 +31,7 @@ import {
   collectGoogleAiBlog,
   collectHuggingFaceBlogFeed,
   collectNvidiaDeveloperBlog,
+  collectOpenAIAlignment,
   collectOpenAICodexChangelog,
 } from "./feeds.js";
 import { collectGithubCommits, collectGithubPulls, collectGithubReleases } from "./github.js";
@@ -543,6 +544,15 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       // Answers 304 to a conditional request, measured 2026-09-17, so a poll that finds nothing costs no body.
       intervalSeconds: 900,
       collector: () => collectDeepMindBlog(fetch, cache),
+    },
+    {
+      id: "openai-alignment",
+      authority: "first_party",
+      vendor: "OpenAI",
+      group: "Official news",
+      stream: "news",
+      intervalSeconds: 1800,
+      collector: () => collectOpenAIAlignment(fetch, cache),
     },
     {
       id: "nvidia-developer-blog",
