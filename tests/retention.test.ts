@@ -99,19 +99,23 @@ test("the same bytes twice in a row are stored once", () => {
   db.close();
 });
 
-test("the two heavy payloads are released after a fortnight, the rest after ninety days", () => {
+test("a payload over a megabyte is released after two days, the rest after thirty", () => {
   const db = openDatabase(":memory:");
   const age = (days: number) => new Date(now - days * 24 * 3_600_000).toISOString();
-  // Twenty days old: past the fortnight the heavy sources get, far inside the ninety of everyone
-  // else. Together those two held 71% of every snapshot byte on production on 2026-09-14.
-  const heavy = storeSnapshot(db, "claude-web", age(20), '{"page":"heavy"}');
-  const codex = storeSnapshot(db, "npm:@openai/codex", age(20), '{"registry":"heavy"}');
-  const ordinary = storeSnapshot(db, "arena", age(20), '{"board":"small"}');
+  const big = `{"page":"${"x".repeat(1_100_000)}"}`;
+  // Three days old: past the two a heavy payload gets, well inside the thirty of everyone else.
+  const heavy = storeSnapshot(db, "claude-web", age(3), big);
+  const catalogue = storeSnapshot(db, "models-dev", age(3), big.replace("page", "models"));
+  const ordinary = storeSnapshot(db, "arena", age(3), '{"board":"small"}');
+  const fresh = storeSnapshot(db, "openrouter", age(1), big.replace("page", "fresh"));
+  const stale = storeSnapshot(db, "voxelbench", age(31), '{"board":"stale"}');
 
-  expect(expireSnapshotBodies(db, now)).toBe(2);
+  expect(expireSnapshotBodies(db, now)).toBe(3);
   expect(readSnapshot(db, heavy.id)).toBeNull();
-  expect(readSnapshot(db, codex.id)).toBeNull();
+  expect(readSnapshot(db, catalogue.id)).toBeNull();
+  expect(readSnapshot(db, stale.id)).toBeNull();
   expect(readSnapshot(db, ordinary.id)).toBe('{"board":"small"}');
+  expect(readSnapshot(db, fresh.id)).not.toBeNull();
   db.close();
 });
 

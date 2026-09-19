@@ -176,3 +176,67 @@ test("every child sitemap is read, and a page in a new shard of a site already r
   const first = await collectSitePages(site, request, undefined, null);
   expect(first.silentIds).toHaveLength(13);
 });
+
+test("a new page reaches the scouts only when it names a versioned product or is a model page", () => {
+  const page = (source: string, id: string, name: string): Event => ({
+    id: 1,
+    source,
+    stream: "pages",
+    entity_id: id,
+    kind: "new",
+    before_json: null,
+    after_json: JSON.stringify({ id, name }),
+    detected_at: "2026-09-18T00:00:00.000Z",
+  });
+  // The tells of 2026-09-15..18.
+  expect(
+    signalClass(
+      page("pages:google", "/gemini-api/docs/models/gemini-3.8-live", "Google AI for Developers: Gemini 3.8 live"),
+    ),
+  ).toBe("codename");
+  expect(
+    signalClass(page("pages:deepmind", "/models/model-cards/gemini-3-8-audio", "Google DeepMind: Gemini 3 8 audio")),
+  ).toBe("codename");
+  expect(signalClass(page("pages:xai", "/news/grok-voice-transcribe-2", "xAI: Grok voice transcribe 2"))).toBe(
+    "codename",
+  );
+  // What reached the scouts beside them and was not a sighting.
+  expect(
+    signalClass(
+      page(
+        "pages:anthropic",
+        "/institute/measuring-pace-of-ai-development",
+        "Anthropic: Measuring pace of ai development",
+      ),
+    ),
+  ).toBe("article");
+  expect(
+    signalClass(
+      page("pages:anthropic", "/news/accenture-embedded-evaluation", "Anthropic: Accenture embedded evaluation"),
+    ),
+  ).toBe("article");
+  expect(
+    signalClass(
+      page(
+        "pages:anthropic",
+        "/news/life-sciences-verification-program",
+        "Anthropic: Life sciences verification program",
+      ),
+    ),
+  ).toBe("article");
+  expect(
+    signalClass(
+      page("pages:google", "/gemini-api/docs/lyria-prompt-guide", "Google AI for Developers: Lyria prompt guide"),
+    ),
+  ).toBe("article");
+  expect(signalClass(page("pages:openai", "/solutions/industries/law", "OpenAI: Law"))).toBe("article");
+  expect(
+    signalClass(
+      page(
+        "pages:openai",
+        "/index/disrupting-malicious-uses-of-ai-romance-scam",
+        "OpenAI: Disrupting malicious uses of ai romance scam",
+      ),
+    ),
+  ).toBe("article");
+});

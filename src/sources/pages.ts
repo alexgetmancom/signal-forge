@@ -129,6 +129,16 @@ export const WATCHED_SITES: readonly WatchedSite[] = [
     sitemap: "https://support.claude.com/sitemap.xml",
     ignoreSections: ["de", "es", "fr", "id", "it", "ja", "ko", "pt", "ru", "zh-CN", "zh-TW"],
   },
+  // Mistral's newsroom is where a model and a partnership are announced; its API catalogue says
+  // nothing until a model is callable. "Mistral X Mozilla" on 2026-09-16 was missed for want of it.
+  // `/sitemap.xml` redirects here. The site is published in French and Italian as well.
+  {
+    id: "mistral",
+    name: "Mistral",
+    vendor: "Mistral",
+    sitemap: "https://mistral.ai/sitemap-index.xml",
+    ignoreSections: ["fr", "it", "legal", "careers", "contact", "brand", "about"],
+  },
   // Google announces developer-facing model and tooling work here rather than on the product blog.
   // Every entry is a post at the root, so there is no section worth ignoring.
   {

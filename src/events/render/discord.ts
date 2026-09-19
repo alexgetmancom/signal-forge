@@ -41,6 +41,25 @@ function eyebrow(event: Event): string {
  * kind of surface and the first line of the body says what it means, so a card that also spells
  * out "Model availability updated" spends a reader's attention on grammar rather than on the name.
  */
+/**
+ * A reseller row from a maker we do not track reaches a reader as its bare product name: Vercel's
+ * `fish-audio/s1` and `fish-audio/s2-pro` went out on 2026-09-18 as "S1" and "S2 Pro", which say
+ * nothing about what moved. The row names its maker, so the title does.
+ */
+function withUntrackedMaker(name: string, vendor: string, record: RecordData | null): string {
+  if (vendor !== "Unknown") return name;
+  const maker = typeof record?.maker === "string" ? record.maker.trim() : "";
+  if (!maker) return name;
+  const readable = /[A-Z]/.test(maker)
+    ? maker
+    : maker
+        .split(/[-_\s]+/)
+        .filter(Boolean)
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(" ");
+  return name.toLowerCase().includes(readable.toLowerCase()) ? name : `${readable} ${name}`;
+}
+
 function eventHeadline(event: Event, name: string, incident: Incident | null): string {
   if (event.stream === "deprecations" && event.kind === "new") return `⚠️ ${name} is being retired`;
   if (incident) return `${incident.icon} ${name}`;
@@ -337,7 +356,8 @@ export function eventEmbed(
   const rawName = String(record?.name ?? event.entity_id);
   const shown = displayTitle(rawName, event.stream, event.source);
   const stripped = withoutMakerPrefix(shown);
-  const name = stripped === shown ? shown : capital(stripped);
+  const named = stripped === shown ? shown : capital(stripped);
+  const name = withUntrackedMaker(named, vendor, record);
   const all = eventFactParts(event).filter((fact) => factText(fact).toLowerCase() !== `maker: ${vendor.toLowerCase()}`);
   const shaped = shape(event, before, after, vendor, all);
   const facts = shaped.facts.filter(

@@ -25,7 +25,7 @@ const KEEP_MS = 14 * 24 * 3_600_000;
  * those sites ship, so the cache is bounded by construction: past this, the least recently used
  * entries go until it fits. Nothing here is evidence; a dropped entry costs one more request.
  */
-const BUDGET_BYTES = 150 * 1024 * 1024;
+const BUDGET_BYTES = 64 * 1024 * 1024;
 
 export class HttpCache {
   constructor(private readonly db: Database) {}

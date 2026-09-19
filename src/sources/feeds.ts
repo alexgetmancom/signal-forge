@@ -16,6 +16,10 @@ const GOOGLE_AI_BLOG_FEED_URL = "https://blog.google/innovation-and-ai/technolog
 const GOOGLE_AI_BLOG_URL = "https://blog.google/technology/ai/";
 const DEEPMIND_BLOG_FEED_URL = "https://deepmind.google/blog/rss.xml";
 const DEEPMIND_BLOG_URL = "https://deepmind.google/blog/";
+// NVIDIA announces its own models (Nemotron) and developer tooling here; "CUDA for Rust" on
+// 2026-09-16 was a front-page story nothing here had read.
+const NVIDIA_DEVELOPER_BLOG_FEED_URL = "https://developer.nvidia.com/blog/feed";
+const NVIDIA_DEVELOPER_BLOG_URL = "https://developer.nvidia.com/blog/";
 
 const xmlTextSchema = z.union([z.string(), z.object({ "#text": z.string() }).passthrough()]);
 
@@ -293,5 +297,13 @@ export async function collectDeepMindBlog(request: Fetch = fetch, cache?: HttpCa
     source: "deepmind-blog",
     maker: "Google",
     url: DEEPMIND_BLOG_URL,
+  });
+}
+
+export async function collectNvidiaDeveloperBlog(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
+  return parseOfficialFeed(await fetchText(NVIDIA_DEVELOPER_BLOG_FEED_URL, {}, request, undefined, cache), {
+    source: "nvidia-developer-blog",
+    maker: "NVIDIA",
+    url: NVIDIA_DEVELOPER_BLOG_URL,
   });
 }

@@ -67,24 +67,21 @@ export function pruneSnapshots(db: Database, now = Date.now()): number {
  * their original size, which is a receipt that the evidence existed and what it was; the event
  * keeps its own before and after state, which is what every card is actually drawn from.
  */
-const BODY_LIFETIME_DAYS = 90;
+const BODY_LIFETIME_DAYS = 30;
 
 /**
- * Two sources carry a payload large enough that ninety days of them is most of the database, so
- * their bytes are released after fourteen instead.
+ * A payload larger than a megabyte keeps its bytes for two days.
  *
- * Measured on production 2026-09-14: `claude-web` held 360.9 MB across 18 retained snapshots and
- * `npm:@openai/codex` 244.8 MB across 17, which is 71% of every snapshot byte stored. Both are one
- * enormous document re-fetched whole -- a rendered web bundle and a registry document carrying
- * every version ever published -- and neither is a document anybody opens a fortnight later. The
- * event keeps its own before and after state either way, so what a shorter life costs is the raw
- * bytes behind a card nobody is still looking at.
+ * Measured on production 2026-09-19: snapshots held 422 MB of a 681 MB database, and 239 MB of it
+ * was 34 copies of the `claude-web` bundle at about 7 MB each, all inside the old fourteen-day
+ * window. Naming the heavy sources one by one also missed `models-dev` (36 MB) and `openrouter`
+ * (32 MB). Size is the property that matters, so size decides. Every event keeps its own before
+ * and after state, so what this costs is the raw bytes behind a card older than two days.
  */
-const HEAVY_BODY_LIFETIME_DAYS = 14;
-const HEAVY_BODY_SOURCES = ["claude-web", "npm:@openai/codex"];
+const HEAVY_BODY_LIFETIME_DAYS = 2;
+const HEAVY_BODY_BYTES = 1_000_000;
 
 export function expireSnapshotBodies(db: Database, now = Date.now()): number {
-  const marks = HEAVY_BODY_SOURCES.map(() => "?").join(",");
   const cutoff = (days: number) => new Date(now - days * 24 * 3_600_000).toISOString();
   try {
     return db
@@ -93,13 +90,13 @@ export function expireSnapshotBodies(db: Database, now = Date.now()): number {
          WHERE id IN (
            SELECT id FROM snapshots
            WHERE body IS NOT NULL
-             AND collected_at < (CASE WHEN source IN (${marks}) THEN ? ELSE ? END)
+             AND collected_at < (CASE WHEN bytes > ? THEN ? ELSE ? END)
            LIMIT ?
          ) RETURNING 1 AS expired`,
       )
       .all(
         new Date(now).toISOString(),
-        ...HEAVY_BODY_SOURCES,
+        HEAVY_BODY_BYTES,
         cutoff(HEAVY_BODY_LIFETIME_DAYS),
         cutoff(BODY_LIFETIME_DAYS),
         CHUNK * MAX_CHUNKS,

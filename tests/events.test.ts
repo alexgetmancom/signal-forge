@@ -1252,3 +1252,18 @@ test("a gateway's tier tables are named as repriced, not dumped", () => {
     { label: "Also repriced", value: "input tiers, fast" },
   ]);
 });
+
+test("a reseller row from an untracked maker is titled with its maker", () => {
+  const row = { context: null, id: "fish-audio/s1", maker: "fish-audio", name: "S1", output: null, pricing: {} };
+  const event = {
+    id: 1,
+    source: "vercel-gateway",
+    stream: "api-models",
+    entity_id: "fish-audio/s1",
+    kind: "changed" as const,
+    before_json: JSON.stringify(row),
+    after_json: JSON.stringify({ ...row, pricing: { input: "0.000015" } }),
+    detected_at: "2026-09-18T21:00:00.000Z",
+  };
+  expect(JSON.stringify(eventEmbed(event, "https://vercel.com/ai-gateway"))).toContain("Fish Audio S1");
+});

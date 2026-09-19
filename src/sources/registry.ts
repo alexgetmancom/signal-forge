@@ -30,6 +30,7 @@ import {
   collectDeepMindBlog,
   collectGoogleAiBlog,
   collectHuggingFaceBlogFeed,
+  collectNvidiaDeveloperBlog,
   collectOpenAICodexChangelog,
 } from "./feeds.js";
 import { collectGithubCommits, collectGithubPulls, collectGithubReleases } from "./github.js";
@@ -524,6 +525,15 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       collector: () => collectDeepMindBlog(fetch, cache),
     },
     {
+      id: "nvidia-developer-blog",
+      authority: "first_party",
+      vendor: "NVIDIA",
+      group: "Official news",
+      stream: "news",
+      intervalSeconds: 1800,
+      collector: () => collectNvidiaDeveloperBlog(fetch, cache),
+    },
+    {
       id: "kimi-code-changelog",
       authority: "first_party",
       vendor: "Moonshot",
@@ -780,6 +790,9 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
     // Collected to be measured against, never to be told: nobody needs a card because a model
     // moved from ninth to tenth by tokens.
     "openrouter-usage",
+    // Removed on 2026-09-10 as mostly marketing, back to be measured rather than trusted: it
+    // collects, never reaches a channel, and source-verdicts decides after a month.
+    "nvidia-developer-blog",
   ]);
   const resolved = definitions.map(
     (definition): SourceDefinition => ({
