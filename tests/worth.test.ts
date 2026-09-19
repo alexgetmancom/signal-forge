@@ -10,7 +10,19 @@ const wire: Destination = {
   id: "scouts",
   platform: "discord",
   channelId: "1",
-  signals: ["launch", "codename", "rank", "change", "evidence", "release", "article"],
+  signals: [
+    "launch",
+    "codename",
+    "rank",
+    "change",
+    "evidence",
+    "release",
+    "article",
+    "feature",
+    "safety",
+    "research",
+    "business",
+  ],
 };
 
 function suppressed(db: ReturnType<typeof openDatabase>): Record<string, string> {

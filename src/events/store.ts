@@ -165,6 +165,17 @@ export function persistCollection(
     )
     .all(c.source);
   const previous = new Map(old.map((row) => [row.id, row]));
+  // The boards a scoreboard already had. A board appearing is one fact, not ten debuts: Arena opened
+  // image-to-code on 2026-09-13 with fifty models on it, seven of them in a top ten nobody had
+  // entered, because there was no board to enter before.
+  const boardsBefore =
+    c.stream === "leaderboards"
+      ? new Set(old.map((row) => (JSON.parse(row.body) as { category?: unknown }).category))
+      : null;
+  const onANewBoard = (event: Event) =>
+    boardsBefore !== null &&
+    event.kind === "new" &&
+    !boardsBefore.has((JSON.parse(event.after_json ?? "{}") as { category?: unknown }).category);
   // A section the collector stopped reading on purpose is not a catalogue that shrank. On 2026-09-16
   // dropping OpenAI's `index` and Claude Docs' translations left 116 of 788 and 643 of 3,415 records,
   // and the guard below refused both sites until a migration deleted the rows by hand.
@@ -274,7 +285,7 @@ export function persistCollection(
       } else db.query("UPDATE records SET missing_count=missing_count+1 WHERE source=? AND id=?").run(c.source, row.id);
     }
   for (const digest of [false, true]) {
-    const events = emitted.filter((event) => isRoutine(event) === digest);
+    const events = emitted.filter((event) => isRoutine(event) === digest && !onANewBoard(event));
     const present = new Set(events.map((event) => signalClass(event)));
     const targets = destinations.filter((destination) => destination.signals.some((signal) => present.has(signal)));
     if (!events.length || !targets.length) continue;

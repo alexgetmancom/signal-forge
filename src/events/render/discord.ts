@@ -2,6 +2,7 @@ import { sourceLabel } from "../../sources/labels.js";
 import { readerStanding } from "../confidence.js";
 import { vendorOf } from "../interpretation.js";
 import { displayTitle } from "../naming.js";
+import { boardPlace, DEBUT_PLACES } from "../signals.js";
 import type { Event, RecordData } from "../types.js";
 import { DESCRIPTION_CHARACTERS } from "./budget.js";
 import { describe, type Fact, factText, pricePair, withoutMakerPrefix } from "./common.js";
@@ -63,6 +64,11 @@ function withUntrackedMaker(name: string, vendor: string, record: RecordData | n
 function eventHeadline(event: Event, name: string, incident: Incident | null): string {
   if (event.stream === "deprecations" && event.kind === "new") return `⚠️ ${name} is being retired`;
   if (incident) return `${incident.icon} ${name}`;
+  // A debut is read for one number, the place, so the title says it before the reader opens the card.
+  if (event.stream === "leaderboards" && event.kind === "new") {
+    const place = boardPlace(event);
+    if (place !== null && place <= DEBUT_PLACES) return `🏆 ${name} debuts at #${place}`;
+  }
   return `${KIND_ICONS[event.kind]} ${name}`;
 }
 

@@ -5,6 +5,7 @@ import type { Event, RecordData } from "./types.js";
 
 export { vendorOf } from "./vendors.js";
 
+import { signalClass } from "./signals.js";
 import { isModelVariant } from "./variants.js";
 
 export function isRoutine(event: Event): boolean {
@@ -13,6 +14,8 @@ export function isRoutine(event: Event): boolean {
   // vendor itself calls it severe; everything else an incident does travels with the digest.
   if (event.stream === "incidents") return !incidentIsUrgent(event);
   if (event.stream === "leaderboards") {
+    // A model debuting in the top ten is told the moment it happens, like the launch it follows.
+    if (signalClass(event) === "debut") return false;
     const before = event.before_json ? (JSON.parse(event.before_json) as RecordData) : null;
     const after = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
     const beforeRank = typeof before?.rank === "number" ? before.rank : null;

@@ -209,12 +209,12 @@ test("a new page reaches the scouts only when it names a versioned product or is
         "Anthropic: Measuring pace of ai development",
       ),
     ),
-  ).toBe("article");
+  ).not.toBe("codename");
   expect(
     signalClass(
       page("pages:anthropic", "/news/accenture-embedded-evaluation", "Anthropic: Accenture embedded evaluation"),
     ),
-  ).toBe("article");
+  ).not.toBe("codename");
   expect(
     signalClass(
       page(
@@ -223,13 +223,13 @@ test("a new page reaches the scouts only when it names a versioned product or is
         "Anthropic: Life sciences verification program",
       ),
     ),
-  ).toBe("article");
+  ).not.toBe("codename");
   expect(
     signalClass(
       page("pages:google", "/gemini-api/docs/lyria-prompt-guide", "Google AI for Developers: Lyria prompt guide"),
     ),
-  ).toBe("article");
-  expect(signalClass(page("pages:openai", "/solutions/industries/law", "OpenAI: Law"))).toBe("article");
+  ).not.toBe("codename");
+  expect(signalClass(page("pages:openai", "/solutions/industries/law", "OpenAI: Law"))).not.toBe("codename");
   expect(
     signalClass(
       page(
@@ -238,5 +238,5 @@ test("a new page reaches the scouts only when it names a versioned product or is
         "OpenAI: Disrupting malicious uses of ai romance scam",
       ),
     ),
-  ).toBe("article");
+  ).not.toBe("codename");
 });

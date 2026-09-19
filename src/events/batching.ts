@@ -172,17 +172,22 @@ function releaseTold(db: Database, key: string, destinationId: string, batchId: 
   );
 }
 
+const DEBUT_WINDOW_MS = 24 * 3_600_000;
+
 function repeatsDeliveredStory(
   db: Database,
-  event: Event,
+  event: Event & { signal?: string },
   destinationId: string,
   storyId: number | undefined,
   batchId: number,
 ): boolean {
   if (storyId === undefined || event.kind !== "new") return false;
   const candidates = db
-    .query<{ source: string; stream: string; detected_at: string; confidence: string }, [number, number, string]>(
-      `SELECT DISTINCT earlier.source,earlier.stream,earlier.detected_at,earlier.confidence
+    .query<
+      { source: string; stream: string; detected_at: string; confidence: string; signal: string },
+      [number, number, string]
+    >(
+      `SELECT DISTINCT earlier.source,earlier.stream,earlier.detected_at,earlier.confidence,be.signal
        FROM story_events se
        JOIN story_events previous ON previous.story_id=se.story_id AND previous.event_id<>se.event_id
        JOIN events earlier ON earlier.id=previous.event_id
@@ -193,6 +198,14 @@ function repeatsDeliveredStory(
     )
     .all(event.id, batchId, destinationId);
   const detectedAt = Date.parse(event.detected_at);
+  // A debut is news about a model the reader was already told arrived: the launch card said it
+  // exists, the debut says how good it is. Only another debut of the same model repeats it, from
+  // whichever board, so a model entering three boards in a day is one card.
+  if (event.signal === "debut")
+    return candidates.some(
+      (candidate) =>
+        candidate.signal === "debut" && Math.abs(detectedAt - Date.parse(candidate.detected_at)) <= DEBUT_WINDOW_MS,
+    );
   return candidates.some((candidate) => {
     const earlierAt = Date.parse(candidate.detected_at);
     return (
@@ -372,7 +385,7 @@ function standingReason(
   if (view.renamed.has(event.id)) return "renamed_by_the_source";
   if (isMinorBoardMove(event)) return "below_the_top_of_the_board";
   if (isAnotherServing(event, view.known)) return "another_serving_of_a_known_model";
-  if (event.signal === "article" && isAboutTheCompanyNotAModel(event, view.known))
+  if ((event.signal === "article" || event.signal === "business") && isAboutTheCompanyNotAModel(event, view.known))
     return "a_post_about_the_company_not_a_model";
   if (isLabelOnlyChange(event)) return "display_label_only";
   if (isAliasRow(event)) return "alias_of_another_row";
@@ -480,7 +493,9 @@ export function prepareDeliveries(
         .sort();
     };
     // Read once per batch: the question is about the event, not about the destination.
-    const known = events.some((event) => ["arena", "web"].includes(event.stream) || event.signal === "article")
+    const known = events.some(
+      (event) => ["arena", "web"].includes(event.stream) || event.signal === "article" || event.signal === "business",
+    )
       ? knownModelNames(db)
       : [];
     const batchView: BatchView = { renamed, known, listings, sighted, elsewhereOf };

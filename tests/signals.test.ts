@@ -31,7 +31,15 @@ test("an entry listed but not yet usable is a codename, not a launch", () => {
     signalClass(event({ stream: "openrouter", kind: "new" }, { id: "vendor/model", name: "Model", selectable: false })),
   ).toBe("codename");
   expect(signalClass(event({ stream: "arena", kind: "new", source: "arena" }))).toBe("codename");
-  expect(signalClass(event({ stream: "leaderboards", kind: "new", source: "designarena:website" }))).toBe("codename");
+  // A niche board is a sighting for the scouts, but only near the top.
+  expect(
+    signalClass(
+      event(
+        { stream: "leaderboards", kind: "new", source: "designarena:website" },
+        { id: "m", name: "M", category: "designarena/website", rank: 3 },
+      ),
+    ),
+  ).toBe("codename");
   expect(signalClass(event({ stream: "github", kind: "new", source: "discovery:github-agents" }))).toBe("codename");
 });
 
@@ -278,4 +286,44 @@ test("a patch build stays out of the release class; a minor, major or named rele
     "release",
   );
   expect(signalClass(changelog("cursor-changelog", { name: "Cursor Projects" }))).toBe("release");
+});
+
+test("a model new to a board is news only in the top ten, and a debut only on a board people quote", () => {
+  const entry = (category: string, rank: unknown) =>
+    signalClass(
+      event({ stream: "leaderboards", kind: "new", source: "arena-leaderboards" }, {
+        id: "m",
+        name: "M",
+        category,
+        rank,
+      } as never),
+    );
+  expect(entry("text/overall", 7)).toBe("debut");
+  expect(entry("artificial-analysis/text-to-image", 1)).toBe("debut");
+  expect(entry("designarena/website", 4)).toBe("codename");
+  expect(entry("text/overall", 11)).toBe("rank");
+  // DeepSeek v4.1 Flash arrived at #0 on 2026-09-10: a board's blank, not first place.
+  expect(entry("code/overall", 0)).toBe("rank");
+  expect(entry("text/overall", undefined)).toBe("rank");
+});
+
+test("a lab's post is sorted into what it is about", () => {
+  const post = (name: string, source = "openai-news") =>
+    signalClass(event({ stream: "news", kind: "new", source }, { id: name, name }));
+  expect(post("Operation “Trolling Stone”: Russia-linked influence activity")).toBe("safety");
+  expect(post("Our framework for reporting model misalignment")).toBe("safety");
+  expect(post("Measurements for understanding the pace of AI development inside frontier labs", "anthropic-news")).toBe(
+    "research",
+  );
+  expect(post("Introducing the Agents API")).toBe("feature");
+  expect(post("Build more natural voice experiences with GPT‑Live‑1 in the API")).toBe("feature");
+  expect(post("Introducing ChatGPT for Financial Services")).toBe("business");
+  expect(post("1Password increases engineering productivity 21% with Codex")).toBe("business");
+  expect(post("DevFest is back", "google-ai-blog")).toBe("business");
+  expect(post("How Cooley is accelerating IPO work with ChatGPT")).toBe("business");
+  expect(post("Hex turns complex analysis into visual reports with GPT‑6 Astra")).toBe("business");
+  expect(post("Prompting fundamentals")).toBe("article");
+  // Somebody else saying a product changed is not the vendor shipping it.
+  expect(post("Claude Code now reads AGENTS.md if there is no Claude.md", "hackernews")).toBe("article");
+  expect(post("ZCode, the GLM coding agent, silently uploads your Git history", "hackernews")).toBe("safety");
 });

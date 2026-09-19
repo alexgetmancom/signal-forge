@@ -458,7 +458,7 @@ test("a cross-stream digest stays scoped to each destination", () => {
     rows.map((row) => [row.destination_id, JSON.parse(row.body) as { embeds: { title: string }[] }]),
   );
   expect(bodies.get("models")?.embeds.map((embed) => embed.title)).toEqual(["✏️ Router model"]);
-  expect(bodies.get("benchmarks")?.embeds.map((embed) => embed.title)).toEqual(["🆕 Newcomer model"]);
+  expect(bodies.get("benchmarks")?.embeds.map((embed) => embed.title)).toEqual(["🏆 Newcomer model debuts at #3"]);
   local.close();
 });
 
@@ -737,7 +737,7 @@ test("a price move waits for the digest while a new capability does not", () => 
   );
 });
 
-test("entering a board is a sentence, waits for the digest, and pings nobody", () => {
+test("entering a board is a sentence, and only a top-ten debut is told at once", () => {
   const event = {
     id: 116,
     source: "arena-leaderboards",
@@ -756,14 +756,19 @@ test("entering a board is a sentence, waits for the digest, and pings nobody", (
   };
   const embed = eventEmbed(event, "https://arena.ai/leaderboard") as {
     description: string;
+    title: string;
     author: { name: string };
   };
   expect(embed.description).toContain("Enters text-to-image/overall at rank 1");
   // The eyebrow already says OpenAI; the body must not say it again.
   expect(embed.author.name).toBe("ARENA · LEADERBOARDS · OPENAI");
   expect(embed.description).not.toContain("Maker:");
-  // A scoreboard moving is not worth interrupting a few hundred people for.
-  expect(isRoutine(event)).toBe(true);
+  // A model taking first place on a board people quote is a debut, told at once.
+  expect(isRoutine(event)).toBe(false);
+  expect(embed.title).toBe("🏆 gpt-image-2.5-sunburst debuts at #1");
+  // Below the top ten it is a row, and it waits for the digest like any other board churn.
+  const low = { ...event, after_json: JSON.stringify({ ...JSON.parse(event.after_json), rank: 14 }) };
+  expect(isRoutine(low)).toBe(true);
 });
 
 test("leaderboard notifications keep the leading places and meaningful movements only", () => {
@@ -1266,4 +1271,32 @@ test("a reseller row from an untracked maker is titled with its maker", () => {
     detected_at: "2026-09-18T21:00:00.000Z",
   };
   expect(JSON.stringify(eventEmbed(event, "https://vercel.com/ai-gateway"))).toContain("Fish Audio S1");
+});
+
+test("a board that opens today speaks for nobody, and a newcomer on a board that existed debuts", () => {
+  const local = openDatabase(":memory:");
+  const signals: Destination = { id: "signals", platform: "discord", channelId: "1", signals: ["debut"] };
+  const board = (rows: { id: string; category: string; rank: number }[]) => ({
+    source: "arena-leaderboards",
+    stream: "leaderboards",
+    url: "https://arena.example",
+    raw: [],
+    records: rows.map((row) => ({ ...row, name: row.id })),
+  });
+  const text = [1, 2, 3].map((rank) => ({ id: `t${rank}`, category: "text/overall", rank }));
+  saveCollection(local, board(text), [signals], "2026-09-13T00:00:00.000Z");
+  const opened = [1, 2, 3].map((rank) => ({ id: `c${rank}`, category: "image-to-code/overall", rank }));
+  saveCollection(
+    local,
+    board([...text, ...opened, { id: "newcomer", category: "text/overall", rank: 2 }]),
+    [signals],
+    "2026-09-13T01:00:00.000Z",
+  );
+  const routed = local
+    .query<{ entity_id: string; signal: string }, []>(
+      "SELECT e.entity_id,b.signal FROM batch_events b JOIN events e ON e.id=b.event_id ORDER BY e.id",
+    )
+    .all();
+  expect(routed).toEqual([{ entity_id: "newcomer", signal: "debut" }]);
+  local.close();
 });

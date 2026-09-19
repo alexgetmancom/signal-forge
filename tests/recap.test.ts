@@ -374,9 +374,97 @@ test("the wire gets one morning list of what the labs published, and the sightin
   expect(context.headlines.map((line) => line.title)).toEqual(["mistral x mozilla"]);
   prepareDeliveries(db, now);
   const body = db.query<{ body: string }, []>("SELECT body FROM deliveries").get()?.body ?? "";
-  expect(body).toContain("WHAT THE LABS SAID");
+  expect(body).toContain("THE DAY IN AI");
   expect(body).toContain("https://pages:mistral.example/news/mistral-x-mozilla");
   expect(body).not.toContain("<@&");
   // A room that carries no launches does not get the list.
   expect(renderRecapLines(context, ["codename"])).toEqual([]);
+});
+
+test("the day's news reads in sections, one maker takes two lines of each, and business is left out", () => {
+  const db = openDatabase(":memory:");
+  const news = (source: string, titles: string[]): Collection => ({
+    source,
+    stream: "news",
+    url: `https://${source}.example`,
+    raw: [],
+    records: titles.map((name, index) => ({
+      id: `${source}-${index}`,
+      name,
+      url: `https://${source}.example/${index}`,
+    })),
+  });
+  saveCollection(db, news("openai-news", ["An earlier post"]), [], "2026-09-15T00:00:00.000Z");
+  saveCollection(db, news("hackernews", ["An earlier story"]), [], "2026-09-15T00:00:00.000Z");
+  saveCollection(
+    db,
+    news("openai-news", [
+      "An earlier post",
+      "Operation “Trolling Stone”: Russia-linked influence activity",
+      "Operation “Fish Food”: Russia-origin content farm activity",
+      "Operation “No Bell”: Coordinated criticism of the US and allies",
+      "On the Navier–Stokes Millennium Prize Problem",
+      "1Password increases engineering productivity 21% with Codex",
+      "Prompting fundamentals",
+    ]),
+    [],
+    "2026-09-16T12:00:00.000Z",
+  );
+  saveCollection(
+    db,
+    news("hackernews", [
+      "An earlier story",
+      "ZCode, the GLM coding agent, silently uploads your Git history",
+      "I hate you Microsoft",
+    ]),
+    [],
+    "2026-09-16T12:00:00.000Z",
+  );
+  const context = recapContext(db, lastRecapPeriod(Date.parse("2026-09-17T07:00:00.000Z"), "news"), "news");
+  const text = renderRecapLines(context, ["launch"]).join("\n");
+  expect(text).toContain("🛡 **Safety**");
+  expect(text).toContain("+1 more");
+  expect(text).toContain("silently uploads your Git history");
+  expect(text).toContain("🔬 **Research**");
+  expect(text).toContain("Navier–Stokes");
+  expect(text).toContain("📰 **Also from the labs**");
+  expect(text).toContain("Prompting fundamentals");
+  // A customer story is kept and never sent, and other people's opinions are not the labs' news.
+  expect(text).not.toContain("1Password");
+  expect(text).not.toContain("I hate you");
+  expect(text.indexOf("Safety")).toBeLessThan(text.indexOf("Research"));
+});
+
+test("the scouts' morning names big climbs into the top ten and boards that opened", () => {
+  const db = openDatabase(":memory:");
+  const board = (rows: { id: string; category: string; rank: number }[]): Collection => ({
+    source: "arena-leaderboards",
+    stream: "leaderboards",
+    url: "https://arena.example",
+    raw: [],
+    records: rows.map((row) => ({ ...row, name: row.id })),
+  });
+  const text = Array.from({ length: 12 }, (_, index) => ({
+    id: `m${index + 1}`,
+    category: "text/overall",
+    rank: index + 1,
+  }));
+  saveCollection(db, board(text), [], "2026-09-15T00:00:00.000Z");
+  // m12 climbs to #4; a board nobody had seen opens with three rows.
+  const moved = text.map((row) =>
+    row.id === "m12" ? { ...row, rank: 4 } : row.rank >= 4 && row.rank < 12 ? { ...row, rank: row.rank + 1 } : row,
+  );
+  const opened = ["a", "b", "c"].map((id, index) => ({
+    id: `itc-${id}`,
+    category: "image-to-code/overall",
+    rank: index + 1,
+  }));
+  saveCollection(db, board([...moved, ...opened]), [], "2026-09-16T12:00:00.000Z");
+  const context = recapContext(db, lastRecapPeriod(Date.parse("2026-09-17T07:00:00.000Z"), "day"), "day");
+  const lines = renderRecapLines(context, ["codename"]).join("\n");
+  expect(lines).toContain("📈 m12 · #12 → #4 on Arena text");
+  expect(lines).toContain("🆕 New board: Arena image-to-code · led by Itc A");
+  // A one-place shuffle is churn.
+  expect(lines).not.toContain("m5 ·");
+  expect(renderRecapLines(context, ["launch"])).toEqual([]);
 });

@@ -104,13 +104,21 @@ export function renderRecapLines(context: RecapContext, signals: readonly string
     new Date(at).toLocaleDateString("en-GB", { day: "numeric", month: "long", timeZone: "UTC" });
   if (context.period === "news") {
     if (!signals.includes("launch") || !context.headlines.length) return [];
-    return [
-      `**${day(context.from)} → ${day(context.to)}**`,
-      "",
-      ...context.headlines.map(
-        (line) => `· **${line.vendor}** — ${line.url ? `[${line.title}](${line.url})` : line.title}`,
-      ),
-    ];
+    const lines = [`**${day(context.from)} → ${day(context.to)}**`];
+    for (const [topic, heading] of [
+      ["safety", "🛡 **Safety**"],
+      ["research", "🔬 **Research**"],
+      ["other", "📰 **Also from the labs**"],
+    ] as const) {
+      const section = context.headlines.filter((line) => line.topic === topic);
+      if (!section.length) continue;
+      lines.push("", heading);
+      for (const line of section)
+        lines.push(
+          `· **${line.vendor}** — ${line.url ? `[${line.title}](${line.url})` : line.title}${line.more ? ` · +${line.more} more` : ""}`,
+        );
+    }
+    return lines;
   }
   if (context.period === "day") {
     const moved = [
@@ -118,7 +126,16 @@ export function renderRecapLines(context: RecapContext, signals: readonly string
         ? context.priceMoves.map((move) => `📊 ${withoutMakerPrefix(move.name)} · ${priceMove(move)}`)
         : []),
       ...(signals.includes("codename")
-        ? context.leaders.map((leader) => `🏆 ${withoutMakerPrefix(leader.name)} now leads ${leader.board}`)
+        ? [
+            ...context.leaders.map((leader) => `🏆 ${withoutMakerPrefix(leader.name)} now leads ${leader.board}`),
+            ...context.climbers.map(
+              (climb) => `📈 ${withoutMakerPrefix(climb.name)} · #${climb.from} → #${climb.to} on ${climb.board}`,
+            ),
+            ...context.newBoards.map(
+              (board) =>
+                `🆕 New board: ${board.board}${board.leader ? ` · led by ${withoutMakerPrefix(board.leader)}` : ""}`,
+            ),
+          ]
         : []),
     ];
     return moved.length ? [`**${day(context.from)} → ${day(context.to)}**`, "", ...moved] : [];
@@ -158,17 +175,13 @@ export function renderRecapEmbed(context: RecapContext, signals: readonly string
   return {
     author: {
       name:
-        context.period === "news"
-          ? "WHAT THE LABS SAID"
-          : context.period === "day"
-            ? "WHAT MOVED"
-            : "THE WEEK IN MODELS",
+        context.period === "news" ? "THE DAY IN AI" : context.period === "day" ? "WHAT MOVED" : "THE WEEK IN MODELS",
     },
     description: clip(lines.join("\n"), 4000),
     footer: {
       text:
         context.period === "news"
-          ? "Posts from the labs' own newsrooms in the last day · no ping"
+          ? "The labs' own posts and the day's safety and research stories · no ping"
           : context.period === "day"
             ? "Moves too small for a card of their own · no ping"
             : "Everything here was posted as it happened · scouts saw the early half first",

@@ -24,6 +24,11 @@ export const SIGNAL_CLASSES = [
   "incident",
   "reminder",
   "retirement",
+  "feature",
+  "safety",
+  "research",
+  "business",
+  "debut",
 ] as const;
 export type SignalClass = (typeof SIGNAL_CLASSES)[number];
 
@@ -52,6 +57,14 @@ export type SignalClass = (typeof SIGNAL_CLASSES)[number];
  *   every open incident, so this class exists to keep the routine ones off the reader feed while
  *   the board keeps counting them.
  * `reminder`: derived operator work rather than an observation, such as a deadline reminder.
+ * `feature`: a vendor saying a product a reader already uses can now do something new. "Introducing
+ *   the Agents API" is a card; it was an article until 2026-09-19 and reached nobody.
+ * `safety`, `research`: what a vendor said about misuse, security and model behaviour, or about
+ *   what it found. Read once a day in one message on the public wire, never as cards: OpenAI filed
+ *   eight "Disrupting malicious uses" reports in a single afternoon.
+ * `business`: customer stories, partnerships, programmes, hires, events, policy. Kept, not sent.
+ * `debut`: a model that was not on a main scoreboard taking a place in its top ten. How good a new
+ *   model is, which the launch card could not say.
  */
 /**
  * A blog, as opposed to a changelog. Google's belongs here for the same reason OpenAI's does: two
@@ -179,6 +192,75 @@ const SHIPS =
   /\b(introducing|announcing|launch(?:es|ing)?|is now|are now|now (?:available|supports?)|generally available|new in|redesigned)\b/i;
 
 /**
+ * What a vendor's post is about, once it is not a launch.
+ *
+ * Every newsroom mixes these under one heading, and on 2026-09-19 fourteen days of them were read
+ * by hand: eight OpenAI misuse reports, a misalignment framework and Anthropic's misuse review
+ * (safety); a pace-of-development study, a KV-cache write-up and a biomolecular model (research);
+ * the Agents API (a feature); and customer stories, partnerships, programmes, a conference and an
+ * astronaut interview (business). Asked in that order, because the question that decides where a
+ * post goes is the first one it answers: "Introducing the Australian Youth Safety Blueprint" is
+ * safety before it is a programme, and "Partnering with Accenture" is business before it is an
+ * evaluation. What answers none of them stays an article, the day's "other".
+ */
+const SAFETY =
+  /\b(safety|misuse|malicious|misalign\w*|jailbreak\w*|vulnerab\w*|exploit\w*|security|cyber\w*|threat\w*|scams?|fraud\w*|influence (?:operations?|activity|planning)|disrupting|abuse|red[- ]team\w*|guardrails?|concerning|secretly|silently|leak(?:s|ed)?|breach\w*|hack(?:ing|ed)?|incidents?|attacks?|decept\w*|sabotage|backdoor\w*)\b|^operation\b/i;
+const BUSINESS =
+  /\b(customers?|case stud\w*|helps?|trusts?|partner\w*|joins|board|hires?|appoint\w*|funding|grants?|econom\w*|polic(?:y|ies)|government\w*|federal|election\w*|journalism|advertising|fashion|devfest|summit|conference|webinar|watch|podcast|interview|award\w*|program(?:me)?s?|blueprint|initiatives?|workers?|older adults|teens?|youth|students?|classrooms?|productivity|for (?:law|legal|financial services|finance|healthcare|education|business|enterprises?|nonprofits)|(?:with|using) (?:chatgpt|codex|claude|gemini|gpt\S*))\b/i;
+const RESEARCH =
+  /\b(research|paper|stud(?:y|ies)|measur\w*|benchmark\w*|evaluat\w*|interpretab\w*|alignment|scaling laws?|pace of|prize problem|theorem|proofs?|technical report|architecture|kv cache|compression|inference infrastructure|under the hood|toward|towards|pre-?training|post-?training|distillation|tokeni[sz]\w*|scien\w*|molecul\w*|biomolecular|quantum)\b/i;
+const FEATURE_VERB =
+  /\b(introducing|announcing|launch(?:es|ing)?|is now|are now|now (?:available|supports?|reads?|can)|generally available|new in|in the api)\b/i;
+const PRODUCT =
+  /\b(api|apis|chatgpt|claude|codex|gemini|grok|cowork|sora|agents?|app|apps|cli|sdk|voice|search|memory|projects|connectors?|plugins?|extensions?|browser|mode)\b/i;
+
+function articleTopic(event: Event): "feature" | "safety" | "research" | "business" | "article" {
+  const record = recordFor(event);
+  const title = `${text(record?.name) ?? ""} ${event.stream === "pages" ? (text(record?.id) ?? "").replaceAll(/[/_-]+/g, " ") : ""}`;
+  const firstParty = event.source !== "hackernews" && event.kind === "new";
+  if (SAFETY.test(title)) return "safety";
+  // "Build voice experiences with GPT-Live-1 in the API" reads like a customer story and is a
+  // capability reaching developers.
+  if (firstParty && /\bin the api\b/i.test(title)) return "feature";
+  if (BUSINESS.test(title)) return "business";
+  if (RESEARCH.test(title)) return "research";
+  // Somebody else saying a product changed is a claim about it, not the vendor shipping it: a card
+  // needs the vendor's own word, so Hacker News never announces a feature.
+  if (firstParty && FEATURE_VERB.test(title) && PRODUCT.test(title)) return "feature";
+  return "article";
+}
+
+/**
+ * A place on a scoreboard people quote. A top-ten debut here is what a reader repeats about a new
+ * model; the design and niche boards are sightings for the scouts when they are anything at all.
+ */
+const MAIN_BOARDS = new Set([
+  "text/overall",
+  "code/overall",
+  "vision/overall",
+  "text-to-image/overall",
+  "image-edit/overall",
+  "text-to-video/overall",
+  "image-to-video/overall",
+  "artificial-analysis/text-to-image",
+  "artificial-analysis/image-editing",
+  "artificial-analysis/text-to-speech",
+  "artificial-analysis/text-to-video",
+]);
+/** Only the top ten is news; below it a new name is a row. */
+export const DEBUT_PLACES = 10;
+
+/** The place a new board entry took, when it is a real one: a board once served a model at #0. */
+export function boardPlace(event: Event): number | null {
+  const rank = recordFor(event)?.rank;
+  return typeof rank === "number" && Number.isInteger(rank) && rank >= 1 ? rank : null;
+}
+
+export function isMainBoard(category: unknown): boolean {
+  return typeof category === "string" && MAIN_BOARDS.has(category);
+}
+
+/**
  * The maker whose own models an API catalogue sells. A catalogue absent here sells other makers'
  * models -- Groq, Cerebras, the Vercel gateway -- and never launches anything itself.
  */
@@ -240,7 +322,19 @@ export function signalClass(event: Event): SignalClass {
    * digest message and read as a wall, and the model they are about did not change: `change` is for
    * what a vendor did, `rank` for what a scoreboard did.
    */
-  if (event.stream === "leaderboards") return event.kind === "new" ? "codename" : "rank";
+  //
+  // An arrival is only news near the top. A model debuting in the top ten of a board people quote
+  // is a `debut`, told to the public wire at once; the same on a niche board is still a sighting for
+  // the scouts; anything lower is a row. On 2026-09-13 Arena listed fifty models on a brand-new
+  // image-to-code board and every top-ten one would have been a card: arrivals on a board that did
+  // not exist before are held back where the collection is saved, which is the only place that
+  // knows the board is new.
+  if (event.stream === "leaderboards") {
+    if (event.kind !== "new") return "rank";
+    const place = boardPlace(event);
+    if (place === null || place > DEBUT_PLACES) return "rank";
+    return isMainBoard(recordFor(event)?.category) ? "debut" : "codename";
+  }
 
   /**
    * A retirement is read by whoever runs the model being retired, and that is a small, attentive
@@ -262,11 +356,14 @@ export function signalClass(event: Event): SignalClass {
    */
   if (event.stream === "news") {
     if (publishedLongAgo(event, record?.published)) return "evidence";
-    if (PRODUCT_BLOGS.has(event.source))
-      return event.kind === "new" && SHIPS.test(text(record?.name) ?? "") ? "release" : "article";
+    if (PRODUCT_BLOGS.has(event.source)) {
+      if (event.kind === "new" && SHIPS.test(text(record?.name) ?? "")) return "release";
+      return event.kind === "new" ? articleTopic(event) : "article";
+    }
     if (NEWSROOMS.has(event.source)) {
       const title = text(record?.name) ?? "";
-      return event.kind === "new" && ANNOUNCES.test(title) && NAMES_A_MODEL.test(title) ? "launch" : "article";
+      if (event.kind === "new" && ANNOUNCES.test(title) && NAMES_A_MODEL.test(title)) return "launch";
+      return event.kind === "new" ? articleTopic(event) : "article";
     }
     if (event.kind !== "new") return "change";
     /**
@@ -287,9 +384,9 @@ export function signalClass(event: Event): SignalClass {
   // unreleased model on an arena. A page that leaves is evidence, not a signal to wake anyone.
   if (event.stream === "pages") {
     if (HELP_CENTRES.has(event.source)) return "evidence";
-    if (PAGE_BLOGS.has(event.source)) return "article";
+    if (PAGE_BLOGS.has(event.source)) return event.kind === "new" ? articleTopic(event) : "article";
     if (event.kind !== "new") return "evidence";
-    return pageNamesAProduct(recordFor(event)) ? "codename" : "article";
+    return pageNamesAProduct(recordFor(event)) ? "codename" : articleTopic(event);
   }
 
   // An interface that starts naming a versioned model or a preview is a sighting; the rest of its
@@ -370,5 +467,5 @@ export function pingWorthy(event: Event): boolean {
   // the same announcement pings for real when it is applied.
   if (event.stream === "resets" && recordFor(event)?.stage !== "Applied") return false;
   const signal = signalClass(event);
-  return signal === "launch" || signal === "codename";
+  return signal === "launch" || signal === "codename" || signal === "feature" || signal === "debut";
 }

@@ -5,7 +5,7 @@ import { readableName } from "./events/naming.js";
 import { isScheduledPricingRotation } from "./events/oscillation.js";
 import { renamedEvents } from "./events/rename.js";
 import { priceMoveRatio, pricePair } from "./events/render/common.js";
-import { signalClass } from "./events/signals.js";
+import { boardPlace, DEBUT_PLACES, isMainBoard, signalClass } from "./events/signals.js";
 import type { Event, RecordData } from "./events/types.js";
 import {
   arrivalWeight,
@@ -17,6 +17,7 @@ import {
 } from "./events/variants.js";
 import { vendorOf, vendorOfName } from "./events/vendors.js";
 import { subjectKey, usageRanks, witnessedSubjects } from "./events/witness.js";
+import { sourceLabel } from "./sources/labels.js";
 
 /**
  * A week, summarised once, in the channel that otherwise only says what is happening now.
@@ -73,6 +74,26 @@ const NEWS_DESKS = new Set([
   "pages:zai",
 ]);
 const HEADLINES = 10;
+/**
+ * Lines one maker may take in one section before the rest are counted. OpenAI filed eight misuse
+ * reports on 2026-09-17, each on its newsroom and again on its site: sixteen lines about one
+ * afternoon would be the whole message.
+ */
+const PER_MAKER = 2;
+/** The sections of the day's news, in the order they are read. Business is kept and never sent. */
+const TOPICS = { safety: "safety", research: "research", article: "other" } as const;
+/** A climb this steep into the top ten is a model the experts will ask about; smaller moves are churn. */
+const CLIMB_PLACES = 5;
+
+/** "Arena text", "Artificial Analysis text-to-image", "DesignArena website": the board as said aloud. */
+function boardName(source: string, category: unknown): string {
+  const site = sourceLabel(source).split(" · ")[0] ?? source;
+  const board = String(category ?? "")
+    .split("/")
+    .filter((part) => part && part !== "overall" && part !== "artificial-analysis" && part !== "designarena")
+    .join(" ");
+  return board ? `${site} ${board}` : site;
+}
 
 /** Where a thing shows up before anyone announces it. */
 const EARLY_STREAMS = new Set(["arena", "pages"]);
@@ -104,7 +125,22 @@ export const recapContextSchema = z.object({
   // Absent in the recaps stored before a week named what is going away.
   retirements: z.array(z.object({ name: z.string(), date: z.string().nullable() })).default([]),
   // Absent in the recaps stored before a day's official news was listed.
-  headlines: z.array(z.object({ vendor: z.string(), title: z.string(), url: z.string().nullable() })).default([]),
+  headlines: z
+    .array(
+      z.object({
+        vendor: z.string(),
+        title: z.string(),
+        url: z.string().nullable(),
+        // Absent in the news stored before the day was read in sections.
+        topic: z.enum(["safety", "research", "other"]).default("other"),
+        // Lines past the maker's share, counted rather than listed.
+        more: z.number().default(0),
+      }),
+    )
+    .default([]),
+  // Absent in the recaps stored before the scouts were told about climbs and new boards.
+  climbers: z.array(z.object({ board: z.string(), name: z.string(), from: z.number(), to: z.number() })).default([]),
+  newBoards: z.array(z.object({ board: z.string(), leader: z.string().nullable() })).default([]),
 });
 export type RecapContext = z.infer<typeof recapContextSchema>;
 
@@ -379,26 +415,105 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
     })
     .filter((retirement, index, all) => all.findIndex((other) => other.name === retirement.name) === index)
     .slice(0, 5);
-  const headlines =
-    period !== "news"
+  // The day's news in three sections: what went wrong or could, what was found, and what else the
+  // labs said. Hacker News is read for the first two only: other people's safety and research
+  // stories are news, other people's opinions are not.
+  const headlines: RecapContext["headlines"] = [];
+  if (period === "news") {
+    const told = (source: string, signal: string) =>
+      signal === "article" ? NEWS_DESKS.has(source) : NEWS_DESKS.has(source) || source === "hackernews";
+    // A lab's own feed first, its site second, the front page last: the same post is often on all three.
+    const order = (source: string) => (source === "hackernews" ? 2 : source.startsWith("pages:") ? 1 : 0);
+    for (const [signal, topic] of Object.entries(TOPICS) as [
+      keyof typeof TOPICS,
+      (typeof TOPICS)[keyof typeof TOPICS],
+    ][]) {
+      const lines = classified
+        .filter(
+          ({ event, signal: seen }) =>
+            seen === signal && event.kind === "new" && told(event.source, signal) && !carded.has(event.id),
+        )
+        .sort((one, other) => order(one.event.source) - order(other.event.source) || one.event.id - other.event.id)
+        .map(({ event }) => {
+          const record = recordOf(event);
+          // Site pages are titled "OpenAI: Detecting wildfires early"; the vendor is the line's own label.
+          const title = nameOf(event).replace(/^[^:]{1,40}:\s+/, "");
+          // A front-page story is somebody else's; when it names no maker, the line says where it was read.
+          const vendor = vendorOf(event, record);
+          return {
+            vendor: vendor === "Unknown" && event.source === "hackernews" ? "Hacker News" : vendor,
+            title,
+            url: typeof record?.url === "string" ? record.url : null,
+          };
+        })
+        .filter((line, index, all) => all.findIndex((other) => other.title === line.title) === index);
+      const shown = new Map<string, RecapContext["headlines"][number]>();
+      const count = new Map<string, number>();
+      for (const line of lines) {
+        const held = count.get(line.vendor) ?? 0;
+        count.set(line.vendor, held + 1);
+        if (held < PER_MAKER) {
+          const entry = { ...line, topic, more: 0 };
+          headlines.push(entry);
+          shown.set(line.vendor, entry);
+        } else {
+          const last = shown.get(line.vendor);
+          if (last) last.more++;
+        }
+      }
+    }
+  }
+  // Big climbs into the top ten and boards that did not exist yesterday: what the scouts' own
+  // sightings do not show, told once a morning beside the new leaders.
+  const climbers =
+    period !== "day"
       ? []
       : classified
-          .filter(
-            ({ event, signal }) =>
-              signal === "article" && event.kind === "new" && NEWS_DESKS.has(event.source) && !carded.has(event.id),
-          )
-          .map(({ event }) => {
-            const record = recordOf(event);
-            const vendor = vendorOf(event, record);
-            // Site pages are titled "OpenAI: Detecting wildfires early"; the vendor is the line's own label.
-            const title = nameOf(event).replace(/^[^:]{1,40}:\s+/, "");
-            return { vendor, title, url: typeof record?.url === "string" ? record.url : null };
+          .filter(({ event }) => event.stream === "leaderboards" && event.kind === "changed")
+          .flatMap(({ event }) => {
+            const before = event.before_json ? (JSON.parse(event.before_json) as RecordData) : null;
+            const after = recordOf(event);
+            const from = Number(before?.rank);
+            const to = Number(after?.rank);
+            if (!isMainBoard(after?.category) || !Number.isInteger(from) || !Number.isInteger(to)) return [];
+            if (to < 2 || to > DEBUT_PLACES || from - to < CLIMB_PLACES) return [];
+            return [{ board: boardName(event.source, after?.category), name: readableName(nameOf(event)), from, to }];
           })
-          .filter((line, index, all) => all.findIndex((other) => other.title === line.title) === index)
-          .slice(0, HEADLINES);
+          .sort((one, other) => other.from - other.to - (one.from - one.to))
+          .filter((climb, index, all) => all.findIndex((other) => other.name === climb.name) === index)
+          .slice(0, 5);
+  const newBoards: RecapContext["newBoards"] = [];
+  if (period === "day") {
+    // A board is new when every row it has arrived inside the day. Asking whether any event named it
+    // before is not the same question: a board read since the first collection and never moved has
+    // no events at all.
+    const byBoard = new Map<string, { source: string; category: string; leader: string | null; arrived: number }>();
+    for (const { event } of classified) {
+      if (event.stream !== "leaderboards" || event.kind !== "new") continue;
+      const record = recordOf(event);
+      const category = String(record?.category ?? "");
+      const key = `${event.source}\u0000${category}`;
+      const board = byBoard.get(key) ?? { source: event.source, category, leader: null, arrived: 0 };
+      board.arrived++;
+      if (boardPlace(event) === 1) board.leader = readableName(nameOf(event));
+      byBoard.set(key, board);
+    }
+    for (const board of byBoard.values()) {
+      const rows =
+        db
+          .query<{ n: number }, [string, string]>(
+            "SELECT COUNT(*) n FROM records WHERE source=? AND json_extract(body,'$.category')=?",
+          )
+          .get(board.source, board.category)?.n ?? 0;
+      if (board.arrived >= rows && board.arrived >= 3)
+        newBoards.push({ board: boardName(board.source, board.category), leader: board.leader });
+    }
+  }
   return recapContextSchema.parse({
     period,
-    headlines,
+    headlines: headlines.slice(0, HEADLINES),
+    climbers,
+    newBoards: newBoards.slice(0, 3),
     leaders,
     retirements: period === "week" ? retirements : [],
     from,
@@ -452,7 +567,7 @@ function scheduleRecap(db: Database, config: AppConfig, period: RecapPeriod, now
     period === "news"
       ? !context.headlines.length
       : period === "day"
-        ? !context.priceMoves.length && !context.leaders.length
+        ? !context.priceMoves.length && !context.leaders.length && !context.climbers.length && !context.newBoards.length
         : !context.arrivalCount && !context.priceMoves.length && !context.codenameCount && !context.retirements.length;
   if (empty) return false;
   const batch = db
