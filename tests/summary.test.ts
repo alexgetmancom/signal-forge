@@ -138,3 +138,32 @@ test("a summary that prices in per-token units says nothing the card does not al
     "DeepSeek V4 Pro lowered its prompt and completion prices.",
   );
 });
+
+test("a short event whose title an English reader cannot read is summarised in English", async () => {
+  const db = openDatabase(":memory:");
+  const destination = {
+    id: "d",
+    platform: "discord" as const,
+    channelId: "1",
+    signals: ["launch", "change"] as ("launch" | "change")[],
+  };
+  const collection = {
+    source: "openrouter",
+    stream: "api-models",
+    url: "https://e.test",
+    raw: [],
+    records: [{ id: "m", name: "通义千问 模型" }] as RecordData[],
+  };
+  saveCollection(db, collection, [destination], "2026-09-08T10:00:00.000Z");
+  collection.records = [{ id: "m", name: "通义千问 模型", price: "1" }];
+  saveCollection(db, collection, [destination], "2026-09-08T10:05:00.000Z");
+  const seen: { body?: string } = {};
+  const written = await fillSummaries(
+    db,
+    config,
+    reply("Qwen model price set.", seen),
+    new Date("2026-09-08T12:00:00.000Z"),
+  );
+  expect(written).toBeGreaterThan(0);
+  expect(seen.body).toContain("Always write in English");
+});

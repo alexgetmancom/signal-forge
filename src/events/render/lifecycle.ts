@@ -102,6 +102,16 @@ function priceMove(move: { percent: number; cheaper: boolean; discountEnded?: bo
 export function renderRecapLines(context: RecapContext, signals: readonly string[]): string[] {
   const day = (at: string) =>
     new Date(at).toLocaleDateString("en-GB", { day: "numeric", month: "long", timeZone: "UTC" });
+  if (context.period === "news") {
+    if (!signals.includes("launch") || !context.headlines.length) return [];
+    return [
+      `**${day(context.from)} → ${day(context.to)}**`,
+      "",
+      ...context.headlines.map(
+        (line) => `· **${line.vendor}** — ${line.url ? `[${line.title}](${line.url})` : line.title}`,
+      ),
+    ];
+  }
   if (context.period === "day") {
     const moved = [
       ...(signals.includes("change")
@@ -146,13 +156,22 @@ export function renderRecapEmbed(context: RecapContext, signals: readonly string
   const lines = renderRecapLines(context, signals);
   if (!lines.length) return null;
   return {
-    author: { name: context.period === "day" ? "WHAT MOVED" : "THE WEEK IN MODELS" },
+    author: {
+      name:
+        context.period === "news"
+          ? "WHAT THE LABS SAID"
+          : context.period === "day"
+            ? "WHAT MOVED"
+            : "THE WEEK IN MODELS",
+    },
     description: clip(lines.join("\n"), 4000),
     footer: {
       text:
-        context.period === "day"
-          ? "Moves too small for a card of their own · no ping"
-          : "Everything here was posted as it happened · scouts saw the early half first",
+        context.period === "news"
+          ? "Posts from the labs' own newsrooms in the last day · no ping"
+          : context.period === "day"
+            ? "Moves too small for a card of their own · no ping"
+            : "Everything here was posted as it happened · scouts saw the early half first",
     },
   };
 }

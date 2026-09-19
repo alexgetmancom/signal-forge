@@ -18,6 +18,7 @@ import { getModelFacts, listModelFacts } from "./modelFacts.js";
 import { pollSources } from "./poller.js";
 import { listPublications, syncPublications } from "./publications.js";
 import { channelMix } from "./reports/channelMix.js";
+import { coverageGaps } from "./reports/coverageGaps.js";
 import { doctorReport } from "./reports/doctor.js";
 import { listActionableIssues } from "./reports/issues.js";
 import { leadTime } from "./reports/leadTime.js";
@@ -478,6 +479,18 @@ export function operations(db: Database, config: AppConfig): OperationMap {
       cli: { args: [{ name: "days", optional: true }] },
       http: { method: "get", path: "/api/source-verdicts" },
       handler: (input: { days: number }) => sourceVerdicts(db, config, input.days),
+    },
+    coverage_gaps: {
+      section: "sources",
+      summary:
+        "Front-page Hacker News stories about a followed vendor that no other source recorded; candidates for a missing source, read weekly.",
+      startHere: "what did the field talk about that we never saw",
+      mutates: false,
+      agent: true,
+      schema: z.object({ days: count(30, 7) }),
+      cli: { args: [{ name: "days", optional: true }] },
+      http: { method: "get", path: "/api/coverage-gaps" },
+      handler: (input: { days: number }) => coverageGaps(db, input.days),
     },
     channel_mix: {
       section: "sources",

@@ -338,3 +338,45 @@ test("a day's prices go to the room that carries changes and its leaders to the 
   expect(renderRecapLines(day, ["codename"]).join("\n")).not.toContain("GLM");
   expect(renderRecapLines(day, ["launch"])).toEqual([]);
 });
+
+test("the wire gets one morning list of what the labs published, and the sightings stay with the scouts", () => {
+  const db = openDatabase(":memory:");
+  const site = (source: string, paths: string[]): Collection => ({
+    source,
+    stream: "pages",
+    url: `https://${source}.example`,
+    raw: [],
+    records: paths.map((path) => ({
+      id: path,
+      name: `Vendor: ${path.split("/").at(-1)?.replaceAll("-", " ")}`,
+      url: `https://${source}.example${path}`,
+    })),
+  });
+  saveCollection(db, site("pages:mistral", ["/news/older"]), [], "2026-09-15T00:00:00.000Z");
+  saveCollection(db, site("pages:claude-support", ["/en/articles/1-old"]), [], "2026-09-15T00:00:00.000Z");
+  saveCollection(
+    db,
+    site("pages:mistral", ["/news/older", "/news/mistral-x-mozilla", "/models/mistral-large-4"]),
+    [],
+    "2026-09-16T12:00:00.000Z",
+  );
+  saveCollection(
+    db,
+    site("pages:claude-support", ["/en/articles/1-old", "/en/articles/2-set-up-salesforce"]),
+    [],
+    "2026-09-16T12:00:00.000Z",
+  );
+
+  const now = Date.parse("2026-09-17T07:00:00.000Z");
+  expect(scheduleRecaps(db, config, now)).toEqual(["news"]);
+  const context = recapContext(db, lastRecapPeriod(now, "news"), "news");
+  // The partnership is the day's news; the model page is a sighting and the help article is neither.
+  expect(context.headlines.map((line) => line.title)).toEqual(["mistral x mozilla"]);
+  prepareDeliveries(db, now);
+  const body = db.query<{ body: string }, []>("SELECT body FROM deliveries").get()?.body ?? "";
+  expect(body).toContain("WHAT THE LABS SAID");
+  expect(body).toContain("https://pages:mistral.example/news/mistral-x-mozilla");
+  expect(body).not.toContain("<@&");
+  // A room that carries no launches does not get the list.
+  expect(renderRecapLines(context, ["codename"])).toEqual([]);
+});

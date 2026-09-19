@@ -46,8 +46,34 @@ const PERIODS = {
   // moves too small for a card of their own, and says so in its footer.
   week: { source: "weekly-recap", ms: 7 * 24 * 3_600_000, signals: ["launch"], untold: false },
   day: { source: "daily-recap", ms: 24 * 3_600_000, signals: ["change", "codename"], untold: true },
+  // What the labs published in a day, for the wire: a partnership, an essay, a research result is
+  // the vendor talking rather than a model changing, so it is never a card of its own, and on
+  // 2026-09-16 "Mistral X Mozilla" and "Claude Cowork and chat are now one Claude" reached nobody.
+  // One morning list of headlines carries them without making the wire louder.
+  news: { source: "daily-news", ms: 24 * 3_600_000, signals: ["launch"], untold: true },
 } as const;
 export type RecapPeriod = keyof typeof PERIODS;
+/**
+ * The labs' own newsrooms and sites, whose posts are the day's official news. Not Hacker News,
+ * which is other people talking about it, not a help centre, and not a source still on trial in
+ * shadow: NVIDIA's blog was removed once as marketing and has to earn its way back in.
+ */
+const NEWS_DESKS = new Set([
+  "openai-news",
+  "anthropic-news",
+  "claude-blog",
+  "google-ai-blog",
+  "deepmind-blog",
+  "pages:openai",
+  "pages:anthropic",
+  "pages:xai",
+  "pages:deepmind",
+  "pages:google-devs",
+  "pages:mistral",
+  "pages:zai",
+]);
+const HEADLINES = 10;
+
 /** Where a thing shows up before anyone announces it. */
 const EARLY_STREAMS = new Set(["arena", "pages"]);
 /** Makers named in the recap itself; the rest are counted. */
@@ -59,7 +85,7 @@ function escapeForPattern(value: string): string {
 
 export const recapContextSchema = z.object({
   // Absent in the recaps stored before a day could be summarised.
-  period: z.enum(["week", "day"]).default("week"),
+  period: z.enum(["week", "day", "news"]).default("week"),
   from: z.string(),
   to: z.string(),
   arrivals: z.array(z.object({ vendor: z.string(), names: z.array(z.string()) })),
@@ -77,6 +103,8 @@ export const recapContextSchema = z.object({
   leaders: z.array(z.object({ board: z.string(), name: z.string() })).default([]),
   // Absent in the recaps stored before a week named what is going away.
   retirements: z.array(z.object({ name: z.string(), date: z.string().nullable() })).default([]),
+  // Absent in the recaps stored before a day's official news was listed.
+  headlines: z.array(z.object({ vendor: z.string(), title: z.string(), url: z.string().nullable() })).default([]),
 });
 export type RecapContext = z.infer<typeof recapContextSchema>;
 
@@ -90,7 +118,7 @@ export function lastRecapPeriod(now: number, period: RecapPeriod = "week"): stri
   const end = new Date(now);
   // The day closes at 06:00 UTC, which is the start of the morning in Moscow and the evening before
   // on the American west coast: the room reads it with coffee rather than at midnight.
-  end.setUTCHours(period === "day" ? 6 : 18, 0, 0, 0);
+  end.setUTCHours(period === "week" ? 18 : 6, 0, 0, 0);
   while ((period === "week" && end.getUTCDay() !== 0) || end.getTime() > now) end.setUTCDate(end.getUTCDate() - 1);
   return end.toISOString();
 }
@@ -351,8 +379,26 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
     })
     .filter((retirement, index, all) => all.findIndex((other) => other.name === retirement.name) === index)
     .slice(0, 5);
+  const headlines =
+    period !== "news"
+      ? []
+      : classified
+          .filter(
+            ({ event, signal }) =>
+              signal === "article" && event.kind === "new" && NEWS_DESKS.has(event.source) && !carded.has(event.id),
+          )
+          .map(({ event }) => {
+            const record = recordOf(event);
+            const vendor = vendorOf(event, record);
+            // Site pages are titled "OpenAI: Detecting wildfires early"; the vendor is the line's own label.
+            const title = nameOf(event).replace(/^[^:]{1,40}:\s+/, "");
+            return { vendor, title, url: typeof record?.url === "string" ? record.url : null };
+          })
+          .filter((line, index, all) => all.findIndex((other) => other.title === line.title) === index)
+          .slice(0, HEADLINES);
   return recapContextSchema.parse({
     period,
+    headlines,
     leaders,
     retirements: period === "week" ? retirements : [],
     from,
@@ -403,9 +449,11 @@ function scheduleRecap(db: Database, config: AppConfig, period: RecapPeriod, now
   // A period in which nothing arrived, nothing moved and nothing was sighted is not worth a message;
   // a day is only ever about what moved.
   const empty =
-    period === "day"
-      ? !context.priceMoves.length && !context.leaders.length
-      : !context.arrivalCount && !context.priceMoves.length && !context.codenameCount && !context.retirements.length;
+    period === "news"
+      ? !context.headlines.length
+      : period === "day"
+        ? !context.priceMoves.length && !context.leaders.length
+        : !context.arrivalCount && !context.priceMoves.length && !context.codenameCount && !context.retirements.length;
   if (empty) return false;
   const batch = db
     .query<{ id: number }, [string, string, string]>(
