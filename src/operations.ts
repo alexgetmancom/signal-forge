@@ -27,6 +27,7 @@ import { sourceVerdicts } from "./reports/sourceVerdicts.js";
 import { statusReport } from "./reports/statusReport.js";
 import { deepSeekUsage } from "./runtime/deepseekUsage.js";
 import { codeAnalytics } from "./runtime/metrics.js";
+import { memoryReport } from "./runtime/observability.js";
 import { dateIntegrity } from "./storage/dateIntegrity.js";
 import { listStories } from "./stories.js";
 import { seedWeightTotals } from "./weights.js";
@@ -510,6 +511,17 @@ export function operations(db: Database, config: AppConfig): OperationMap {
       cli: { args: [{ name: "days", optional: true }] },
       http: { method: "get", path: "/api/code-analytics" },
       handler: (input: { days: number }) => codeAnalytics(db, input.days),
+    },
+    memory: {
+      section: "health",
+      summary: "Memory by day: typical and worst use, time near the container limit, restarts and OOM kills.",
+      startHere: "how much memory does this use, and has it been killed for it",
+      mutates: false,
+      agent: true,
+      schema: z.object({ days: count(90, 7) }),
+      cli: { args: [{ name: "days", optional: true }] },
+      http: { method: "get", path: "/api/memory" },
+      handler: (input: { days: number }) => memoryReport(db, input.days),
     },
     deepseek_usage: {
       section: "sources",

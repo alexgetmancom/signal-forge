@@ -1,3 +1,4 @@
+import { dirname, join } from "node:path";
 import { publishAlerts, recoverInterruptedAlerts } from "./alerts.js";
 import { loadConfig } from "./config.js";
 import { deliverPending, recoverInterruptedDeliveries } from "./delivery.js";
@@ -11,7 +12,7 @@ import { promoteVouchedMessages } from "./promotion.js";
 import { syncPublications } from "./publications.js";
 import { scheduleRecaps } from "./recap.js";
 import { measure, pruneCodeMetrics } from "./runtime/metrics.js";
-import { logMemoryUsage, recordRuntimeStart, recordRuntimeStop } from "./runtime/observability.js";
+import { logMemoryUsage, recordRuntimeStart, recordRuntimeStop, sampleMemory } from "./runtime/observability.js";
 import { stopServerGracefully } from "./runtime/shutdown.js";
 import { RuntimeSupervisor } from "./runtime/supervisor.js";
 import { startIntervalWorker } from "./runtime/worker.js";
@@ -23,7 +24,8 @@ import { expireSnapshotBodies, pruneShadowCandidates, pruneSnapshots } from "./s
 import { rebuildStories, rememberStoryProjection } from "./stories.js";
 
 const config = loadConfig();
-configureLogger(config.NODE_ENV === "production");
+// Logs live beside the database, on the volume that outlives the container.
+configureLogger(config.NODE_ENV === "production", join(dirname(config.DATABASE_URL), "logs"));
 const db = openDatabase(config.DATABASE_URL);
 const storyProjection = db.transaction(() => {
   recordSourceIdentities(db, buildSourceRegistry(db, config));
@@ -96,6 +98,7 @@ supervisor.register(
   }),
 );
 supervisor.register(startIntervalWorker(db, "memory", 3_600_000, logMemoryUsage));
+supervisor.register(startIntervalWorker(db, "memory-sample", 300_000, () => sampleMemory(db)));
 let stopping = false;
 async function shutdown(): Promise<void> {
   if (stopping) return;

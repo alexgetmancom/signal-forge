@@ -63,6 +63,7 @@ test("health is public, operational state requires token, MCP lists matching sch
     "channel_mix",
     "signal_quality",
     "code_analytics",
+    "memory",
     "deepseek_usage",
     "credential_circuits",
     "journal",
