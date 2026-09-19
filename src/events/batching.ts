@@ -156,7 +156,21 @@ function releaseKey(event: Pick<Event, "source" | "entity_id"> & { signal: strin
   return null;
 }
 
-function releaseTold(db: Database, key: string, destinationId: string, batchId: number, now: number): boolean {
+/**
+ * A cutoff for replay: count only what had already been detected when the event under judgement
+ * was. Undefined in the delivery path, where "already" means now and the question is being asked
+ * for the first time.
+ */
+type AsOf = string | undefined;
+
+function releaseTold(
+  db: Database,
+  key: string,
+  destinationId: string,
+  batchId: number,
+  now: number,
+  asOf: AsOf = undefined,
+): boolean {
   const since = new Date(now - RELEASE_WINDOW_MS).toISOString();
   return Boolean(
     db
@@ -164,12 +178,12 @@ function releaseTold(db: Database, key: string, destinationId: string, batchId: 
         `SELECT 1 FROM batch_events be
          JOIN events e ON e.id=be.event_id
          JOIN deliveries d ON d.batch_id=be.batch_id
-         WHERE be.batch_id<>? AND d.destination_id=? AND e.detected_at>=?
+         WHERE be.batch_id<>? AND d.destination_id=? AND e.detected_at>=? ${asOf ? "AND e.detected_at<?" : ""}
            AND ((e.source LIKE 'github:%:releases' AND e.entity_id=?) OR e.entity_id LIKE ?)
            AND d.status IN ('pending','sending','sent','ambiguous','verification_required')
          LIMIT 1`,
       )
-      .get(batchId, destinationId, since, key, `%#github-release-${key}`),
+      .get(...[batchId, destinationId, since, ...(asOf ? [asOf] : []), key, `%#github-release-${key}`]),
   );
 }
 
@@ -208,12 +222,13 @@ function repeatsDeliveredStory(
   destinationId: string,
   storyId: number | undefined,
   batchId: number,
+  asOf: AsOf = undefined,
 ): boolean {
   if (storyId === undefined || event.kind !== "new") return false;
   const candidates = db
     .query<
       { source: string; stream: string; detected_at: string; confidence: string; signal: string },
-      [number, number, string]
+      (number | string)[]
     >(
       `SELECT DISTINCT earlier.source,earlier.stream,earlier.detected_at,earlier.confidence,be.signal
        FROM story_events se
@@ -221,10 +236,10 @@ function repeatsDeliveredStory(
        JOIN events earlier ON earlier.id=previous.event_id
        JOIN batch_events be ON be.event_id=earlier.id
        JOIN deliveries d ON d.batch_id=be.batch_id
-       WHERE se.event_id=? AND be.batch_id<>? AND d.destination_id=?
+       WHERE se.event_id=? AND be.batch_id<>? AND d.destination_id=? ${asOf ? "AND earlier.detected_at<?" : ""}
          AND d.status IN ('pending','sending','sent','ambiguous','verification_required')`,
     )
-    .all(event.id, batchId, destinationId);
+    .all(...[event.id, batchId, destinationId, ...(asOf ? [asOf] : [])]);
   const detectedAt = Date.parse(event.detected_at);
   // A debut is news about a model the reader was already told arrived: the launch card said it
   // exists, the debut says how good it is. Only another debut of the same model repeats it, from
@@ -251,16 +266,23 @@ function repeatsDeliveredStory(
 const PAGE_MODEL_WINDOW_MS = 24 * 3_600_000;
 
 /** The models this destination was already told a vendor's pages are naming. */
-function pageModelsTold(db: Database, destinationId: string, batchId: number, now: number): Set<string> {
+function pageModelsTold(
+  db: Database,
+  destinationId: string,
+  batchId: number,
+  now: number,
+  asOf: AsOf = undefined,
+): Set<string> {
   const rows = db
-    .query<Event, [string, number, string]>(
+    .query<Event, (string | number)[]>(
       `SELECT DISTINCT e.* FROM delivery_events de
        JOIN deliveries d ON d.id=de.delivery_id
        JOIN events e ON e.id=de.event_id
        WHERE d.destination_id=? AND d.batch_id<>? AND e.stream='pages' AND e.kind='new' AND e.detected_at>=?
+         ${asOf ? "AND e.detected_at<?" : ""}
          AND d.status IN ('pending','sending','sent','ambiguous','verification_required')`,
     )
-    .all(destinationId, batchId, new Date(now - PAGE_MODEL_WINDOW_MS).toISOString());
+    .all(...[destinationId, batchId, new Date(now - PAGE_MODEL_WINDOW_MS).toISOString(), ...(asOf ? [asOf] : [])]);
   return new Set(rows.map(pageModel).filter((model): model is string => model !== null));
 }
 
@@ -480,6 +502,59 @@ export function replayVerdicts(
   const classed = events.map((event) => ({ ...event, signal: signalClass(event) }));
   const view = batchViewOf(db, classed);
   return classed.map((event) => ({ eventId: event.id, signal: event.signal, reason: standingReason(db, event, view) }));
+}
+
+/**
+ * The same verdicts, plus the checks that ask what one destination was already told, each answered
+ * against the history as it stood when the event arrived rather than as it stands now. Those four
+ * -- the same release on another page, a story another source already told, a sighting of something
+ * announced first, another page about the same model -- all hang off an earlier event, so a cutoff
+ * on when that earlier event was detected reconstructs the answer faithfully enough to compare two
+ * policies by.
+ *
+ * What it still cannot replay: whether a delivery that is 'sent' today was sent by then, since only
+ * the current status is stored; oscillation and flapping, which read a record's own recent history
+ * through helpers with no cutoff; and the waiting-to-settle hold, which needs the baseline this
+ * destination last saw. Events held back by those keep their standing verdict here. Reads only.
+ */
+export function replayDestinationVerdicts(
+  db: Database,
+  events: readonly Event[],
+  destinationId: string,
+): { eventId: number; signal: SignalClass; reason: SuppressionReason | null }[] {
+  const classed = events.map((event) => ({ ...event, signal: signalClass(event) }));
+  const view = batchViewOf(db, classed);
+  const batchOf = (eventId: number): number =>
+    db.query<{ batch_id: number }, [number]>("SELECT batch_id FROM batch_events WHERE event_id=?").get(eventId)
+      ?.batch_id ?? -1;
+  const storyOf = (eventId: number): number | undefined =>
+    db.query<{ story_id: number }, [number]>("SELECT story_id FROM story_events WHERE event_id=?").get(eventId)
+      ?.story_id;
+  const releases = new Set<string>();
+  const toldPages = new Set<string>();
+  return classed.map((event) => {
+    const asOf = event.detected_at;
+    const at = Date.parse(asOf);
+    const batchId = batchOf(event.id);
+    const reason = ((): SuppressionReason | null => {
+      const standing = standingReason(db, event, view);
+      if (standing) return standing;
+      const release = releaseKey(event);
+      if (release && (releases.has(release) || releaseTold(db, release, destinationId, batchId, at, asOf)))
+        return "same_release_on_another_page";
+      if (repeatsDeliveredStory(db, event, destinationId, storyOf(event.id), batchId, asOf))
+        return "already_told_by_another_source";
+      if (event.signal === "codename" && announcedBeforeSighted(db, event, storyOf(event.id), batchId))
+        return "announced_before_it_was_sighted";
+      const model = pageModel(event);
+      if (model && (toldPages.has(model) || pageModelsTold(db, destinationId, batchId, at, asOf).has(model)))
+        return "another_page_about_the_same_model";
+      if (model) toldPages.add(model);
+      if (release) releases.add(release);
+      return null;
+    })();
+    return { eventId: event.id, signal: event.signal, reason };
+  });
 }
 
 export function prepareDeliveries(

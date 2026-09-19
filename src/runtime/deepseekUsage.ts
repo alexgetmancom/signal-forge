@@ -146,14 +146,43 @@ export function calculateDeepSeekCost(
   return { costUsd: null, costBasis: "unknown", pricingPeriod: period };
 }
 
+/** Attempts one event may ever cost, ceiling included in the schema as a CHECK. */
+export const DEEPSEEK_MAX_ATTEMPTS = 2;
+
+/**
+ * True while this event may still be attempted: no settled answer, and the ceiling not yet spent.
+ *
+ * 'unclear' and 'failed' are the outcomes worth asking again about -- the model was reached and said
+ * nothing usable, or it was not reached at all. A summarised, rejected or invalid answer is an
+ * answer, and asking twice would only pay twice for it. A claim left 'pending' by a crash counts as
+ * settled, as it did when one claim per event was the whole rule.
+ */
+function deepSeekAttemptsLeft(db: Database, eventId: number): boolean {
+  const row = db
+    .query<{ spent: number; settled: number }, [number]>(
+      `SELECT COUNT(*) spent,
+              SUM(CASE WHEN outcome IN ('unclear','failed') THEN 0 ELSE 1 END) settled
+         FROM deepseek_usage WHERE event_id=?`,
+    )
+    .get(eventId);
+  return (row?.settled ?? 0) === 0 && (row?.spent ?? 0) < DEEPSEEK_MAX_ATTEMPTS;
+}
+
 /** Claims one event before the network request, so concurrent workers cannot pay twice for it. */
 export function claimDeepSeekUsage(db: Database, context: DeepSeekUsageContext): number | null {
   try {
+    if (!deepSeekAttemptsLeft(db, context.eventId)) return null;
+    const spent = db
+      .query<{ n: number }, [number]>("SELECT COUNT(*) n FROM deepseek_usage WHERE event_id=?")
+      .get(context.eventId);
     const row = db
-      .query<{ id: number }, [number, string, string, string, string, string, number, number, string, string, string]>(
+      .query<
+        { id: number },
+        [number, string, string, string, string, string, number, number, number, string, string, string]
+      >(
         `INSERT INTO deepseek_usage(
-           event_id,attempted_at,operation,source,stream,model,attempts,input_chars,outcome,cost_basis,pricing_period
-         ) VALUES(?,?,?,?,?,?,?,?,?,?,?) RETURNING id`,
+           event_id,attempted_at,operation,source,stream,model,attempts,attempt,input_chars,outcome,cost_basis,pricing_period
+         ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id`,
       )
       .get(
         context.eventId,
@@ -163,6 +192,7 @@ export function claimDeepSeekUsage(db: Database, context: DeepSeekUsageContext):
         context.stream,
         DEEPSEEK_SUMMARY_MODEL,
         1,
+        (spent?.n ?? 0) + 1,
         Math.max(0, Math.round(context.inputChars)),
         "pending",
         "unknown",

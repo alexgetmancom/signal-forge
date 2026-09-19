@@ -111,13 +111,42 @@ test("a failing summariser never breaks the batch", async () => {
     throw new Error("deepseek is down");
   };
   const now = new Date("2026-09-08T12:00:00.000Z");
-  expect(await fillSummaries(db, config, exploding, now)).toBe(0);
-  expect(await fillSummaries(db, config, exploding, now)).toBe(0);
-  // The first failed call is recorded, so a broken provider cannot drain the budget in a loop.
-  expect(db.query("SELECT outcome,error_type FROM deepseek_usage").get()).toEqual({
-    outcome: "failed",
-    error_type: "Error",
-  });
+  for (let attempt = 0; attempt < 4; attempt++) expect(await fillSummaries(db, config, exploding, now)).toBe(0);
+  // Every call is recorded, so a broken provider cannot drain the budget in a loop; a failure is
+  // worth asking again about exactly once, and the ceiling stops the third.
+  expect(db.query("SELECT attempt,outcome,error_type FROM deepseek_usage ORDER BY attempt").all()).toEqual([
+    { attempt: 1, outcome: "failed", error_type: "Error" },
+    { attempt: 2, outcome: "failed", error_type: "Error" },
+  ]);
+});
+
+test("an answer is asked for twice at most, and never once it has said something", async () => {
+  const db = openDatabase(":memory:");
+  const destination = {
+    id: "d",
+    platform: "discord" as const,
+    channelId: "1",
+    signals: ["launch", "codename", "evidence", "change"] as ("launch" | "codename" | "evidence" | "change")[],
+  };
+  const record: RecordData = { id: "m", name: "Model" };
+  for (let index = 0; index < 20; index++) record[`field${index}`] = "before";
+  const collection = { source: "openrouter", stream: "api-models", url: "https://e.test", raw: [], records: [record] };
+  saveCollection(db, collection, [destination], "2026-09-08T10:00:00.000Z");
+  const changed: RecordData = { ...record };
+  for (let index = 0; index < 20; index++) changed[`field${index}`] = "after";
+  collection.records = [changed];
+  saveCollection(db, collection, [destination], "2026-09-08T10:05:00.000Z");
+  const now = new Date("2026-09-08T12:00:00.000Z");
+  // The model is reached and says nothing usable, so the event keeps its second chance...
+  expect(await fillSummaries(db, config, reply("UNCLEAR"), now)).toBe(0);
+  expect(db.query<{ n: number }, []>("SELECT COUNT(*) n FROM deepseek_usage").get()?.n).toBe(1);
+  // ...and spends it on an answer, which settles the event for good.
+  expect(await fillSummaries(db, config, reply("Twenty fields changed."), now)).toBe(1);
+  expect(await fillSummaries(db, config, reply("Asked a third time."), now)).toBe(0);
+  expect(db.query("SELECT attempt,outcome FROM deepseek_usage ORDER BY attempt").all()).toEqual([
+    { attempt: 1, outcome: "unclear" },
+    { attempt: 2, outcome: "summarized" },
+  ]);
 });
 
 test("a sentence the model could not finish is not published", () => {

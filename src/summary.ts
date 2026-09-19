@@ -9,6 +9,7 @@ import type { Fetch } from "./http-client.js";
 import { log } from "./logger.js";
 import {
   claimDeepSeekUsage,
+  DEEPSEEK_MAX_ATTEMPTS,
   DEEPSEEK_SUMMARY_DAILY_ATTEMPT_LIMIT,
   DEEPSEEK_SUMMARY_ENDPOINT,
   DEEPSEEK_SUMMARY_MAX_INPUT_CHARS,
@@ -283,10 +284,28 @@ export async function fillSummaries(
        WHERE b.sealed = 0
          AND (b.ready_at <= ? OR b.digest = 1)
          AND NOT EXISTS (SELECT 1 FROM summaries s WHERE s.event_id=e.id)
-         AND NOT EXISTS (SELECT 1 FROM deepseek_usage u WHERE u.event_id=e.id)
+         AND NOT EXISTS (SELECT 1 FROM deepseek_usage u WHERE u.event_id=e.id
+                           AND u.outcome NOT IN ('unclear','failed'))
+         AND (SELECT COUNT(*) FROM deepseek_usage u WHERE u.event_id=e.id) < ${DEEPSEEK_MAX_ATTEMPTS}
        ORDER BY e.id`,
     )
     .all(now.toISOString());
+  return await summarizeEvents(db, config, pending, request, now);
+}
+
+/**
+ * Summarises the events handed over, claiming and recording each attempt. Shared by the delivery
+ * path, which picks the events waiting in unsealed batches, and by the backfill script, which picks
+ * the ones whose batch was sealed before a sentence was written.
+ */
+export async function summarizeEvents(
+  db: Database,
+  config: AppConfig,
+  pending: readonly (Event & { url: string })[],
+  request: Fetch = fetch,
+  now = new Date(),
+): Promise<number> {
+  if (!config.DEEPSEEK_API_KEY) return 0;
   let written = 0;
   // Twenty attempts a cycle, counted where they are spent: an event that needs no sentence is
   // passed over without taking a place, so it can never keep one that does waiting behind it.

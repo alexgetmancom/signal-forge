@@ -6,14 +6,17 @@
  * judged twice: once by the policy at a git ref (HEAD by default) and once by this checkout, and the
  * difference is the change, event by event, before it reaches anyone.
  *
- * Only the destination-independent half is replayed: the rules' class and the standing reason that
- * holds an event back from everyone. What a destination was already told depends on delivery
- * history as it was at the time, which today's database no longer shows faithfully.
+ * By default only the destination-independent half is replayed: the rules' class and the standing
+ * reason that holds an event back from everyone. With --destination, the four checks that ask what
+ * one destination was already told are replayed too, each against the history as it stood when the
+ * event arrived; the three that need state no longer stored -- a delivery's status at the time,
+ * oscillation, the baseline a reader last saw -- stay out either way.
  *
  * The database is opened read-only; the base policy is unpacked from git into a temporary directory
  * and nothing in the repository or its refs is touched.
  *
  * Usage: bun scripts/replay-policy.ts [--db path] [--base ref|directory] [--days N] [--limit N]
+ *        [--destination id]
  */
 import { Database } from "bun:sqlite";
 import { existsSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
@@ -23,6 +26,7 @@ import type { Event } from "../src/events/types.js";
 
 type Verdict = { eventId: number; signal: string; reason: string | null };
 type Replay = (db: Database, events: readonly Event[]) => Verdict[];
+type ReplayForDestination = (db: Database, events: readonly Event[], destinationId: string) => Verdict[];
 
 const root = resolve(import.meta.dir, "..");
 const args = new Map<string, string>();
@@ -31,6 +35,7 @@ const dbPath = args.get("--db") ?? "./data/app.db";
 const base = args.get("--base") ?? "HEAD";
 const days = Number(args.get("--days") ?? 30);
 const limit = Number(args.get("--limit") ?? 60);
+const destination = args.get("--destination");
 
 /** A git ref, or a directory holding another checkout's src/ (useful where there is no git). */
 async function policyAt(ref: string, workspace: string): Promise<Replay> {
@@ -44,9 +49,17 @@ async function policyAt(ref: string, workspace: string): Promise<Replay> {
 }
 
 async function load(directory: string, ref: string): Promise<Replay> {
-  const module = (await import(join(directory, "src/events/batching.ts"))) as { replayVerdicts?: Replay };
-  if (!module.replayVerdicts) throw new Error(`${ref} predates replayVerdicts; choose a later base`);
-  return module.replayVerdicts;
+  const module = (await import(join(directory, "src/events/batching.ts"))) as {
+    replayVerdicts?: Replay;
+    replayDestinationVerdicts?: ReplayForDestination;
+  };
+  if (!destination) {
+    if (!module.replayVerdicts) throw new Error(`${ref} predates replayVerdicts; choose a later base`);
+    return module.replayVerdicts;
+  }
+  const forDestination = module.replayDestinationVerdicts;
+  if (!forDestination) throw new Error(`${ref} predates replayDestinationVerdicts; choose a later base`);
+  return (db, events) => forDestination(db, events, destination);
 }
 
 const label = (verdict: Verdict | undefined): string =>
@@ -55,7 +68,13 @@ const label = (verdict: Verdict | undefined): string =>
 const workspace = mkdtempSync(join(tmpdir(), "signal-forge-replay-"));
 try {
   const before = await policyAt(base, workspace);
-  const { replayVerdicts: after } = (await import("../src/events/batching.js")) as { replayVerdicts: Replay };
+  const here = (await import("../src/events/batching.js")) as {
+    replayVerdicts: Replay;
+    replayDestinationVerdicts: ReplayForDestination;
+  };
+  const after: Replay = destination
+    ? (db, events) => here.replayDestinationVerdicts(db, events, destination)
+    : here.replayVerdicts;
   const db = new Database(dbPath, { readonly: true });
   const since = new Date(Date.now() - days * 24 * 3_600_000).toISOString();
   // Judged batch by batch, as they were: a batch's view (renames, known names, listings) is shared.
@@ -88,6 +107,7 @@ try {
   process.stdout.write(
     [
       `Policy replay: ${base} -> working tree, ${days} days, ${rows.length} events in ${batches.size} batches`,
+      destination ? `destination: ${destination} (point-in-time repeat checks included)` : "every destination",
       `speaking (no standing reason): ${speaksBefore} -> ${speaksAfter}`,
       `decisions changed: ${changed.length}`,
       "",
