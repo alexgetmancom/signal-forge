@@ -48,6 +48,16 @@ function normalisedUrl(value: unknown): string | null {
   }
 }
 
+/**
+ * A headline the matcher cannot judge. "Ask HN" and "Tell HN" are a reader's question, not news a
+ * source could carry, and a headline with fewer than two significant words ("I hate you Microsoft",
+ * "Hacking OpenAI") can never share two with anything, so it would be listed as a gap every week.
+ * Both were most of the noise in the first report, on 2026-09-19.
+ */
+function unjudgeable(title: string, words: Set<string>): boolean {
+  return /^(ask|tell) hn\b/i.test(title) || words.size < 2;
+}
+
 const AROUND_MS = 7 * 24 * 3_600_000;
 const AFTER_MS = 2 * 24 * 3_600_000;
 
@@ -55,7 +65,7 @@ export function coverageGaps(
   db: Database,
   days = 7,
   now = Date.now(),
-): { since: string; stories: number; covered: number; gaps: CoverageGap[] } {
+): { since: string; stories: number; covered: number; unjudged: number; gaps: CoverageGap[] } {
   const since = new Date(now - days * 24 * 3_600_000).toISOString();
   const discussed = db
     .query<{ after_json: string; detected_at: string }, [string]>(
@@ -77,6 +87,7 @@ export function coverageGaps(
     });
   const links = new Set(others.map((other) => other.url).filter(Boolean));
   const gaps: CoverageGap[] = [];
+  let unjudged = 0;
   for (const row of discussed) {
     const story = JSON.parse(row.after_json) as Record<string, unknown>;
     const title = String(story.name ?? "");
@@ -84,6 +95,10 @@ export function coverageGaps(
     if (url && links.has(url)) continue;
     const at = Date.parse(row.detected_at);
     const words = significant(title);
+    if (unjudgeable(title, words)) {
+      unjudged++;
+      continue;
+    }
     const seen = others.some((other) => {
       if (other.at < at - AROUND_MS || other.at > at + AFTER_MS) return false;
       let shared = 0;
@@ -98,5 +113,5 @@ export function coverageGaps(
         seenAt: row.detected_at,
       });
   }
-  return { since, stories: discussed.length, covered: discussed.length - gaps.length, gaps };
+  return { since, stories: discussed.length, covered: discussed.length - gaps.length - unjudged, unjudged, gaps };
 }

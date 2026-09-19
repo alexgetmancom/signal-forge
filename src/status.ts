@@ -5,6 +5,7 @@ import { COLLECTION_DEGRADED_PREFIX } from "./events/store.js";
 import type { SourceAuthority } from "./events/types.js";
 import type { Fetch } from "./http-client.js";
 import { log } from "./logger.js";
+import { coverageGaps } from "./reports/coverageGaps.js";
 import { sourceLabel } from "./sources/labels.js";
 import { PLATFORMS } from "./sources/platforms.js";
 import { buildSourceRegistry } from "./sources/registry.js";
@@ -620,7 +621,31 @@ export function suppressionEmbed(db: Database, now = Date.now()): Record<string,
   };
 }
 
-export type BoardKey = "activity" | "platforms" | "suppressions" | "status";
+/**
+ * What the field discussed this week that no source of ours recorded. The report behind it was
+ * written to be run weekly by hand, and a report that has to be remembered is a report that stops
+ * being read; as a board it stays current by itself and changes only when a new gap appears.
+ */
+export function coverageEmbed(db: Database, now = Date.now()): Record<string, unknown> {
+  const report = coverageGaps(db, 7, now);
+  const gaps = report.gaps.slice(-10).reverse();
+  const lines = gaps.length
+    ? [
+        `**${report.gaps.length}** of **${report.stories - report.unjudged}** stories seen only on Hacker News`,
+        "",
+        ...gaps.map((gap) => `· [${clip(gap.title, 90)}](${gap.discussion ?? gap.url})`),
+      ]
+    : [`Every one of **${report.stories - report.unjudged}** stories was also recorded by another source`];
+  return {
+    title: "Missed by our sources, last 7 days",
+    description: lines.join("\n"),
+    color: gaps.length ? COLORS.degraded : COLORS.ok,
+    footer: { text: "Run `coverage-gaps` for links and dates · questions and rants are not judged" },
+    timestamp: new Date(now).toISOString(),
+  };
+}
+
+export type BoardKey = "activity" | "platforms" | "suppressions" | "status" | "coverage";
 
 /**
  * The boards, in the order the channel reads them: what happened, then how the vendors are doing,
@@ -647,13 +672,17 @@ const BOARDS: Record<
     channel: (config) => config.platformBoardChannelId ?? config.statusChannelId,
     embed: (db, _config, now) => suppressionEmbed(db, now),
   },
+  coverage: {
+    channel: (config) => config.platformBoardChannelId ?? config.statusChannelId,
+    embed: (db, _config, now) => coverageEmbed(db, now),
+  },
   status: {
     channel: (config) => config.statusChannelId,
     embed: (db, config, now) => statusEmbed(sourceHealth(db, config, now), now),
   },
 };
 
-export const BOARD_ORDER: readonly BoardKey[] = ["activity", "platforms", "suppressions", "status"];
+export const BOARD_ORDER: readonly BoardKey[] = ["activity", "platforms", "suppressions", "status", "coverage"];
 
 export async function publishBoard(
   db: Database,

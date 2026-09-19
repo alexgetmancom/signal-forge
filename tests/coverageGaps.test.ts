@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { saveCollection } from "../src/events/pipeline.js";
 import type { Collection } from "../src/events/types.js";
 import { coverageGaps } from "../src/reports/coverageGaps.js";
+import { coverageEmbed } from "../src/status.js";
 import { openDatabase } from "../src/storage/database.js";
 
 const hn = (stories: { id: string; name: string; url: string }[]): Collection => ({
@@ -12,7 +13,7 @@ const hn = (stories: { id: string; name: string; url: string }[]): Collection =>
   records: stories.map((story) => ({ ...story, discussion: `https://news.ycombinator.com/item?id=${story.id}` })),
 });
 
-test("a front-page story nothing else recorded is a gap; one another source saw is not", () => {
+test("a front-page story nothing else recorded is a gap; one another source saw is not, and a question or a rant is not judged", () => {
   const db = openDatabase(":memory:");
   saveCollection(db, hn([{ id: "0", name: "baseline", url: "https://example.com/0" }]), [], "2026-09-10T00:00:00.000Z");
   saveCollection(
@@ -53,12 +54,24 @@ test("a front-page story nothing else recorded is a gap; one another source saw 
         name: "Mistral X Mozilla: Private, Multilingual AI Browsing",
         url: "https://mistral.ai/news/mistral-x-mozilla/",
       },
+      {
+        id: "3",
+        name: "Ask HN: How to recover Google auth after phone stolen?",
+        url: "https://news.ycombinator.com/item?id=3",
+      },
+      { id: "4", name: "I hate you Microsoft", url: "https://example.com/rant" },
     ]),
     [],
     "2026-09-16T08:00:00.000Z",
   );
   const report = coverageGaps(db, 7, Date.parse("2026-09-19T00:00:00.000Z"));
-  expect(report.stories).toBe(2);
+  expect(report.stories).toBe(4);
+  expect(report.unjudged).toBe(2);
+  expect(report.covered).toBe(1);
   expect(report.gaps.map((gap) => gap.title)).toEqual(["Mistral X Mozilla: Private, Multilingual AI Browsing"]);
+  const board = coverageEmbed(db, Date.parse("2026-09-19T00:00:00.000Z"));
+  expect(String(board.description)).toContain("**1** of **2** stories");
+  expect(String(board.description)).toContain("[Mistral X Mozilla");
+  expect(String(board.description)).not.toContain("Ask HN");
   db.close();
 });

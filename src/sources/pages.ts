@@ -85,6 +85,9 @@ export const WATCHED_SITES: readonly WatchedSite[] = [
     ignoreSections: ["competition", "edu", "responsible-ai", "terms"],
   },
   // Most of this sitemap is the billing console; what is left is the model and pricing pages.
+  // The blog at z.ai/blog is not in it and cannot be watched: on 2026-09-19 it had no index, feed or
+  // sitemap, and no other page linked a post, so "How GLM Built Its Own Inference Infrastructure"
+  // reached us only through Hacker News. The coverage board is where the next one will show.
   {
     id: "zai",
     name: "Z.ai",
