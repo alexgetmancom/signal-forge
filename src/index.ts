@@ -2,6 +2,7 @@ import { dirname, join } from "node:path";
 import { publishAlerts, recoverInterruptedAlerts } from "./alerts.js";
 import { loadConfig } from "./config.js";
 import { deliverPending, recoverInterruptedDeliveries } from "./delivery.js";
+import { detectBreakouts } from "./events/breakouts.js";
 import { createHttpApp } from "./http.js";
 import { rebuildHypotheses } from "./hypotheses.js";
 import { rebuildLifecycleDeadlines, scheduleLifecycleReminders } from "./lifecycle.js";
@@ -52,6 +53,7 @@ supervisor.register(
   startIntervalWorker(db, "lifecycle", 300_000, () => {
     scheduleLifecycleReminders(db, config);
     scheduleRecaps(db, config);
+    detectBreakouts(db, config.destinations);
   }),
 );
 supervisor.register(startIntervalWorker(db, "delivery", 1500, () => deliverPending(db, config)));

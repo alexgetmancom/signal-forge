@@ -296,29 +296,37 @@ function becameSelectable(event: Event): boolean {
 }
 
 /**
- * A lab nobody follows here, listed by a reseller. Six of these reached the scouts between
- * 2026-09-16 and 19 -- Typesafe's Jev, Unbiased's Pareto, PrismML's Bonsai, Mixedbread's Toast,
- * QuiverAI's Arrow twice -- each a released model from a small company, which is a catalogue
- * growing rather than anything arriving early. A followed lab's model at a reseller before its
- * maker lists it stays a sighting: Qwen 3.8 Omni Flash and GLM 5.3 FlashX were first seen on the
- * Vercel gateway.
+ * A lab nobody follows here, listed by a reseller: told the next morning, not at once.
  *
- * A stealth model is the exception that decides the rule's shape. `stealth/union-alpha` names no
- * maker because hiding it is the point, and it is exactly what the scouts are for, so a row the
- * reseller marks as cloaked is never taken for a small company.
+ * Six of these reached the scouts as cards between 2026-09-16 and 19 -- Typesafe's Jev, Unbiased's
+ * Pareto, PrismML's Bonsai, Mixedbread's Toast, QuiverAI's Arrow twice -- and five were a catalogue
+ * growing. The sixth, Jev, was the week's breakout: the Vercel gateway listed it fifteen hours
+ * before any other catalogue and thirty repositories were built on it within three days. Whether a
+ * maker is followed is what this tracker knows, not what the model is worth, so none of them is
+ * dropped. Each is a line in the scouts' morning, and a card the moment it takes off (see
+ * `breakouts.ts`), after which its maker is followed and the next model is a card on arrival.
+ *
+ * A stealth model hides its maker on purpose and is exactly what the scouts are for, and a row that
+ * names no maker cannot be judged small; both stay sightings.
  */
 const STEALTH = /^(?:stealth|openrouter|cloaked|anonymous)\/|\b(?:stealth|cloaked)\b/i;
-function isUnfollowedMakerAtAReseller(event: Event): boolean {
+
+/** The maker a reseller's row names: its own attribution, or the namespace of the id. */
+export function resellerMaker(event: Event): string | null {
   const record = recordFor(event);
   const id = text(record?.id) || event.entity_id;
   const words = `${id} ${text(record?.name) ?? ""}`;
-  if (STEALTH.test(id) || STEALTH.test(words)) return false;
-  // Only a row that names its maker can be judged: the reseller's own attribution, or the namespace
-  // of the id. A row naming nobody is left a sighting, since not knowing is not the same as knowing
-  // it is small.
-  const maker = text(record?.maker) || (id.includes("/") ? (id.split("/")[0] ?? "") : "");
+  if (STEALTH.test(id) || STEALTH.test(words)) return null;
+  return text(record?.maker) || (id.includes("/") ? id.split("/")[0] || null : null);
+}
+
+export function isUnfollowedMakerAtAReseller(event: Event): boolean {
+  if (event.kind !== "new" || (event.stream !== "api-models" && event.stream !== "openrouter")) return false;
+  if (!listsAnotherMakersModel(event)) return false;
+  const maker = resellerMaker(event);
   if (!maker) return false;
-  return vendorOfName(`${maker} ${words}`) === "Unknown";
+  const record = recordFor(event);
+  return vendorOfName(`${maker} ${text(record?.id) || event.entity_id} ${text(record?.name) ?? ""}`) === "Unknown";
 }
 
 /** True when a catalogue arrival is a platform listing somebody else's model, not its maker shipping it. */

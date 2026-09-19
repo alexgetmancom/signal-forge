@@ -4,6 +4,7 @@ import { promotionContextSchema } from "../promotion.js";
 import { recapContextSchema } from "../recap.js";
 import { sourceLabel } from "../sources/labels.js";
 import { clip } from "../text.js";
+import { breakoutLine, breakoutOf } from "./breakouts.js";
 import { splitMessage } from "./canonical.js";
 import { CONFIDENCE_LEVELS } from "./confidence.js";
 import { deliveryBaseline, withBaseline } from "./cooldown.js";
@@ -650,6 +651,11 @@ export function prepareDeliveries(
           ),
         ];
         const mentions = roles.map((role) => `<@&${role}>`).join(" ");
+        // A small company's model that took off says why it is a card now and was a recap line before.
+        const tookOff = speaking.flatMap((event) => {
+          const breakout = breakoutOf(db, event.id);
+          return breakout ? [breakoutLine(event, breakout)] : [];
+        });
         const embeds = items.map((group) =>
           group.length > 1
             ? storyEmbed(group, summaries, destination.detail)
@@ -673,7 +679,7 @@ export function prepareDeliveries(
         });
         const pages = pageEmbeds(embeds);
         pages.forEach((page, index) => {
-          const content = index === 0 ? [header.trim(), mentions].filter(Boolean).join("\n") : "";
+          const content = index === 0 ? [header.trim(), ...tookOff, mentions].filter(Boolean).join("\n") : "";
           const files = page.map((embed) => attachments.get(embed)).filter((file): file is Attachment => Boolean(file));
           const carried = page.flatMap((embed) => behind.get(embed) ?? []);
           // A page that continues one story hangs off the message that told it first, so the

@@ -2,10 +2,11 @@ import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { Destination } from "../config.js";
 import { storeSnapshot } from "../storage/snapshots.js";
+import { isLearnedMaker } from "./breakouts.js";
 import { canonical } from "./canonical.js";
 import { confidenceFor, evidenceTypeFor } from "./confidence.js";
 import { isRoutine } from "./interpretation.js";
-import { signalClass } from "./signals.js";
+import { isUnfollowedMakerAtAReseller, resellerMaker, type SignalClass, signalClass } from "./signals.js";
 import type { Collection, Event } from "./types.js";
 
 export const COLLECTION_DEGRADED_PREFIX = "Collection degraded:";
@@ -286,7 +287,11 @@ export function persistCollection(
     }
   for (const digest of [false, true]) {
     const events = emitted.filter((event) => isRoutine(event) === digest && !onANewBoard(event));
-    const present = new Set(events.map((event) => signalClass(event)));
+    // A small company whose model took off here is followed from then on: its next arrival at a
+    // reseller is a sighting on arrival, not a line in tomorrow's recap.
+    const routed = (event: Event): SignalClass =>
+      isUnfollowedMakerAtAReseller(event) && isLearnedMaker(db, resellerMaker(event)) ? "codename" : signalClass(event);
+    const present = new Set(events.map(routed));
     const targets = destinations.filter((destination) => destination.signals.some((signal) => present.has(signal)));
     if (!events.length || !targets.length) continue;
     const readyAt = digest ? new Date((Math.floor(Date.parse(now) / 3_600_000) + 1) * 3_600_000).toISOString() : now;
@@ -311,7 +316,7 @@ export function persistCollection(
         batch.id,
         event.id,
         eventUrl(event, c.url),
-        signalClass(event),
+        routed(event),
       );
     for (const destination of targets)
       db.query("INSERT OR IGNORE INTO batch_targets(batch_id,destination_id,destination_json) VALUES(?,?,?)").run(

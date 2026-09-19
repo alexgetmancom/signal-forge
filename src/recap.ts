@@ -1,11 +1,12 @@
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { AppConfig, Destination } from "./config.js";
+import { breakoutOf } from "./events/breakouts.js";
 import { readableName } from "./events/naming.js";
 import { isScheduledPricingRotation } from "./events/oscillation.js";
 import { renamedEvents } from "./events/rename.js";
 import { priceMoveRatio, pricePair } from "./events/render/common.js";
-import { boardPlace, DEBUT_PLACES, isMainBoard, signalClass } from "./events/signals.js";
+import { boardPlace, DEBUT_PLACES, isMainBoard, isUnfollowedMakerAtAReseller, signalClass } from "./events/signals.js";
 import type { Event, RecordData } from "./events/types.js";
 import {
   arrivalWeight,
@@ -142,6 +143,7 @@ export const recapContextSchema = z.object({
   // Absent in the recaps stored before the scouts were told about climbs and new boards.
   climbers: z.array(z.object({ board: z.string(), name: z.string(), from: z.number(), to: z.number() })).default([]),
   newBoards: z.array(z.object({ board: z.string(), leader: z.string().nullable() })).default([]),
+  resellerArrivals: z.array(z.object({ name: z.string(), reseller: z.string() })).default([]),
   // Absent in the recaps stored before the Intelligence Index was read for new entries.
   indexed: z.array(z.object({ name: z.string(), index: z.number(), place: z.number().nullable() })).default([]),
 });
@@ -530,8 +532,18 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
         newBoards.push({ board: boardName(board.source, board.category), leader: board.leader });
     }
   }
+  // Small companies' models at resellers: a line each, unless one took off and was a card already.
+  const resellerArrivals =
+    period !== "day"
+      ? []
+      : classified
+          .filter(({ event }) => isUnfollowedMakerAtAReseller(event) && !breakoutOf(db, event.id))
+          .map(({ event }) => ({ name: readableName(nameOf(event)), reseller: event.source }))
+          .filter((entry, index, all) => all.findIndex((other) => other.name === entry.name) === index)
+          .slice(0, 8);
   return recapContextSchema.parse({
     period,
+    resellerArrivals,
     headlines: headlines.slice(0, HEADLINES),
     climbers,
     newBoards: newBoards.slice(0, 3),
@@ -593,6 +605,7 @@ function scheduleRecap(db: Database, config: AppConfig, period: RecapPeriod, now
           !context.leaders.length &&
           !context.climbers.length &&
           !context.newBoards.length &&
+          !context.resellerArrivals.length &&
           !context.indexed.length
         : !context.arrivalCount && !context.priceMoves.length && !context.codenameCount && !context.retirements.length;
   if (empty) return false;

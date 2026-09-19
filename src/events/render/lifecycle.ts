@@ -139,6 +139,7 @@ export function renderRecapLines(context: RecapContext, signals: readonly string
               (board) =>
                 `🆕 New board: ${board.board}${board.leader ? ` · led by ${withoutMakerPrefix(board.leader)}` : ""}`,
             ),
+            ...context.resellerArrivals.map((entry) => `🆕 New at ${entry.reseller}: ${entry.name}`),
           ]
         : []),
     ];
