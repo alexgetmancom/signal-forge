@@ -66,6 +66,7 @@ const syncState = z.object({
   gapDetected: z.boolean(),
 });
 const STATE_KEY = "solo-publisher";
+const TEXT_READS_AT_ONCE = 5;
 
 function storedState(db: Database) {
   const value = readState(db, STATE_KEY);
@@ -120,8 +121,7 @@ export async function syncPublications(db: Database, config: AppConfig, request:
       throw new Error("Solo Publisher returned duplicate publications");
     if (!rows.length && previous?.windowRefs.length)
       throw new Error("Solo Publisher returned an unexpected empty publication window");
-    const values: (z.infer<typeof publication> & { en: string | null })[] = [];
-    for (const row of rows) {
+    const readText = async (row: z.infer<typeof publication>) => {
       let text: z.infer<typeof copy>;
       try {
         text = copy.parse(await readStudio(endpoint, token, "ops_post_text", { ref: row.ref }, request, signal));
@@ -130,8 +130,13 @@ export async function syncPublications(db: Database, config: AppConfig, request:
       }
       if (text.ref !== row.ref || text.postId !== row.postId || row.ref !== `post:${row.postId}`)
         throw new Error("Solo Publisher publication text belongs to a different post");
-      values.push({ ...row, en: text.en });
-    }
+      return { ...row, en: text.en };
+    };
+    // Fifty texts one after another averaged 15 s a cycle on production, up to 40 s. A few at a
+    // time keeps the order and every check, and asks the Studio for no more than it did before.
+    const values: (z.infer<typeof publication> & { en: string | null })[] = [];
+    for (let start = 0; start < rows.length; start += TEXT_READS_AT_ONCE)
+      values.push(...(await Promise.all(rows.slice(start, start + TEXT_READS_AT_ONCE).map(readText))));
     const gapDetected = Boolean(
       previous?.gapDetected ||
         (previous?.windowRefs.length &&
