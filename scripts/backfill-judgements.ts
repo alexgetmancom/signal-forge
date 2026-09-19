@@ -32,7 +32,8 @@ const days = Number(args.get("--days") ?? 30);
 const limit = Number(args.get("--limit") ?? 1_000);
 const dryRun = flags.has("--dry-run");
 
-const db = new Database(resolve(dbPath), { readonly: dryRun });
+// See backfill-summaries: an explicit `{readonly: false}` is SQLITE_MISUSE, not the default.
+const db = dryRun ? new Database(resolve(dbPath), { readonly: true }) : new Database(resolve(dbPath));
 const sinceMs = days * 24 * 3_600_000;
 
 const counts = db

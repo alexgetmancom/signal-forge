@@ -36,7 +36,9 @@ const days = Number(args.get("--days") ?? 30);
 const limit = Number(args.get("--limit") ?? 50);
 const dryRun = flags.has("--dry-run");
 
-const db = new Database(resolve(dbPath), { readonly: dryRun });
+// Only the readonly case passes options: bun:sqlite answers an explicit `{readonly: false}` with
+// SQLITE_MISUSE, so spelling out the default is how this script never once opened for writing.
+const db = dryRun ? new Database(resolve(dbPath), { readonly: true }) : new Database(resolve(dbPath));
 const since = new Date(Date.now() - days * 24 * 3_600_000).toISOString();
 
 // Delivered, because a sentence is for a reader: an event nobody was told about needs none.
