@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { loadConfig } from "../src/config.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import { isNewsworthyStory, isNotableCommit, notableCommits, prepareInsights } from "../src/insights.js";
-import { jevCallsToday, judgementOf } from "../src/jev.js";
+import { jevCallsToday, judgeEvents, judgementOf } from "../src/jev.js";
 import { openDatabase } from "../src/storage/database.js";
 
 const fixture = new URL("./fixtures/config.json", import.meta.url).pathname;
@@ -83,4 +83,20 @@ test("without a key nothing is asked", async () => {
     now,
   );
   expect(result).toEqual({ judged: 0, commits: 0, findings: 0 });
+});
+
+test("a day of leaderboard churn does not hide the events worth judging", async () => {
+  const db = openDatabase(":memory:");
+  const now = new Date("2026-09-19T08:00:00Z");
+  commits(db, ["Add x"], new Date(now.getTime() - 7_200_000));
+  const board = { source: "lb", stream: "leaderboards" as const, url: "https://x.test", raw: {} };
+  const rows = (score: number) =>
+    Array.from({ length: 60 }, (_, i) => ({ id: `m${i}`, name: `m${i}`, score: score + i }));
+  saveCollection(db, { ...board, records: rows(0) }, [], new Date(now.getTime() - 3_700_000).toISOString());
+  saveCollection(db, { ...board, records: rows(1) }, [], new Date(now.getTime() - 3_600_000).toISOString());
+  const request = async () =>
+    Response.json({
+      answers: { kind: { choice: "internal" }, worth: { score: 0.2 }, codename: { noul: 0.01 } },
+    });
+  expect(await judgeEvents(db, config, request as unknown as typeof fetch, now)).toBe(1);
 });

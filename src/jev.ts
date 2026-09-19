@@ -174,24 +174,30 @@ function judgeable(event: Event): boolean {
   return event.kind === "new";
 }
 
-/** Read the last day's new events that have no judgement yet, a few dozen a cycle. */
+/**
+ * Read the new events that have no judgement yet, a few dozen a cycle. The streams are chosen in
+ * the query: leaderboard shuffles are most rows of a day, and choosing after a row limit left the
+ * limit filled with them -- six of a day's two hundred judgeable events were read on 2026-09-19.
+ */
 export async function judgeEvents(
   db: Database,
   config: AppConfig,
   request: Fetch = fetch,
   now = new Date(),
+  window: { sinceMs?: number; limit?: number } = {},
 ): Promise<number> {
   if (!config.TYPESAFE_API_KEY) return 0;
-  const since = new Date(now.getTime() - 24 * 3_600_000).toISOString();
+  const since = new Date(now.getTime() - (window.sinceMs ?? 24 * 3_600_000)).toISOString();
+  const streams = [...JUDGED_STREAMS].map(() => "?").join(",");
   const pending = db
-    .query<Event, [string]>(
-      `SELECT e.* FROM events e WHERE e.detected_at>=?
+    .query<Event, string[]>(
+      `SELECT e.* FROM events e WHERE e.detected_at>=? AND e.stream IN (${streams})
+         AND (e.kind='new' OR (e.stream='web' AND e.kind='changed')) AND NOT (e.stream='web' AND e.kind='new')
          AND NOT EXISTS (SELECT 1 FROM app_state s WHERE s.key='${JUDGEMENT_PREFIX}'||e.id)
-       ORDER BY e.id DESC LIMIT 400`,
+       ORDER BY e.id DESC LIMIT ${Math.max(1, Math.floor(window.limit ?? PER_CYCLE))}`,
     )
-    .all(since)
-    .filter(judgeable)
-    .slice(0, PER_CYCLE);
+    .all(since, ...JUDGED_STREAMS)
+    .filter(judgeable);
   let judged = 0;
   for (const event of pending) {
     const answer = await askJev(db, config, evidenceOf(event), request, now);
