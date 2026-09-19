@@ -19,7 +19,7 @@ import { listOperatorActions } from "./journal.js";
 import { leadTime } from "./leadTime.js";
 import { listLifecycleDeadlines } from "./lifecycle.js";
 import { getModelFacts, listModelFacts } from "./modelFacts.js";
-import { isSignalClass, news } from "./news.js";
+import { isSignalClass, news, sentByChannel } from "./news.js";
 import { pollSources } from "./poller.js";
 import { listPublications, syncPublications } from "./publications.js";
 import { deepSeekUsage } from "./runtime/deepseekUsage.js";
@@ -331,6 +331,23 @@ export function operations(db: Database, config: AppConfig): OperationMap {
              ORDER BY s.recorded_at DESC, s.event_id DESC LIMIT ?2`,
           )
           .all(input.destinationId ?? null, input.limit),
+    },
+    sent: {
+      section: "delivery",
+      summary:
+        "What each channel received over the last N hours (default 24): titles per message, newest first, with pending and failed counts.",
+      startHere: "what went to signals, what went to scouts",
+      mutates: false,
+      agent: true,
+      schema: z.object({ hours: count(168, 24), destination: z.string().min(1).optional() }),
+      cli: {
+        args: [
+          { name: "hours", optional: true },
+          { name: "destination", optional: true },
+        ],
+      },
+      http: { method: "get", path: "/api/sent" },
+      handler: (input: { hours: number; destination?: string | undefined }) => sentByChannel(db, input),
     },
     news: {
       section: "evidence",

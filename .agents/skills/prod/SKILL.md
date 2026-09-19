@@ -18,6 +18,7 @@ Question to command:
 | Asked | Command |
 | --- | --- |
 | what came out today / over N hours / by category | `news [hours] [signal]` — signal is launch, codename, release, article, evidence, rank, change, incident, reminder, retirement |
+| what went to signals / scouts / each channel | `sent [hours] [destination]` |
 | what is broken, what needs attention | `issues`, then `status` |
 | is the deployment healthy, backed up | `doctor` |
 | a story, a model, what a claim rests on | `stories [limit]`, `model <canonical-id>`, `event <id>` |

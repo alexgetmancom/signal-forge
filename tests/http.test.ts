@@ -48,6 +48,7 @@ test("health is public, operational state requires token, MCP lists matching sch
     "require_delivery_verification",
     "resolve_delivery_verification",
     "suppressions",
+    "sent",
     "news",
     "events",
     "event",

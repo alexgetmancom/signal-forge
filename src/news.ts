@@ -152,15 +152,19 @@ export function news(
     });
   }
 
-  const stories = listStories(db, { since, limit: 100 }).map((story) => ({
-    id: story.id,
-    title: story.title,
-    vendor: story.vendor,
-    confidence: story.confidence,
-    sources: story.sources,
-    firstSeenAt: story.firstSeenAt,
-    updatedAt: story.updatedAt,
-  }));
+  // A story counts as news when it began in the window. One that was merely touched -- a catalogue
+  // re-reading ninety old models after a key was replaced -- would fill the list with nothing new.
+  const stories = listStories(db, { since, limit: 100 })
+    .filter((story) => story.firstSeenAt >= since)
+    .map((story) => ({
+      id: story.id,
+      title: story.title,
+      vendor: story.vendor,
+      confidence: story.confidence,
+      sources: story.sources,
+      firstSeenAt: story.firstSeenAt,
+      updatedAt: story.updatedAt,
+    }));
 
   const classRows = [...classes.entries()]
     .filter(([signal]) => !wanted || signal === wanted)
@@ -187,5 +191,64 @@ export function news(
     classes: classRows,
     messages: [...byBody.values()],
     stories,
+  };
+}
+
+export type SentReport = {
+  since: string;
+  hours: number;
+  channels: {
+    destination: string;
+    sent: number;
+    unsent: Record<string, number>;
+    messages: { sentAt: string; headline: string | null; titles: string[] }[];
+  }[];
+};
+
+/**
+ * What each channel actually received over a window, newest first: one line per message with the
+ * titles it carried, and what is still pending or failed beside it. The question it answers is
+ * "what did signals get, and what did scouts get".
+ */
+export function sentByChannel(
+  db: Database,
+  input: { hours: number; destination?: string | undefined },
+  now = Date.now(),
+): SentReport {
+  const since = new Date(now - input.hours * 3_600_000).toISOString();
+  const rows = db
+    .query<{ destination_id: string; status: string; body: string; updated_at: string }, [string, string | null]>(
+      `SELECT destination_id,status,body,updated_at FROM deliveries
+       WHERE updated_at>=?1 AND (?2 IS NULL OR destination_id=?2)
+       ORDER BY updated_at DESC, id DESC`,
+    )
+    .all(since, input.destination ?? null);
+  const channels = new Map<string, SentReport["channels"][number]>();
+  for (const row of rows) {
+    const channel = channels.get(row.destination_id) ?? {
+      destination: row.destination_id,
+      sent: 0,
+      unsent: {},
+      messages: [],
+    };
+    channels.set(row.destination_id, channel);
+    if (row.status !== "sent") {
+      channel.unsent[row.status] = (channel.unsent[row.status] ?? 0) + 1;
+      continue;
+    }
+    channel.sent += 1;
+    const message = readMessage(row.body);
+    channel.messages.push({
+      sentAt: row.updated_at,
+      headline: message.headline,
+      titles: message.items.map((item) => item.title),
+    });
+  }
+  return {
+    since,
+    hours: input.hours,
+    channels: [...channels.values()].sort(
+      (one, other) => other.sent - one.sent || one.destination.localeCompare(other.destination),
+    ),
   };
 }
