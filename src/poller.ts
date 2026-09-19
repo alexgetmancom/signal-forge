@@ -105,11 +105,14 @@ async function collectDueSources(db: Database, config: AppConfig, force: boolean
     dueJobs.push(job);
   }
 
-  let nextJob = 0;
-  const worker = async (): Promise<void> => {
-    while (nextJob < dueJobs.length) {
-      const job = dueJobs[nextJob];
-      nextJob += 1;
+  // A source whose response is tens of megabytes holds that, and the objects parsed from it, until
+  // it is stored. Two of them at once are what the container's memory peaks are made of, so they
+  // share one lane and take turns; everything else keeps the remaining lanes.
+  const heavy = dueJobs.filter((job) => job.heavy);
+  const light = dueJobs.filter((job) => !job.heavy);
+  const worker = async (queue: SourceDefinition[]): Promise<void> => {
+    while (queue.length) {
+      const job = queue.shift();
       if (!job) return;
       try {
         const collected = await job.collector();
@@ -180,6 +183,10 @@ async function collectDueSources(db: Database, config: AppConfig, force: boolean
       }
     }
   };
-  await Promise.all(Array.from({ length: Math.min(MAX_CONCURRENT_SOURCES, dueJobs.length) }, () => worker()));
+  const lightLanes = Math.min(MAX_CONCURRENT_SOURCES - (heavy.length ? 1 : 0), light.length);
+  await Promise.all([
+    ...(heavy.length ? [worker(heavy)] : []),
+    ...Array.from({ length: lightLanes }, () => worker(light)),
+  ]);
   return dueJobs.length;
 }
