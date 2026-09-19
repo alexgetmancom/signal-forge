@@ -131,8 +131,10 @@ export const settingsSchema = z
     promotion: z
       .object({
         ownerUserId: z.string().regex(/^\d+$/),
-        ownerEmoji: z.string().min(1).default("✅"),
-        readerEmoji: z.string().min(1).default("👍"),
+        // One pair, put under every card by the bot itself: a reader answers by pressing, not by
+        // finding the right emoji. The owner's own like still settles a promotion on its own.
+        likeEmoji: z.string().min(1).default("👍"),
+        dislikeEmoji: z.string().min(1).default("👎"),
         readerVotes: z.number().int().min(2).default(3),
       })
       .optional(),
