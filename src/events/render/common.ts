@@ -249,14 +249,23 @@ export function prices(before: unknown, after: unknown, source?: string): Fact[]
       .map((key) => `${money(next[key])} ${shorthand[key]}`);
     // A gateway that does not know a rate writes 0 rather than leaving it out: the Vercel AI Gateway
     // listed Jev on 2026-09-16 with "Pricing output: 0", which reads as free and is a blank.
-    const extras = Object.keys(next).filter((key) => !labels[key] && !shorthand[key] && Number(next[key]) !== 0);
+    const extras = Object.keys(next).filter(
+      (key) => !labels[key] && !shorthand[key] && !nested(next[key]) && Number(next[key]) !== 0,
+    );
     return [
       ...(parts.length ? [{ label: "Price", value: `${parts.join(" · ")} / 1M tokens` }] : []),
       ...extras.map((key) => ({ label: `Pricing ${key}`, value: describe(next[key]) })),
     ];
   }
+  // Tier tables and service tiers are whole price sheets: dumped raw, one Vercel card on 2026-09-19
+  // printed four walls of `cost: 0.000004, max: 272000` beside the three rates a reader needed.
+  const alsoMoved: string[] = [];
   for (const key of new Set([...Object.keys(old), ...Object.keys(next)])) {
     if (canonical(old[key]) === canonical(next[key])) continue;
+    if (!labels[key] && (nested(old[key]) || nested(next[key]))) {
+      alsoMoved.push(key.replace(/_tiers$/, " tiers").replace(/_/g, " "));
+      continue;
+    }
     if (labels[key]) {
       if (!significantPriceChange(old[key], next[key], source)) continue;
       const from = money(old[key]);
@@ -265,7 +274,12 @@ export function prices(before: unknown, after: unknown, source?: string): Fact[]
       result.push({ label: labels[key], value: `${from} → ${to} / 1M tokens` });
     } else result.push({ label: `Pricing ${key}`, value: `${describe(old[key])} → ${describe(next[key])}` });
   }
+  if (alsoMoved.length) result.push({ label: "Also repriced", value: alsoMoved.join(", ") });
   return result;
+}
+
+function nested(value: unknown): boolean {
+  return value !== null && typeof value === "object";
 }
 
 export const MAX_DETAIL_LINES = 8;

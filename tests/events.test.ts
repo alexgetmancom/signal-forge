@@ -5,7 +5,7 @@ import { canonical, splitMessage } from "../src/events/canonical.js";
 import { isRoutine } from "../src/events/interpretation.js";
 import { hasNotificationContent } from "../src/events/notification.js";
 import { saveCollection } from "../src/events/pipeline.js";
-import { collapseDetails, MAX_DETAIL_LINES } from "../src/events/render/common.js";
+import { collapseDetails, MAX_DETAIL_LINES, prices } from "../src/events/render/common.js";
 import { eventEmbed } from "../src/events/render/discord.js";
 import { eventFacts } from "../src/events/render/facts.js";
 import { renderEvent } from "../src/events/render/telegram.js";
@@ -1234,4 +1234,21 @@ test("an arena entry whose sibling carries its own name is not said to stand bes
     siblings: [{ id: "a", name: "amber-fern", maker: "Unknown", input: { text: true } }],
   });
   expect(facts[0]).toBe("Another Arena entry under the same name.");
+});
+
+test("a gateway's tier tables are named as repriced, not dumped", () => {
+  const sheet = (rate: number) => ({
+    input: String(rate),
+    output: String(rate * 5),
+    input_tiers: [
+      { cost: String(rate), min: 0, max: 272000 },
+      { cost: String(rate * 2), min: 272000 },
+    ],
+    fast: { input: String(rate * 2) },
+  });
+  expect(prices(sheet(0.000002), sheet(0.000004), "vercel-ai-gateway")).toEqual([
+    { label: "Input price", value: "$2 → $4 / 1M tokens" },
+    { label: "Output price", value: "$10 → $20 / 1M tokens" },
+    { label: "Also repriced", value: "input tiers, fast" },
+  ]);
 });
