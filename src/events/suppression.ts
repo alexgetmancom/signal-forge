@@ -36,6 +36,7 @@ const SUPPRESSION_REASONS = [
   "a_page_about_no_product",
   "trending_from_an_unfollowed_lab",
   "same_release_on_another_page",
+  "announced_before_it_was_sighted",
 ] as const;
 
 export type SuppressionReason = (typeof SUPPRESSION_REASONS)[number];
@@ -94,6 +95,8 @@ function suppressionDetail(event: Event, reason: SuppressionReason): string {
       return "A new vendor page whose address names none of the vendor's products";
     case "trending_from_an_unfollowed_lab":
       return "A trending repository from a lab this service does not follow";
+    case "announced_before_it_was_sighted":
+      return "Its maker's announcement already reached a channel; a later glimpse of it is not a sighting";
     case "alias_of_another_row":
       return "A row that points at whichever build is newest, not a model of its own";
   }

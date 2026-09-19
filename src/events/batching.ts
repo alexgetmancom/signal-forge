@@ -173,6 +173,33 @@ function releaseTold(db: Database, key: string, destinationId: string, batchId: 
   );
 }
 
+/**
+ * A sighting of something its maker had already announced, to anyone.
+ *
+ * xAI's release notes put Grok Voice Transcribe 2.0 on the public channel at 06:26 on 2026-09-18;
+ * the news page about it appeared in xAI's sitemap twelve hours later and reached the scouts as a
+ * sighting. The repeat check is per destination and the scouts had not been told, but a sighting is
+ * the earliest word on something, and after the maker's announcement it is the latest. Both events
+ * were in one story, so the story says it.
+ */
+function announcedBeforeSighted(db: Database, event: Event, storyId: number | undefined, batchId: number): boolean {
+  if (storyId === undefined || event.kind !== "new") return false;
+  return Boolean(
+    db
+      .query(
+        `SELECT 1 FROM story_events previous
+         JOIN events earlier ON earlier.id=previous.event_id
+         JOIN batch_events be ON be.event_id=earlier.id
+         JOIN deliveries d ON d.batch_id=be.batch_id
+         WHERE previous.story_id=? AND previous.event_id<>? AND be.batch_id<>? AND earlier.detected_at<=?
+           AND be.signal IN ('launch','release','feature')
+           AND d.status IN ('sent','sending','ambiguous','verification_required')
+         LIMIT 1`,
+      )
+      .get(storyId, event.id, batchId, event.detected_at),
+  );
+}
+
 const DEBUT_WINDOW_MS = 24 * 3_600_000;
 
 function repeatsDeliveredStory(
@@ -538,6 +565,8 @@ export function prepareDeliveries(
           if (isReappearance(db, event, now)) return quiet(event, "flapping_in_and_out");
           if (repeatsDeliveredStory(db, event, target.destination_id, storyIds.get(event.id), batch.id))
             return quiet(event, "already_told_by_another_source");
+          if (event.signal === "codename" && announcedBeforeSighted(db, event, storyIds.get(event.id), batch.id))
+            return quiet(event, "announced_before_it_was_sighted");
           // A number that keeps moving waits, then speaks once about the whole move it missed.
           if (baseline?.hold) return quiet(event, "waiting_for_the_move_to_settle");
           const model = pageModel(event);
