@@ -74,6 +74,7 @@ const alertableKinds = new Set<IssueKind>([
   "worker_stale",
   "delivery_stuck",
   "delivery_failed",
+  "delivery_blocked",
   "delivery_ambiguous",
   "board_stalled",
 ]);

@@ -263,12 +263,77 @@ test("an unresolved delivery blocks only later parts in its own batch", async ()
 test("permanent platform rejection fails one target without blocking another", async () => {
   queue();
   await deliverPending(db, config, async (url) =>
-    url.includes("telegram") ? new Response("forbidden", { status: 403 }) : Response.json({ id: "999" }),
+    url.includes("telegram") ? new Response("bad request", { status: 400 }) : Response.json({ id: "999" }),
   );
   expect(db.query("SELECT status FROM deliveries ORDER BY id").all()).toEqual([
     { status: "failed" },
     { status: "sent" },
   ]);
+});
+
+const missingPermissions = () => Response.json({ message: "Missing Permissions", code: 50013 }, { status: 403 });
+
+test("a destination that refuses the bot keeps its messages, says why, and sends them in order once opened", async () => {
+  queue();
+  // A second, later card for the same channel, so order across messages is tested.
+  saveCollection(
+    db,
+    {
+      source: "test",
+      stream: "news",
+      url: "https://example.com",
+      raw: [],
+      records: [
+        { id: "a", name: "a" },
+        { id: "b", name: "@everyone" },
+        { id: "c", name: "c" },
+      ],
+    },
+    destinations,
+  );
+  let open = false;
+  const sent: string[] = [];
+  const request = async (url: string, init?: RequestInit) => {
+    if (url.includes("telegram")) return Response.json({ ok: true, result: { message_id: 1 } });
+    if (!open) return missingPermissions();
+    sent.push(String((JSON.parse(String(init?.body)) as { nonce: string }).nonce));
+    return Response.json({ id: String(sent.length) });
+  };
+  await deliverPending(db, config, request);
+  const waiting = db
+    .query<{ id: number; status: string; error: string; attempts: number }, []>(
+      "SELECT id,status,error,attempts FROM deliveries WHERE destination_id='dc' ORDER BY id",
+    )
+    .all();
+  // Nothing is dropped, only the oldest is asked about, and the platform's reason is kept.
+  expect(waiting.map((row) => row.status)).toEqual(["pending", "pending"]);
+  expect(waiting[0]?.error).toBe("Blocked: Platform returned HTTP 403: 50013 Missing Permissions");
+  expect(waiting[1]?.error).toBeNull();
+  expect(waiting[0]?.attempts).toBe(0);
+  const issue = listActionableIssues(db, config).find((entry) => entry.kind === "delivery_blocked");
+  expect(issue?.message).toBe(
+    "dc refuses the bot; 2 messages waiting — Platform returned HTTP 403: 50013 Missing Permissions",
+  );
+
+  // The owner fixes the channel; after the wait the backlog goes out oldest first.
+  open = true;
+  db.exec("UPDATE deliveries SET next_attempt_at='1970-01-01T00:00:00.000Z' WHERE status='pending'");
+  await deliverPending(db, config, request);
+  expect(sent).toEqual(waiting.map((row) => `sf-${row.id}`));
+  expect(listActionableIssues(db, config).some((entry) => entry.kind === "delivery_blocked")).toBe(false);
+});
+
+test("a message refused for three days is let go as no longer news", async () => {
+  queue();
+  db.exec("UPDATE batches SET ready_at='2026-01-01T00:00:00.000Z'");
+  await deliverPending(db, config, async (url) =>
+    url.includes("telegram") ? Response.json({ ok: true, result: { message_id: 1 } }) : missingPermissions(),
+  );
+  const row = db
+    .query<{ status: string; error: string }, []>("SELECT status,error FROM deliveries WHERE destination_id='dc'")
+    .get();
+  expect(row?.status).toBe("failed");
+  expect(row?.error).toContain("refused for three days");
 });
 test("a Telegram application error is a failed delivery, not an ambiguous send", async () => {
   const local = openDatabase(":memory:");

@@ -17,6 +17,7 @@ export type IssueKind =
   | "source_failed"
   | "collection_degraded"
   | "delivery_failed"
+  | "delivery_blocked"
   | "delivery_ambiguous"
   | "delivery_stuck"
   | "worker_failed"
@@ -181,6 +182,35 @@ export function listActionableIssues(db: Database, config: AppConfig, now = Date
       hint: ambiguous
         ? "Verify the destination before any retry; the send may already have reached the audience."
         : "Inspect the stored platform response and destination configuration.",
+    });
+  }
+
+  // A destination that refuses the bot holds its messages rather than losing them; that is only
+  // useful if somebody is told the door is shut. One issue per destination, dated from its oldest
+  // waiting message, carrying the platform's reason.
+  const blocked = db
+    .query<{ destination_id: string; waiting: number; oldest: string; error: string }, []>(
+      `SELECT b.destination_id,
+              (SELECT COUNT(*) FROM deliveries w WHERE w.destination_id=b.destination_id AND w.status='pending') AS waiting,
+              MIN(b.updated_at) AS oldest,MAX(b.error) AS error
+       FROM deliveries b WHERE b.status='pending' AND b.error LIKE 'Blocked:%' GROUP BY b.destination_id`,
+    )
+    .all();
+  for (const row of blocked) {
+    const since = issueTime(row.oldest, now);
+    issues.push({
+      id: `destination:${row.destination_id}:blocked`,
+      kind: "delivery_blocked",
+      severity: "error",
+      entity: row.destination_id,
+      destination: row.destination_id,
+      firstSeenAt: since,
+      updatedAt: since,
+      message: `${row.destination_id} refuses the bot; ${row.waiting} message${row.waiting === 1 ? "" : "s"} waiting — ${row.error
+        .slice("Blocked:".length)
+        .trim()
+        .slice(0, 160)}`,
+      hint: "Give the bot View Channel, Send Messages, Embed Links and Attach Files there; waiting messages are sent in order within ten minutes.",
     });
   }
 

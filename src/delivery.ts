@@ -22,6 +22,27 @@ const instant = (epochMs: number): string => new Date(epochMs).toISOString();
  * of a job that retries silently for ever.
  */
 const MAX_RATE_LIMIT_ATTEMPTS = 8;
+
+/**
+ * A destination that refuses the bot -- a channel made read-only, a role removed, the bot taken out
+ * of a chat -- is a door somebody can open again, not a message that can never be delivered. On
+ * 2026-09-19 both reader channels denied Send Messages to @everyone for ten hours and four cards
+ * were dropped for good, although the fix was one permission. A refused message now waits and asks
+ * again, in order, until the door opens; only news older than this is let go.
+ */
+const BLOCKED_RETRY_MS = 10 * 60_000;
+const BLOCKED_GIVE_UP_MS = 3 * 24 * 3_600_000;
+const BLOCKED_PREFIX = "Blocked:";
+
+/** The refusals an owner fixes in the destination rather than in the message. */
+function refusedAccess(platform: string, status: number, code: number | null): boolean {
+  if (status === 401 || status === 403) return true;
+  // Discord 10003 is Unknown Channel: a channel deleted or re-created under a new id in the config.
+  return platform === "discord" && status === 404 && code === 10003;
+}
+
+const platformError = z.object({ code: z.number().optional(), message: z.string().optional() }).passthrough();
+const telegramDescription = z.object({ error_code: z.number().optional(), description: z.string().optional() });
 /** Discord's limit on the files one message carries. */
 const MAX_FILES = 10;
 type DeliveryStatus = "pending" | "sent" | "failed" | "ambiguous";
@@ -104,6 +125,7 @@ export async function deliverPending(db: Database, config: AppConfig, request: F
           .query<Job, [string, string, string]>(`UPDATE deliveries SET status='sending',attempts=attempts+1,updated_at=?
           WHERE id=(SELECT d.id FROM deliveries d WHERE d.destination_id=? AND d.status='pending' AND d.next_attempt_at<=?
             AND NOT EXISTS(SELECT 1 FROM deliveries earlier WHERE earlier.batch_id=d.batch_id AND earlier.destination_id=d.destination_id AND earlier.part<d.part AND earlier.status<>'sent')
+            AND NOT EXISTS(SELECT 1 FROM deliveries refused WHERE refused.destination_id=d.destination_id AND refused.id<d.id AND refused.status='pending' AND refused.error LIKE 'Blocked:%')
             ORDER BY d.id LIMIT 1) AND status='pending' RETURNING id,destination_json,body,attempts`)
           .get(instant(now), destinationId, instant(now));
         if (!job) return;
@@ -217,9 +239,38 @@ export async function deliverPending(db: Database, config: AppConfig, request: F
                 status = "sent";
               }
             } else {
-              await response.body?.cancel();
-              status = response.status >= 500 ? "ambiguous" : "failed";
-              error = `Platform returned HTTP ${response.status}`;
+              // The platform's own words name the fix: "50013 Missing Permissions" sends the owner to
+              // the channel settings, where a bare status sends them to the database.
+              const answer: unknown = await response.json().catch(() => null);
+              const discord = platformError.safeParse(answer);
+              const telegram = telegramDescription.safeParse(answer);
+              const code = discord.success ? (discord.data.code ?? null) : null;
+              const reason =
+                discord.success && discord.data.message
+                  ? `${code ?? ""} ${discord.data.message}`.trim()
+                  : telegram.success && telegram.data.description
+                    ? telegram.data.description
+                    : "";
+              const said = `Platform returned HTTP ${response.status}${reason ? `: ${reason.replace(/\s+/g, " ").slice(0, 120)}` : ""}`;
+              if (refusedAccess(prepared.destination.platform, response.status, code)) {
+                const readyAt = db
+                  .query<{ ready_at: string }, [number]>(
+                    "SELECT b.ready_at FROM deliveries d JOIN batches b ON b.id=d.batch_id WHERE d.id=?",
+                  )
+                  .get(job.id)?.ready_at;
+                const age = Date.now() - Date.parse(readyAt ?? "");
+                if (Number.isFinite(age) && age > BLOCKED_GIVE_UP_MS) {
+                  status = "failed";
+                  error = `${said}; refused for three days, no longer news`;
+                } else {
+                  status = "pending";
+                  retryAt = Date.now() + BLOCKED_RETRY_MS;
+                  error = `${BLOCKED_PREFIX} ${said}`;
+                }
+              } else {
+                status = response.status >= 500 ? "ambiguous" : "failed";
+                error = said;
+              }
             }
           } catch {
             // The request or response may have crossed the provider boundary. Persist only a fixed,
@@ -232,7 +283,15 @@ export async function deliverPending(db: Database, config: AppConfig, request: F
         db.query(
           "UPDATE deliveries SET status=?,external_id=?,error=?,next_attempt_at=?,updated_at=? WHERE id=? AND status='sending'",
         ).run(status, externalId, error, instant(retryAt), instant(Date.now()), job.id);
-        log(status === "sent" ? "info" : "warn", "Delivery settled", { deliveryId: job.id, status });
+        // A refusal is not an attempt at the message: it must not spend the rate-limit allowance
+        // the message will need once the destination opens again.
+        if (error?.startsWith(BLOCKED_PREFIX))
+          db.query("UPDATE deliveries SET attempts=MAX(attempts-1,0) WHERE id=?").run(job.id);
+        log(status === "sent" ? "info" : "warn", "Delivery settled", {
+          deliveryId: job.id,
+          status,
+          ...(error ? { error } : {}),
+        });
         if (status === "failed" || status === "ambiguous") {
           db.query(
             "UPDATE deliveries SET status='failed',error='Earlier message part was not confirmed',updated_at=? WHERE batch_id=(SELECT batch_id FROM deliveries WHERE id=?) AND destination_id=(SELECT destination_id FROM deliveries WHERE id=?) AND part>(SELECT part FROM deliveries WHERE id=?) AND status='pending'",
