@@ -336,6 +336,8 @@ test("a reseller listing a small company's model is a trail, a followed lab's or
   // What reached the scouts on 2026-09-19.
   expect(listed("mixedbread/toast-1", "Toast 1", "mixedbread")).toBe("evidence");
   expect(listed("quiverai/arrow-2", "Arrow 2", "quiverai")).toBe("evidence");
+  // Followed since Jev: the gateway was where it was seen first.
+  expect(listed("typesafe-ai/jev", "Jev", "typesafe-ai")).toBe("codename");
   // First seen on the gateway before their makers listed them.
   expect(listed("alibaba/qwen3.8-omni-flash", "Qwen 3.8 Omni Flash", "alibaba")).toBe("codename");
   expect(listed("zai/glm-5.3-flashx", "GLM 5.3 FlashX", "zai")).toBe("codename");

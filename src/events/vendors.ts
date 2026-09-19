@@ -46,6 +46,10 @@ const VENDORS: [RegExp, string][] = [
   // `bonsai` alone also names other people's fine-tunes of PrismML's models.
   [/prism-?ml\b/i, "PrismML"],
   [/abacus|\bsmaug-(?:agentic|flash|mini)\b/i, "Abacus.AI"],
+  // Jev reached the Vercel gateway on 2026-09-16, fifteen hours before any other catalogue, and
+  // thirty repositories were built around it in the next three days. "typesafe" alone is an
+  // ordinary word in repository names, so only the company's own spellings count.
+  [/typesafe-ai|~?typesafe\/|\btypesafe:|\bjev\b/i, "Typesafe"],
 ];
 
 /**
