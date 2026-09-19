@@ -349,6 +349,54 @@ function prepareLifecycleReminder(
   sealBatch(db, batch.id);
 }
 
+/** What a batch knows about its events that every destination's judgement reads. */
+type BatchView = {
+  renamed: Set<number>;
+  known: ReturnType<typeof knownModelNames>;
+  listings: ReturnType<typeof listingsBySubject> | null;
+  sighted: (event: Event) => boolean;
+  elsewhereOf: (event: Event) => string[];
+};
+
+/**
+ * Why an event is not worth a card to anyone, whichever destination is asking, or null when nothing
+ * about the event itself holds it back. Checks that depend on what a destination has already been
+ * told stay with the destination. The order is the order reasons are recorded in: the first that
+ * applies is the one a reader sees.
+ */
+function standingReason(
+  db: Database,
+  event: Event & { signal: SignalClass | "" },
+  view: BatchView,
+): SuppressionReason | null {
+  if (view.renamed.has(event.id)) return "renamed_by_the_source";
+  if (isMinorBoardMove(event)) return "below_the_top_of_the_board";
+  if (isAnotherServing(event, view.known)) return "another_serving_of_a_known_model";
+  if (event.signal === "article" && isAboutTheCompanyNotAModel(event, view.known))
+    return "a_post_about_the_company_not_a_model";
+  if (isLabelOnlyChange(event)) return "display_label_only";
+  if (isAliasRow(event)) return "alias_of_another_row";
+  if (isAnotherTierOfAListedModel(db, event)) return "another_tier_of_a_listed_model";
+  if (isPublishedByAFollowedLab(db, event)) return "published_by_a_followed_lab";
+  if (isWeightsBesideTheRelease(event)) return "weights_with_nothing_to_run";
+  if (isLongPublishedWeights(event)) return "weights_published_long_ago";
+  if (isScheduledPricingRotation(event)) return "scheduled_pricing_rotation";
+  if (isLeftToTheDailyRecap(event)) return "left_to_the_daily_recap";
+  if (isAResellerFillingInAPrice(event)) return "a_reseller_filled_in_a_price";
+  if (isPageWithoutAProduct(event)) return "a_page_about_no_product";
+  if (isTrendingFromAnUnfollowedLab(event)) return "trending_from_an_unfollowed_lab";
+  if (
+    event.signal === "codename" &&
+    view.listings &&
+    view.sighted(event) &&
+    isAlreadyOutAtItsMaker(event, view.elsewhereOf(event))
+  )
+    return "already_out_at_its_maker";
+  if (event.signal === "codename" && namesOnlyKnownModels(event, view.known)) return "names_only_known_models";
+  if (event.signal === "release" && isFixesOnlyRelease(event)) return "fixes_only_release";
+  return null;
+}
+
 export function prepareDeliveries(
   db: Database,
   now = Date.now(),
@@ -435,6 +483,7 @@ export function prepareDeliveries(
     const known = events.some((event) => ["arena", "web"].includes(event.stream) || event.signal === "article")
       ? knownModelNames(db)
       : [];
+    const batchView: BatchView = { renamed, known, listings, sighted, elsewhereOf };
     for (const target of targets) {
       const destination = JSON.parse(target.destination_json) as Destination;
       const subscribed = new Set<string>(destination.signals);
@@ -464,32 +513,8 @@ export function prepareDeliveries(
                 ? "returned_to_the_delivered_state"
                 : "no_reader_facing_change",
             );
-          if (renamed.has(event.id)) return quiet(event, "renamed_by_the_source");
-          if (isMinorBoardMove(event)) return quiet(event, "below_the_top_of_the_board");
-          if (isAnotherServing(event, known)) return quiet(event, "another_serving_of_a_known_model");
-          if (event.signal === "article" && isAboutTheCompanyNotAModel(event, known))
-            return quiet(event, "a_post_about_the_company_not_a_model");
-          if (isLabelOnlyChange(event)) return quiet(event, "display_label_only");
-          if (isAliasRow(event)) return quiet(event, "alias_of_another_row");
-          if (isAnotherTierOfAListedModel(db, event)) return quiet(event, "another_tier_of_a_listed_model");
-          if (isPublishedByAFollowedLab(db, event)) return quiet(event, "published_by_a_followed_lab");
-          if (isWeightsBesideTheRelease(event)) return quiet(event, "weights_with_nothing_to_run");
-          if (isLongPublishedWeights(event)) return quiet(event, "weights_published_long_ago");
-          if (isScheduledPricingRotation(event)) return quiet(event, "scheduled_pricing_rotation");
-          if (isLeftToTheDailyRecap(event)) return quiet(event, "left_to_the_daily_recap");
-          if (isAResellerFillingInAPrice(event)) return quiet(event, "a_reseller_filled_in_a_price");
-          if (isPageWithoutAProduct(event)) return quiet(event, "a_page_about_no_product");
-          if (isTrendingFromAnUnfollowedLab(event)) return quiet(event, "trending_from_an_unfollowed_lab");
-          if (
-            event.signal === "codename" &&
-            listings &&
-            sighted(event) &&
-            isAlreadyOutAtItsMaker(event, elsewhereOf(event))
-          )
-            return quiet(event, "already_out_at_its_maker");
-          if (event.signal === "codename" && namesOnlyKnownModels(event, known))
-            return quiet(event, "names_only_known_models");
-          if (event.signal === "release" && isFixesOnlyRelease(event)) return quiet(event, "fixes_only_release");
+          const standing = standingReason(db, event, batchView);
+          if (standing) return quiet(event, standing);
           const release = releaseKey(event);
           if (release && (releases.has(release) || releaseTold(db, release, target.destination_id, batch.id, now)))
             return quiet(event, "same_release_on_another_page");
