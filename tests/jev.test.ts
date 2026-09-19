@@ -34,6 +34,37 @@ test("notability needs a model or feature Jev scores clearly, or a likely codena
   expect(isNewsworthyStory({ ...j, kind: "safety", worth: 2.2 })).toBe(true);
 });
 
+test("a post carries how old it already was when we found it", async () => {
+  // Jev read a title and nothing else, and rated an eight-week-old announcement above the morning's.
+  const db = openDatabase(":memory:");
+  const now = new Date("2026-09-17T08:00:00Z");
+  const base = { source: "anthropic:news", stream: "news" as const, url: "https://x.test", raw: {} };
+  saveCollection(db, { ...base, records: [{ id: "seed", name: "seed" }] }, [], "2026-09-17T07:00:00.000Z");
+  saveCollection(
+    db,
+    {
+      ...base,
+      records: [
+        { id: "seed", name: "seed" },
+        { id: "opus-5", name: "Introducing Claude Opus 5", published: "2026-07-24T00:00:00.000Z" },
+        { id: "today", name: "Something announced this morning", published: "2026-09-17T06:00:00.000Z" },
+      ],
+    },
+    [],
+    "2026-09-17T07:30:00.000Z",
+  );
+  const states: Record<string, unknown>[] = [];
+  const request = async (_url: string, init?: RequestInit) => {
+    states.push((JSON.parse(String(init?.body)) as { state: Record<string, unknown> }).state);
+    return Response.json({ answers: { kind: { choice: "new_model" }, worth: { score: 2 }, codename: { noul: 0.1 } } });
+  };
+  await judgeEvents(db, config, request as never, now);
+  const stale = states.find((state) => state.id === "opus-5");
+  expect(stale).toMatchObject({ days_old_when_found: 55, seen_at: "2026-09-17T07:30:00.000Z" });
+  // Found within hours of being posted: there is no age to report, and none is invented.
+  expect(states.find((state) => state.id === "today")).not.toHaveProperty("days_old_when_found");
+});
+
 test("commits are judged, and only the notable one gets a DeepSeek line", async () => {
   const db = openDatabase(":memory:");
   const now = new Date("2026-09-19T08:00:00Z");

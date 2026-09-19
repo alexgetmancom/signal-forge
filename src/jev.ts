@@ -33,7 +33,7 @@ const MAX_STATE_CHARS = 4_000;
  * per prompt version, so the new questions are asked again of the recent window and the two sets
  * can be compared instead of being mixed in one column.
  */
-const PROMPT_VERSION = "1";
+const PROMPT_VERSION = "2";
 const EVALUATOR = "jev";
 const CALLS_PREFIX = "jev-calls:";
 const TOKENS_PREFIX = "jev-tokens:";
@@ -59,7 +59,10 @@ const QUESTIONS = {
   },
   worth: {
     type: "score",
-    instructions: "How much would an expert who follows AI releases every day want to be told about this?",
+    instructions:
+      "How much would an expert who follows AI releases every day want to be told about this today? " +
+      "`days_old_when_found` is how long the text had already been public when we found it: someone " +
+      "following this daily already knows what was announced weeks ago, however big it was.",
     criteria: ["not at all", "slightly", "clearly", "must know"],
   },
   codename: {
@@ -155,6 +158,24 @@ async function askJev(
   }
 }
 
+/**
+ * How long a post had already existed when it was found. A newsroom re-lists an old announcement,
+ * a feed backfills, a collector reaches a site for the first time and everything on it is new to
+ * us and old to the world: "Introducing Claude Opus 5" was found on 2026-09-17 carrying its own
+ * date of 2026-07-24, eight weeks earlier.
+ *
+ * Without this Jev reads a title and nothing else, and rates the stale higher than the fresh: of
+ * the 126 judged records that carried a date, the 21 found more than three days late averaged 1.75
+ * against 1.29 across all judgements. `review.ts` already drops those from what it calls missed,
+ * which is this same knowledge applied after the fact to an answer given without it.
+ */
+function ageInDays(event: Event, published: unknown): number | null {
+  const at = Date.parse(typeof published === "string" ? published : "");
+  if (!Number.isFinite(at)) return null;
+  const days = (Date.parse(event.detected_at) - at) / 86_400_000;
+  return days >= 1 ? Math.round(days) : null;
+}
+
 /** What Jev reads: the record's own words, the lines a web page gained, never our rendering. */
 function evidenceOf(event: Event): Record<string, unknown> {
   const after = event.after_json ? (JSON.parse(event.after_json) as Record<string, unknown>) : {};
@@ -165,7 +186,13 @@ function evidenceOf(event: Event): Record<string, unknown> {
     event: event.kind,
     id: event.entity_id,
     title: after.name ?? after.title ?? event.entity_id,
+    seen_at: event.detected_at,
   };
+  const age = ageInDays(event, after.published);
+  if (age !== null) {
+    state.published = after.published;
+    state.days_old_when_found = age;
+  }
   for (const field of ["description", "summary", "body", "message", "notes", "url"])
     if (typeof after[field] === "string" && after[field]) state[field] = after[field];
   if (Array.isArray(after.strings)) {
