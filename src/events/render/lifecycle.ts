@@ -183,7 +183,10 @@ export function renderRecapEmbed(context: RecapContext, signals: readonly string
       name:
         context.period === "news" ? "THE DAY IN AI" : context.period === "day" ? "WHAT MOVED" : "THE WEEK IN MODELS",
     },
-    description: clip(lines.join("\n"), 4000),
+    description: clip(
+      [...(context.period === "week" && context.lead ? [context.lead, ""] : []), ...lines].join("\n"),
+      4000,
+    ),
     footer: {
       text:
         context.period === "news"

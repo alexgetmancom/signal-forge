@@ -21,6 +21,7 @@ import { subjectKey, usageRanks, witnessedSubjects } from "./events/witness.js";
 import { isNewsworthyStory, notableCommits } from "./insights.js";
 import { judgementOf } from "./jev.js";
 import { sourceLabel } from "./sources/labels.js";
+import { readState } from "./storage/appState.js";
 
 /**
  * A week, summarised once, in the channel that otherwise only says what is happening now.
@@ -150,6 +151,8 @@ export const recapContextSchema = z.object({
   resellerArrivals: z.array(z.object({ name: z.string(), reseller: z.string() })).default([]),
   // Commits worth a line, as a sentence each. Absent before the repositories were read for them.
   codeNotes: z.array(z.object({ repo: z.string(), text: z.string() })).default([]),
+  // The week in two or three sentences, written before it closed. Absent when none was written.
+  lead: z.string().nullable().default(null),
   // Absent in the recaps stored before the Intelligence Index was read for new entries.
   indexed: z.array(z.object({ name: z.string(), index: z.number(), place: z.number().nullable() })).default([]),
 });
@@ -570,6 +573,7 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
   return recapContextSchema.parse({
     period,
     codeNotes,
+    lead: period === "week" ? readState(db, `weekly-lead:${to}`) : null,
     resellerArrivals,
     headlines: headlines.slice(0, HEADLINES),
     climbers,

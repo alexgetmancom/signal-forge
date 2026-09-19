@@ -82,7 +82,7 @@ test("without a key nothing is asked", async () => {
     request as unknown as typeof fetch,
     now,
   );
-  expect(result).toEqual({ judged: 0, commits: 0, findings: 0 });
+  expect(result).toEqual({ judged: 0, commits: 0, findings: 0, lead: false, audited: false });
 });
 
 test("a day of leaderboard churn does not hide the events worth judging", async () => {
