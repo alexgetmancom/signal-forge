@@ -470,7 +470,7 @@ export function operations(db: Database, config: AppConfig): OperationMap {
     source_verdicts: {
       section: "sources",
       summary:
-        "Which enabled sources led another source, reached a reader or drew scout votes over a period; run monthly.",
+        "Which enabled sources led another source, reached a reader, drew scout votes or were corroborated by another source while routing held them back; young sources shown as preliminary.",
       startHere: "is a source worth keeping at all",
       mutates: false,
       agent: true,

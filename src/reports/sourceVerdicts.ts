@@ -11,6 +11,14 @@ import { leadTime } from "./leadTime.js";
  * place in one of three ways: it sees something before another source does, a card from it reaches
  * a reader, or the scouts vouch for one of its cards. A source that did none of the three over the
  * period is named, with the numbers, so removing it is a decision instead of an investigation.
+ *
+ * Reaching a reader is a fact about routing, not about the source: a class no destination takes
+ * and a source held in shadow deliver nothing however good they are. So the value of a source is
+ * also read without routing. An event is corroborated when another source put an event into the
+ * same story -- somebody else saw the same thing -- and a corroborated event that never reached a
+ * reader is held-back value: the source is good and the routing has not caught up with it. An
+ * event nobody else ever saw is not proof of noise, since a leading source is alone at first, which
+ * is why the rate is reported beside the lead rather than turned into a verdict of its own.
  */
 export type SourceVerdict = {
   source: string;
@@ -19,7 +27,15 @@ export type SourceVerdict = {
   firstSightings: number;
   delivered: number;
   scoutVotes: number;
-  verdict: "earning" | "no_measurable_value";
+  /** Events the source recorded in the period. */
+  events: number;
+  /** Of those, how many share a story with another source's event. */
+  corroborated: number;
+  /** corroborated / events, rounded to two places; null with no events. */
+  corroborationRate: number | null;
+  /** Corroborated events that never reached a reader: value the routing is not carrying. */
+  heldBack: number;
+  verdict: "earning" | "held_back" | "no_measurable_value";
 };
 
 export function sourceVerdicts(
@@ -27,7 +43,13 @@ export function sourceVerdicts(
   config: AppConfig,
   days = 30,
   now = Date.now(),
-): { since: string; sources: SourceVerdict[]; notYetJudged: { source: string; collectingSince: string | null }[] } {
+): {
+  since: string;
+  sources: SourceVerdict[];
+  notYetJudged: { source: string; collectingSince: string | null }[];
+  /** The same numbers for sources too young to judge, so a trial can be watched while it runs. */
+  preliminary: SourceVerdict[];
+} {
   const since = new Date(now - days * 24 * 3_600_000).toISOString();
   const leads = new Map(leadTime(db, days, now).sources.map((row) => [row.source, row]));
   const delivered = new Map(
@@ -50,6 +72,26 @@ export function sourceVerdicts(
       .all(since)
       .map((row) => [row.source, row.n]),
   );
+  const witnessed = new Map(
+    db
+      .query<{ source: string; events: number; corroborated: number; held: number }, [string]>(
+        `SELECT e.source,
+                COUNT(*) events,
+                SUM(EXISTS (
+                  SELECT 1 FROM story_events other JOIN events o ON o.id=other.event_id
+                  WHERE other.story_id=se.story_id AND o.source<>e.source)) corroborated,
+                SUM(EXISTS (
+                  SELECT 1 FROM story_events other JOIN events o ON o.id=other.event_id
+                  WHERE other.story_id=se.story_id AND o.source<>e.source)
+                  AND NOT EXISTS (
+                  SELECT 1 FROM delivery_events de JOIN deliveries d ON d.id=de.delivery_id
+                  WHERE de.event_id=e.id AND d.status='sent')) held
+         FROM events e LEFT JOIN story_events se ON se.event_id=e.id
+         WHERE e.detected_at>=? GROUP BY e.source`,
+      )
+      .all(since)
+      .map((row) => [row.source, row]),
+  );
   // A source that has not been collecting for the whole period has not had the chance to earn it.
   const collectingSince = new Map(
     db
@@ -67,25 +109,33 @@ export function sourceVerdicts(
     .filter((definition) => !judged(definition.id))
     .map((definition) => ({ source: definition.id, collectingSince: collectingSince.get(definition.id) ?? null }))
     .sort((left, right) => left.source.localeCompare(right.source));
-  const sources = enabled
-    .filter((definition) => judged(definition.id))
-    .map((definition): SourceVerdict => {
-      const lead = leads.get(definition.id);
-      const row = {
-        source: definition.id,
-        mode: definition.mode,
-        ledOthers: lead?.ledOthers ?? 0,
-        firstSightings: lead?.firstSightings ?? 0,
-        delivered: delivered.get(definition.id) ?? 0,
-        scoutVotes: votes.get(definition.id) ?? 0,
-      };
-      const earning = row.ledOthers > 0 || row.delivered > 0 || row.scoutVotes > 0;
-      return { ...row, verdict: earning ? "earning" : "no_measurable_value" };
-    })
-    .sort(
-      (left, right) =>
-        Number(left.verdict === "earning") - Number(right.verdict === "earning") ||
-        left.source.localeCompare(right.source),
-    );
-  return { since, sources, notYetJudged };
+  const verdictFor = (definition: (typeof enabled)[number]): SourceVerdict => {
+    const lead = leads.get(definition.id);
+    const seen = witnessed.get(definition.id);
+    const events = seen?.events ?? 0;
+    const corroborated = seen?.corroborated ?? 0;
+    const row = {
+      source: definition.id,
+      mode: definition.mode,
+      ledOthers: lead?.ledOthers ?? 0,
+      firstSightings: lead?.firstSightings ?? 0,
+      delivered: delivered.get(definition.id) ?? 0,
+      scoutVotes: votes.get(definition.id) ?? 0,
+      events,
+      corroborated,
+      corroborationRate: events ? Math.round((corroborated / events) * 100) / 100 : null,
+      heldBack: seen?.held ?? 0,
+    };
+    const earning = row.ledOthers > 0 || row.delivered > 0 || row.scoutVotes > 0;
+    return {
+      ...row,
+      verdict: earning ? "earning" : row.heldBack > 0 ? "held_back" : "no_measurable_value",
+    };
+  };
+  const rank: Record<SourceVerdict["verdict"], number> = { no_measurable_value: 0, held_back: 1, earning: 2 };
+  const ordered = (rows: SourceVerdict[]) =>
+    rows.sort((left, right) => rank[left.verdict] - rank[right.verdict] || left.source.localeCompare(right.source));
+  const sources = ordered(enabled.filter((definition) => judged(definition.id)).map(verdictFor));
+  const preliminary = ordered(enabled.filter((definition) => !judged(definition.id)).map(verdictFor));
+  return { since, sources, notYetJudged, preliminary };
 }

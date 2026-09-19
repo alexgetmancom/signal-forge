@@ -26,14 +26,55 @@ test("a source that never led, never reached a reader and drew no votes is named
   const report = sourceVerdicts(db, config, 30, Date.parse("2026-09-16T00:00:00.000Z"));
   const verdict = (source: string) => report.sources.find((row) => row.source === source);
   expect(verdict("openrouter")).toMatchObject({ ledOthers: 1, verdict: "earning" });
+  // OpenAI never led and reached nobody, but it saw what OpenRouter saw: the value is there and
+  // the routing is not carrying it. Judged on delivery alone it would read as worthless.
   expect(verdict("openai")).toMatchObject({
     ledOthers: 0,
     delivered: 0,
     scoutVotes: 0,
-    verdict: "no_measurable_value",
+    events: 1,
+    corroborated: 1,
+    heldBack: 1,
+    verdict: "held_back",
   });
   // A source that has not collected for the whole period is not judged at all.
   expect(verdict("anthropic")).toBeUndefined();
   expect(report.notYetJudged).toContainEqual({ source: "anthropic", collectingSince: null });
+  db.close();
+});
+
+test("a source whose events nobody else saw and nobody received has no measurable value", () => {
+  const db = openDatabase(":memory:");
+  const config = loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname });
+  const catalogue = (source: string, stream: string, ids: string[]): Collection => ({
+    source,
+    stream,
+    url: `https://${source}.example`,
+    raw: [],
+    records: ids.map((id) => ({ id, name: id })),
+  });
+  saveCollection(db, catalogue("openrouter", "openrouter", ["anchor"]), [], "2026-08-01T00:00:00.000Z");
+  saveCollection(db, catalogue("openai", "api-models", ["anchor"]), [], "2026-08-01T00:00:00.000Z");
+  saveCollection(
+    db,
+    catalogue("openrouter", "openrouter", ["anchor", "promo-bundle-alpha"]),
+    [],
+    "2026-09-09T00:00:00.000Z",
+  );
+  saveCollection(db, catalogue("openai", "api-models", ["anchor"]), [], "2026-09-10T00:00:00.000Z");
+  updateStories(db);
+
+  const report = sourceVerdicts(db, config, 30, Date.parse("2026-09-16T00:00:00.000Z"));
+  expect(report.sources.find((row) => row.source === "openrouter")).toMatchObject({
+    events: 1,
+    corroborated: 0,
+    corroborationRate: 0,
+    heldBack: 0,
+    verdict: "no_measurable_value",
+  });
+  // A source too young to judge still shows its numbers while the trial runs.
+  expect(report.preliminary.every((row) => report.notYetJudged.some((young) => young.source === row.source))).toBe(
+    true,
+  );
   db.close();
 });
