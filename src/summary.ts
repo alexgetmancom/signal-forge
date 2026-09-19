@@ -45,6 +45,8 @@ type SummaryContext = {
   stream: string;
   kind: Event["kind"];
   title: string;
+  /** What this particular sentence is for, when it is not a card's lead. */
+  guidance?: string;
 };
 
 export type SummaryResult = {
@@ -182,10 +184,16 @@ export async function summarize(
 ): Promise<SummaryResult> {
   const content = promptContent(text, context);
   if (!config.DEEPSEEK_API_KEY) return result("disabled", content.length);
+  // Asked to "describe what changed", the model answered UNCLEAR for every Claude Code and Kimi
+  // changelog in the fortnight to 2026-09-19: a release of thirty bullet points has no single
+  // change. Asked for what a user would notice, it has one or two.
   const guidance =
-    context?.stream === "github"
+    context?.guidance ??
+    (context?.stream === "github"
       ? "For a GitHub repository change, explain the concrete behavior or code change shown by the patch. Use the event title as context, but do not merely repeat it. If it is only tests, documentation or refactoring, say so. Never claim that a repository change has shipped."
-      : "For other sources, describe the concrete field, text or availability change shown by the data.";
+      : ["news", "packages"].includes(context?.stream ?? "")
+        ? "For a changelog, release or post, name the one or two changes a user of the product would notice, most important first. Skip fixes and internal changes unless nothing else changed."
+        : "For other sources, describe the concrete field, text or availability change shown by the data.");
   let response: Response;
   try {
     response = await request(DEEPSEEK_SUMMARY_ENDPOINT, {
@@ -355,4 +363,61 @@ export async function fillSummaries(
     }
   }
   return written;
+}
+
+/**
+ * One sentence for one event, outside the delivery path: a line in a morning recap rather than a
+ * card's lead. Claimed and recorded like every other attempt, so it shares the daily ceiling and
+ * shows in the usage report; stored where cards read theirs, so an event summarised here is never
+ * paid for twice.
+ */
+export async function summarizeForRecap(
+  db: Database,
+  config: AppConfig,
+  event: Event,
+  guidance: string,
+  request: Fetch = fetch,
+  now = new Date(),
+): Promise<string | null> {
+  if (!config.DEEPSEEK_API_KEY) return null;
+  if (deepSeekAttemptsToday(db, now) >= DEEPSEEK_SUMMARY_DAILY_ATTEMPT_LIMIT) return null;
+  const stored = db.query<{ text: string }, [number]>("SELECT text FROM summaries WHERE event_id=?").get(event.id);
+  if (stored) return stored.text;
+  const body = [event.before_json ? `PREVIOUS:\n${event.before_json}` : "", `CURRENT:\n${event.after_json ?? ""}`]
+    .filter(Boolean)
+    .join("\n\n");
+  const context = { source: event.source, stream: event.stream, kind: event.kind, title: eventTitle(event), guidance };
+  const usageId = claimDeepSeekUsage(db, {
+    eventId: event.id,
+    source: event.source,
+    stream: event.stream,
+    inputChars: promptContent(body, context).length,
+    attemptedAt: now,
+  });
+  if (usageId === null) return null;
+  let summary: SummaryResult;
+  try {
+    summary = await summarize(body, config, request, context);
+  } catch (error) {
+    summary = failedResult(body.length, error);
+  }
+  finishDeepSeekUsage(
+    db,
+    usageId,
+    summary.outcome === "disabled"
+      ? { outcome: "failed", responseStatus: null, usage: null, errorType: "Disabled" }
+      : {
+          outcome: summary.outcome,
+          responseStatus: summary.responseStatus,
+          usage: summary.usage,
+          errorType: summary.errorType,
+        },
+  );
+  if (!summary.text) return null;
+  db.query("INSERT OR REPLACE INTO summaries(event_id,text,created_at) VALUES(?,?,?)").run(
+    event.id,
+    summary.text,
+    now.toISOString(),
+  );
+  return summary.text;
 }

@@ -5,6 +5,7 @@ import { deliverPending, recoverInterruptedDeliveries } from "./delivery.js";
 import { detectBreakouts } from "./events/breakouts.js";
 import { createHttpApp } from "./http.js";
 import { rebuildHypotheses } from "./hypotheses.js";
+import { prepareInsights } from "./insights.js";
 import { rebuildLifecycleDeadlines, scheduleLifecycleReminders } from "./lifecycle.js";
 import { configureLogger, log } from "./logger.js";
 import { rebuildModelFacts } from "./modelFacts.js";
@@ -54,6 +55,12 @@ supervisor.register(
     scheduleLifecycleReminders(db, config);
     scheduleRecaps(db, config);
     detectBreakouts(db, config.destinations);
+  }),
+);
+// Jev's judgements and DeepSeek's recap lines, read ahead of the morning messages that use them.
+supervisor.register(
+  startIntervalWorker(db, "insights", 300_000, async () => {
+    await prepareInsights(db, config);
   }),
 );
 supervisor.register(startIntervalWorker(db, "delivery", 1500, () => deliverPending(db, config)));

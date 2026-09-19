@@ -115,7 +115,7 @@ export function renderRecapLines(context: RecapContext, signals: readonly string
       lines.push("", heading);
       for (const line of section)
         lines.push(
-          `· **${line.vendor}** — ${line.url ? `[${line.title}](${line.url})` : line.title}${line.more ? ` · +${line.more} more` : ""}`,
+          `· **${line.vendor}** — ${line.url ? `[${line.title}](${line.url})` : line.title}${line.more ? ` · +${line.more} more` : ""}${line.summary ? `\n　↳ ${line.summary}` : ""}`,
         );
     }
     return lines;
@@ -140,6 +140,7 @@ export function renderRecapLines(context: RecapContext, signals: readonly string
                 `🆕 New board: ${board.board}${board.leader ? ` · led by ${withoutMakerPrefix(board.leader)}` : ""}`,
             ),
             ...context.resellerArrivals.map((entry) => `🆕 New at ${entry.reseller}: ${entry.name}`),
+            ...context.codeNotes.map((note) => `🔧 ${note.repo}: ${note.text}`),
           ]
         : []),
     ];

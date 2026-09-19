@@ -18,6 +18,8 @@ import {
 } from "./events/variants.js";
 import { vendorOf, vendorOfName } from "./events/vendors.js";
 import { subjectKey, usageRanks, witnessedSubjects } from "./events/witness.js";
+import { isNewsworthyStory, notableCommits } from "./insights.js";
+import { judgementOf } from "./jev.js";
 import { sourceLabel } from "./sources/labels.js";
 
 /**
@@ -137,6 +139,8 @@ export const recapContextSchema = z.object({
         topic: z.enum(["safety", "research", "other"]).default("other"),
         // Lines past the maker's share, counted rather than listed.
         more: z.number().default(0),
+        // What a safety or research post found, in a sentence. Absent before the day was read for it.
+        summary: z.string().nullable().default(null),
       }),
     )
     .default([]),
@@ -144,6 +148,8 @@ export const recapContextSchema = z.object({
   climbers: z.array(z.object({ board: z.string(), name: z.string(), from: z.number(), to: z.number() })).default([]),
   newBoards: z.array(z.object({ board: z.string(), leader: z.string().nullable() })).default([]),
   resellerArrivals: z.array(z.object({ name: z.string(), reseller: z.string() })).default([]),
+  // Commits worth a line, as a sentence each. Absent before the repositories were read for them.
+  codeNotes: z.array(z.object({ repo: z.string(), text: z.string() })).default([]),
   // Absent in the recaps stored before the Intelligence Index was read for new entries.
   indexed: z.array(z.object({ name: z.string(), index: z.number(), place: z.number().nullable() })).default([]),
 });
@@ -427,8 +433,13 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
   // stories are news, other people's opinions are not.
   const headlines: RecapContext["headlines"] = [];
   if (period === "news") {
-    const told = (source: string, signal: string) =>
-      signal === "article" ? NEWS_DESKS.has(source) : NEWS_DESKS.has(source) || source === "hackernews";
+    // A front-page story no pattern placed is still read when Jev judged it about a model, a product
+    // or a risk: "Alibaba open-sources a model that detects 150 conditions" was nobody's on 2026-09-19.
+    const told = (event: Event, signal: string) =>
+      signal === "article"
+        ? NEWS_DESKS.has(event.source) ||
+          (event.source === "hackernews" && isNewsworthyStory(judgementOf(db, event.id)))
+        : NEWS_DESKS.has(event.source) || event.source === "hackernews";
     // A lab's own feed first, its site second, the front page last: the same post is often on all three.
     const order = (source: string) => (source === "hackernews" ? 2 : source.startsWith("pages:") ? 1 : 0);
     for (const [signal, topic] of Object.entries(TOPICS) as [
@@ -438,7 +449,7 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
       const lines = classified
         .filter(
           ({ event, signal: seen }) =>
-            seen === signal && event.kind === "new" && told(event.source, signal) && !carded.has(event.id),
+            seen === signal && event.kind === "new" && told(event, signal) && !carded.has(event.id),
         )
         .sort((one, other) => order(one.event.source) - order(other.event.source) || one.event.id - other.event.id)
         .map(({ event }) => {
@@ -451,6 +462,11 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
             vendor: vendor === "Unknown" && event.source === "hackernews" ? "Hacker News" : vendor,
             title,
             url: typeof record?.url === "string" ? record.url : null,
+            summary:
+              topic === "other"
+                ? null
+                : (db.query<{ text: string }, [number]>("SELECT text FROM summaries WHERE event_id=?").get(event.id)
+                    ?.text ?? null),
           };
         })
         .filter((line, index, all) => all.findIndex((other) => other.title === line.title) === index);
@@ -541,8 +557,19 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
           .map(({ event }) => ({ name: readableName(nameOf(event)), reseller: event.source }))
           .filter((entry, index, all) => all.findIndex((other) => other.name === entry.name) === index)
           .slice(0, 8);
+  const codeNotes =
+    period !== "day"
+      ? []
+      : notableCommits(db, from, to).flatMap(({ event }) => {
+          const text = db
+            .query<{ text: string }, [number]>("SELECT text FROM summaries WHERE event_id=?")
+            .get(event.id)?.text;
+          const repo = event.source.split(":")[1]?.split("/").at(-1) ?? event.source;
+          return text ? [{ repo: repo.charAt(0).toUpperCase() + repo.slice(1), text }] : [];
+        });
   return recapContextSchema.parse({
     period,
+    codeNotes,
     resellerArrivals,
     headlines: headlines.slice(0, HEADLINES),
     climbers,
@@ -606,6 +633,7 @@ function scheduleRecap(db: Database, config: AppConfig, period: RecapPeriod, now
           !context.climbers.length &&
           !context.newBoards.length &&
           !context.resellerArrivals.length &&
+          !context.codeNotes.length &&
           !context.indexed.length
         : !context.arrivalCount && !context.priceMoves.length && !context.codenameCount && !context.retirements.length;
   if (empty) return false;

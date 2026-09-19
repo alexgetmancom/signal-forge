@@ -79,6 +79,8 @@ const envSchema = z.object({
   GITHUB_TOKEN: optionalSecret,
   HF_TOKEN: optionalSecret,
   DEEPSEEK_API_KEY: optionalSecret,
+  /** Jev, TypeSafe's judgement model: typed answers about events, stored beside the rules' class. */
+  TYPESAFE_API_KEY: optionalSecret,
   OPENAI_API_KEY: optionalSecret,
   ANTHROPIC_API_KEY: optionalSecret,
   GEMINI_API_KEY: optionalSecret,
