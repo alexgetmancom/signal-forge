@@ -56,13 +56,36 @@ function suspiciousShrink(previousCount: number, retainedCount: number): boolean
   return previousCount - retainedCount >= MIN_SUSPICIOUS_SHRINK && retainedCount * 4 < previousCount * 3;
 }
 
+/**
+ * A board position is not a property of the model standing in it.
+ *
+ * A rank moves whenever anyone above moves, so one model passing another moves every model below
+ * it and one real change arrives as a change per row: designarena produced 704 change events in
+ * eleven days and not one of them carried a score or a metric that had moved. This is the same
+ * reason `rankLower` and `rankUpper` were kept out of the metrics sweep in sources/arena.ts.
+ *
+ * The top of the board is the exception, because it is the only part anything downstream speaks
+ * about: `isMinorBoardMove` passes a change that puts something first or takes it off the top, the
+ * scouts' morning names big climbs into the top ten, and dithering is read off ranks that keep
+ * returning to a place they held. Those all live inside ten. Records are collected down to
+ * `RANKED_PLACES`, twenty, and the half of the board below ten is cascade and nothing else: of
+ * designarena's 865 change events, 428 never involved a place inside the top ten.
+ */
+const SIGNIFICANT_PLACES = 10;
+
+function comparable(record: Record<string, unknown>): Record<string, unknown> {
+  const copy = { ...record };
+  delete copy.sampledAt;
+  delete copy.votes;
+  const place = numeric(copy.rank);
+  if (place !== null && place > SIGNIFICANT_PLACES) delete copy.rank;
+  return copy;
+}
+
 function comparisonBody(stream: string, body: string): string {
   if (stream !== "leaderboards") return body;
   try {
-    const record = JSON.parse(body) as Record<string, unknown>;
-    delete record.sampledAt;
-    delete record.votes;
-    return canonical(record);
+    return canonical(comparable(JSON.parse(body) as Record<string, unknown>));
   } catch {
     return body;
   }
@@ -72,11 +95,51 @@ function numeric(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+/**
+ * How far a number may drift before the drift is the news rather than the measurement.
+ *
+ * A board that publishes a confidence interval says this itself and is believed. A board that
+ * publishes none was being compared exactly, because the width fell back to the score and the
+ * overlap test became equality: voxelbench and the artificial-analysis boards produced 2688 change
+ * events in eleven days, every one of them a score and nothing else. A quarter of a per cent is
+ * narrower than any move those boards have ever reported as meaningful.
+ */
+const IMPLIED_INTERVAL = 0.0025;
+
 function interval(record: Record<string, unknown>): { lower: number; upper: number } | null {
   const score = numeric(record.score);
-  const lower = numeric(record.scoreLower) ?? score;
-  const upper = numeric(record.scoreUpper) ?? score;
-  return lower !== null && upper !== null ? { lower, upper } : null;
+  if (score === null) return null;
+  const lower = numeric(record.scoreLower);
+  const upper = numeric(record.scoreUpper);
+  if (lower !== null && upper !== null) return { lower, upper };
+  const width = Math.abs(score) * IMPLIED_INTERVAL;
+  return { lower: score - width, upper: score + width };
+}
+
+/**
+ * True while every metric the board reports is where it was, within its own width.
+ *
+ * `metrics` holds whatever numbers the board publishes beside the rating, swept up by name in
+ * sources/arena.ts. They drift exactly as the rating does, and comparing them exactly defeated the
+ * overlap test beside them: 740 of the arena's 812 change events had a rating whose interval had
+ * not moved and a metric that had, in the last digit.
+ */
+function metricsSettled(previous: Record<string, unknown>, current: Record<string, unknown>): boolean {
+  const before = previous.metrics;
+  const after = current.metrics;
+  const isMetrics = (value: unknown): value is Record<string, unknown> =>
+    typeof value === "object" && value !== null && !Array.isArray(value);
+  if (!isMetrics(before) || !isMetrics(after)) return canonical(before) === canonical(after);
+  for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
+    const was = numeric(before[key]);
+    const now = numeric(after[key]);
+    if (was === null || now === null) {
+      if (canonical(before[key]) !== canonical(after[key])) return false;
+      continue;
+    }
+    if (Math.abs(now - was) > Math.abs(was) * IMPLIED_INTERVAL) return false;
+  }
+  return true;
 }
 
 function leaderboardChange(before: string, after: string): boolean {
@@ -84,12 +147,11 @@ function leaderboardChange(before: string, after: string): boolean {
   try {
     const previous = JSON.parse(before) as Record<string, unknown>;
     const current = JSON.parse(after) as Record<string, unknown>;
-    const previousWithoutScore = { ...previous };
-    const currentWithoutScore = { ...current };
-    for (const key of ["score", "scoreUpper", "scoreLower", "sampledAt", "votes"]) {
-      delete previousWithoutScore[key];
-      delete currentWithoutScore[key];
-    }
+    const besideTheNumbers = (record: Record<string, unknown>): string => {
+      const copy = comparable(record);
+      for (const key of ["score", "scoreUpper", "scoreLower", "metrics"]) delete copy[key];
+      return canonical(copy);
+    };
     const previousInterval = interval(previous);
     const currentInterval = interval(current);
     const intervalsOverlap =
@@ -97,7 +159,12 @@ function leaderboardChange(before: string, after: string): boolean {
       currentInterval !== null &&
       previousInterval.lower <= currentInterval.upper &&
       currentInterval.lower <= previousInterval.upper;
-    if (intervalsOverlap && canonical(previousWithoutScore) === canonical(currentWithoutScore)) return false;
+    if (
+      intervalsOverlap &&
+      metricsSettled(previous, current) &&
+      besideTheNumbers(previous) === besideTheNumbers(current)
+    )
+      return false;
   } catch {
     return true;
   }

@@ -68,7 +68,8 @@ test("a class nobody subscribes to is counted as unrouted, not as nothing", () =
     records: [{ id: "gpt-5-high", name: "GPT-5 High", rank: 1, score: 1700 }],
   };
   saveCollection(db, board, [wire], "2026-09-16T10:00:00.000Z");
-  board.records = [{ id: "gpt-5-high", name: "GPT-5 High", rank: 1, score: 1699 }];
+  // Far enough for the board to mean it: a drift inside the implied interval is not a change.
+  board.records = [{ id: "gpt-5-high", name: "GPT-5 High", rank: 1, score: 1650 }];
   saveCollection(db, board, [wire], "2026-09-16T11:00:00.000Z");
 
   const report = channelMix(db, { ...base, destinations: [wire] }, 7, Date.parse("2026-09-16T12:00:00.000Z"));
