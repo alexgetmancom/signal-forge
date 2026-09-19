@@ -148,7 +148,7 @@ export const settingsSchema = z
           repo: "openai/codex",
           paths: [
             "docs/",
-            "codex-rs/core/models.json",
+            "codex-rs/models-manager/",
             "codex-rs/core/src/config/",
             "codex-rs/core/src/tools/",
             "codex-rs/protocol/",

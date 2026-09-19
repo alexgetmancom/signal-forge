@@ -19,7 +19,7 @@ import {
   PROVIDER_CATALOGUES,
 } from "./catalogs.js";
 import { collectClaude } from "./claude.js";
-import { collectCodexDocs } from "./codex.js";
+import { collectCodexDocs, collectCodexModels } from "./codex.js";
 import { collectCursorChangelog, collectDesignArena, DESIGNARENA_CATEGORIES } from "./community.js";
 import { collectDeepSeekModels, collectDeepSeekPricing, collectDeepSeekUpdates } from "./deepseek.js";
 import { collectAnthropicDeprecations, collectOpenAIDeprecations } from "./deprecations.js";
@@ -365,6 +365,15 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
       stream: "web",
       intervalSeconds: 3600,
       collector: () => collectCodexDocs(fetch, cache),
+    },
+    {
+      id: "codex-models",
+      authority: "vendor_owned",
+      vendor: "OpenAI",
+      group: "GitHub",
+      stream: "github",
+      intervalSeconds: 1800,
+      collector: () => collectCodexModels(fetch, cache),
     },
     {
       id: "codex-resets",

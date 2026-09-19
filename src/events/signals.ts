@@ -455,6 +455,17 @@ export function signalClass(event: Event): SignalClass {
    */
   if (event.stream === "resets") return "launch";
 
+  // A slug appearing in the Codex client's model list, or one of them opening to more people, is
+  // the model being prepared before anyone announces it.
+  if (event.source === "codex-models") {
+    if (event.kind === "new") return "codename";
+    if (event.kind !== "changed") return "evidence";
+    const before = event.before_json ? (JSON.parse(event.before_json) as Record<string, unknown>) : null;
+    const after = recordFor(event);
+    return before?.visibility !== after?.visibility || JSON.stringify(before?.plans) !== JSON.stringify(after?.plans)
+      ? "codename"
+      : "evidence";
+  }
   if (event.stream === "github")
     return event.source.endsWith(":releases") && event.kind === "new" && !patchBuild(recordFor(event))
       ? "release"

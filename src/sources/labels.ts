@@ -30,6 +30,7 @@ const STATIC_LABELS: Record<string, string> = {
   "google-ai-blog": "Google · AI blog",
   "deepmind-blog": "Google DeepMind · blog",
   "nvidia-developer-blog": "NVIDIA · developer blog",
+  "codex-models": "Codex · model list",
   "openai-alignment": "OpenAI · alignment blog",
   "kimi-code-changelog": "Kimi Code · changelog",
   "minimax-code-changelog": "MiniMax Code · changelog",

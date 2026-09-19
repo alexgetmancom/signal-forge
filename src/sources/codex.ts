@@ -1,3 +1,4 @@
+import { z } from "zod";
 import type { Collection } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
 import type { HttpCache } from "../storage/httpCache.js";
@@ -49,4 +50,52 @@ export async function collectCodexDocs(request: Fetch = fetch, cache?: HttpCache
     }
   }
   return { source: "codex-docs", stream: "web", url: "https://developers.openai.com/codex/", records, raw };
+}
+
+const CODEX_MODELS_URL = "https://raw.githubusercontent.com/openai/codex/main/codex-rs/models-manager/models.json";
+const codexModelsSchema = z.object({
+  models: z
+    .array(
+      z
+        .object({
+          slug: z.string().min(1),
+          display_name: z.string().optional(),
+          visibility: z.string().optional(),
+          available_in_plans: z.array(z.string()).optional(),
+          context_window: z.number().optional(),
+          supported_in_api: z.boolean().optional(),
+        })
+        .passthrough(),
+    )
+    .min(1),
+});
+
+/**
+ * The models the Codex client ships knowing about, read from its repository. A slug lands here
+ * before the model is announced: on 2026-09-19 the file held gpt-6-astra and two hidden
+ * "Daybreak" models no catalogue listed. The commit feed watched `codex-rs/core/models.json`, a
+ * path the file had left, so none of this reached anyone. Only the fields that say a model is
+ * coming are kept; instructions and tool settings change with every prompt edit.
+ */
+export function parseCodexModels(text: string): Collection {
+  const models = codexModelsSchema.parse(JSON.parse(text)).models;
+  return {
+    source: "codex-models",
+    stream: "github",
+    url: "https://github.com/openai/codex/blob/main/codex-rs/models-manager/models.json",
+    raw: text,
+    records: models.map((model) => ({
+      id: model.slug,
+      name: model.display_name ?? model.slug,
+      maker: "OpenAI",
+      visibility: model.visibility ?? null,
+      plans: [...(model.available_in_plans ?? [])].sort(),
+      context: model.context_window ?? null,
+      api: model.supported_in_api ?? null,
+    })),
+  };
+}
+
+export async function collectCodexModels(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
+  return parseCodexModels(await fetchText(CODEX_MODELS_URL, {}, request, undefined, cache));
 }
