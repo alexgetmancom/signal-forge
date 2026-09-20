@@ -95,6 +95,7 @@ test("source registry has unique IDs, valid streams, labels and consistent pacin
       ["designarena.ai", 60],
       ["itunes.apple.com", 10],
       ["github-search", 60],
+      ["polymarket.com", 60],
     ]),
   );
   db.close();
@@ -113,6 +114,8 @@ test("reader-facing sources stay active while noisy repository activity and disc
   expect(defaults.find((definition) => definition.id === "github:openai/codex:pulls")?.mode).toBe("shadow");
   expect(defaults.find((definition) => definition.id === "github:openai/codex:commits")?.mode).toBe("shadow");
   expect(defaults.find((definition) => definition.id === "github:openai/codex:releases")?.mode).toBe("active");
+  // Strangers betting on a release are collected to be measured, never to be told.
+  expect(defaults.find((definition) => definition.id === "polymarket")?.mode).toBe("shadow");
 
   const overridden = buildSourceRegistry(db, {
     ...config(),

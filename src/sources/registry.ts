@@ -52,6 +52,11 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
     // Collected to be measured against, never to be told: nobody needs a card because a model
     // moved from ninth to tenth by tokens.
     "openrouter-usage",
+    // The first source here that observes nobody's product: strangers betting on what ships. It
+    // collects so that `lead-time` and `source-verdicts` can answer, after a fortnight of its own
+    // data, whether a market ever named a model before this feed saw one. Until they do, nothing
+    // it records reaches a reader.
+    "polymarket",
     // Removed on 2026-09-10 as mostly marketing, back to be measured rather than trusted: it
     // collects, never reaches a channel, and source-verdicts decides after a month.
     "nvidia-developer-blog",

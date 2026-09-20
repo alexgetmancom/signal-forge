@@ -37,6 +37,9 @@ export function confidenceFor(source: string, stream: string, authority: SourceA
   if (stream === "deprecations") return "confirmed";
   // A link aggregator repeating a vendor's news is attention, not a second source for it.
   if (source === "hackernews") return "observed";
+  // Strangers pricing a rumour. The floor, and named here rather than left to the default so that
+  // raising the default can never quietly promote a bet into evidence.
+  if (stream === "markets") return "observed";
   if (stream === "news") return "supported";
   return "observed";
 }
@@ -47,6 +50,8 @@ export function evidenceTypeFor(source: string, stream: string, authority: Sourc
   // Who sells a model is a different fact from what its maker publishes about it.
   if (stream === "api-models") return authority === "third_party" ? "availability_catalogue" : "api_catalogue";
   if (source === "hackernews") return "unknown";
+  // No evidence type fits: a market observes no surface. It says what strangers expect to happen.
+  if (stream === "markets") return "unknown";
   if (stream === "news") return "official_news";
   if (stream === "arena") return "arena_roster";
   if (stream === "leaderboards") return "leaderboard";

@@ -383,6 +383,13 @@ export function signalClass(event: Event): SignalClass {
   // one of the 193 was back five minutes later under the same id.
   if (event.stream === "arena") return event.kind === "new" || becameSelectable(event) ? "codename" : "evidence";
   if (event.source.startsWith("discovery:")) return "codename";
+  /**
+   * A bet is never the news. A market opening on a name, or repricing a date, is the raw trail for
+   * whoever is already following that name -- the class that reaches no reader on its own -- and it
+   * stays that whichever way the price went. Whether a market ever leads a sighting is a question
+   * for `lead-time` after the source has collected for a while, not one settled by a class here.
+   */
+  if (event.stream === "markets") return "evidence";
   // A lab training a named model in public is the earliest word on it, and a run ending is the next.
   if (event.stream === "training") return "codename";
 

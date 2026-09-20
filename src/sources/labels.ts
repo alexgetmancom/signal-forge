@@ -35,6 +35,7 @@ const STATIC_LABELS: Record<string, string> = {
   "kimi-code-changelog": "Kimi Code · changelog",
   "minimax-code-changelog": "MiniMax Code · changelog",
   "cohere-changelog": "Cohere · changelog",
+  polymarket: "Polymarket · AI release markets",
   voxelbench: "VoxelBench · leaderboard",
   weirdml: "WeirdML · leaderboard",
   simplebench: "SimpleBench · leaderboard",

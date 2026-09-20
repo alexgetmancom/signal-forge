@@ -2,6 +2,7 @@ import { collectCodexModels } from "../codex.js";
 import type { SourceContext, SourceEntry } from "../definition.js";
 import { collectGithubDiscovery, collectHuggingFaceTrending, GITHUB_DISCOVERY_QUERIES } from "../discovery.js";
 import { collectGithubCommits, collectGithubPulls, collectGithubReleases } from "../github.js";
+import { collectPolymarket } from "../markets.js";
 import { collectMimoTraining } from "../training.js";
 
 /** GitHub repositories and discovery: what third parties publish before any vendor says so. */
@@ -15,6 +16,17 @@ export function communitySources({ db, config, cache }: SourceContext): SourceEn
       stream: "training",
       intervalSeconds: 1800,
       collector: () => collectMimoTraining(),
+    },
+    {
+      id: "polymarket",
+      authority: "third_party",
+      group: "Discovery",
+      stream: "markets",
+      // Prices move all day and the record only keeps five-point buckets, so a slower poll would
+      // read the same numbers; an hour is what the other discovery sources run at.
+      intervalSeconds: 3600,
+      pace: { group: "polymarket.com", seconds: 60 },
+      collector: () => collectPolymarket(fetch, cache),
     },
     {
       id: "codex-models",

@@ -18,6 +18,7 @@ export const streamSchema = z.enum([
   "pages",
   "resets",
   "training",
+  "markets",
 ]);
 export type Stream = z.infer<typeof streamSchema>;
 const sourceModeSchema = z.enum(["active", "shadow"]);
