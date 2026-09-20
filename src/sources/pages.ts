@@ -68,6 +68,17 @@ export const WATCHED_SITES: readonly WatchedSite[] = [
     sitemap: "https://x.ai/sitemap.xml",
     ignoreSections: ["bot", "legal", "careers", "jobs"],
   },
+  // x.ai carries the newsroom; the API and Grok bot are documented here, and a capability is written
+  // up before it is announced: regions, bot computers and bot proxies appeared on 2026-09-15 and
+  // 2026-09-16 with nothing here reading them. One language, no locale trees.
+  {
+    id: "xai-docs",
+    name: "xAI Docs",
+    vendor: "xAI",
+    sitemap: "https://docs.x.ai/sitemap.xml",
+    // Billing, quota and account help, which is the console describing itself.
+    ignoreSections: ["console/billing", "console/faq", "console/usage"],
+  },
   {
     id: "deepmind",
     name: "Google DeepMind",

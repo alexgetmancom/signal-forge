@@ -14,6 +14,13 @@ const OPENAI_CODEX_CHANGELOG_FEED_URL = "https://learn.chatgpt.com/docs/changelo
 const HUGGINGFACE_BLOG_FEED_URL = "https://huggingface.co/blog/feed.xml";
 const GOOGLE_AI_BLOG_FEED_URL = "https://blog.google/innovation-and-ai/technology/ai/rss/";
 const GOOGLE_AI_BLOG_URL = "https://blog.google/technology/ai/";
+// The AI rubric carries essays and economics; a Gemini version is announced in its own rubric, and
+// "Introducing Gemini 3.8 Live" on 2026-09-15 sat there, where nothing here was reading.
+const GEMINI_MODELS_BLOG_FEED_URL = "https://blog.google/innovation-and-ai/models-and-research/gemini-models/rss/";
+const GEMINI_MODELS_BLOG_URL = "https://blog.google/innovation-and-ai/models-and-research/gemini-models/";
+// What the assistant can do reaches subscribers through the product rubric rather than the model one.
+const GEMINI_APP_BLOG_FEED_URL = "https://blog.google/innovation-and-ai/products/gemini-app/rss/";
+const GEMINI_APP_BLOG_URL = "https://blog.google/innovation-and-ai/products/gemini-app/";
 const DEEPMIND_BLOG_FEED_URL = "https://deepmind.google/blog/rss.xml";
 const DEEPMIND_BLOG_URL = "https://deepmind.google/blog/";
 // NVIDIA announces its own models (Nemotron) and developer tooling here; "CUDA for Rust" on
@@ -289,6 +296,22 @@ export async function collectGoogleAiBlog(request: Fetch = fetch, cache?: HttpCa
     source: "google-ai-blog",
     maker: "Google",
     url: GOOGLE_AI_BLOG_URL,
+  });
+}
+
+export async function collectGeminiModelsBlog(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
+  return parseOfficialFeed(await fetchText(GEMINI_MODELS_BLOG_FEED_URL, {}, request, undefined, cache), {
+    source: "gemini-models-blog",
+    maker: "Google",
+    url: GEMINI_MODELS_BLOG_URL,
+  });
+}
+
+export async function collectGeminiAppBlog(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
+  return parseOfficialFeed(await fetchText(GEMINI_APP_BLOG_FEED_URL, {}, request, undefined, cache), {
+    source: "gemini-app-blog",
+    maker: "Google",
+    url: GEMINI_APP_BLOG_URL,
   });
 }
 

@@ -78,6 +78,8 @@ const NEWSROOMS = new Set([
   "anthropic-news",
   "huggingface-blog-feed",
   "google-ai-blog",
+  "gemini-models-blog",
+  "gemini-app-blog",
   "deepmind-blog",
   "nvidia-developer-blog",
   "openai-alignment",

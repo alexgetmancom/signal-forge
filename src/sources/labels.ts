@@ -28,6 +28,8 @@ const STATIC_LABELS: Record<string, string> = {
   "huggingface-blog-feed": "Hugging Face · blog",
   "huggingface-router": "Hugging Face · inference providers",
   "google-ai-blog": "Google · AI blog",
+  "gemini-models-blog": "Google · Gemini models blog",
+  "gemini-app-blog": "Google · Gemini app blog",
   "deepmind-blog": "Google DeepMind · blog",
   "nvidia-developer-blog": "NVIDIA · developer blog",
   "codex-models": "Codex · model list",

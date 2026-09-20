@@ -75,6 +75,8 @@ const NEWS_DESKS = new Set([
   "anthropic-news",
   "claude-blog",
   "google-ai-blog",
+  "gemini-models-blog",
+  "gemini-app-blog",
   "deepmind-blog",
   "pages:openai",
   "pages:anthropic",

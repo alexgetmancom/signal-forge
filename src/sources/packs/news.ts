@@ -5,6 +5,8 @@ import {
   collectAnthropicSdkReleases,
   collectClaudeCodeChangelog,
   collectDeepMindBlog,
+  collectGeminiAppBlog,
+  collectGeminiModelsBlog,
   collectGoogleAiBlog,
   collectHuggingFaceBlogFeed,
   collectNvidiaDeveloperBlog,
@@ -184,6 +186,25 @@ export function newsSources({ cache }: SourceContext): SourceEntry[] {
       // only when an entry does.
       intervalSeconds: 900,
       collector: () => collectGoogleAiBlog(fetch, cache),
+    },
+    {
+      id: "gemini-models-blog",
+      authority: "first_party",
+      vendor: "Google",
+      group: "Official news",
+      stream: "news",
+      // Where a Gemini version is announced. Paced with the AI rubric it sits beside.
+      intervalSeconds: 900,
+      collector: () => collectGeminiModelsBlog(fetch, cache),
+    },
+    {
+      id: "gemini-app-blog",
+      authority: "first_party",
+      vendor: "Google",
+      group: "Official news",
+      stream: "news",
+      intervalSeconds: 1800,
+      collector: () => collectGeminiAppBlog(fetch, cache),
     },
     {
       id: "deepmind-blog",
