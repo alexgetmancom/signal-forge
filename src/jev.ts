@@ -247,9 +247,12 @@ export async function judgeEvents(
     const answer = await askJev(db, config, evidenceOf(event), request, now);
     if (!answer) break;
     const judgement: Judgement = { ...answer, rules: signalClass(event), at: now.toISOString() };
+    // The backfill asks the same window the cycle does, and both pick their pending set before
+    // either writes: two passes half a second apart judged event 39041 at version 3 at once and the
+    // second was refused outright. A judgement already stored is the answer we just paid for again.
     db.query(
       `INSERT INTO event_evaluations(event_id, evaluator, model, prompt_version, kind, worth, codename, confidence, rules, evaluated_at)
-       VALUES(?,?,?,?,?,?,?,?,?,?)`,
+       VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`,
     ).run(
       event.id,
       EVALUATOR,
