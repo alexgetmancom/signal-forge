@@ -26,7 +26,8 @@ function week(db: ReturnType<typeof openDatabase>) {
     records: [{ id: "baseline", name: "Baseline", pricing: { prompt: "1" } }],
   };
   saveCollection(db, catalogue, [wire], "2026-09-08T10:00:00.000Z");
-  catalogue.records.push({ id: "gpt-6-astra", name: "GPT-6 Astra" });
+  // A week only claims a model something dated to it; the catalogue's own date does that here.
+  catalogue.records.push({ id: "gpt-6-astra", name: "GPT-6 Astra", created: "2026-09-09T00:00:00.000Z" });
   saveCollection(db, catalogue, [wire], "2026-09-09T10:00:00.000Z");
   catalogue.records[0] = { id: "baseline", name: "Baseline", pricing: { prompt: "0.4" } };
   saveCollection(db, catalogue, [wire], "2026-09-10T10:00:00.000Z");
@@ -93,7 +94,12 @@ test("a week is read back by maker, with training checkpoints and re-keyed rows 
   saveCollection(db, weights, [wire], "2026-09-08T10:00:00.000Z");
   weights.records = [
     { id: "nvidia/Older", name: "nvidia/Older", pipeline: "text-generation" },
-    { id: "nvidia/Nemotron-4-Ultra", name: "nvidia/Nemotron-4-Ultra", pipeline: "text-generation" },
+    {
+      id: "nvidia/Nemotron-4-Ultra",
+      name: "nvidia/Nemotron-4-Ultra",
+      pipeline: "text-generation",
+      created: "2026-09-09T00:00:00.000Z",
+    },
     // Two checkpoints of one training run, and a row the collector had to number because the
     // catalogue already carries it. Neither is a release.
     { id: "nvidia/Nemotron-4-Ultra-Math-SFT", name: "nvidia/Nemotron-4-Ultra-Math-SFT", pipeline: "text-generation" },
@@ -118,7 +124,7 @@ test("a week is read back by maker, with training checkpoints and re-keyed rows 
     records: [{ id: "sakana/fugu-mini", name: "Sakana: Fugu Mini" }],
   };
   saveCollection(db, catalogue, [wire], "2026-09-09T10:00:00.000Z");
-  catalogue.records.push({ id: "sakana/fugu-max", name: "Sakana: Fugu Max" });
+  catalogue.records.push({ id: "sakana/fugu-max", name: "Sakana: Fugu Max", created: "2026-09-10T00:00:00.000Z" });
   saveCollection(db, catalogue, [wire], "2026-09-10T10:00:00.000Z");
 
   const context = recapContext(db, "2026-09-13T18:00:00.000Z");
@@ -284,7 +290,7 @@ test("a reseller's catalogue speaks for makers this tracker follows", () => {
   };
   saveCollection(db, catalogue, [wire], "2026-09-08T10:00:00.000Z");
   catalogue.records.push(
-    { id: "sakana/fugu-max", name: "Sakana: Fugu Max" },
+    { id: "sakana/fugu-max", name: "Sakana: Fugu Max", created: "2026-09-09T00:00:00.000Z" },
     // A 3B model that turns HTML into JSON: a real model, a developer's tool, and nothing any
     // benchmark, arena or maker's API we read has ever heard of.
     { id: "inference-net/schematron-v2-turbo", name: "Inference.net: Schematron V2 Turbo" },
@@ -583,7 +589,7 @@ test("a model the catalogues already carried is not this week's arrival", () => 
   saveCollection(db, other, [wire], "2026-09-08T10:00:00.000Z");
   other.records = [
     { id: "glm-5.3", name: "Z.ai: GLM 5.3" },
-    { id: "glm-5.4", name: "Z.ai: GLM 5.4" },
+    { id: "glm-5.4", name: "Z.ai: GLM 5.4", created: "2026-09-16T00:00:00.000Z" },
   ];
   saveCollection(db, other, [wire], "2026-09-16T10:00:00.000Z");
 

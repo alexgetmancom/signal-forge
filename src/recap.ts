@@ -206,6 +206,8 @@ function nameOf(event: Event): string {
 
 /** The streams where a row appearing means a model became available, whoever is doing the listing. */
 const CATALOGUE_STREAMS = new Set(["api-models", "openrouter", "weights"]);
+/** Where a maker speaks for itself: its blog, its release notes, its own documentation pages. */
+const ANNOUNCEMENT_STREAMS = new Set(["news", "pages", "changelog"]);
 
 /**
  * Is this arrival a model, or another way of listing one?
@@ -356,6 +358,28 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
       .all(from)
       .map((row) => modelSubject(String(row.name ?? ""))),
   );
+  // Something has to date a model to this week before the week claims it. Our own history is the
+  // weakest possible evidence -- it begins when this tracker did, so everything older than that
+  // looks new the first time a catalogue mentions it, and MiniMax M2.7, published in March, was
+  // reported as an arrival of 15 September. Two things can date a model: a catalogue publishing a
+  // creation date inside the period, or the maker announcing it by name inside the period.
+  const datedThisPeriod = new Set(
+    events
+      .filter((event) => {
+        const created = Date.parse(String(recordOf(event)?.created ?? ""));
+        return Number.isFinite(created) && created >= Date.parse(from) && created < Date.parse(to);
+      })
+      .map((event) => modelSubject(nameOf(event))),
+  );
+  // Everything the makers themselves published this period, as one body of text. "Introducing
+  // Gemini 3.8 Live and 3.8 Live Extended Thinking" dates both models no catalogue dated, and the
+  // whole name has to appear: xAI's "Grok Voice Transcribe 2.0" is not a word about Grok Voice STT.
+  const announced = ANNOUNCEMENT_STREAMS.size
+    ? classified
+        .filter(({ event }) => ANNOUNCEMENT_STREAMS.has(event.stream))
+        .map(({ event }) => nameOf(event).toLowerCase())
+        .join("\n")
+    : "";
   const usage = usageRanks(db);
   // One model however many collectors saw it, and the maker's own word ahead of a reseller's.
   const bySubject = new Map<string, { name: string; vendor: string; weight: number }>();
@@ -375,6 +399,10 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
     const name = nameOf(event);
     const subject = modelSubject(name);
     if (alreadyNamed.has(subject)) continue;
+    // Dated to this period by a catalogue, or named in something a maker published in it. A
+    // catalogue row with no date behind it says only that the catalogue has the model today.
+    const readable = readableName(name).toLowerCase();
+    if (!datedThisPeriod.has(subject) && !(readable.length >= 5 && announced.includes(readable))) continue;
     // A tier is not a model. "MiniMax M3 Fast" and "Jev 1.13 Free" are ways of billing something
     // already here, and only the catalogue's own words say so -- so the trailing word only folds
     // away when the thing it is a tier of is something we have seen.
