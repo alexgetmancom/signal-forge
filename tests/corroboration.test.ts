@@ -146,3 +146,26 @@ test("passed-over names the rules that kept a subject quiet", () => {
     { reason: "trending_from_an_unfollowed_lab", count: 1 },
   ]);
 });
+
+test("three catalogues finishing the same import are not three organisations noticing a model", () => {
+  const { db, add } = setup();
+  // Grok 4.6 as it actually reached us: out since 12 August, sitting in our records since the
+  // 17th, and a third registry finally listing it on the 20th. The count is theirs, not the
+  // model's.
+  db.query("UPDATE stories SET title='Grok 4.6 (high)', first_seen_at=? WHERE id=1").run("2026-09-17T04:36:45.967Z");
+  add("models-dev", "api-models", "third_party", { name: "Grok 4.6" }, "2026-09-20T05:31:00.165Z");
+  expect(detectCorroborated(db, [scouts], now)).toEqual([]);
+  expect(corroborationOf(db, 1)).toBeNull();
+});
+
+test("a model the catalogue itself dates to August is not a discovery of this week", () => {
+  const { db, add } = setup();
+  add(
+    "huggingface-router",
+    "api-models",
+    "third_party",
+    { name: "Qwen/Qwen3.8-2.4T-A95B", created: "2026-08-08T01:50:52.000Z" },
+    "2026-09-20T05:31:00.165Z",
+  );
+  expect(detectCorroborated(db, [scouts], now)).toEqual([]);
+});

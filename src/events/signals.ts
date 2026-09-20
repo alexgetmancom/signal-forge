@@ -557,3 +557,12 @@ export function pingWorthy(event: Event): boolean {
   const signal = signalClass(event);
   return signal === "launch" || signal === "codename" || signal === "feature" || signal === "debut";
 }
+
+/**
+ * Where a maker speaks for itself: its blog, its release notes, its own documentation pages.
+ *
+ * A catalogue row says a model is listed today; only an announcement says it happened today. The
+ * distinction is what keeps a week, or a count of agreeing sources, from reading three catalogues
+ * catching up on an August release as news.
+ */
+export const ANNOUNCEMENT_STREAMS = new Set(["news", "pages", "changelog"]);

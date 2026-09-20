@@ -113,11 +113,16 @@ async function offer(channelId: string, messageId: string, emoji: string, config
 /**
  * How recent a card must be to be worth offering reactions under, and how many offers one pass will
  * make. Both bound the first pass after a release: fifty messages in two channels is two hundred
- * requests, and Discord would turn most of them away. Nobody votes on a week-old card, so the
- * backlog is left alone rather than caught up with.
+ * requests, and Discord would turn most of them away.
+ *
+ * Twelve hours was a guess that a card goes cold overnight, and it cost us the measurement: in the
+ * first two days of asking, 105 cards carried the pair and 6 drew an answer. At that rate the fifty
+ * answers the confidence question needs never arrive. The window is now the whole of what Discord
+ * hands back -- fifty messages a channel -- because a reader scrolling back is exactly the reader
+ * with an opinion, and a pass every five minutes has room to catch up.
  */
-const SEED_WINDOW_MS = 12 * 3_600_000;
-const MAX_SEEDS = 20;
+const SEED_WINDOW_MS = 7 * 24 * 3_600_000;
+const MAX_SEEDS = 60;
 
 /**
  * Promote every message in `radar` that its readers have vouched for since the last pass.

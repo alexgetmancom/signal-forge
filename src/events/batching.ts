@@ -636,6 +636,13 @@ export function prepareDeliveries(
       const speaking = events
         .filter((event) => subscribed.has(event.signal))
         .flatMap((event) => {
+          // A corroboration card is not the event speaking, so the reasons the event was quiet do
+          // not apply to it. Each of them is a verdict about one sighting -- a board move outside
+          // the top three, another serving of a known model -- and every one stays correct; the
+          // card is about the accumulation, which no per-event rule was ever asked about. Without
+          // this the threshold fires into a batch the same rules then silence again, which is what
+          // happened to all four cards raised in the week to 2026-09-20.
+          if (corroborationOfEvent(db, event.id)) return [event];
           // Routine drift is judged against the last state this destination actually saw, so that
           // steps too small to report on their own still add up to one card. Only routine drift:
           // an event the policy already decided is worth interrupting a reader for, such as a

@@ -54,11 +54,33 @@ export const INDEPENDENT_SOURCES = 3;
  */
 const WATCH_MS = 72 * 3_600_000;
 
+/**
+ * Agreement that took its time is a backlog, not a discovery.
+ *
+ * Counting sources alone reads three registries finishing the same import as three organisations
+ * noticing the same thing. On the week to 2026-09-20 every subject that crossed the threshold in
+ * silence was old: Grok 4.3 (17 April 2026), Grok 4.6 and Qwen3.8-2.4T-A95B (both 12 August) and
+ * Ling-3.0-flash (23 July). Each had been sitting in our own records for three to six days before
+ * the third source arrived. Step 5 Preview, the one real case, gathered all three inside a day.
+ *
+ * So the count has to complete while the subject is still new to us -- the same window the story
+ * must still be moving in -- and no source may carry a creation date older than that window. The
+ * second gate is what catches a genuinely old model the first catalogue only imported yesterday.
+ */
+function gatheredQuickly(row: CorroboratedRow, evidence: readonly StoryEvidence[], since: number): boolean {
+  if (!(Date.parse(row.first_seen_at) >= since)) return false;
+  return !evidence.some((event) => {
+    const created = Date.parse(String((JSON.parse(event.after_json ?? "{}") as { created?: unknown }).created ?? ""));
+    return Number.isFinite(created) && created < since;
+  });
+}
+
 type CorroboratedRow = {
   story_id: number;
   stable_key: string;
   title: string;
   vendor: string | null;
+  first_seen_at: string;
 };
 
 export type Corroboration = { title: string; families: string[]; eventIds: number[]; at: string };
@@ -82,6 +104,7 @@ type StoryEvidence = Event & {
   stable_key: string;
   title: string;
   story_vendor: string | null;
+  first_seen_at: string;
   delivered: number;
 };
 
@@ -98,7 +121,7 @@ function evidenceInWindow(db: Database, since: string): StoryEvidence[] {
     .query<StoryEvidence, [string]>(
       `SELECT e.id,e.source,e.stream,e.entity_id,e.kind,e.before_json,e.after_json,e.detected_at,
               e.confidence,e.authority,src.vendor,
-              s.id AS story_id,s.stable_key,s.title,s.vendor AS story_vendor,
+              s.id AS story_id,s.stable_key,s.title,s.vendor AS story_vendor,s.first_seen_at,
               EXISTS(SELECT 1 FROM batch_events be JOIN deliveries d ON d.batch_id=be.batch_id
                      WHERE be.event_id=e.id) AS delivered
        FROM stories s
@@ -118,8 +141,9 @@ function evidenceInWindow(db: Database, since: string): StoryEvidence[] {
  * second card counting the sources that agree about it is a card about our own bookkeeping.
  */
 function silentAndCorroborated(db: Database, now: number): { row: CorroboratedRow; evidence: StoryEvidence[] }[] {
+  const since = now - WATCH_MS;
   const grouped = new Map<number, StoryEvidence[]>();
-  for (const event of evidenceInWindow(db, new Date(now - WATCH_MS).toISOString()))
+  for (const event of evidenceInWindow(db, new Date(since).toISOString()))
     grouped.set(event.story_id, [...(grouped.get(event.story_id) ?? []), event]);
   const ready: { row: CorroboratedRow; evidence: StoryEvidence[] }[] = [];
   for (const [storyId, evidence] of grouped) {
@@ -128,10 +152,15 @@ function silentAndCorroborated(db: Database, now: number): { row: CorroboratedRo
     if (families.size < INDEPENDENT_SOURCES) continue;
     const first = evidence[0];
     if (!first) continue;
-    ready.push({
-      row: { story_id: storyId, stable_key: first.stable_key, title: first.title, vendor: first.story_vendor },
-      evidence,
-    });
+    const row: CorroboratedRow = {
+      story_id: storyId,
+      stable_key: first.stable_key,
+      title: first.title,
+      vendor: first.story_vendor,
+      first_seen_at: first.first_seen_at,
+    };
+    if (!gatheredQuickly(row, evidence, since)) continue;
+    ready.push({ row, evidence });
   }
   return ready;
 }

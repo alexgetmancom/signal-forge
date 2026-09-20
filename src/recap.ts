@@ -6,7 +6,14 @@ import { readableName } from "./events/naming.js";
 import { isScheduledPricingRotation } from "./events/oscillation.js";
 import { renamedEvents } from "./events/rename.js";
 import { priceMoveRatio, pricePair, significantPriceChange } from "./events/render/common.js";
-import { boardPlace, DEBUT_PLACES, isMainBoard, isUnfollowedMakerAtAReseller, signalClass } from "./events/signals.js";
+import {
+  ANNOUNCEMENT_STREAMS,
+  boardPlace,
+  DEBUT_PLACES,
+  isMainBoard,
+  isUnfollowedMakerAtAReseller,
+  signalClass,
+} from "./events/signals.js";
 import type { Event, RecordData } from "./events/types.js";
 import {
   arrivalWeight,
@@ -206,8 +213,6 @@ function nameOf(event: Event): string {
 
 /** The streams where a row appearing means a model became available, whoever is doing the listing. */
 const CATALOGUE_STREAMS = new Set(["api-models", "openrouter", "weights"]);
-/** Where a maker speaks for itself: its blog, its release notes, its own documentation pages. */
-const ANNOUNCEMENT_STREAMS = new Set(["news", "pages", "changelog"]);
 
 /**
  * Is this arrival a model, or another way of listing one?
