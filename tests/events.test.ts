@@ -771,6 +771,27 @@ test("entering a board is a sentence, and only a top-ten debut is told at once",
   expect(isRoutine(low)).toBe(true);
 });
 
+test("a measured arrival with no place leads on the number instead", () => {
+  const event = {
+    id: 39090,
+    source: "artificial-analysis",
+    stream: "leaderboards" as const,
+    entity_id: "step-5-preview",
+    kind: "new" as const,
+    before_json: null,
+    after_json: JSON.stringify({
+      id: "step-5-preview",
+      name: "Step 5 Preview",
+      category: "artificial-analysis/quality",
+      maker: "StepFun",
+      score: { artificial_analysis_intelligence_index: 43.6 },
+    }),
+    detected_at: "2026-09-19T10:21:18.463Z",
+  };
+  const embed = eventEmbed(event, "https://artificialanalysis.ai/models") as { title: string };
+  expect(embed.title).toBe("🧠 Step 5 Preview enters at 43.6 on the Intelligence Index");
+});
+
 test("leaderboard notifications keep the leading places and meaningful movements only", () => {
   const event = (kind: "new" | "changed" | "removed", before: unknown, after: unknown) =>
     ({

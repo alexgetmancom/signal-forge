@@ -20,7 +20,10 @@ const root = resolve(import.meta.dir, "..");
 /** Path, what it is for, and the line budget past which it is being written instead of the code. */
 const DOCUMENTS: Record<string, { purpose: string; lines: number }> = {
   "README.md": { purpose: "what this service is, for somebody who has never seen it", lines: 420 },
-  "docs/roadmap.md": { purpose: "the plan, and the decisions measurement already settled", lines: 200 },
+  // Raised from 200 to 205 on 2026-09-20 for the corroboration decision, after a stale source
+  // snapshot was pruned and the source-count finding was folded into the entry it now belongs
+  // beside. The reasoning behind that decision stayed in the code; only the decision is in the file.
+  "docs/roadmap.md": { purpose: "the plan, and the decisions measurement already settled", lines: 205 },
   "docs/runbook.md": { purpose: "which script to run when, and what a script cannot know", lines: 140 },
 };
 

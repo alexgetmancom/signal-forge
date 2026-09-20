@@ -307,6 +307,37 @@ test("a model new to a board is news only in the top ten, and a debut only on a 
   expect(entry("text/overall", undefined)).toBe("rank");
 });
 
+test("a model Artificial Analysis measured is a sighting, however far down the board it lands", () => {
+  // Step 5 Preview as the site reported it on 2026-09-19: an index, and no place, because only the
+  // leading twenty are ranked. Before this it was a `rank` -- a class with nothing ever delivered.
+  const measured = (score: object, overrides: object = {}) =>
+    signalClass(
+      event({ stream: "leaderboards", kind: "new", source: "artificial-analysis" }, {
+        id: "step-5-preview",
+        name: "Step 5 Preview",
+        category: "artificial-analysis/quality",
+        score,
+        ...overrides,
+      } as never),
+    );
+  expect(measured({ artificial_analysis_intelligence_index: 43.6 })).toBe("codename");
+  // The top ten is still the public wire, and the number does not promote it there.
+  expect(measured({ artificial_analysis_intelligence_index: 70 }, { rank: 3 })).toBe("debut");
+  // A row with no measurement behind it is still a row, and so is one on somebody else's board.
+  expect(measured({ hle: 0.465 })).toBe("rank");
+  expect(measured({}, { category: "designarena/website" })).toBe("rank");
+  expect(
+    signalClass(
+      event({ stream: "leaderboards", kind: "new", source: "arena-leaderboards" }, {
+        id: "m",
+        name: "M",
+        category: "text/overall",
+        score: { artificial_analysis_intelligence_index: 43.6 },
+      } as never),
+    ),
+  ).toBe("rank");
+});
+
 test("a lab's post is sorted into what it is about", () => {
   const post = (name: string, source = "openai-news") =>
     signalClass(event({ stream: "news", kind: "new", source }, { id: name, name }));

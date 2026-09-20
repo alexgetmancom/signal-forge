@@ -13,11 +13,9 @@ source-derived confidence, correlates events across sources and delivers only wh
 notification policy. Production is healthy and the gate passes on `main`; what is left is reading
 back what the channels carried.
 
-A hundred and twenty sources are registered on 2026-09-17: ModelScope left, and the four Artificial
-Analysis media arenas arrived. `gemini`, `vercel-gateway` and `artificial-analysis` had never
-collected and did that day, once their hostnames were routed through a US exit (settled below). The
-one that does not collect is the Kimi coding tier, which waits for a key. Hacker News joined on 2026-09-17 as a witness whose stories never
-become cards.
+A hundred and twenty-one sources are registered on 2026-09-20: the four Artificial Analysis media
+arenas and Hacker News arrived on 2026-09-17, ModelScope left, StepFun joined on 2026-09-20, and the
+one that does not collect is the Kimi coding tier, which waits for a key.
 
 ## Next work
 
@@ -28,6 +26,7 @@ that has since moved is not a priority.
 |---|---|---|
 | Next | Read `news` back in a week. | `channel-mix 7`, taken no earlier than 2026-09-24, says what the two channels carried after the widening of 2026-09-17 (`news`: `launch`, `change`, `release`, `retirement`, `feature`, `debut`, `safety`, `research`; `radar`: `codename`). Done when the real numbers per class are written here with their date, and every class or source that produced cards the owner calls noise is taken off `news` with its count. |
 | Next | Judge the sources a month in. | `source-verdicts 30`, first taken no earlier than 2026-10-17 so the trending list, the media arenas and Hacker News have a whole period behind them. It names every enabled source that over thirty days led no other source, reached no reader and drew no reader vote. Done when each one named is removed or kept with a one-line reason here, and the date of the next reading is written in its place. |
+| Next | Read the corroboration threshold back. | Three unrelated sources on a silent subject became a card on 2026-09-20, a number chosen against one week. `passed-over 7`, taken no earlier than 2026-09-27, says how often it fired and what it still left silent; `passed-over 30` after 2026-10-20 ranks the rules that kept subjects quiet, `already_told_by_another_source` among them -- the one rule that reads a second independent witness as a duplicate, right most days and worth narrowing only against its own count. Done when both readings are written here with their dates, and the threshold and that rule are moved or kept with a reason. More than about three cards in a week is bookkeeping filling a channel, and the fix is a tighter rule rather than a higher number. |
 | After the reactions | Read Jev back against the readers, and decide what `confidence` is for. | Jev answers every judgement with a confidence we store and never read: a `worth` of 2.1 held at 0.3 is today indistinguishable from the same 2.1 held at 0.95. The fix is not obvious in either direction -- weighting the score by it and refusing a judgement under a floor cut different things -- and there is nothing to choose between them while the only opinion on a card is Jev's own. Since 2026-09-20 `scout_reactions` separates silence from 👍 and from 👎, and the bot seeds both under each card. Done when at least fifty cards carry a reader's answer, `worth` and `confidence` are correlated against those answers here with their date, and `confidence` is either given a use or written off. |
 | Owner decision | AWS: an account for Bedrock and its quotas. | The Vertex pair is the model: Vertex quotas named `grok-4.7` on 2026-09-17 while Model Garden's newest xAI entry was `grok-4.6`. Bedrock's counterparts are `ListFoundationModels` and `ListInferenceProfiles` in `us-east-1` and `us-west-2`, and Service Quotas for service code `bedrock`, whose per-model token limits may likewise run ahead of the listing. Reading them is free; the account needs a card. Done when an IAM user holding only those three read actions has its keys in production and both collect. |
 | Owner decision | Azure: a subscription for AI Foundry. | `Microsoft.CognitiveServices/locations/{region}/models` is the deployable catalogue per region and `usages` the per-model quota; today Azure is seen only second-hand, through the TrueFoundry mirror and the lifecycle page. A pay-as-you-go subscription costs nothing unused. Done when a service principal with Reader has its tenant, client id and secret in production and both collect. |
@@ -55,6 +54,14 @@ Kept because the reasoning cost real observation and is easy to re-litigate from
   new strings name a versioned model. Widened on the owner's word ahead of a replay, so the week
   after is the measurement: whatever `channel-mix 7` shows is noise comes back off. The classes stay
   independent of the channels, because reversing one must never need a deployment.
+- **A subject can earn a card no single event earned.** Routing was all veto until 2026-09-20: right
+  for one event, no shape for a subject. Step 5 Preview drew three independent sources in two days,
+  each correctly too small, and nothing read the count `stories` kept. Three now send one `codename`
+  card, and a measured Intelligence Index is a sighting at any place, since Artificial Analysis ranks
+  only its leading twenty and the rest fell to `rank`, the class the recap empties: 3250 events in
+  that week against 34 delivered. No floor was put under the index, the scale being one that moves.
+  Still never a count printed on a card: rejected at 18% permanently wrong, confirmation landing a
+  median 8.2 hours late.
 - **`launch` and `codename` stay separate classes.** Merging them was proposed and rejected: the
   ping is the same but the trust is not. Competitors split by source instead (`api-models`, `arena`,
   `subpages`); with thirteen streams that is a dozen channels, and it defeats the cross-source story
@@ -116,10 +123,6 @@ Kept because the reasoning cost real observation and is easy to re-litigate from
   nowhere. More reset sources and a last-reset board: one vendor's resets exist. A human verdict in
   the invited room and shutdown dates for the reminder engine: retirements are off the wire, and
   nobody asked the room to grade.
-- **A source-count badge on a card is not worth building.** Of cards that reached a reader, 0% and
-  10% had a second independent source at send time, and 18% would have carried a permanently wrong
-  count: confirmation arrived a median 8.2 hours after the message was sent, and cards are not
-  edited.
 - **Three hostnames leave through a US exit.** Measured 2026-09-16 from the production host.
   `generativelanguage.googleapis.com` answered `User location is not supported` through every house
   exit and 200 with 58 models through a US one, with the same key. `ai-gateway.vercel.sh` was never an
@@ -161,6 +164,7 @@ Not scheduled. Written down so they stop being re-derived from scratch.
   announcement. Each needs a free key and would reach readers as a sighting only. NVIDIA first:
   it is the one that tends to be early. GitHub Models is not a candidate: its catalogue answered
   `410 github_models_retirement_brownout` on 2026-09-17.
+- **The StepFun site.** The API catalogue shipped 2026-09-20 and covers the ids; the site is worth reading only for the words around a release. Deferred that day.
 - **Regional lifecycle schedules.** A deprecation with different dates per region is stored as one record with one date.
 - **A second Cohere reading with dates.** Its changelog is an index with no publication dates, so it
   is `web` evidence; the per-entry Markdown carries the date at one request each. Worth it only if a

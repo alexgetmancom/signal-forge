@@ -42,9 +42,10 @@ test("a model new to the Index debuts on the wire in the top ten and is named to
     .query<Event, []>("SELECT * FROM events WHERE kind='new' ORDER BY id")
     .all()
     .map((event) => [event.entity_id, signalClass(event)]);
+  // Both were measured, so both are sightings; only the top ten goes to the public wire.
   expect(arrivals).toEqual([
     ["Frontier 2", "debut"],
-    ["Small 1", "rank"],
+    ["Small 1", "codename"],
   ]);
   const context = recapContext(db, lastRecapPeriod(Date.parse("2026-09-17T07:00:00.000Z"), "day"), "day");
   const scouts = renderRecapLines(context, ["codename"]).join("\n");

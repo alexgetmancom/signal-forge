@@ -2,7 +2,7 @@ import { sourceLabel } from "../../sources/labels.js";
 import { readerStanding } from "../confidence.js";
 import { vendorOf } from "../interpretation.js";
 import { displayTitle } from "../naming.js";
-import { boardPlace, DEBUT_PLACES } from "../signals.js";
+import { boardPlace, DEBUT_PLACES, scoredDebutIndex } from "../signals.js";
 import type { Event, RecordData } from "../types.js";
 import { DESCRIPTION_CHARACTERS } from "./budget.js";
 import { describe, type Fact, factText, pricePair, withoutMakerPrefix } from "./common.js";
@@ -74,6 +74,10 @@ function eventHeadline(event: Event, name: string, incident: Incident | null): s
   if (event.stream === "leaderboards" && event.kind === "new") {
     const place = boardPlace(event);
     if (place !== null && place <= DEBUT_PLACES) return `🏆 ${name} debuts at #${place}`;
+    // Below the ranked places there is no place to report, so the card leads on the measurement,
+    // which is the only reason the arrival is being told at all.
+    const index = scoredDebutIndex(event);
+    if (index !== null) return `🧠 ${name} enters at ${index} on the Intelligence Index`;
   }
   return `${KIND_ICONS[event.kind]} ${name}`;
 }
