@@ -8,6 +8,7 @@ import { breakoutLine, breakoutOf } from "./breakouts.js";
 import { splitMessage } from "./canonical.js";
 import { CONFIDENCE_LEVELS } from "./confidence.js";
 import { deliveryBaseline, withBaseline } from "./cooldown.js";
+import { corroborationLine, corroborationOfEvent } from "./corroboration.js";
 import { vendorOf } from "./interpretation.js";
 import { hasNotificationContent } from "./notification.js";
 import { departedAs, isOscillating, isReappearance, isScheduledPricingRotation } from "./oscillation.js";
@@ -776,7 +777,10 @@ export function prepareDeliveries(
         // A small company's model that took off says why it is a card now and was a recap line before.
         const tookOff = speaking.flatMap((event) => {
           const breakout = breakoutOf(db, event.id);
-          return breakout ? [breakoutLine(event, breakout)] : [];
+          if (breakout) return [breakoutLine(event, breakout)];
+          // A card nobody's rule asked for, sent because the sources had piled up unread.
+          const corroboration = corroborationOfEvent(db, event.id);
+          return corroboration ? [corroborationLine(corroboration)] : [];
         });
         const embeds = items.map((group) =>
           group.length > 1

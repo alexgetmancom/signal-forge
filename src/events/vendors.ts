@@ -28,6 +28,10 @@ const VENDORS: [RegExp, string][] = [
   [/xiaomi|\bmimo\b/i, "Xiaomi"],
   [/baidu|ernie/i, "Baidu"],
   [/upstage|\bsolar\b/i, "Upstage"],
+  // "step" alone is an ordinary word in a handle and a repository name; only the company's own
+  // spelling and its numbered family count. Step 5 Preview spent a day recorded as Unknown because
+  // neither was here, so its cards carried no maker and its events joined no vendor's story.
+  [/stepfun|(?:^|[\s/~])step-\d/i, "StepFun"],
   [/black[\s-]?forest|\bflux\b/i, "Black Forest Labs"],
   [/\brunway\b/i, "Runway"],
   [/\bkling\b/i, "Kling"],

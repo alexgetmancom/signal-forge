@@ -287,6 +287,18 @@ export const PROVIDER_CATALOGUES: ProviderCatalogue[] = [
     key: "POOLSIDE_API_KEY",
     authority: "first_party",
   },
+  // StepFun (阶跃星辰) serves its own Step family and nothing else, so a new id here is a release.
+  // Added on 2026-09-20 after Step 5 Preview reached three third-party catalogues before this
+  // deployment had any first-party word on it at all.
+  {
+    id: "stepfun",
+    name: "StepFun",
+    vendor: "StepFun",
+    apiUrl: "https://api.stepfun.com/v1/models",
+    url: "https://platform.stepfun.com/docs/llm/text",
+    key: "STEPFUN_API_KEY",
+    authority: "first_party",
+  },
   {
     id: "deepinfra",
     name: "DeepInfra",

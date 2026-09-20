@@ -92,6 +92,7 @@ const envSchema = z.object({
   MISTRAL_API_KEY: optionalSecret,
   GROQ_API_KEY: optionalSecret,
   MINIMAX_API_KEY: optionalSecret,
+  STEPFUN_API_KEY: optionalSecret,
   DASHSCOPE_API_KEY: optionalSecret,
   CEREBRAS_API_KEY: optionalSecret,
   MIMO_API_KEY: optionalSecret,

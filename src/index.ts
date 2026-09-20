@@ -3,6 +3,7 @@ import { publishAlerts, recoverInterruptedAlerts } from "./alerts.js";
 import { loadConfig } from "./config.js";
 import { deliverPending, recoverInterruptedDeliveries } from "./delivery.js";
 import { detectBreakouts } from "./events/breakouts.js";
+import { detectCorroborated } from "./events/corroboration.js";
 import { createHttpApp } from "./http.js";
 import { rebuildHypotheses } from "./hypotheses.js";
 import { prepareInsights } from "./insights.js";
@@ -55,6 +56,7 @@ supervisor.register(
     scheduleLifecycleReminders(db, config);
     scheduleRecaps(db, config);
     detectBreakouts(db, config.destinations);
+    detectCorroborated(db, config.destinations);
   }),
 );
 // Jev's judgements and DeepSeek's recap lines, read ahead of the morning messages that use them.

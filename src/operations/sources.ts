@@ -5,6 +5,7 @@ import { openCredentialCircuits } from "../credentials.js";
 import { channelMix } from "../reports/channelMix.js";
 import { coverageGaps } from "../reports/coverageGaps.js";
 import { leadTime } from "../reports/leadTime.js";
+import { passedOver } from "../reports/passedOver.js";
 import { signalQuality } from "../reports/signalQuality.js";
 import { sourceVerdicts } from "../reports/sourceVerdicts.js";
 import { deepSeekUsage } from "../runtime/deepseekUsage.js";
@@ -35,6 +36,23 @@ export function sourcesOperations(db: Database, config: AppConfig, _all: () => O
       cli: { args: [{ name: "days", optional: true }] },
       http: { method: "get", path: "/api/source-verdicts" },
       handler: (input: { days: number }) => sourceVerdicts(db, config, input.days),
+    },
+    passed_over: {
+      section: "sources",
+      summary:
+        "Subjects ranked by how many unrelated sources recorded them, and whether a reader ever heard: the misses, with the rules that made each one.",
+      startHere: "what did we know about before anyone was told",
+      mutates: false,
+      agent: true,
+      schema: z.object({ days: count(90, 7), limit: count(200, 50) }),
+      cli: {
+        args: [
+          { name: "days", optional: true },
+          { name: "limit", optional: true },
+        ],
+      },
+      http: { method: "get", path: "/api/passed-over" },
+      handler: (input: { days: number; limit: number }) => passedOver(db, input.days, input.limit),
     },
     coverage_gaps: {
       section: "sources",
