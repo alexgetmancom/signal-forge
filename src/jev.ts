@@ -33,7 +33,7 @@ const MAX_STATE_CHARS = 4_000;
  * per prompt version, so the new questions are asked again of the recent window and the two sets
  * can be compared instead of being mixed in one column.
  */
-const PROMPT_VERSION = "2";
+const PROMPT_VERSION = "3";
 const EVALUATOR = "jev";
 const CALLS_PREFIX = "jev-calls:";
 const TOKENS_PREFIX = "jev-tokens:";
@@ -59,10 +59,13 @@ const QUESTIONS = {
   },
   worth: {
     type: "score",
-    instructions:
-      "How much would an expert who follows AI releases every day want to be told about this today? " +
-      "`days_old_when_found` is how long the text had already been public when we found it: someone " +
-      "following this daily already knows what was announced weeks ago, however big it was.",
+    // The question is the one version 1 asked, word for word, and deliberately so. Version 2 added a
+    // sentence explaining `days_old_when_found`, and it moved the whole scale rather than the stale
+    // end of it: over the same 220 events the mean fell 1.31 to 0.93, and it fell by 0.33 even on the
+    // 190 that carry no date at all and that the sentence does not describe. Commits over the 1.6 that
+    // `isNotableCommit` asks for went from 53 to 4, stories over 2 from 14 to 1. The evidence still
+    // carries the dates; what Jev is asked stays as it was, so the thresholds keep their meaning.
+    instructions: "How much would an expert who follows AI releases every day want to be told about this?",
     criteria: ["not at all", "slightly", "clearly", "must know"],
   },
   codename: {
