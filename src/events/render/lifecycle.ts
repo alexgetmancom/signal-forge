@@ -96,6 +96,7 @@ function priceMove(move: {
   cheaper: boolean;
   from?: number | null;
   to?: number | null;
+  field?: string;
   discountEnded?: boolean;
 }): string {
   // The move, then what it costs now. A percentage alone is a number a reader cannot act on:
@@ -107,7 +108,7 @@ function priceMove(move: {
       : `up ${Math.round(move.percent * 100)}%`;
   const pair =
     typeof move.from === "number" && typeof move.to === "number"
-      ? ` · ${money(move.from)} → ${money(move.to)} per M`
+      ? ` · ${money(move.from)} → ${money(move.to)} per M${move.field ? ` ${move.field}` : ""}`
       : "";
   return move.discountEnded && !move.cheaper ? `launch pricing ended · ${size}${pair}` : `${size}${pair}`;
 }

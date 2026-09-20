@@ -127,6 +127,8 @@ export const recapContextSchema = z.object({
       // said what a reader would actually be charged.
       from: z.number().nullable().default(null),
       to: z.number().nullable().default(null),
+      // Which of the quoted prices moved. Absent before the line said so.
+      field: z.string().default(""),
       // Absent in the recaps already stored before this was told apart from a decision to charge more.
       discountEnded: z.boolean().default(false),
     }),
@@ -271,7 +273,19 @@ type PriceMove = {
   discountEnded: boolean;
   from: number;
   to: number;
+  field: string;
 };
+
+/**
+ * What a reader is being quoted for. A catalogue prices input and output separately and they move
+ * by different amounts in the same edit: Qwen3.8 27B's input doubled on 2026-09-20 while its output
+ * rose a sixth, and a line that says neither which it is leaves the reader to guess the expensive one.
+ */
+function priceField(key: string): string {
+  if (/completion|output/i.test(key)) return "output";
+  if (/prompt|input/i.test(key)) return "input";
+  return key.replace(/_/g, " ");
+}
 
 function pricing(json: string | null): Record<string, unknown> {
   const record = json ? (JSON.parse(json) as RecordData) : null;
@@ -289,10 +303,10 @@ function pricing(json: string | null): Record<string, unknown> {
 function netPriceMoves(
   first: Event,
   last: Event,
-): { percent: number; ratio: number; cheaper: boolean; from: number; to: number }[] {
+): { percent: number; ratio: number; cheaper: boolean; from: number; to: number; field: string }[] {
   const from = pricing(first.before_json);
   const to = pricing(last.after_json);
-  const moves: { percent: number; ratio: number; cheaper: boolean; from: number; to: number }[] = [];
+  const moves: { percent: number; ratio: number; cheaper: boolean; from: number; to: number; field: string }[] = [];
   for (const key of new Set([...Object.keys(from), ...Object.keys(to)])) {
     if (BILLED_ELSEWHERE.test(key)) continue;
     // What a card would have required of the same move. Every OpenRouter price is held back for
@@ -309,6 +323,7 @@ function netPriceMoves(
       cheaper: pair.to < pair.from,
       from: pair.from,
       to: pair.to,
+      field: priceField(key),
     });
   }
   return moves;
@@ -468,11 +483,12 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
       return mine - theirs || other.ratio - one.ratio;
     })
     .slice(0, 3)
-    .map(({ name, percent, cheaper, discountEnded, from: was, to: now }) => ({
+    .map(({ name, percent, cheaper, discountEnded, from: was, to: now, field }) => ({
       name,
       percent,
       cheaper,
       discountEnded,
+      field,
       from: was,
       to: now,
     }));
