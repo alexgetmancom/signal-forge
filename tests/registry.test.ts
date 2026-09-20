@@ -116,6 +116,16 @@ test("reader-facing sources stay active while noisy repository activity and disc
   expect(defaults.find((definition) => definition.id === "github:openai/codex:releases")?.mode).toBe("active");
   // Strangers betting on a release are collected to be measured, never to be told.
   expect(defaults.find((definition) => definition.id === "polymarket")?.mode).toBe("shadow");
+  // A specification and an SDK name a model for a machine; unproven against the catalogues, so both
+  // collect and reach nobody.
+  expect(defaults.find((definition) => definition.id === "github:openai/openai-openapi:commits")?.mode).toBe("shadow");
+  expect(
+    defaults.find((definition) => definition.id === "github:anthropics/anthropic-sdk-typescript:commits")?.mode,
+  ).toBe("shadow");
+  // The vendor is named, so a specification counts as a witness to its own maker and not an anonymous one.
+  expect(defaults.find((definition) => definition.id === "github:openai/openai-openapi:commits")?.vendor).toBe(
+    "OpenAI",
+  );
 
   const overridden = buildSourceRegistry(db, {
     ...config(),

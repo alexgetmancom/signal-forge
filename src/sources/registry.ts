@@ -57,6 +57,11 @@ export function buildSourceRegistry(db: Database, config: AppConfig): SourceDefi
     // data, whether a market ever named a model before this feed saw one. Until they do, nothing
     // it records reaches a reader.
     "polymarket",
+    // An API specification and a generated SDK name a model for a machine before a vendor names it
+    // for a reader. Unproven against the catalogues, so they collect and tell nobody until
+    // `lead-time` has a fortnight of their own data to answer with.
+    "github:openai/openai-openapi:commits",
+    "github:anthropics/anthropic-sdk-typescript:commits",
     // Removed on 2026-09-10 as mostly marketing, back to be measured rather than trusted: it
     // collects, never reaches a channel, and source-verdicts decides after a month.
     "nvidia-developer-blog",

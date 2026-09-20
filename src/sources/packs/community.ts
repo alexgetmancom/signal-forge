@@ -1,9 +1,35 @@
+import type { AppConfig } from "../../config.js";
 import { collectCodexModels } from "../codex.js";
 import type { SourceContext, SourceEntry } from "../definition.js";
 import { collectGithubDiscovery, collectHuggingFaceTrending, GITHUB_DISCOVERY_QUERIES } from "../discovery.js";
 import { collectGithubCommits, collectGithubPulls, collectGithubReleases } from "../github.js";
 import { collectPolymarket } from "../markets.js";
 import { collectMimoTraining } from "../training.js";
+
+/**
+ * Where a vendor writes a model's identifier down for a machine, before it writes anything for a
+ * reader.
+ *
+ * Neither of these is a blog. An API specification and a generated SDK carry the enum of model ids
+ * the API will accept, and the commit that adds one is the first public keystroke naming it. Read
+ * on 2026-09-21, the OpenAI specification carried `gpt-6-astra` from 2026-09-03 and the Anthropic
+ * SDK's `Model` union carried `claude-opus-5` from 2026-07-24, each added by a commit whose message
+ * says so in as many words.
+ *
+ * Whether either actually beats the catalogues cannot be answered from stored data: the event log
+ * begins 2026-09-08, and the one model whose first sighting is safely after it -- `gpt-live-1` --
+ * reached the OpenAI catalogue ten minutes *before* the commit. So both start in shadow and
+ * `lead-time` decides, which is the same bargain every unproven source here is offered.
+ *
+ * The releases of the Anthropic SDK are already a source; these are its commits, which are earlier
+ * than the release that carries them.
+ */
+const MODEL_SPECS: readonly (AppConfig["github"][number] & { vendor: string })[] = [
+  // The specification is one 3.6 MB file, and every model id the API accepts is in it.
+  { repo: "openai/openai-openapi", vendor: "OpenAI", paths: ["openapi.yaml"] },
+  // `Model` is a union of string literals in the messages resource; `api.md` is its generated index.
+  { repo: "anthropics/anthropic-sdk-typescript", vendor: "Anthropic", paths: ["src/resources/messages/", "api.md"] },
+];
 
 /** GitHub repositories and discovery: what third parties publish before any vendor says so. */
 export function communitySources({ db, config, cache }: SourceContext): SourceEntry[] {
@@ -67,6 +93,18 @@ export function communitySources({ db, config, cache }: SourceContext): SourceEn
         collector: () => collectGithubReleases(db, config, watch, fetch, cache),
       },
     );
+  }
+
+  for (const spec of MODEL_SPECS) {
+    definitions.push({
+      id: `github:${spec.repo}:commits`,
+      authority: "vendor_owned",
+      vendor: spec.vendor,
+      group: "GitHub",
+      stream: "github",
+      intervalSeconds: 1800,
+      collector: () => collectGithubCommits(db, config, spec, fetch, cache),
+    });
   }
 
   for (const query of GITHUB_DISCOVERY_QUERIES) {
