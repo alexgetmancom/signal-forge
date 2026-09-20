@@ -15,6 +15,7 @@ import {
   isRepublished,
   isTrainingArtefact,
   modelSubject,
+  tierBase,
 } from "./events/variants.js";
 import { vendorOf, vendorOfName } from "./events/vendors.js";
 import { subjectKey, usageRanks, witnessedSubjects } from "./events/witness.js";
@@ -103,6 +104,8 @@ function boardName(source: string, category: unknown): string {
 const EARLY_STREAMS = new Set(["arena", "pages"]);
 /** Makers named in the recap itself; the rest are counted. */
 const ARRIVAL_GROUPS = 6;
+/** How far ahead a retirement is still something to plan around: one quarter. */
+const RETIREMENT_HORIZON_MS = 92 * 24 * 60 * 60 * 1000;
 
 function escapeForPattern(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -325,6 +328,17 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
   const classified = events.map((event) => ({ event, signal: signalClass(event) }));
   const renamed = renamedEvents(db, events);
   const witnessed = witnessedSubjects(db);
+  // What anything had already named before the period began. Used only to tell a tier from a
+  // model: a name that ends in a billing word is a tier when the thing it is a tier of is something
+  // already here, and a model when nothing has ever heard of the rest of the name.
+  const alreadyNamed = new Set(
+    db
+      .query<{ name: string }, [string]>(
+        "SELECT COALESCE(json_extract(after_json,'$.name'), entity_id) AS name FROM events WHERE detected_at<?",
+      )
+      .all(from)
+      .map((row) => modelSubject(String(row.name ?? ""))),
+  );
   const usage = usageRanks(db);
   // One model however many collectors saw it, and the maker's own word ahead of a reseller's.
   const bySubject = new Map<string, { name: string; vendor: string; weight: number }>();
@@ -343,6 +357,11 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
     if (Number.isFinite(created) && created < Date.parse(from)) continue;
     const name = nameOf(event);
     const subject = modelSubject(name);
+    // A tier is not a model. "MiniMax M3 Fast" and "Jev 1.13 Free" are ways of billing something
+    // already here, and only the catalogue's own words say so -- so the trailing word only folds
+    // away when the thing it is a tier of is something we have seen.
+    const base = tierBase(name);
+    if (base && (alreadyNamed.has(base) || bySubject.has(base))) continue;
     const weight = arrivalWeight(event);
     const held = bySubject.get(subject);
     if (!held || weight > held.weight)
@@ -498,14 +517,24 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
       ...retirement,
       at: Date.parse(String(retirement.date).replace(/^(?:not sooner than|to be announced|on)\s+/i, "")),
     }))
-    .filter((retirement) => !Number.isFinite(retirement.at) || retirement.at >= Date.parse(to))
-    .sort((one, other) => (one.at || Number.POSITIVE_INFINITY) - (other.at || Number.POSITIVE_INFINITY))
+    // A date has to be near enough to act on. "Claude Mythos 5 (9 Jun 2027)" is twenty-one months
+    // away and changes nothing a reader does this week; a line nothing can be read from at all is
+    // not worth the ink either, so both go.
+    .filter(
+      (retirement) =>
+        Number.isFinite(retirement.at) &&
+        retirement.at >= Date.parse(to) &&
+        retirement.at - Date.parse(to) <= RETIREMENT_HORIZON_MS,
+    )
+    .sort((one, other) => one.at - other.at)
     .map(({ name, date }) => ({ name, date }))
-    .slice(0, 5);
+    .slice(0, 4);
   // A changelog headline is a sentence, not a model, and comma-joining several into one "Retiring:"
   // list read as a list of models: "Changes to automatic switching to thinking in ChatGPT" was
   // never a retirement at all. Each announcement gets its own line, and only when its own words say
   // something is going away.
+  const WHEN_WORDS =
+    /\b(january|february|march|april|may|june|july|august|september|october|november|december|\d{4}-\d{2}-\d{2}|\d{1,2}\/\d{1,2})\b/i;
   const RETIRING_WORDS =
     /\bretir\w*|\bdeprecat\w*|\bsunsets?\b|\bshut(?:ting|s)? down|\bdiscontinu\w*|\bremov(?:ed|al|ing)\b/i;
   const retirementNotes =
@@ -515,8 +544,12 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
           .filter(({ event, signal }) => signal === "retirement" && event.stream === "news" && event.kind === "new")
           .map(({ event }) => readableName(nameOf(event)).replace(/^[^:]{1,40}:\s+/, ""))
           .filter((note) => RETIRING_WORDS.test(note))
+          // A sentence with no date in it is an intention, not a deadline: "Planned custom GPT
+          // retirement and migration to plugins" tells a reader nothing to do and nothing to wait
+          // for. The two lines beside the table have to earn the space the table does.
+          .filter((note) => WHEN_WORDS.test(note))
           .filter((note, index, all) => all.indexOf(note) === index)
-          .slice(0, 3);
+          .slice(0, 2);
   // The day's news in three sections: what went wrong or could, what was found, and what else the
   // labs said. Hacker News is read for the first two only: other people's safety and research
   // stories are news, other people's opinions are not.

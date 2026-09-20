@@ -206,10 +206,6 @@ export function renderRecapLines(context: RecapContext, signals: readonly string
     );
   // A maker's own sentence stands on its own line; inside the list above it read as a model's name.
   for (const note of context.retirementNotes) lines.push(`⚠️ ${note}`);
-  if (context.codenameCount)
-    lines.push(
-      `🕵 **${context.codenameCount} early ${context.codenameCount === 1 ? "sighting" : "sightings"}** in scouts, before any announcement`,
-    );
   return lines;
 }
 

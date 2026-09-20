@@ -14,7 +14,8 @@ import { vendorOfName } from "./vendors.js";
  * None of this is a judgement about importance. It is reading what the catalogue itself says the
  * entry is, from the name it gave it.
  */
-const VARIANT_SUFFIX = /\((batch|free|beta|preview|alpha|experimental|self[- ]moderated|extended|thinking)\)\s*$/i;
+const VARIANT_SUFFIX =
+  /\((batch|free|beta|preview|alpha|experimental|self[- ]moderated|extended|thinking|latest|fast|non[- ]?reasoning|reasoning)\)\s*$/i;
 const ALIAS_SUFFIX = /[:\s-](latest|preview)$/i;
 const DATED_SNAPSHOT = /[-:]\d{4}-\d{2}-\d{2}$/;
 /**
@@ -130,4 +131,18 @@ export function arrivalWeight(event: Event): number {
   if (event.stream === "resets" || event.stream === "apps") return 1;
   if (event.stream === "openrouter") return 1;
   return 2;
+}
+
+/**
+ * A tier of something else, named without the catalogue's usual brackets.
+ *
+ * `MiniMax M3 Fast`, `GLM 5.3 Fast` and `Jev 1.13 Free` are prices for a model rather than models,
+ * and they arrive as plain names. `Grok 4 Fast` is a model whose name ends the same way, so the
+ * word alone cannot decide: this returns what the entry would be a tier of, and the caller drops it
+ * only when that thing is one it has already seen.
+ */
+const TIER_WORD = /[\s:-](fast|free|flex|batch|lite|turbo|cheap|standard)$/i;
+export function tierBase(name: string): string | null {
+  const trimmed = name.trim();
+  return TIER_WORD.test(trimmed) ? modelSubject(trimmed.replace(TIER_WORD, "")) : null;
 }
