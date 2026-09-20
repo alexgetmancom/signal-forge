@@ -69,6 +69,30 @@ test("the cutoff admits the share it was asked for, whatever the scale is", () =
   db.close();
 });
 
+test("one unanswered event does not end the pass, three in a row do", async () => {
+  // A catch-up over 795 events stopped on its first, judged none, and reported no error of its own.
+  const db = openDatabase(":memory:");
+  const now = new Date("2026-09-19T08:00:00Z");
+  commits(
+    db,
+    Array.from({ length: 8 }, (_, i) => `Add model ${i}`),
+    new Date(now.getTime() - 3_600_000),
+  );
+  let asked = 0;
+  const answer = () =>
+    Response.json({ answers: { kind: { choice: "feature" }, worth: { score: 1 }, codename: { noul: 0.1 } } });
+  const flaky = async () => {
+    asked += 1;
+    // The second request fails alone; the fifth begins a run of three.
+    if (asked === 2 || asked >= 5) throw new Error("socket hang up");
+    return answer();
+  };
+  expect(await judgeEvents(db, config, flaky as never, now)).toBe(3);
+  // Asked eight times: one blip was stepped over, and the run of three ended it before the rest.
+  expect(asked).toBe(7);
+  db.close();
+});
+
 test("a post carries how old it already was when we found it", async () => {
   // Jev read a title and nothing else, and rated an eight-week-old announcement above the morning's.
   const db = openDatabase(":memory:");

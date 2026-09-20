@@ -1,9 +1,9 @@
 # Roadmap
 
-Updated 2026-09-16 UTC. What is planned, what was decided and why, and nothing else. What is built
-is in the code, its tests and [README.md](../README.md); this file
-stopped keeping a second copy of that on 2026-09-14, and so did the competitor audit that seeded the
-source list -- every one of its recommendations shipped, and what it still proposed is under Ideas.
+Updated 2026-09-20 UTC. What is planned, what was decided and why, and nothing else. What is built is
+in the code, its tests and [README.md](../README.md); this file stopped keeping a second copy of that
+on 2026-09-14, and so did the competitor audit that seeded the source list -- all of its
+recommendations shipped, and what it still proposed is under Ideas.
 
 ## Current state
 
@@ -28,6 +28,7 @@ that has since moved is not a priority.
 |---|---|---|
 | Next | Read the wire back in a week. | `channel-mix 7`, taken no earlier than 2026-09-24, says what the two channels carried after the widening of 2026-09-17 (`🚀signals`: `launch`, `change`, `release`, `retirement`; `🕵scouts`: `codename`). Done when the real numbers per class are written here with their date, and every class or source that produced cards the owner calls noise is taken off the wire with its count. |
 | Next | Judge the sources a month in. | `source-verdicts 30`, first taken no earlier than 2026-10-17 so the trending list, the media arenas and Hacker News have a whole period behind them. It names every enabled source that over thirty days led no other source, reached no reader and drew no scout vote. Done when each one named is removed or kept with a one-line reason here, and the date of the next reading is written in its place. |
+| After the reactions | Read Jev back against the readers, and decide what `confidence` is for. | Jev answers every judgement with a confidence we store and never read: a `worth` of 2.1 held at 0.3 is today indistinguishable from the same 2.1 held at 0.95. The fix is not obvious in either direction -- weighting the score by it and refusing a judgement under a floor cut different things -- and there is nothing to choose between them while the only opinion on a card is Jev's own. Since 2026-09-20 `scout_reactions` separates silence from 👍 and from 👎, and the bot seeds both under each card. Done when at least fifty cards carry a reader's answer, `worth` and `confidence` are correlated against those answers here with their date, and `confidence` is either given a use or written off. |
 | Owner decision | AWS: an account for Bedrock and its quotas. | The Vertex pair is the model: Vertex quotas named `grok-4.7` on 2026-09-17 while Model Garden's newest xAI entry was `grok-4.6`. Bedrock's counterparts are `ListFoundationModels` and `ListInferenceProfiles` in `us-east-1` and `us-west-2`, and Service Quotas for service code `bedrock`, whose per-model token limits may likewise run ahead of the listing. Reading them is free; the account needs a card. Done when an IAM user holding only those three read actions has its keys in production and both collect. |
 | Owner decision | Azure: a subscription for AI Foundry. | `Microsoft.CognitiveServices/locations/{region}/models` is the deployable catalogue per region and `usages` the per-model quota; today Azure is seen only second-hand, through the TrueFoundry mirror and the lifecycle page. A pay-as-you-go subscription costs nothing unused. Done when a service principal with Reader has its tenant, client id and secret in production and both collect. |
 | Owner decision | Kimi: a key for the coding tier. | The Moonshot key answers with `kimi-k2.6` and `kimi-k2.7-code` and nothing newer, checked against production 2026-09-14, which is why the K2.8 Preview rollout of 11 September 2026 was invisible here. The coding tier is a separate host with a separate credential: `api.kimi.com/coding/v1/models` answers 401 to a key it does not accept while every neighbouring path answers 404, so the source is registered and correct ahead of the key. Set `KIMI_API_KEY` and it collects; the Kimi Code changelog already ships as its own source. |
@@ -79,6 +80,18 @@ Kept because the reasoning cost real observation and is easy to re-litigate from
   have worked. It was not needed -- a model a reader can use appears in the vendor catalogue, so the
   post is commentary -- and Anthropic could not have been fixed that way at all: nine of its ten
   visible posts carry the subject "Announcements", including a board appointment.
+- **Jev's thresholds are shares, and its questions are not to be reworded lightly.** Version 2 of the
+  `worth` question added one sentence explaining the age field it shipped alongside, and moved the
+  whole scale rather than the stale end of it: over the same 251 events the mean fell 1.31 to 0.93,
+  and by 0.33 even on the 190 carrying no date at all. Commits clearing the fixed 1.6 fell 61 to 4
+  and stories clearing 2 fell 15 to 1, so the recaps would have lost nearly every line with nothing
+  about the commits having changed. Version 3 restored version 1's wording word for word and the
+  counts came back (61 vs 62, 15 vs 14), which also settles the age field: Jev ignores
+  `days_old_when_found` unless told to use it, and telling it skews everything else, so an age
+  correction belongs downstream, where `review.ts` already drops anything over three days. The
+  thresholds were never a quality bar -- they decide how many lines a morning gets -- and are now the
+  worth the top 22% of commits and 4.5% of stories sit above, within the current prompt version only:
+  live on 2026-09-20 that is 1.64 and 2.03, against the 1.6 and 2 they replace.
 - **The scouts grade what a machine cannot.** Source-derived confidence answers "can this be
   trusted" and cannot answer "is this worth a stranger's attention", which is the whole question an
   early sighting raises. Reactions are polled over REST rather than listened for on a gateway
@@ -147,7 +160,6 @@ Not scheduled. Written down so they stop being re-derived from scratch.
   announcement. Each needs a free key and would reach readers as a sighting only. NVIDIA first:
   it is the one that tends to be early. GitHub Models is not a candidate: its catalogue answered
   `410 github_models_retirement_brownout` on 2026-09-17.
-
 - **Regional lifecycle schedules.** A deprecation with different dates per region is stored as one
   record with one date, which understates the ones that matter most.
 - **A second Cohere reading with dates.** Its changelog arrives as an index with no publication

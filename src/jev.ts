@@ -27,6 +27,8 @@ const MODEL = "jev-latest";
 /** A day of judgements is a few hundred calls; this ceiling is a runaway guard, not a budget. */
 const JEV_DAILY_CALLS = 3_000;
 const PER_CYCLE = 40;
+/** Unanswered events in a row that mean the API is gone rather than one request having gone wrong. */
+const GIVE_UP_AFTER = 3;
 const MAX_STATE_CHARS = 4_000;
 /**
  * Raise this whenever QUESTIONS, KINDS or what evidenceOf hands over changes. Judgements are stored
@@ -272,9 +274,18 @@ export async function judgeEvents(
     .all(since, ...JUDGED_STREAMS, EVALUATOR, PROMPT_VERSION)
     .filter(judgeable);
   let judged = 0;
+  let refused = 0;
   for (const event of pending) {
     const answer = await askJev(db, config, evidenceOf(event), request, now);
-    if (!answer) break;
+    // An unanswered event used to end the pass outright, which is right when the API is down or the
+    // key is spent and wrong for one blip: a catch-up over 795 events stopped on its first, having
+    // judged none, and said only "Judged 0 events". Three in a row is still the API, one is weather.
+    if (!answer) {
+      refused += 1;
+      if (refused >= GIVE_UP_AFTER) break;
+      continue;
+    }
+    refused = 0;
     const judgement: Judgement = { ...answer, rules: signalClass(event), at: now.toISOString() };
     // The backfill asks the same window the cycle does, and both pick their pending set before
     // either writes: two passes half a second apart judged event 39041 at version 3 at once and the
