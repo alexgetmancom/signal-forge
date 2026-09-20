@@ -464,6 +464,29 @@ test("a vendor pattern claims its own models and nobody else's", () => {
   expect(vendor("", "Continuum-AI-Corp/OrcaBonsai-27B-Uncensored")).toBe("Unknown");
   // A cloud that resells a model does not become its maker.
   expect(vendorOf({ source: "aws-bedrock-lifecycle", entity_id: "claude-sonnet" } as never, null)).toBe("Anthropic");
+  // Nor does a catalogue that writes its own name into the maker field: Alibaba Model Studio lists
+  // Z.ai's GLM 5.3, and the recap of 2026-09-20 filed it under Qwen.
+  expect(
+    vendorOf(
+      { source: "dashscope", entity_id: "glm-5.3" } as never,
+      {
+        id: "glm-5.3",
+        name: "glm-5.3",
+        maker: "Alibaba Model Studio",
+      } as never,
+    ),
+  ).toBe("Z.ai");
+  // The same field still answers for a model whose own name says nothing.
+  expect(
+    vendorOf(
+      { source: "dashscope", entity_id: "qwen-max" } as never,
+      {
+        id: "qwen-max",
+        name: "qwen-max",
+        maker: "Alibaba Model Studio",
+      } as never,
+    ),
+  ).toBe("Qwen");
 });
 
 test("a name's version and product line are read the way the makers write them", () => {

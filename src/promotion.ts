@@ -147,8 +147,9 @@ export async function promoteVouchedMessages(
     if (!messages) continue;
     for (const message of messages) {
       const delivery = db
-        .query<{ id: number; body: string; updated_at: string }, [string, string]>(
-          "SELECT id,body,updated_at FROM deliveries WHERE external_id=? AND destination_id=? AND status='sent'",
+        .query<{ id: number; body: string; updated_at: string; kind: string }, [string, string]>(
+          `SELECT d.id,d.body,d.updated_at,b.kind FROM deliveries d JOIN batches b ON b.id=d.batch_id
+            WHERE d.external_id=? AND d.destination_id=? AND d.status='sent'`,
         )
         .get(message.id, channel.id);
       if (!delivery) continue;
@@ -173,6 +174,10 @@ export async function promoteVouchedMessages(
           }
 
       if (channel.id !== channels.radar.id) continue;
+      // A card travels; a recap does not. The morning recap in `radar` drew a vote on 2026-09-20 and
+      // the whole of it was reposted to `news`, where the same lines had already been sent an hour
+      // and a half earlier. Only the message about one thing is a message worth moving.
+      if (delivery.kind !== "event") continue;
       if (db.query("SELECT 1 FROM promoted_deliveries WHERE delivery_id=?").get(delivery.id)) continue;
 
       // A channel that is arguing has not vouched for anything: the dislikes have to be the minority.

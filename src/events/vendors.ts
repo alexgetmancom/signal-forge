@@ -75,7 +75,14 @@ export function vendorOfName(text: string): string {
 
 /** The vendor an event is about, for role pings and presentation labels. */
 export function vendorOf(event: Event, record: RecordData | null): string {
-  const haystack = [record?.maker, record?.provider, record?.owner, event.entity_id, event.source]
+  // What the model calls itself, before who is hosting it. `maker` is filled in by whatever
+  // catalogue was read, and a catalogue often writes its own name there: Alibaba Model Studio
+  // lists GLM 5.3, and reading `maker` first filed Z.ai's model under Qwen in the weekly recap.
+  // A name is the one field the maker controls, so it answers first and the host answers after.
+  const named = [record?.name, event.entity_id].filter((value) => typeof value === "string").join(" ");
+  const byName = named ? vendorOfName(named) : "Unknown";
+  if (byName !== "Unknown") return byName;
+  const haystack = [record?.maker, record?.provider, record?.owner, event.source]
     .filter((value) => typeof value === "string")
     .join(" ");
   return VENDORS.find(([pattern]) => pattern.test(haystack))?.[1] ?? "Unknown";

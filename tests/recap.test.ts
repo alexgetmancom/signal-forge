@@ -429,6 +429,7 @@ test("the day's news reads in sections, one maker takes two lines of each, and b
   expect(text).toContain("Navier–Stokes");
   expect(text).toContain("📰 **Also from the labs**");
   expect(text).toContain("Prompting fundamentals");
+
   // A customer story is kept and never sent, and other people's opinions are not the labs' news.
   expect(text).not.toContain("1Password");
   expect(text).not.toContain("I hate you");
@@ -467,4 +468,76 @@ test("the scouts' morning names big climbs into the top ten and boards that open
   // A one-place shuffle is churn.
   expect(lines).not.toContain("m5 ·");
   expect(renderRecapLines(context, ["launch"])).toEqual([]);
+});
+
+test("an outage is not one of the week's arrivals", () => {
+  const db = openDatabase(":memory:");
+  week(db);
+  const incidents: Collection = {
+    source: "status:openai",
+    stream: "incidents",
+    url: "https://status.openai.com",
+    raw: [],
+    records: [
+      {
+        id: "elevated-errors",
+        name: "OpenAI: Elevated errors affecting Work Mode in ChatGPT",
+        impact: "major",
+        status: "investigating",
+      },
+    ],
+  };
+  saveCollection(db, incidents, [wire], "2026-09-10T11:00:00.000Z");
+  const context = recapContext(db, "2026-09-13T18:00:00.000Z");
+  expect(context.arrivalCount).toBe(1);
+  expect(JSON.stringify(context.arrivals)).not.toContain("Elevated errors");
+});
+
+test("a model listed in a lifecycle table the week it ships is not retiring", () => {
+  const db = openDatabase(":memory:");
+  const lifecycle: Collection = {
+    source: "gemini-deprecations",
+    stream: "deprecations",
+    url: "https://ai.google.dev/deprecations",
+    raw: [],
+    records: [{ id: "gemini-1.5-pro", name: "gemini-1.5-pro", retirement: "September 24, 2025" }],
+  };
+  saveCollection(db, lifecycle, [wire], "2026-09-08T10:00:00.000Z");
+  // Published and tabled on the same day, with no date: a row, not news. A dated notice is news.
+  lifecycle.records.push(
+    { id: "gemini-3.8-live", name: "gemini-3.8-live" },
+    { id: "gemini-2.0-flash-live-001", name: "gemini-2.0-flash-live-001", retirement: "December 9, 2026" },
+    // A date already passed is not what is going away next.
+    { id: "gemini-1.0-pro", name: "gemini-1.0-pro", retirement: "February 15, 2025" },
+  );
+  saveCollection(db, lifecycle, [wire], "2026-09-10T10:00:00.000Z");
+  const context = recapContext(db, "2026-09-13T18:00:00.000Z");
+  expect(context.retirements.map((entry) => entry.name)).toEqual(["Gemini 2.0 Flash Live 001"]);
+});
+
+test("a front-page story is not something the labs announced", () => {
+  // On 2026-09-20 "Alibaba open-sources a medical AI model" was a Hacker News link printed under
+  // "Also from the labs", where it read as Alibaba's own post.
+  const context = recapContextSchema.parse({
+    period: "news",
+    from: "2026-09-19T06:00:00.000Z",
+    to: "2026-09-20T06:00:00.000Z",
+    arrivals: [],
+    arrivalCount: 0,
+    priceMoves: [],
+    codenameCount: 0,
+    headlines: [
+      { vendor: "OpenAI", title: "Prompting fundamentals", url: null, topic: "other", desk: true },
+      {
+        vendor: "Hacker News",
+        title: "Alibaba open-sources a medical AI model",
+        url: null,
+        topic: "other",
+        desk: false,
+      },
+    ],
+  });
+  const text = renderRecapLines(context, ["launch"]).join("\n");
+  expect(text.indexOf("📰 **Also from the labs**")).toBeLessThan(text.indexOf("📎 **Elsewhere**"));
+  expect(text.slice(text.indexOf("Also from the labs"), text.indexOf("Elsewhere"))).not.toContain("Alibaba");
 });

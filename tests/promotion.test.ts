@@ -125,3 +125,20 @@ test("a rejected read promotes nothing", async () => {
   const rejected = (async () => new Response("nope", { status: 403 })) as never;
   expect(await promoteVouchedMessages(db, config, rejected)).toBe(0);
 });
+
+test("a recap the readers liked is not carried into the other channel", async () => {
+  // The morning recap in `radar` drew votes on 2026-09-20 and was reposted whole to `news`, which
+  // had received the same lines an hour and a half earlier. A recap is not a card about one thing.
+  const db = openDatabase(":memory:");
+  db.query(
+    "INSERT INTO batches(id,source,digest,ready_at,sealed,kind) VALUES(1,'daily-recap',0,'2026-09-08T00:00:00.000Z',1,'weekly_recap')",
+  ).run();
+  db.query(
+    `INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,status,external_id,updated_at)
+     VALUES(1,1,'radar','{}','{"content":"","embeds":[{"title":"WHAT MOVED"}]}',0,'sent','555','2026-09-08T00:00:00.000Z')`,
+  ).run();
+  expect(await promoteVouchedMessages(db, config, answer([{ name: "👍", count: 5 }], []))).toBe(0);
+  expect(db.query("SELECT COUNT(*) c FROM promoted_deliveries").get()).toEqual({ c: 0 });
+  // The vote is still recorded: it says the readers wanted that, wherever it can travel.
+  expect(db.query("SELECT votes FROM scout_reactions WHERE delivery_id=1").get()).toEqual({ votes: 5 });
+});

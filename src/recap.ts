@@ -129,6 +129,9 @@ export const recapContextSchema = z.object({
   leaders: z.array(z.object({ board: z.string(), name: z.string() })).default([]),
   // Absent in the recaps stored before a week named what is going away.
   retirements: z.array(z.object({ name: z.string(), date: z.string().nullable() })).default([]),
+  // A maker's own sentence about something going away, when it said so in a changelog rather than
+  // in a lifecycle table. Absent in the recaps stored before the two were told apart.
+  retirementNotes: z.array(z.string()).default([]),
   // Absent in the recaps stored before a day's official news was listed.
   headlines: z
     .array(
@@ -140,6 +143,10 @@ export const recapContextSchema = z.object({
         topic: z.enum(["safety", "research", "other"]).default("other"),
         // Lines past the maker's share, counted rather than listed.
         more: z.number().default(0),
+        // Whether a lab said this itself. A front-page story is somebody else talking about a lab,
+        // and under "Also from the labs" it read as the lab's own post. Absent before the two were
+        // told apart; the recaps stored then were all desks.
+        desk: z.boolean().default(true),
         // What a safety or research post found, in a sentence. Absent before the day was read for it.
         summary: z.string().nullable().default(null),
       }),
@@ -196,6 +203,11 @@ function isRealArrival(event: Event, renamed: Set<number>): boolean {
   const record = recordOf(event);
   const name = String(record?.name ?? event.entity_id);
   if (renamed.has(event.id)) return false;
+  // Only a stream that lists models can say a model arrived. `launch` is a class about what a
+  // reader wants to hear now, and a severe outage, a changelog headline and a credit notice all
+  // earn it: "Elevated errors affecting ChatGPT Work mode" and "Codex banked reset credit
+  // announced" were both counted among the week's 53 models.
+  if (!CATALOGUE_STREAMS.has(event.stream)) return false;
   // Only a registry says what an artefact is; a catalogue row is a model by construction.
   if (event.stream === "weights" && isBesideTheRelease(record)) return false;
   // A reseller's catalogue gains rows faster than the field gains models, and most of them are
@@ -295,7 +307,7 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
     // a reader for. A reseller listing a model is a sighting rather than a launch and never
     // reaches the public channel on its own, but it is still the week's first word that the model
     // exists, and the weighting below already prefers the maker's own word over a reseller's.
-    const arrived = signal === "launch" || (signal === "codename" && CATALOGUE_STREAMS.has(event.stream));
+    const arrived = signal === "launch" || signal === "codename";
     if (!arrived || event.kind !== "new" || !isRealArrival(event, renamed)) continue;
     const record = recordOf(event);
     const name = nameOf(event);
@@ -420,17 +432,53 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
   // What the maker said is going away this week, with the date it goes when the notice gives one.
   // A retirement card came off the public wire after five of them; one line a week is the size
   // of it for a reader who does not run the model.
+  // A row appearing in a lifecycle table is not a retirement. Google publishes a model and lists
+  // it in the same table the day it ships: `gemini-3.8-live` arrived and was said to be retiring in
+  // one message on 2026-09-20. A notice with no date is a row, not news, so only a dated one counts
+  // -- and a name this same week reports as arrived never appears under "Retiring".
+  const arrivedThisPeriod = new Set([...bySubject.values()].map((arrival) => modelSubject(arrival.name)));
   const retirements = classified
-    .filter(({ event, signal }) => signal === "retirement" || (event.stream === "deprecations" && event.kind === "new"))
+    .filter(
+      ({ event, signal }) => (signal === "retirement" || event.stream === "deprecations") && event.stream !== "news",
+    )
     .map(({ event }) => {
       const record = recordOf(event);
       const date = [record?.shutdown, record?.retirement, record?.deprecated].find(
         (value): value is string => typeof value === "string" && value.trim().length > 0,
       );
-      return { name: readableName(nameOf(event)), date: date ?? null };
+      const name = nameOf(event);
+      return { name: readableName(name), subject: modelSubject(name), date: date ?? null };
     })
+    .filter((retirement) => retirement.date !== null && !arrivedThisPeriod.has(retirement.subject))
     .filter((retirement, index, all) => all.findIndex((other) => other.name === retirement.name) === index)
+    // Soonest first, and nothing whose date has already passed: a table re-read this week listed
+    // models retired in December 2025 above one going in October, and neither is next.
+    // "Not sooner than September 1, 2027" and "To be announced" are dates a maker hedged; the words
+    // in front of them are dropped so the day itself can be read, and a line nothing can be read
+    // from is kept rather than guessed at.
+    .map((retirement) => ({
+      ...retirement,
+      at: Date.parse(String(retirement.date).replace(/^(?:not sooner than|to be announced|on)\s+/i, "")),
+    }))
+    .filter((retirement) => !Number.isFinite(retirement.at) || retirement.at >= Date.parse(to))
+    .sort((one, other) => (one.at || Number.POSITIVE_INFINITY) - (other.at || Number.POSITIVE_INFINITY))
+    .map(({ name, date }) => ({ name, date }))
     .slice(0, 5);
+  // A changelog headline is a sentence, not a model, and comma-joining several into one "Retiring:"
+  // list read as a list of models: "Changes to automatic switching to thinking in ChatGPT" was
+  // never a retirement at all. Each announcement gets its own line, and only when its own words say
+  // something is going away.
+  const RETIRING_WORDS =
+    /\bretir\w*|\bdeprecat\w*|\bsunsets?\b|\bshut(?:ting|s)? down|\bdiscontinu\w*|\bremov(?:ed|al|ing)\b/i;
+  const retirementNotes =
+    period !== "week"
+      ? []
+      : classified
+          .filter(({ event, signal }) => signal === "retirement" && event.stream === "news" && event.kind === "new")
+          .map(({ event }) => readableName(nameOf(event)).replace(/^[^:]{1,40}:\s+/, ""))
+          .filter((note) => RETIRING_WORDS.test(note))
+          .filter((note, index, all) => all.indexOf(note) === index)
+          .slice(0, 3);
   // The day's news in three sections: what went wrong or could, what was found, and what else the
   // labs said. Hacker News is read for the first two only: other people's safety and research
   // stories are news, other people's opinions are not.
@@ -465,6 +513,7 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
           const vendor = vendorOf(event, record);
           return {
             vendor: vendor === "Unknown" && event.source === "hackernews" ? "Hacker News" : vendor,
+            desk: event.source !== "hackernews",
             title,
             url: typeof record?.url === "string" ? record.url : null,
             summary:
@@ -583,6 +632,7 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
     indexed,
     leaders,
     retirements: period === "week" ? retirements : [],
+    retirementNotes,
     from,
     to,
     arrivals: arrivals.slice(0, ARRIVAL_GROUPS),
@@ -641,7 +691,11 @@ function scheduleRecap(db: Database, config: AppConfig, period: RecapPeriod, now
           !context.resellerArrivals.length &&
           !context.codeNotes.length &&
           !context.indexed.length
-        : !context.arrivalCount && !context.priceMoves.length && !context.codenameCount && !context.retirements.length;
+        : !context.arrivalCount &&
+          !context.priceMoves.length &&
+          !context.codenameCount &&
+          !context.retirements.length &&
+          !context.retirementNotes.length;
   if (empty) return false;
   const batch = db
     .query<{ id: number }, [string, string, string]>(

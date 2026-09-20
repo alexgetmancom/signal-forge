@@ -105,12 +105,16 @@ export function renderRecapLines(context: RecapContext, signals: readonly string
   if (context.period === "news") {
     if (!signals.includes("launch") || !context.headlines.length) return [];
     const lines = [`**${day(context.from)} → ${day(context.to)}**`];
-    for (const [topic, heading] of [
-      ["safety", "🛡 **Safety**"],
-      ["research", "🔬 **Research**"],
-      ["other", "📰 **Also from the labs**"],
+    // "Also from the labs" is the labs' own posts. A front-page story somebody else wrote is read
+    // for the same day and belongs under its own heading: "Alibaba open-sources a medical model"
+    // was a Hacker News link filed as something Alibaba had announced.
+    for (const [topic, heading, desk] of [
+      ["safety", "🛡 **Safety**", null],
+      ["research", "🔬 **Research**", null],
+      ["other", "📰 **Also from the labs**", true],
+      ["other", "📎 **Elsewhere**", false],
     ] as const) {
-      const section = context.headlines.filter((line) => line.topic === topic);
+      const section = context.headlines.filter((line) => line.topic === topic && (desk === null || line.desk === desk));
       if (!section.length) continue;
       lines.push("", heading);
       for (const line of section)
@@ -168,6 +172,8 @@ export function renderRecapLines(context: RecapContext, signals: readonly string
         .map((retirement) => (retirement.date ? `${retirement.name} (${retirement.date})` : retirement.name))
         .join(", ")}`,
     );
+  // A maker's own sentence stands on its own line; inside the list above it read as a model's name.
+  for (const note of context.retirementNotes) lines.push(`⚠️ ${note}`);
   if (context.codenameCount)
     lines.push(
       `🕵 **${context.codenameCount} early ${context.codenameCount === 1 ? "sighting" : "sightings"}** in scouts, before any announcement`,
