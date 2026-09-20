@@ -15,7 +15,7 @@
  */
 import { resolve } from "node:path";
 import { loadConfig } from "../src/config.js";
-import { jevCallsToday, judgeEvents } from "../src/jev.js";
+import { jevCallsToday, judgeEvents, PROMPT_VERSION } from "../src/jev.js";
 import { openDatabase, readonlyDatabase } from "../src/storage/database.js";
 
 const args = new Map<string, string>();
@@ -36,10 +36,15 @@ const dryRun = flags.has("--dry-run");
 const db = dryRun ? readonlyDatabase(resolve(dbPath)) : openDatabase(resolve(dbPath));
 const sinceMs = days * 24 * 3_600_000;
 
+// Counted at the current prompt version, because that is the only version this run would ask about
+// and the whole reason the script exists. Counting any judgement at all read 1082 of 1083 already
+// answered on 2026-09-20 while 795 were pending at version 3: the one number you check before
+// deciding whether to run this said there was nothing to do.
 const counts = db
-  .query<{ judgeable: number; judged: number }, [string]>(
+  .query<{ judgeable: number; judged: number }, [string, string]>(
     `SELECT COUNT(*) judgeable,
-            SUM(CASE WHEN EXISTS (SELECT 1 FROM event_evaluations v WHERE v.event_id=e.id AND v.evaluator='jev')
+            SUM(CASE WHEN EXISTS (SELECT 1 FROM event_evaluations v
+                                   WHERE v.event_id=e.id AND v.evaluator='jev' AND v.prompt_version=?)
                      THEN 1 ELSE 0 END) judged
        FROM events e
       WHERE e.detected_at >= ?
@@ -47,8 +52,12 @@ const counts = db
         AND (e.kind='new' OR (e.stream='web' AND e.kind='changed'))
         AND NOT (e.stream='web' AND e.kind='new')`,
   )
-  .get(new Date(Date.now() - sinceMs).toISOString());
-console.log(`${counts?.judgeable ?? 0} judgeable events in ${days} days, ${counts?.judged ?? 0} with a judgement`);
+  .get(PROMPT_VERSION, new Date(Date.now() - sinceMs).toISOString());
+const judgeable = counts?.judgeable ?? 0;
+const answered = counts?.judged ?? 0;
+console.log(
+  `${judgeable} judgeable events in ${days} days, ${answered} answered at prompt version ${PROMPT_VERSION}, ${judgeable - answered} pending`,
+);
 
 if (dryRun) {
   console.log("Dry run: nothing was asked.");

@@ -187,7 +187,14 @@ async function askJev(
       confidence: answers.kind.confidence ?? null,
     };
   } catch (error) {
-    log("warn", "Judgement failed", { errorType: error instanceof Error ? error.name : "UnknownError" });
+    // The name alone is almost always the bare "Error", which does not distinguish a socket that hung
+    // up from an event whose evidence the request cannot carry. Telling those apart on 2026-09-20 took
+    // two probe scripts run inside the production container, to learn what this line could have said.
+    log("warn", "Judgement failed", {
+      errorType: error instanceof Error ? error.name : "UnknownError",
+      reason: error instanceof Error ? error.message : String(error),
+      event: state.id,
+    });
     return null;
   }
 }
