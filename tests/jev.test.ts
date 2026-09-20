@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { loadConfig } from "../src/config.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import { isNewsworthyStory, isNotableCommit, notableCommits, prepareInsights } from "../src/insights.js";
-import { jevCallsToday, judgeEvents, judgementOf } from "../src/jev.js";
+import { jevCallsToday, judgeEvents, judgementOf, PROMPT_VERSION, worthCutoff } from "../src/jev.js";
 import { openDatabase } from "../src/storage/database.js";
 
 const fixture = new URL("./fixtures/config.json", import.meta.url).pathname;
@@ -32,6 +32,41 @@ test("notability needs a model or feature Jev scores clearly, or a likely codena
   expect(isNotableCommit(null)).toBe(false);
   expect(isNewsworthyStory({ ...j, kind: "business", worth: 3 })).toBe(false);
   expect(isNewsworthyStory({ ...j, kind: "safety", worth: 2.2 })).toBe(true);
+});
+
+test("the cutoff admits the share it was asked for, whatever the scale is", () => {
+  // The whole point: version 2 moved every score down by a third of a point and the fixed 1.6 went
+  // from admitting 61 commits to admitting 4, though their order had not changed at all.
+  const db = openDatabase(":memory:");
+  // Three hundred judgements need three hundred events to point at, and none of this reads one.
+  db.exec("PRAGMA foreign_keys=OFF");
+  const insert = db.query(
+    `INSERT INTO event_evaluations(event_id,evaluator,model,prompt_version,kind,worth,codename,confidence,rules,evaluated_at)
+     VALUES(?,'jev','jev-latest',?,'feature',?,0,null,'evidence','2026-09-19T00:00:00.000Z')`,
+  );
+  const now = new Date("2026-09-20T00:00:00Z");
+  // Too thin to have a distribution: the caller's own number stands.
+  for (let i = 0; i < 199; i += 1) insert.run(i, PROMPT_VERSION, (i % 300) / 100);
+  expect(worthCutoff(db, 0.22, 1.6, now)).toBe(1.6);
+
+  // Three hundred scores spread evenly over 0 to 3, then the same spread squeezed into 0 to 1.5.
+  db.query("DELETE FROM event_evaluations").run();
+  for (let i = 0; i < 300; i += 1) insert.run(i, PROMPT_VERSION, i / 100);
+  const wide = worthCutoff(db, 0.22, 1.6, now);
+  db.query("DELETE FROM event_evaluations").run();
+  for (let i = 0; i < 300; i += 1) insert.run(i, PROMPT_VERSION, i / 200);
+  const narrow = worthCutoff(db, 0.22, 1.6, now);
+  expect(wide).toBeCloseTo(2.34, 2);
+  expect(narrow).toBeCloseTo(1.17, 2);
+  // Different numbers, same share of the material: 66 of 300 sit above each.
+  const above = (cutoff: number, scale: number) => [...Array(300).keys()].filter((i) => i / scale >= cutoff).length;
+  expect(above(wide, 100)).toBe(above(narrow, 200));
+
+  // A judgement at another prompt version is on another scale and is not counted.
+  db.query("DELETE FROM event_evaluations").run();
+  for (let i = 0; i < 300; i += 1) insert.run(i, "0", i / 100);
+  expect(worthCutoff(db, 0.22, 1.6, now)).toBe(1.6);
+  db.close();
 });
 
 test("a post carries how old it already was when we found it", async () => {

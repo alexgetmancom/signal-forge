@@ -3,7 +3,7 @@ import type { AppConfig } from "./config.js";
 import { signalClass } from "./events/signals.js";
 import type { Event } from "./events/types.js";
 import type { Fetch } from "./http-client.js";
-import { type Judgement, judgeEvents, judgementOf } from "./jev.js";
+import { type Judgement, judgeEvents, judgementOf, worthCutoff } from "./jev.js";
 import { prepareWeeklyLead, publishMonthlyAudit } from "./review.js";
 import { summarizeForRecap } from "./summary.js";
 
@@ -21,21 +21,39 @@ const COMMIT_WINDOW_MS = 26 * 3_600_000;
  * about, or one that names something unreleased. "Add a feature flag for asynchronous user
  * messages" scores 1.4 and is a feature; a refactor of the prompt crate scores below 1.
  */
-export function isNotableCommit(judgement: Judgement | null): boolean {
+export function isNotableCommit(judgement: Judgement | null, cutoff = COMMIT_WORTH): boolean {
   if (!judgement) return false;
   if (judgement.codename >= 0.6) return true;
-  return ["new_model", "feature", "model_update"].includes(judgement.kind) && judgement.worth >= 1.6;
+  return ["new_model", "feature", "model_update"].includes(judgement.kind) && judgement.worth >= cutoff;
 }
 
 /**
  * A front-page story worth a line though no pattern placed it: about a model, a product or a risk,
  * and something an expert would clearly want. Opinion pieces and conference talks score low.
  */
-export function isNewsworthyStory(judgement: Judgement | null): boolean {
+export function isNewsworthyStory(judgement: Judgement | null, cutoff = STORY_WORTH): boolean {
   if (!judgement) return false;
   return (
-    ["new_model", "model_update", "feature", "safety", "research"].includes(judgement.kind) && judgement.worth >= 2
+    ["new_model", "model_update", "feature", "safety", "research"].includes(judgement.kind) && judgement.worth >= cutoff
   );
+}
+
+/**
+ * The shares those numbers admitted when they were chosen, and the numbers themselves for a database
+ * too young to have a distribution. Over the 1046 judgements they were calibrated against, 1.6 let
+ * through the top 22% of commits and 2 the top 4.5% of stories.
+ */
+const COMMIT_WORTH = 1.6;
+const STORY_WORTH = 2;
+const COMMIT_SHARE = 0.22;
+const STORY_SHARE = 0.045;
+
+/** Today's cutoffs, read once per pass rather than per candidate. */
+export function worthCutoffs(db: Database, now = new Date()): { commit: number; story: number } {
+  return {
+    commit: worthCutoff(db, COMMIT_SHARE, COMMIT_WORTH, now),
+    story: worthCutoff(db, STORY_SHARE, STORY_WORTH, now),
+  };
 }
 
 const COMMIT_GUIDANCE =
@@ -45,13 +63,14 @@ const FINDING_GUIDANCE =
 
 /** The commits of the last day worth a line, best first. */
 export function notableCommits(db: Database, from: string, to: string): { event: Event; judgement: Judgement }[] {
+  const cutoff = worthCutoffs(db, new Date(to)).commit;
   return db
     .query<Event, [string, string]>(
       "SELECT * FROM events WHERE source LIKE 'github:%:commits' AND kind='new' AND detected_at>=? AND detected_at<? ORDER BY id",
     )
     .all(from, to)
     .map((event) => ({ event, judgement: judgementOf(db, event.id) }))
-    .filter((entry): entry is { event: Event; judgement: Judgement } => isNotableCommit(entry.judgement))
+    .filter((entry): entry is { event: Event; judgement: Judgement } => isNotableCommit(entry.judgement, cutoff))
     .sort((one, other) => other.judgement.worth - one.judgement.worth)
     .slice(0, COMMIT_LINES);
 }

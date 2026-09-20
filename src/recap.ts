@@ -18,7 +18,7 @@ import {
 } from "./events/variants.js";
 import { vendorOf, vendorOfName } from "./events/vendors.js";
 import { subjectKey, usageRanks, witnessedSubjects } from "./events/witness.js";
-import { isNewsworthyStory, notableCommits } from "./insights.js";
+import { isNewsworthyStory, notableCommits, worthCutoffs } from "./insights.js";
 import { judgementOf } from "./jev.js";
 import { sourceLabel } from "./sources/labels.js";
 import { readState } from "./storage/appState.js";
@@ -438,10 +438,12 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
   if (period === "news") {
     // A front-page story no pattern placed is still read when Jev judged it about a model, a product
     // or a risk: "Alibaba open-sources a model that detects 150 conditions" was nobody's on 2026-09-19.
+    // Read once: the cutoff is a property of the period, not of each story in it.
+    const storyCutoff = worthCutoffs(db, new Date(to)).story;
     const told = (event: Event, signal: string) =>
       signal === "article"
         ? NEWS_DESKS.has(event.source) ||
-          (event.source === "hackernews" && isNewsworthyStory(judgementOf(db, event.id)))
+          (event.source === "hackernews" && isNewsworthyStory(judgementOf(db, event.id), storyCutoff))
         : NEWS_DESKS.has(event.source) || event.source === "hackernews";
     // A lab's own feed first, its site second, the front page last: the same post is often on all three.
     const order = (source: string) => (source === "hackernews" ? 2 : source.startsWith("pages:") ? 1 : 0);

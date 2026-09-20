@@ -33,7 +33,7 @@ const MAX_STATE_CHARS = 4_000;
  * per prompt version, so the new questions are asked again of the recent window and the two sets
  * can be compared instead of being mixed in one column.
  */
-const PROMPT_VERSION = "3";
+export const PROMPT_VERSION = "3";
 const EVALUATOR = "jev";
 const CALLS_PREFIX = "jev-calls:";
 const TOKENS_PREFIX = "jev-tokens:";
@@ -119,6 +119,35 @@ export function judgementOf(db: Database, eventId: number): Judgement | null {
     )
     .get(eventId, EVALUATOR);
   return row ?? null;
+}
+
+/**
+ * The worth above which the given share of recent judgements sits.
+ *
+ * The thresholds downstream were absolute numbers -- 1.6 for a commit, 2 for a story -- and they
+ * were read as a bar the material has to clear. They are not: they decide how many lines a morning
+ * gets. Version 2 of the worth question moved the whole scale down by a third of a point without
+ * changing the order of anything, and on the same 251 events the commits clearing 1.6 fell from 61
+ * to 4. Nothing about the commits had changed. A rank cannot fail that way, because the share it
+ * admits is the share it was asked for.
+ *
+ * Only the current prompt version is counted, since a scale is a property of the question asked.
+ * Below MIN_SAMPLE there is no distribution worth taking a quantile of and the caller's own number
+ * stands.
+ */
+const CUTOFF_WINDOW_MS = 30 * 24 * 3_600_000;
+const MIN_SAMPLE = 200;
+
+export function worthCutoff(db: Database, share: number, fallback: number, now = new Date()): number {
+  const worths = db
+    .query<{ worth: number }, [string, string, string]>(
+      `SELECT worth FROM event_evaluations
+        WHERE evaluator=? AND prompt_version=? AND evaluated_at>=? ORDER BY worth`,
+    )
+    .all(EVALUATOR, PROMPT_VERSION, new Date(now.getTime() - CUTOFF_WINDOW_MS).toISOString())
+    .map((row) => row.worth);
+  if (worths.length < MIN_SAMPLE) return fallback;
+  return worths[Math.min(worths.length - 1, Math.floor((1 - share) * worths.length))] ?? fallback;
 }
 
 /** One call. Null on any failure: a judgement is an addition, and its absence changes nothing. */
