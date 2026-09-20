@@ -351,10 +351,7 @@ function preparePromotion(db: Database, batch: PendingBatch, targets: BatchTarge
       const destination = JSON.parse(target.destination_json) as Destination;
       if (destination.platform !== "discord") continue;
       const payload = JSON.parse(original.body) as Record<string, unknown>;
-      const vouched =
-        context.reason === "owner"
-          ? "🔎 Vouched for by the tracker's owner, first seen by the scouts"
-          : `🔎 ${context.votes} scouts vouched for this, first seen in the invited room`;
+      const vouched = `🔎 ${context.votes} readers vouched for this, first seen on the radar`;
       // A promotion never pings: the room already decided, and a role mention would make the
       // public channel louder than the observation deserves.
       const body = JSON.stringify({ ...payload, content: vouched, allowed_mentions: { parse: [] } });

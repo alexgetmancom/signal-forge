@@ -5,22 +5,27 @@ import type { Fetch } from "./http-client.js";
 import { log } from "./logger.js";
 
 /**
- * The scouts deciding what a stranger should see.
+ * The readers of `radar` deciding what a stranger should see.
  *
- * Everything in the invited room is early, and whether an unnamed arena entry deserves a public
- * reader's attention is a judgement no rule here can make. The people invited to that room can, and
- * a reaction is how they say so: enough of them, or one from the owner, and the message travels.
+ * Everything in `radar` is early, and whether an unnamed arena entry deserves a public reader's
+ * attention is a judgement no rule here can make. The readers of that channel can, and a reaction is
+ * how they say so: enough of them and the message travels to `news`.
+ *
+ * The owner's own like used to settle it alone. That power was worth having when `radar` was hidden
+ * and `news` was the only thing a stranger could see, so a promotion was the one way to publish. Both
+ * channels are now visible, nothing is waiting behind a door, and a card the owner alone liked was
+ * being copied from one open channel to another for no one's benefit. Only the readers move anything.
  *
  * What travels is the message, not the event. The card was rendered when the observation was made,
  * with the evidence and the standing sentence that were true then; re-deriving it a day later
  * against records that have since moved would publish something nobody approved.
  *
- * Reactions are read, never listened for. One request lists the recent messages of the room with
- * their counts, and only a message that has already reached the bar costs a second request to ask
- * who reacted -- so the owner's veto power needs no socket held open and no port of our own.
+ * Reactions are read, never listened for: one request lists the recent messages of a channel with
+ * their counts, and the counts are the whole answer -- so this needs no socket held open and no port
+ * of our own.
  *
- * The bot puts both reactions under each card it sends, and both channels are read, not only the
- * room. A reader answers by pressing what is already there, and the three answers stay apart: a like
+ * The bot puts both reactions under each card it sends, and both channels are read, not only
+ * `radar`. A reader answers by pressing what is already there, and the three answers stay apart: a like
  * is worth sending, a dislike is not, and an untouched card is one nobody read. Counted as approval,
  * silence and refusal were the same number, which is why the column could never be compared with
  * Jev's judgement of the same event.
@@ -40,11 +45,10 @@ const messagesSchema = z.array(
       .default([]),
   }),
 );
-const reactorsSchema = z.array(z.object({ id: z.string() }));
-
 export const promotionContextSchema = z.object({
   deliveryId: z.number(),
-  reason: z.enum(["owner", "readers"]),
+  /** Kept as a field, not dropped, because rows written before the owner's own vote was retired carry it. */
+  reason: z.literal("readers"),
   votes: z.number(),
 });
 type PromotionContext = z.infer<typeof promotionContextSchema>;
@@ -53,16 +57,21 @@ const API = "https://discord.com/api/v10";
 
 type DiscordDestination = Extract<Destination, { platform: "discord" }>;
 
-function roomAndWire(config: AppConfig): { room: DiscordDestination; wire: Destination[] } | null {
+/**
+ * The two channels, found by what they carry rather than by name: `radar` is the one subscribed to
+ * `codename`, `news` the ones subscribed to `launch`. Renaming a channel in Discord therefore
+ * changes nothing here, which is how `signals` and `scouts` became `news` and `radar` on 2026-09-20.
+ */
+function radarAndNews(config: AppConfig): { radar: DiscordDestination; news: Destination[] } | null {
   const destinations = config.destinations as Destination[];
-  const room = destinations.find(
+  const radar = destinations.find(
     (destination): destination is DiscordDestination =>
       destination.platform === "discord" && destination.signals.includes("codename"),
   );
-  const wire = destinations.filter(
+  const news = destinations.filter(
     (destination) => destination.platform === "discord" && destination.signals.includes("launch"),
   );
-  return room && wire.length && !wire.includes(room) ? { room, wire } : null;
+  return radar && news.length && !news.includes(radar) ? { radar, news } : null;
 }
 
 async function read<T>(url: string, config: AppConfig, request: Fetch, schema: z.ZodType<T>): Promise<T | null> {
@@ -111,7 +120,7 @@ const SEED_WINDOW_MS = 12 * 3_600_000;
 const MAX_SEEDS = 20;
 
 /**
- * Promote every message in the room that the scouts have vouched for since the last pass.
+ * Promote every message in `radar` that its readers have vouched for since the last pass.
  *
  * Returns how many travelled, which is what the worker logs and the tests assert.
  */
@@ -122,13 +131,13 @@ export async function promoteVouchedMessages(
   now = Date.now(),
 ): Promise<number> {
   const rule = config.promotion;
-  const channels = roomAndWire(config);
+  const channels = radarAndNews(config);
   if (!rule || !channels || !config.DISCORD_BOT_TOKEN) return 0;
   let promoted = 0;
   let seeds = 0;
-  // Both channels, because a vote on the wire is the same measurement as a vote in the room; only
-  // the room's votes move anything, since the wire is already where a promotion would send it.
-  for (const channel of [channels.room, ...channels.wire] as DiscordDestination[]) {
+  // Both channels, because a vote in `news` is the same measurement as a vote in `radar`; only
+  // `radar`'s votes move anything, since `news` is already where a promotion would send it.
+  for (const channel of [channels.radar, ...channels.news] as DiscordDestination[]) {
     const messages = await read(
       `${API}/channels/${channel.channelId}/messages?limit=50`,
       config,
@@ -149,8 +158,8 @@ export async function promoteVouchedMessages(
         return entry ? entry.count - (entry.me ? 1 : 0) : 0;
       };
       const readerVotes = votesFor(rule.likeEmoji);
-      // Every card's count is kept, not only the ones that travel: which source the room vouches for is
-      // the measurement, and promotion is one use of it.
+      // Every card's count is kept, not only the ones that travel: which source the readers vouch for
+      // is the measurement, and promotion is one use of it.
       db.query(
         `INSERT INTO scout_reactions(delivery_id,votes,against,read_at) VALUES(?,?,?,?)
          ON CONFLICT(delivery_id) DO UPDATE SET votes=excluded.votes,against=excluded.against,read_at=excluded.read_at`,
@@ -163,28 +172,13 @@ export async function promoteVouchedMessages(
             seeds += 1;
           }
 
-      if (channel.id !== channels.room.id) continue;
+      if (channel.id !== channels.radar.id) continue;
       if (db.query("SELECT 1 FROM promoted_deliveries WHERE delivery_id=?").get(delivery.id)) continue;
 
-      let reason: PromotionContext["reason"] | null = null;
-      let votes = readerVotes;
-      if (readerVotes > 0) {
-        const reactors = await read(
-          `${API}/channels/${channel.channelId}/messages/${message.id}/reactions/${encodeURIComponent(rule.likeEmoji)}`,
-          config,
-          request,
-          reactorsSchema,
-        );
-        if (reactors?.some((reactor) => reactor.id === rule.ownerUserId)) {
-          reason = "owner";
-          votes = 1;
-        }
-      }
-      // A room that is arguing has not vouched for anything: the dislikes have to be the minority.
-      if (!reason && readerVotes >= rule.readerVotes && votesFor(rule.dislikeEmoji) < readerVotes) reason = "readers";
-      if (!reason) continue;
+      // A channel that is arguing has not vouched for anything: the dislikes have to be the minority.
+      if (readerVotes < rule.readerVotes || votesFor(rule.dislikeEmoji) >= readerVotes) continue;
 
-      const context: PromotionContext = { deliveryId: delivery.id, reason, votes };
+      const context: PromotionContext = { deliveryId: delivery.id, reason: "readers", votes: readerVotes };
       promotionContextSchema.parse(context);
       db.transaction(() => {
         const batch = db
@@ -193,7 +187,7 @@ export async function promoteVouchedMessages(
           )
           .get(new Date(now).toISOString(), JSON.stringify(context));
         if (!batch) throw new Error("Promotion batch insert failed");
-        for (const destination of channels.wire)
+        for (const destination of channels.news)
           db.query("INSERT INTO batch_targets(batch_id,destination_id,destination_json) VALUES(?,?,?)").run(
             batch.id,
             destination.id,
@@ -201,7 +195,7 @@ export async function promoteVouchedMessages(
           );
         db.query(
           "INSERT INTO promoted_deliveries(delivery_id,batch_id,reason,votes,promoted_at) VALUES(?,?,?,?,?)",
-        ).run(delivery.id, batch.id, reason, votes, new Date(now).toISOString());
+        ).run(delivery.id, batch.id, context.reason, context.votes, new Date(now).toISOString());
       })();
       promoted += 1;
     }

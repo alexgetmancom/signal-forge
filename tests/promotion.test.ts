@@ -7,10 +7,10 @@ import { openDatabase } from "../src/storage/database.js";
 const config = {
   DISCORD_BOT_TOKEN: "fake",
   destinations: [
-    { id: "scouts", platform: "discord", channelId: "10", signals: ["codename", "evidence"] },
-    { id: "wire", platform: "discord", channelId: "20", signals: ["launch", "change"] },
+    { id: "radar", platform: "discord", channelId: "10", signals: ["codename", "evidence"] },
+    { id: "news", platform: "discord", channelId: "20", signals: ["launch", "change"] },
   ],
-  promotion: { ownerUserId: "999", likeEmoji: "👍", dislikeEmoji: "👎", readerVotes: 3 },
+  promotion: { likeEmoji: "👍", dislikeEmoji: "👎", readerVotes: 3 },
 } as unknown as AppConfig;
 
 function sighting(db: ReturnType<typeof openDatabase>) {
@@ -19,7 +19,7 @@ function sighting(db: ReturnType<typeof openDatabase>) {
   ).run();
   db.query(
     `INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,status,external_id,updated_at)
-     VALUES(1,1,'scouts','{}','{"content":"","embeds":[{"title":"spicy-mayo"}]}',0,'sent','555','2026-09-08T00:00:00.000Z')`,
+     VALUES(1,1,'radar','{}','{"content":"","embeds":[{"title":"spicy-mayo"}]}',0,'sent','555','2026-09-08T00:00:00.000Z')`,
   ).run();
 }
 
@@ -49,10 +49,10 @@ test("enough readers carry a sighting into the public channel, once", async () =
   prepareDeliveries(db, Date.parse("2026-09-08T01:00:00.000Z"));
   const body = db
     .query<{ body: string }, [string]>("SELECT body FROM deliveries WHERE destination_id=?")
-    .get("wire")?.body;
+    .get("news")?.body;
   const payload = JSON.parse(String(body));
   expect(payload.embeds[0].title).toBe("spicy-mayo");
-  expect(payload.content).toContain("3 scouts vouched");
+  expect(payload.content).toContain("3 readers vouched");
   expect(payload.allowed_mentions).toEqual({ parse: [] });
 });
 
@@ -62,13 +62,21 @@ test("two readers are not enough on their own", async () => {
   expect(await promoteVouchedMessages(db, config, answer([{ name: "👍", count: 2 }], []))).toBe(0);
 });
 
-test("the owner alone settles it, and only the owner's own reaction counts", async () => {
+test("the owner's own like no longer carries anything by itself", async () => {
+  // It did while `radar` was hidden and promotion was the only way to publish. Both channels are
+  // open now, so an owner-only like was copying a card from one visible channel to another.
   const db = openDatabase(":memory:");
   sighting(db);
-  // Somebody else pressing the like is not the owner.
-  expect(await promoteVouchedMessages(db, config, answer([{ name: "👍", count: 1 }], ["123"]))).toBe(0);
-  expect(await promoteVouchedMessages(db, config, answer([{ name: "👍", count: 1 }], ["999"]))).toBe(1);
-  expect(db.query("SELECT reason FROM promoted_deliveries").get()).toEqual({ reason: "owner" });
+  expect(await promoteVouchedMessages(db, config, answer([{ name: "\u{1F44D}", count: 1 }], ["999"]))).toBe(0);
+  expect(db.query("SELECT COUNT(*) c FROM promoted_deliveries").get()).toEqual({ c: 0 });
+  // Nobody is asked who reacted any more: the counts are the whole answer.
+  const asked: string[] = [];
+  const watch = (async (url: string) => {
+    asked.push(String(url));
+    return Response.json([{ id: "555", reactions: [{ count: 1, me: false, emoji: { name: "\u{1F44D}" } }] }]);
+  }) as never;
+  await promoteVouchedMessages(db, config, watch);
+  expect(asked.some((url) => url.includes("/reactions/"))).toBe(false);
 });
 
 test("the bot puts both reactions under a fresh card, and its own press is not a vote", async () => {
@@ -101,7 +109,7 @@ test("the bot puts both reactions under a fresh card, and its own press is not a
   });
 });
 
-test("a room that dislikes a card more than it likes it carries nothing", async () => {
+test("a channel that dislikes a card more than it likes it carries nothing", async () => {
   const db = openDatabase(":memory:");
   sighting(db);
   const reactions = [

@@ -26,8 +26,8 @@ that has since moved is not a priority.
 
 | Priority | Task | Definition of done |
 |---|---|---|
-| Next | Read the wire back in a week. | `channel-mix 7`, taken no earlier than 2026-09-24, says what the two channels carried after the widening of 2026-09-17 (`🚀signals`: `launch`, `change`, `release`, `retirement`; `🕵scouts`: `codename`). Done when the real numbers per class are written here with their date, and every class or source that produced cards the owner calls noise is taken off the wire with its count. |
-| Next | Judge the sources a month in. | `source-verdicts 30`, first taken no earlier than 2026-10-17 so the trending list, the media arenas and Hacker News have a whole period behind them. It names every enabled source that over thirty days led no other source, reached no reader and drew no scout vote. Done when each one named is removed or kept with a one-line reason here, and the date of the next reading is written in its place. |
+| Next | Read `news` back in a week. | `channel-mix 7`, taken no earlier than 2026-09-24, says what the two channels carried after the widening of 2026-09-17 (`news`: `launch`, `change`, `release`, `retirement`, `feature`, `debut`, `safety`, `research`; `radar`: `codename`). Done when the real numbers per class are written here with their date, and every class or source that produced cards the owner calls noise is taken off `news` with its count. |
+| Next | Judge the sources a month in. | `source-verdicts 30`, first taken no earlier than 2026-10-17 so the trending list, the media arenas and Hacker News have a whole period behind them. It names every enabled source that over thirty days led no other source, reached no reader and drew no reader vote. Done when each one named is removed or kept with a one-line reason here, and the date of the next reading is written in its place. |
 | After the reactions | Read Jev back against the readers, and decide what `confidence` is for. | Jev answers every judgement with a confidence we store and never read: a `worth` of 2.1 held at 0.3 is today indistinguishable from the same 2.1 held at 0.95. The fix is not obvious in either direction -- weighting the score by it and refusing a judgement under a floor cut different things -- and there is nothing to choose between them while the only opinion on a card is Jev's own. Since 2026-09-20 `scout_reactions` separates silence from 👍 and from 👎, and the bot seeds both under each card. Done when at least fifty cards carry a reader's answer, `worth` and `confidence` are correlated against those answers here with their date, and `confidence` is either given a use or written off. |
 | Owner decision | AWS: an account for Bedrock and its quotas. | The Vertex pair is the model: Vertex quotas named `grok-4.7` on 2026-09-17 while Model Garden's newest xAI entry was `grok-4.6`. Bedrock's counterparts are `ListFoundationModels` and `ListInferenceProfiles` in `us-east-1` and `us-west-2`, and Service Quotas for service code `bedrock`, whose per-model token limits may likewise run ahead of the listing. Reading them is free; the account needs a card. Done when an IAM user holding only those three read actions has its keys in production and both collect. |
 | Owner decision | Azure: a subscription for AI Foundry. | `Microsoft.CognitiveServices/locations/{region}/models` is the deployable catalogue per region and `usages` the per-model quota; today Azure is seen only second-hand, through the TrueFoundry mirror and the lifecycle page. A pay-as-you-go subscription costs nothing unused. Done when a service principal with Reader has its tenant, client id and secret in production and both collect. |
@@ -37,26 +37,28 @@ that has since moved is not a priority.
 
 Kept because the reasoning cost real observation and is easy to re-litigate from intuition.
 
-- **One public channel, one invited one.** `🚀signals` is public (`launch`, `change`, `release`,
-  `retirement`, cards at `detail: brief`), `🕵scouts` is invited (`codename`, `detail: evidence`),
-  `📡status` is behind an opt-in role. On 2026-09-16 the wire was cut to `launch` and the scouts to
-  `codename` after the owner read 2026-09-14..16 card by card: three weight drops nobody can call,
-  one outage told three times, a reseller listing worded as a vendor announcement, 193 arena
-  withdrawals and patch notes nobody subscribed to. `channel-mix 7` on 2026-09-17 then showed the
-  wire carried 7 `launch` events in a week, two of them models, and the owner widened it the same
-  day: a newsroom post announcing a maker's model is `launch`; the changelogs of the tools readers
-  work in are `release` (apps, SDK builds and hardware feeds are evidence); retirements go on the
-  wire and as one line of the weekly recap; the day's price moves go to the wire and its board
-  leaders stay with the scouts. The scouts additionally get interface diffs whose new strings name a
-  versioned model or a preview. Widened on the owner's word ahead of a replay, so the week after is
-  the measurement: whatever `channel-mix 7` shows is noise comes back off. The classes stay
-  independent of the channels, because routing is a line in `signal-forge.json` and reversing a
-  channel decision must never need a deployment.
+- **Two open channels, `news` and `radar`.** `news` carries what happened (eight classes, at
+  `detail: brief`), `radar` what was spotted before anyone announced it (`codename`). Named `signals`
+  and `scouts` until 2026-09-20, when `signals` was found to collide with `signalClass`, which
+  describes both; `leaks` was rejected for `radar` because nothing there is leaked -- a Vercel Gateway
+  listing, an OpenRouter entry and an anonymous arena contender are public, read early. Neither is
+  hidden, which is why the owner's own like stopped promoting that day: written when `radar` was
+  invited-only and promotion was the only route to a stranger, it had become a copy from one open
+  channel to another, and only `readerVotes` moves a card now. On 2026-09-16 `news` was cut to
+  `launch` and `radar` to `codename` after the owner read 2026-09-14..16 card by card: 193 arena
+  withdrawals, weight drops nobody can call, one outage told three times and patch notes nobody
+  subscribed to. `channel-mix 7`
+  on 2026-09-17 then showed 7 `launch` events in a week, two of them models, and the owner widened it
+  the same day: a newsroom post announcing a maker's model is `launch`; the changelogs of the tools
+  readers work in are `release`; retirements go to `news` and as one line of the weekly recap; price
+  moves go to `news` and their board leaders stay on `radar`, which also gets interface diffs whose
+  new strings name a versioned model. Widened on the owner's word ahead of a replay, so the week
+  after is the measurement: whatever `channel-mix 7` shows is noise comes back off. The classes stay
+  independent of the channels, because reversing one must never need a deployment.
 - **`launch` and `codename` stay separate classes.** Merging them was proposed and rejected: the
-  ping is the same but the trust is not, and a reader who came for released models does not want
-  arena sightings arriving with the same weight. Lumina keeps them apart for the same reason.
-  Competitors split by source instead (`api-models`, `arena`, `subpages`); with thirteen streams
-  that is a dozen channels, and it defeats the cross-source story grouping they do not have.
+  ping is the same but the trust is not. Competitors split by source instead (`api-models`, `arena`,
+  `subpages`); with thirteen streams that is a dozen channels, and it defeats the cross-source story
+  grouping they do not have.
 - **A `created` that equals the time of the answer is not collected.** Mistral fills OpenAI's
   `created` with when it answered -- one identical value for all 46 models, equal to the collection
   time to the second -- and Moonshot returns one shared value that drifts a couple of seconds an
@@ -92,7 +94,7 @@ Kept because the reasoning cost real observation and is easy to re-litigate from
   thresholds were never a quality bar -- they decide how many lines a morning gets -- and are now the
   worth the top 22% of commits and 4.5% of stories sit above, within the current prompt version only:
   live on 2026-09-20 that is 1.64 and 2.03, against the 1.6 and 2 they replace.
-- **The scouts grade what a machine cannot.** Source-derived confidence answers "can this be
+- **`radar`'s readers grade what a machine cannot.** Source-derived confidence answers "can this be
   trusted" and cannot answer "is this worth a stranger's attention", which is the whole question an
   early sighting raises. Reactions are polled over REST rather than listened for on a gateway
   socket, which keeps the outbound-only boundary intact for one request a cycle.
@@ -148,8 +150,7 @@ Kept because the reasoning cost real observation and is easy to re-litigate from
   2203 lines across eight files, of which a 1022-line competitor audit and a sixty-bullet list of
   completed work described the past. A new file now fails the gate with the question of which
   existing file the content belongs in.
-- **No welcome channel.** The channel map lives in each channel's Discord topic, where a reader
-  already looks, and costs no sixth entry in the sidebar.
+- **No welcome channel.** The channel map lives in each channel's Discord topic, where a reader already looks.
 
 ## Ideas
 
@@ -160,11 +161,10 @@ Not scheduled. Written down so they stop being re-derived from scratch.
   announcement. Each needs a free key and would reach readers as a sighting only. NVIDIA first:
   it is the one that tends to be early. GitHub Models is not a candidate: its catalogue answered
   `410 github_models_retirement_brownout` on 2026-09-17.
-- **Regional lifecycle schedules.** A deprecation with different dates per region is stored as one
-  record with one date, which understates the ones that matter most.
-- **A second Cohere reading with dates.** Its changelog arrives as an index with no publication
-  dates, so it is `web` evidence; the per-entry Markdown carries the date at the cost of one request
-  each. Worth it only if a Cohere release ever needs to be dated to the day.
+- **Regional lifecycle schedules.** A deprecation with different dates per region is stored as one record with one date.
+- **A second Cohere reading with dates.** Its changelog is an index with no publication dates, so it
+  is `web` evidence; the per-entry Markdown carries the date at one request each. Worth it only if a
+  Cohere release ever needs dating to the day.
 
 ## Deferred
 

@@ -122,17 +122,17 @@ export const settingsSchema = z
     /** Channel holding the platform status board, edited in place. Defaults to the status channel. */
     platformBoardChannelId: z.string().regex(/^\d+$/).optional(),
     /**
-     * Who may vouch for an early signal, and how many readers it takes without them.
+     * How many readers it takes to vouch for an early signal.
      *
-     * The scouts see what is unconfirmed; whether a stranger should be shown it is a judgement, and
-     * the room is what makes it. The owner's own reaction settles it alone, which is what an expert
-     * reader is for.
+     * `radar` carries what is unconfirmed; whether a stranger should be shown it is a judgement, and
+     * its readers are what makes it. An `ownerUserId` whose single like settled this alone was
+     * dropped on 2026-09-20: it mattered while `radar` was hidden and promotion was the only way to
+     * publish, and both channels are now open. A key left in the file is ignored.
      */
     promotion: z
       .object({
-        ownerUserId: z.string().regex(/^\d+$/),
         // One pair, put under every card by the bot itself: a reader answers by pressing, not by
-        // finding the right emoji. The owner's own like still settles a promotion on its own.
+        // finding the right emoji.
         likeEmoji: z.string().min(1).default("👍"),
         dislikeEmoji: z.string().min(1).default("👎"),
         readerVotes: z.number().int().min(2).default(3),
