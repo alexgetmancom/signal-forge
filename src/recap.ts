@@ -5,7 +5,7 @@ import { breakoutOf } from "./events/breakouts.js";
 import { readableName } from "./events/naming.js";
 import { isScheduledPricingRotation } from "./events/oscillation.js";
 import { renamedEvents } from "./events/rename.js";
-import { priceMoveRatio, pricePair } from "./events/render/common.js";
+import { priceMoveRatio, pricePair, significantPriceChange } from "./events/render/common.js";
 import { boardPlace, DEBUT_PLACES, isMainBoard, isUnfollowedMakerAtAReseller, signalClass } from "./events/signals.js";
 import type { Event, RecordData } from "./events/types.js";
 import {
@@ -21,7 +21,6 @@ import { subjectKey, usageRanks, witnessedSubjects } from "./events/witness.js";
 import { isNewsworthyStory, notableCommits, worthCutoffs } from "./insights.js";
 import { judgementOf } from "./jev.js";
 import { sourceLabel } from "./sources/labels.js";
-import { readState } from "./storage/appState.js";
 
 /**
  * A week, summarised once, in the channel that otherwise only says what is happening now.
@@ -121,6 +120,10 @@ export const recapContextSchema = z.object({
       name: z.string(),
       percent: z.number(),
       cheaper: z.boolean(),
+      // Dollars per million tokens, before and after. Absent in the recaps stored before a line
+      // said what a reader would actually be charged.
+      from: z.number().nullable().default(null),
+      to: z.number().nullable().default(null),
       // Absent in the recaps already stored before this was told apart from a decision to charge more.
       discountEnded: z.boolean().default(false),
     }),
@@ -155,11 +158,18 @@ export const recapContextSchema = z.object({
   // Absent in the recaps stored before the scouts were told about climbs and new boards.
   climbers: z.array(z.object({ board: z.string(), name: z.string(), from: z.number(), to: z.number() })).default([]),
   newBoards: z.array(z.object({ board: z.string(), leader: z.string().nullable() })).default([]),
-  resellerArrivals: z.array(z.object({ name: z.string(), reseller: z.string() })).default([]),
+  resellerArrivals: z
+    .array(
+      z.object({
+        name: z.string(),
+        reseller: z.string(),
+        // Who made it, when the catalogue says. Absent before the line named anyone but the shop.
+        maker: z.string().default(""),
+      }),
+    )
+    .default([]),
   // Commits worth a line, as a sentence each. Absent before the repositories were read for them.
   codeNotes: z.array(z.object({ repo: z.string(), text: z.string() })).default([]),
-  // The week in two or three sentences, written before it closed. Absent when none was written.
-  lead: z.string().nullable().default(null),
   // Absent in the recaps stored before the Intelligence Index was read for new entries.
   indexed: z.array(z.object({ name: z.string(), index: z.number(), place: z.number().nullable() })).default([]),
 });
@@ -256,6 +266,8 @@ type PriceMove = {
   cheaper: boolean;
   reportable: boolean;
   discountEnded: boolean;
+  from: number;
+  to: number;
 };
 
 function pricing(json: string | null): Record<string, unknown> {
@@ -271,16 +283,30 @@ function pricing(json: string | null): Record<string, unknown> {
  * first `before` against the last `after` is what makes a price that went up and came back down
  * again produce no line at all.
  */
-function netPriceMoves(first: Event, last: Event): { percent: number; ratio: number; cheaper: boolean }[] {
+function netPriceMoves(
+  first: Event,
+  last: Event,
+): { percent: number; ratio: number; cheaper: boolean; from: number; to: number }[] {
   const from = pricing(first.before_json);
   const to = pricing(last.after_json);
-  const moves: { percent: number; ratio: number; cheaper: boolean }[] = [];
+  const moves: { percent: number; ratio: number; cheaper: boolean; from: number; to: number }[] = [];
   for (const key of new Set([...Object.keys(from), ...Object.keys(to)])) {
     if (BILLED_ELSEWHERE.test(key)) continue;
+    // What a card would have required of the same move. Every OpenRouter price is held back for
+    // this recap whatever its size, so without the same floor here the day reported a catalogue
+    // rounding its whole table: GLM 5.3 moved 1.54% on every field at once on 2026-09-20, which is
+    // an exchange rate, and "down 2%" was the first line a reader saw that morning.
+    if (!significantPriceChange(from[key], to[key], last.source)) continue;
     const ratio = priceMoveRatio(from[key], to[key], last.source);
     const pair = pricePair(from[key], to[key], last.source);
     if (ratio === null || ratio === 0 || !pair || pair.from === 0) continue;
-    moves.push({ percent: Math.abs(pair.to - pair.from) / pair.from, ratio, cheaper: pair.to < pair.from });
+    moves.push({
+      percent: Math.abs(pair.to - pair.from) / pair.from,
+      ratio,
+      cheaper: pair.to < pair.from,
+      from: pair.from,
+      to: pair.to,
+    });
   }
   return moves;
 }
@@ -310,6 +336,11 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
     const arrived = signal === "launch" || signal === "codename";
     if (!arrived || event.kind !== "new" || !isRealArrival(event, renamed)) continue;
     const record = recordOf(event);
+    // A catalogue adding a row is not a model being born. Groq listed Compound Mini and OpenRouter
+    // re-listed gpt-oss inside one week, and the week read as though GPT-OSS had just come out. The
+    // registry's own date settles it: dated before the week, it is a listing, not an arrival.
+    const created = Date.parse(String(record?.created ?? ""));
+    if (Number.isFinite(created) && created < Date.parse(from)) continue;
     const name = nameOf(event);
     const subject = modelSubject(name);
     const weight = arrivalWeight(event);
@@ -415,7 +446,14 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
       return mine - theirs || other.ratio - one.ratio;
     })
     .slice(0, 3)
-    .map(({ name, percent, cheaper, discountEnded }) => ({ name, percent, cheaper, discountEnded }));
+    .map(({ name, percent, cheaper, discountEnded, from: was, to: now }) => ({
+      name,
+      percent,
+      cheaper,
+      discountEnded,
+      from: was,
+      to: now,
+    }));
   // A board changing hands at the top is the one ranking move a reader repeats to somebody else.
   const leaders = classified
     .filter(({ event }) => event.stream === "leaderboards" && event.kind === "changed")
@@ -608,7 +646,25 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
       ? []
       : classified
           .filter(({ event }) => isUnfollowedMakerAtAReseller(event) && !breakoutOf(db, event.id))
-          .map(({ event }) => ({ name: readableName(nameOf(event)), reseller: event.source }))
+          // A row appearing at a reseller says the reseller started serving it, not that it exists.
+          // Hugging Face's router listed Granite 4.2 30B on 2026-09-20 and GLM 4.5 twice; the
+          // registry dates them August and July, and "New at huggingface-router" was a year late on
+          // one of them. When the catalogue gives the model's own date, it has to be inside the day.
+          .filter(({ event }) => {
+            const created = Date.parse(String(recordOf(event)?.created ?? ""));
+            return !Number.isFinite(created) || created >= Date.parse(from);
+          })
+          .map(({ event }) => {
+            const record = recordOf(event);
+            const maker = vendorOf(event, record);
+            return {
+              name: readableName(nameOf(event)),
+              reseller: sourceLabel(event.source).split(" · ")[0] ?? event.source,
+              // The catalogue writes itself into `maker` often enough that its own name is no
+              // answer: "Toast 1 · mixedbread" is worth a line, "Granite · Hugging Face" is not.
+              maker: maker !== "Unknown" ? maker : String(record?.maker ?? "").replace(/^hugging ?face$/i, ""),
+            };
+          })
           .filter((entry, index, all) => all.findIndex((other) => other.name === entry.name) === index)
           .slice(0, 8);
   const codeNotes =
@@ -624,7 +680,6 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
   return recapContextSchema.parse({
     period,
     codeNotes,
-    lead: period === "week" ? readState(db, `weekly-lead:${to}`) : null,
     resellerArrivals,
     headlines: headlines.slice(0, HEADLINES),
     climbers,

@@ -87,17 +87,46 @@ const NAMES_PER_VENDOR = 3;
  * multiple it became once it is more than a doubling. "Up 74%" for a price that nearly quadrupled
  * is arithmetic nobody is charged.
  */
-function priceMove(move: { percent: number; cheaper: boolean; discountEnded?: boolean }): string {
-  if (move.cheaper) return `down ${Math.round(move.percent * 100)}%`;
-  const rise =
-    move.percent >= 1 ? `${(move.percent + 1).toFixed(1)}× more expensive` : `up ${Math.round(move.percent * 100)}%`;
-  return move.discountEnded ? `launch pricing ended · ${rise}` : rise;
+function money(amount: number): string {
+  return `$${amount >= 1 ? amount.toFixed(2).replace(/\.00$/, "") : amount.toFixed(amount >= 0.1 ? 2 : 3).replace(/0+$/, "")}`;
+}
+
+function priceMove(move: {
+  percent: number;
+  cheaper: boolean;
+  from?: number | null;
+  to?: number | null;
+  discountEnded?: boolean;
+}): string {
+  // The move, then what it costs now. A percentage alone is a number a reader cannot act on:
+  // "down 27%" and "$2.40 → $1.75 per M" are the same fact, and only the second one is a price.
+  const size = move.cheaper
+    ? `down ${Math.round(move.percent * 100)}%`
+    : move.percent >= 1
+      ? `${(move.percent + 1).toFixed(1)}× more expensive`
+      : `up ${Math.round(move.percent * 100)}%`;
+  const pair =
+    typeof move.from === "number" && typeof move.to === "number"
+      ? ` · ${money(move.from)} → ${money(move.to)} per M`
+      : "";
+  return move.discountEnded && !move.cheaper ? `launch pricing ended · ${size}${pair}` : `${size}${pair}`;
 }
 
 /**
  * The week, in the order a reader would ask about it: what can I use now, what got cheaper, and
  * what did the people watching early see before anybody announced it.
  */
+/**
+ * A retirement date in one shape. The catalogues write "09/21/26", "2026-10-16" and "Not sooner
+ * than June 9, 2027" in the same list, and three date formats in one line read as three sources
+ * rather than one week.
+ */
+function retirementDay(date: string): string {
+  const at = Date.parse(date.replace(/^(?:not sooner than|to be announced|on)\s+/i, ""));
+  if (!Number.isFinite(at)) return date;
+  return new Date(at).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
+}
+
 /** The recap a destination reads, by the classes it carries; empty when none of its part moved. */
 export function renderRecapLines(context: RecapContext, signals: readonly string[]): string[] {
   const day = (at: string) =>
@@ -143,7 +172,9 @@ export function renderRecapLines(context: RecapContext, signals: readonly string
               (board) =>
                 `🆕 New board: ${board.board}${board.leader ? ` · led by ${withoutMakerPrefix(board.leader)}` : ""}`,
             ),
-            ...context.resellerArrivals.map((entry) => `🆕 New at ${entry.reseller}: ${entry.name}`),
+            ...context.resellerArrivals.map(
+              (entry) => `🆕 ${entry.name}${entry.maker ? ` · ${entry.maker}` : ""} — now on ${entry.reseller}`,
+            ),
             ...context.codeNotes.map((note) => `🔧 ${note.repo}: ${note.text}`),
           ]
         : []),
@@ -165,11 +196,12 @@ export function renderRecapLines(context: RecapContext, signals: readonly string
     const others = context.arrivalCount - named;
     if (others > 0) lines.push(`· ${others} more from smaller makers`);
   }
-  for (const move of context.priceMoves) lines.push(`📊 ${withoutMakerPrefix(move.name)} · ${priceMove(move)}`);
   if (context.retirements.length)
     lines.push(
       `⚠️ **Retiring:** ${context.retirements
-        .map((retirement) => (retirement.date ? `${retirement.name} (${retirement.date})` : retirement.name))
+        .map((retirement) =>
+          retirement.date ? `${retirement.name} (${retirementDay(retirement.date)})` : retirement.name,
+        )
         .join(", ")}`,
     );
   // A maker's own sentence stands on its own line; inside the list above it read as a model's name.
@@ -189,17 +221,6 @@ export function renderRecapEmbed(context: RecapContext, signals: readonly string
       name:
         context.period === "news" ? "THE DAY IN AI" : context.period === "day" ? "WHAT MOVED" : "THE WEEK IN MODELS",
     },
-    description: clip(
-      [...(context.period === "week" && context.lead ? [context.lead, ""] : []), ...lines].join("\n"),
-      4000,
-    ),
-    footer: {
-      text:
-        context.period === "news"
-          ? "The labs' own posts and the day's safety and research stories · no ping"
-          : context.period === "day"
-            ? "Moves too small for a card of their own · no ping"
-            : "Everything here was posted as it happened · scouts saw the early half first",
-    },
+    description: clip(lines.join("\n"), 4000),
   };
 }

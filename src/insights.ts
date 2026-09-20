@@ -4,7 +4,7 @@ import { signalClass } from "./events/signals.js";
 import type { Event } from "./events/types.js";
 import type { Fetch } from "./http-client.js";
 import { type Judgement, judgeEvents, judgementOf, worthCutoff } from "./jev.js";
-import { prepareWeeklyLead, publishMonthlyAudit } from "./review.js";
+import { publishMonthlyAudit } from "./review.js";
 import { summarizeForRecap } from "./summary.js";
 
 /**
@@ -107,7 +107,6 @@ export async function prepareInsights(db: Database, config: AppConfig, request: 
   // Judged first, so the commits worth a line are known before DeepSeek is asked about them.
   const commits = await noteCommits(db, config, request, now);
   const findings = await noteFindings(db, config, request, now);
-  const lead = await prepareWeeklyLead(db, config, request, now.getTime());
   const audited = await publishMonthlyAudit(db, config, request, now.getTime());
-  return { judged, commits, findings, lead, audited };
+  return { judged, commits, findings, audited };
 }

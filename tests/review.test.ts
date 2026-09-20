@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { loadConfig } from "../src/config.js";
 import { renderRecapEmbed } from "../src/events/render/lifecycle.js";
 import { recapContextSchema } from "../src/recap.js";
-import { prepareWeeklyLead, publishMonthlyAudit } from "../src/review.js";
+import { publishMonthlyAudit } from "../src/review.js";
 import { readState } from "../src/storage/appState.js";
 import { openDatabase } from "../src/storage/database.js";
 
@@ -40,40 +40,6 @@ function deepseek(text: string, seen: { urls: string[]; bodies: string[] }) {
   };
 }
 
-test("the weekly lead is written once, in the hours before the week closes", async () => {
-  const db = openDatabase(":memory:");
-  seedDelivery(db, "2026-09-18T10:00:00.000Z");
-  const seen = { urls: [] as string[], bodies: [] as string[] };
-  const request = deepseek(
-    "Google released **Gemini 3.8 Live**, see https://x.test @everyone.",
-    seen,
-  ) as unknown as typeof fetch;
-  // Sunday 2026-09-20 18:00 UTC closes the week; Saturday is too early.
-  expect(await prepareWeeklyLead(db, config, request, Date.parse("2026-09-19T12:00:00Z"))).toBe(false);
-  expect(await prepareWeeklyLead(db, config, request, Date.parse("2026-09-20T16:00:00Z"))).toBe(true);
-  expect(await prepareWeeklyLead(db, config, request, Date.parse("2026-09-20T17:00:00Z"))).toBe(false);
-  expect(seen.urls).toHaveLength(1);
-  expect(seen.bodies[0]).toContain('"thinking":{"type":"disabled"}');
-  expect(seen.bodies[0]).toContain("Gemini 3.8 Live");
-  const lead = readState(db, "weekly-lead:2026-09-20T18:00:00.000Z");
-  expect(lead).toBe("Google released Gemini 3.8 Live, see everyone.");
-});
-
-test("the lead opens the weekly recap and nothing else", () => {
-  const context = recapContextSchema.parse({
-    period: "week",
-    from: "2026-09-13T18:00:00.000Z",
-    to: "2026-09-20T18:00:00.000Z",
-    arrivals: [{ vendor: "Google", names: ["Gemini 3.8 Live"] }],
-    arrivalCount: 1,
-    priceMoves: [],
-    codenameCount: 0,
-    lead: "Google released Gemini 3.8 Live.",
-  });
-  const embed = renderRecapEmbed(context, ["launch"]);
-  expect(String(embed?.description)).toStartWith("Google released Gemini 3.8 Live.\n\n");
-});
-
 test("the monthly audit goes to the status channel once, on the first", async () => {
   const db = openDatabase(":memory:");
   seedDelivery(db, "2026-09-18T10:00:00.000Z");
@@ -89,28 +55,21 @@ test("the monthly audit goes to the status channel once, on the first", async ()
   expect(readState(db, "audit:2026-10")).toBe("sent");
 });
 
-test("the lead reads the week's cards, not last week's recap", async () => {
-  const db = openDatabase(":memory:");
-  seedDelivery(db, "2026-09-18T10:00:00.000Z");
-  // The previous recap, reposted inside this week: summarising it is how a week opened by
-  // describing the one before it.
-  seedDelivery(db, "2026-09-14T09:00:00.000Z", "weekly_recap", "THE WEEK IN MODELS: 16 models arrived");
-  const seen = { urls: [] as string[], bodies: [] as string[] };
-  const request = deepseek("A week happened.", seen) as unknown as typeof fetch;
-  expect(await prepareWeeklyLead(db, config, request, Date.parse("2026-09-20T16:00:00Z"))).toBe(true);
-  expect(seen.bodies[0]).toContain("Gemini 3.8 Live");
-  expect(seen.bodies[0]).not.toContain("THE WEEK IN MODELS");
-});
-
-test("a paragraph too long for the recap ends on a sentence, not mid-word", async () => {
-  const db = openDatabase(":memory:");
-  seedDelivery(db, "2026-09-18T10:00:00.000Z");
-  const seen = { urls: [] as string[], bodies: [] as string[] };
-  const sentence = `${"Google shipped a model that is quite good indeed. ".repeat(15)}GPT-5.5 retires on October`;
-  const request = deepseek(sentence, seen) as unknown as typeof fetch;
-  expect(await prepareWeeklyLead(db, config, request, Date.parse("2026-09-20T16:00:00Z"))).toBe(true);
-  const lead = readState(db, "weekly-lead:2026-09-20T18:00:00.000Z") ?? "";
-  expect(lead.length).toBeLessThanOrEqual(700);
-  expect(lead.endsWith(".")).toBe(true);
-  expect(lead).not.toContain("retires on Octo");
+test("nothing a model wrote reaches the weekly recap", () => {
+  // A DeepSeek paragraph opened it until 2026-09-21. It was removed rather than fixed: the facts in
+  // it were already the lines below it, in fewer words and with nothing invented between them.
+  const context = recapContextSchema.parse({
+    period: "week",
+    from: "2026-09-13T18:00:00.000Z",
+    to: "2026-09-20T18:00:00.000Z",
+    arrivals: [{ vendor: "Google", names: ["Gemini 3.8 Live"] }],
+    arrivalCount: 1,
+    priceMoves: [],
+    codenameCount: 0,
+    lead: "The most significant development this week was the arrival of 16 new models.",
+  });
+  expect("lead" in context).toBe(false);
+  const embed = renderRecapEmbed(context, ["launch"]);
+  expect(String(embed?.description)).not.toContain("most significant development");
+  expect(String(embed?.description)).toStartWith("**13 September");
 });

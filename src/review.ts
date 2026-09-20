@@ -6,16 +6,16 @@ import { DEEPSEEK_SUMMARY_ENDPOINT, DEEPSEEK_SUMMARY_MODEL } from "./runtime/dee
 import { readState, writeState } from "./storage/appState.js";
 
 /**
- * Reading a week or a month back, which a card never does: the paragraph that opens the weekly
- * recap, and the monthly audit the owner reads in the status channel.
+ * Reading a month back, which a card never does: the audit the owner reads in the status channel.
  *
- * Both are written by DeepSeek from what the channels actually carried. Its reasoning mode spent
- * the whole allowance on thinking and answered with nothing on 2026-09-19, so it is switched off.
+ * Written by DeepSeek from what the channels actually carried. Its reasoning mode spent the whole
+ * allowance on thinking and answered with nothing on 2026-09-19, so it is switched off.
+ *
+ * A written paragraph once opened the weekly recap too. It was removed on 2026-09-21: asked to
+ * name the week's most important developments it produced the register of a press release, and
+ * every fact in it was already a line below it. Nothing a model writes goes to a reader now.
  */
-const LEAD_PREFIX = "weekly-lead:";
 const AUDIT_PREFIX = "audit:";
-/** The paragraph is written in the last hours of the week, so the week is nearly whole. */
-const LEAD_AHEAD_MS = 3 * 3_600_000;
 const AUDIT_DAYS = 30;
 
 async function ask(
@@ -59,30 +59,13 @@ async function ask(
   }
 }
 
-/**
- * What the configured channels carried in a period; channels since removed are not this service.
- *
- * Cards only. A recap is itself a message the channel carried, so reading everything asks the model
- * to summarise last week's summary: the week of 13-20 September opened with "16 new models between
- * September 6 and 13", which was the previous recap, reposted three times on the 14th and therefore
- * the loudest thing in the data. `kind='event'` is the difference between what happened and what we
- * already said about it.
- */
-function carried(
-  db: Database,
-  config: AppConfig,
-  from: string,
-  to: string,
-  chars: number,
-  cardsOnly = false,
-): string[] {
+/** What the configured channels carried in a period; channels since removed are not this service. */
+function carried(db: Database, config: AppConfig, from: string, to: string, chars: number): string[] {
   const current = new Set(config.destinations.map((destination) => destination.id));
   return db
     .query<{ d: string; body: string; at: string }, [string, string]>(
-      `SELECT d.destination_id d, d.body, d.updated_at at FROM deliveries d
-         JOIN batches b ON b.id=d.batch_id
-        WHERE d.status='sent' AND d.updated_at>=? AND d.updated_at<?${cardsOnly ? " AND b.kind='event'" : ""}
-        ORDER BY d.updated_at`,
+      `SELECT destination_id d, body, updated_at at FROM deliveries
+        WHERE status='sent' AND updated_at>=? AND updated_at<? ORDER BY updated_at`,
     )
     .all(from, to)
     .filter((row) => current.has(row.d))
@@ -103,59 +86,6 @@ function readable(body: string): string {
   } catch {
     return body.replace(/\s+/g, " ");
   }
-}
-
-/** The next Sunday 18:00 UTC, when the weekly recap closes its week (see lastRecapPeriod). */
-function nextWeekEnd(now: number): string {
-  const end = new Date(now);
-  end.setUTCHours(18, 0, 0, 0);
-  while (end.getUTCDay() !== 0 || end.getTime() <= now) end.setUTCDate(end.getUTCDate() + 1);
-  return end.toISOString();
-}
-
-/** Written once, in the hours before the week closes, for the recap that closes it. */
-export async function prepareWeeklyLead(
-  db: Database,
-  config: AppConfig,
-  request: Fetch = fetch,
-  now = Date.now(),
-): Promise<boolean> {
-  const end = nextWeekEnd(now);
-  const endMs = Date.parse(end);
-  if (endMs <= now || endMs - now > LEAD_AHEAD_MS) return false;
-  if (readState(db, `${LEAD_PREFIX}${end}`) !== null) return false;
-  const from = new Date(endMs - 7 * 24 * 3_600_000).toISOString();
-  const week = carried(db, config, from, new Date(now).toISOString(), 500, true).join("\n").slice(0, 60_000);
-  if (!week) return false;
-  const text = await ask(
-    config,
-    "You write the opening paragraph of a weekly AI-news recap for Discord readers. From the messages the channels carried this week, write 2-3 plain English sentences naming the most important developments, most important first. Only facts present in the data; no hype, no opinions, no links, no headings.",
-    week,
-    400,
-    request,
-  );
-  if (!text) return false;
-  writeState(db, `${LEAD_PREFIX}${end}`, plain(text));
-  return true;
-}
-
-/**
- * A reader's paragraph: no handles, links or markup from the model, and a paragraph's length.
- *
- * Cut at the end of a sentence rather than at character 700, which ended a recap mid-word on
- * "GPT-5.5 will retire from ChatGPT, ChatGPT Work, and Codex on O".
- */
-function plain(text: string): string {
-  const cleaned = text
-    .replace(/[@&<>`*_~|#]/g, "")
-    .replace(/https?:\/\/\S+/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-  if (cleaned.length <= 700) return cleaned;
-  const head = cleaned.slice(0, 700);
-  const sentence = Math.max(head.lastIndexOf(". "), head.lastIndexOf("! "), head.lastIndexOf("? "));
-  // A paragraph with no sentence break inside the limit loses its last, partial word instead.
-  return sentence > 200 ? head.slice(0, sentence + 1) : `${head.slice(0, head.lastIndexOf(" "))}…`;
 }
 
 /** The owner's report keeps its bullets and bold; only a mention could reach anyone else. */
