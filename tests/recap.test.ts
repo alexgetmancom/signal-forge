@@ -551,3 +551,34 @@ test("a front-page story is not something the labs announced", () => {
   expect(text.indexOf("📰 **Also from the labs**")).toBeLessThan(text.indexOf("📎 **Elsewhere**"));
   expect(text.slice(text.indexOf("Also from the labs"), text.indexOf("Elsewhere"))).not.toContain("Alibaba");
 });
+
+test("a model the catalogues already carried is not this week's arrival", () => {
+  const db = openDatabase(":memory:");
+  const shop: Collection = {
+    source: "openrouter",
+    stream: "openrouter",
+    url: "https://openrouter.ai",
+    raw: [],
+    records: [{ id: "zai/glm-5.3", name: "Z.ai: GLM 5.3", pricing: { prompt: "0.0000001" } }],
+  };
+  saveCollection(db, shop, [wire], "2026-09-01T10:00:00.000Z");
+  const other: Collection = {
+    source: "models-dev",
+    stream: "api-models",
+    url: "https://models.dev",
+    raw: [],
+    records: [{ id: "glm-5.3", name: "Z.ai: GLM 5.3" }],
+  };
+  saveCollection(db, other, [wire], "2026-09-08T10:00:00.000Z");
+  other.records = [
+    { id: "glm-5.3", name: "Z.ai: GLM 5.3" },
+    { id: "glm-5.4", name: "Z.ai: GLM 5.4" },
+  ];
+  saveCollection(db, other, [wire], "2026-09-16T10:00:00.000Z");
+
+  // A second catalogue catching up is the catalogue's news, not the model's.
+  const context = recapContext(db, "2026-09-20T18:00:00.000Z");
+  const named = context.arrivals.flatMap((group) => group.names);
+  expect(named).toContain("GLM 5.4");
+  expect(named).not.toContain("GLM 5.3");
+});

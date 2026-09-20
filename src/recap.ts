@@ -328,9 +328,11 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
   const classified = events.map((event) => ({ event, signal: signalClass(event) }));
   const renamed = renamedEvents(db, events);
   const witnessed = witnessedSubjects(db);
-  // What anything had already named before the period began. Used only to tell a tier from a
-  // model: a name that ends in a billing word is a tier when the thing it is a tier of is something
-  // already here, and a model when nothing has ever heard of the rest of the name.
+  // What anything had already named before the period began. A catalogue listing a model is not
+  // the model arriving: OpenRouter carried GLM 5.2 and GLM 5.3 on 8 September and OpenAI's own API
+  // carried gpt-live-1 on the 10th, and all three were reported as this week's arrivals because a
+  // second catalogue caught up inside the week. The first time anything names it is the week it
+  // arrived, and every week after that it is furniture.
   const alreadyNamed = new Set(
     db
       .query<{ name: string }, [string]>(
@@ -357,6 +359,7 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
     if (Number.isFinite(created) && created < Date.parse(from)) continue;
     const name = nameOf(event);
     const subject = modelSubject(name);
+    if (alreadyNamed.has(subject)) continue;
     // A tier is not a model. "MiniMax M3 Fast" and "Jev 1.13 Free" are ways of billing something
     // already here, and only the catalogue's own words say so -- so the trailing word only folds
     // away when the thing it is a tier of is something we have seen.

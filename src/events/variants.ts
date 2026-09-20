@@ -17,6 +17,11 @@ import { vendorOfName } from "./vendors.js";
 const VARIANT_SUFFIX =
   /\((batch|free|beta|preview|alpha|experimental|self[- ]moderated|extended|thinking|latest|fast|non[- ]?reasoning|reasoning)\)\s*$/i;
 const ALIAS_SUFFIX = /[:\s-](latest|preview)$/i;
+/**
+ * An alias that says out loud what it points at. Alibaba lists `Qwen Max Latest (Qwen3.8 Max)`:
+ * the row is a pointer at the newest build, and the build is named in its own brackets.
+ */
+const ALIAS_PARENS = /\b(latest|preview)\s*\(.+\)\s*$/i;
 const DATED_SNAPSHOT = /[-:]\d{4}-\d{2}-\d{2}$/;
 /**
  * A row the collector had to disambiguate, which means the catalogue already carries this model.
@@ -43,6 +48,7 @@ export function isModelVariant(name: string): boolean {
   return (
     VARIANT_SUFFIX.test(trimmed) ||
     ALIAS_SUFFIX.test(trimmed) ||
+    ALIAS_PARENS.test(trimmed) ||
     DATED_SNAPSHOT.test(trimmed) ||
     DUPLICATE_ROW.test(trimmed)
   );
@@ -86,6 +92,7 @@ export function modelSubject(name: string): string {
   const stripped = name
     .trim()
     .replace(VARIANT_SUFFIX, "")
+    .replace(ALIAS_PARENS, "$1")
     .replace(ALIAS_SUFFIX, "")
     .replace(DATED_SNAPSHOT, "")
     .replace(/\s*\(\d+\)\s*$/, "")
