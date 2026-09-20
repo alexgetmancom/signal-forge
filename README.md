@@ -293,16 +293,16 @@ Use a separate database and destination config for local work. Stop the dev serv
 `bun run poll`, because only one collector should run per database. In an existing checkout, don't
 overwrite the deployment's `.env` or `signal-forge.json`.
 
-Production deployment, backup, restore and day-to-day procedures are in the
-[operator runbook](docs/runbook.md). Hosts, paths and credentials stay out of the repository.
+Production deployment, backup and restore are what `scripts/deploy.sh`, `scripts/backup.sh` and
+`scripts/restore.sh` do, and each one says in its own header what it cannot know. Hosts, paths and
+credentials stay out of the repository.
 
 ## Status
 
 Signal Forge runs continuously in production and is judged by the quality of what it sends. As
 measured on 2026-09-19, the deployment covered 123 sources (112 active, 11 in shadow mode) and had
 stored 17,068 events and sent 532 cards to two Discord channels, all in a 617 MB database. Current
-priorities are restore testing, accurate outage durations and adding sources carefully. The plan,
-along with the decisions measurement has already settled, is in [docs/roadmap.md](docs/roadmap.md).
+priorities are restore testing, accurate outage durations and adding sources carefully.
 
 ## License
 

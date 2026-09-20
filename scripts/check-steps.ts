@@ -12,10 +12,7 @@ export type CheckStep = { name: string; args: string[] };
 export const CHECK_GROUPS: CheckStep[][] = [
   // Non-English text is the cheapest failure to find and the most confusing one to read past, so
   // it reports before anything else floods the terminal.
-  [
-    { name: "language", args: ["check-language"] },
-    { name: "docs", args: ["check-docs"] },
-  ],
+  [{ name: "language", args: ["check-language"] }],
   [
     { name: "lint", args: ["lint"] },
     { name: "typecheck", args: ["typecheck"] },

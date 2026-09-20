@@ -4,12 +4,10 @@ on:
   push:
     branches: [main]
     paths-ignore:
-      - "docs/**"
       - "Screenshots/**"
       - "*.md"
   pull_request:
     paths-ignore:
-      - "docs/**"
       - "Screenshots/**"
       - "*.md"
 

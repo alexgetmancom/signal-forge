@@ -18,7 +18,6 @@
     "test": "bun test ./tests",
     "check-architecture": "bun scripts/check-architecture.ts",
     "check-language": "bun scripts/check-language.ts",
-    "check-docs": "bun scripts/check-docs.ts",
     "check-audit": "bun audit --audit-level=high",
     "check-dead-code": "knip-bun",
     "rehearse-migration": "bun scripts/rehearse-migration.ts",
