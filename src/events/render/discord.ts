@@ -121,6 +121,13 @@ function eventHeadline(event: Event, name: string, incident: Incident | null): s
     const index = scoredDebutIndex(event);
     if (index !== null) return `🧠 ${name} enters at ${index} on the Intelligence Index`;
   }
+  // A release is its name and version; "Released on npm." under "🆕 codex@latest" was the title again.
+  const release = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
+  const version = typeof release?.version === "string" ? release.version : null;
+  if (event.stream === "packages" && event.kind !== "removed" && version)
+    return `📦 ${name.replace(/@[^@/]+$/, "")} ${version} on ${place(event.source)}`;
+  if (event.stream === "apps" && event.kind !== "removed" && version) return `📱 ${name} ${version}`;
+  if (event.stream === "resets") return `🔄 ${name.replace(/ usage limits /, " limits ")}`;
   return `${KIND_ICONS[event.kind]} ${name}`;
 }
 
@@ -274,24 +281,26 @@ function shape(
       facts: [],
     };
   }
+  // The title says what and which version; a sentence under it only said where again.
   if (event.stream === "apps" && after) {
     return {
       sentence:
-        event.kind === "new"
+        event.kind === "new" && !present(after.version)
           ? `Released on ${place(event.source)}.`
           : present(after.version)
-            ? `Updated to ${describe(after.version)}.`
+            ? null
             : `Updated on ${place(event.source)}.`,
       facts: [],
     };
   }
   if (event.stream === "packages") {
     return {
-      sentence:
-        event.kind === "removed" ? `Removed from ${place(event.source)}.` : `Released on ${place(event.source)}.`,
+      sentence: event.kind === "removed" ? `Removed from ${place(event.source)}.` : null,
       facts: drop("Version", "Renamed"),
     };
   }
+  // A reset's stage and type were fields under a sentence that already said both.
+  if (event.stream === "resets") return { sentence: readerImpact(event, record), facts: [] };
   if (event.stream === "news") {
     const text = [record?.summary, record?.description, record?.message].find(
       (value): value is string => typeof value === "string" && value.trim().length > 0,
@@ -348,7 +357,7 @@ function shape(
       .slice(0, 2)
       .map((line) => `> ${line}`);
     return {
-      sentence: added !== undefined ? `Interface text changed: ${added} strings added, ${removed ?? 0} removed.` : null,
+      sentence: added !== undefined ? `${added} line${added === "1" ? "" : "s"} added, ${removed ?? 0} removed.` : null,
       facts: quotes,
     };
   }
@@ -630,7 +639,9 @@ export function eventEmbed(
         ? 0xe67e22
         : ((event.kind === "new" && (MODEL_STREAMS.has(event.stream) || SIGHTINGS.has(event.stream))
             ? vendorColor(vendor)
-            : null) ?? KIND_COLORS[event.kind])),
+            : SIGHTINGS.has(event.stream) && event.kind === "changed"
+              ? vendorColor(vendor)
+              : null) ?? KIND_COLORS[event.kind])),
     ...(description ? { description } : {}),
     ...(fields.length ? { fields } : {}),
     // Discord renders its own timestamp in the reader's timezone, which is one line of card spent

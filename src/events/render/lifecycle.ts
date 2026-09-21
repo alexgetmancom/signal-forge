@@ -108,7 +108,7 @@ function priceMove(move: {
       : `up ${Math.round(move.percent * 100)}%`;
   const pair =
     typeof move.from === "number" && typeof move.to === "number"
-      ? ` · ${money(move.from)} → ${money(move.to)} per M${move.field ? ` ${move.field}` : ""}`
+      ? ` · ${money(move.from)} → ${money(move.to)} per 1M${move.field ? ` ${move.field}` : ""}`
       : "";
   return move.discountEnded && !move.cheaper ? `launch pricing ended · ${size}${pair}` : `${size}${pair}`;
 }
@@ -216,13 +216,17 @@ export function renderRecapEmbed(context: RecapContext, signals: readonly string
   // The name and the date are the title; an eyebrow in capitals over a bold date line said it in two
   // voices before the first model.
   const to = new Date(context.to).toLocaleDateString("en-GB", { day: "numeric", month: "long", timeZone: "UTC" });
-  const from = new Date(context.from).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+  const start = new Date(context.from);
+  const sameMonth = start.getUTCMonth() === new Date(context.to).getUTCMonth();
+  const from = sameMonth
+    ? String(start.getUTCDate())
+    : start.toLocaleDateString("en-GB", { day: "numeric", month: "long", timeZone: "UTC" });
   const title =
     context.period === "news"
       ? `📰 The day in AI · ${to}`
       : context.period === "day"
         ? `📊 What moved · ${to}`
-        : `🗓 The week in models · ${from} – ${to}`;
+        : `🗓 The week in models · ${from}${sameMonth ? "–" : " – "}${to}`;
   const body = lines[1] === "" ? lines.slice(2) : lines.slice(1);
   return { title, color: 0x5865f2, description: clip(body.join("\n"), 4000) };
 }

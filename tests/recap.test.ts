@@ -191,7 +191,7 @@ test("a price line is what a reader pays, and says nothing when the rows disagre
   // The week is models; a price is the day's post, and that is where the line is read.
   const day = recapContext(db, "2026-09-10T06:00:00.000Z", "day");
   expect(renderRecapLines(day, ["change"])).toContain(
-    "📊 Qwen3 14B · 3.8× more expensive · $0.24 → $0.91 per M output",
+    "📊 Qwen3 14B · 3.8× more expensive · $0.24 → $0.91 per 1M output",
   );
 });
 
@@ -248,7 +248,7 @@ test("a price only speaks for a model something other than a price list knows", 
   ]);
   const day = recapContext(db, "2026-09-10T06:00:00.000Z", "day");
   expect(renderRecapLines(day, ["change"])).toContain(
-    "📊 Solar Pro 4 · launch pricing ended · 3.0× more expensive · $0.03 → $0.09 per M input",
+    "📊 Solar Pro 4 · launch pricing ended · 3.0× more expensive · $0.03 → $0.09 per 1M input",
   );
 });
 
