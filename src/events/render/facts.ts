@@ -95,8 +95,10 @@ function identityLine(event: Event, record: RecordData | null, title: string): F
     const maker = named === "Unknown" && typeof record?.maker === "string" ? vendorOfName(record.maker) : named;
     return { label: "Identity", value: maker === "Unknown" ? "Unidentified" : `Unconfirmed by ${maker}` };
   }
-  if (!aliases.length) return null;
-  return { label: "Also known as", value: aliases.join(", ") };
+  // `lina-f` beside `lina-f-alpha` is the same name shortened, not a second one.
+  const distinct = aliases.filter((alias) => !normalizeIdentity(title).startsWith(normalizeIdentity(alias)));
+  if (!distinct.length) return null;
+  return { label: "Also known as", value: distinct.join(", ") };
 }
 
 /**

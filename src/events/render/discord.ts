@@ -82,11 +82,18 @@ function mentionSentence(record: RecordData): string {
   );
   const line = typeof record.line === "string" && record.line.trim() ? `> ${excerpt(record.line.trim(), 200)}` : null;
   const lead =
-    record.stage === "served"
-      ? "Already answering real requests, before any catalogue lists it."
-      : "Written into code before any catalogue lists it. Not seen answering yet.";
+    record.stage === "served" ? "Not in any catalogue yet." : "Not in any catalogue, not seen answering yet.";
   // The line itself first: the quote is the evidence, the commit title only says where it was.
   return [lead, line, where ? `-# ${excerpt(where, 160)}` : null].filter(Boolean).join("\n");
+}
+
+/**
+ * A slug has no dots, so `grok-4-8` came out as "Grok 4 8". A lone digit after a name followed by one
+ * more lone digit is a version; a date or a longer run of numbers is left as it was. Done when the
+ * card is drawn: the stored page name is what later polls compare against.
+ */
+export function versioned(title: string): string {
+  return title.replace(/(?<=[A-Za-z] )(\d) (\d)(?![\d ]*\d)(?=$| [A-Za-z])/g, "$1.$2");
 }
 
 function eventHeadline(event: Event, name: string, incident: Incident | null): string {
@@ -98,8 +105,9 @@ function eventHeadline(event: Event, name: string, incident: Incident | null): s
     if (record?.stage === "served") return `📡 ${model} is answering requests`;
     if (event.kind === "new") return `🔎 ${model} named in code`;
   }
+  if (event.stream === "arena" && event.kind === "new") return `🆕 ${name} appears on Arena`;
   // A docs page for a model nobody sells yet: the page is the sighting, not a new model.
-  if (event.stream === "pages" && event.kind === "new") return `📄 New page: ${name}`;
+  if (event.stream === "pages" && event.kind === "new") return `📄 New page: ${versioned(name)}`;
   if (event.stream === "training") {
     const record = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
     const maker = typeof record?.maker === "string" ? `${record.maker} ` : "";
@@ -256,7 +264,6 @@ function shape(
   }
   if (event.stream === "incidents") {
     const summary = typeof record?.summary === "string" ? excerpt(record.summary, 200) : null;
-    const status = (value: unknown) => capital(describe(value).replace(/^unlisted$/, "no longer listed"));
     return {
       // The icon and stripe already say how bad it is, and a green one that it is over; "This incident
       // has been resolved" under a 🟢 said it a third time.
@@ -266,19 +273,8 @@ function shape(
           : summary && /^this incident has been resolved\.?$/i.test(summary)
             ? null
             : summary,
-      facts: [
-        ...(present(after?.stage)
-          ? [
-              {
-                label: "Status",
-                value:
-                  before && canonicalText(before.stage) !== canonicalText(after?.stage)
-                    ? `${status(before.stage)} → ${status(after?.stage)}`
-                    : status(after?.stage),
-              },
-            ]
-          : []),
-      ],
+      // The icon says the status; what a closed one adds is how long it lasted.
+      facts: event.kind === "removed" || /resolved/i.test(describe(after?.stage)) ? lasted(record, event) : [],
     };
   }
   if (event.stream === "apps" && after) {
@@ -362,7 +358,7 @@ function shape(
   if (event.stream === "arena" && event.kind === "new" && !event.siblings?.length && !event.elsewhere?.length) {
     return {
       sentence: maker
-        ? `New on Arena under ${maker}'s name. ${maker} has not announced it.`
+        ? `Listed under ${maker}'s name. ${maker} has not announced it.`
         : "Unknown model on Arena. No maker is listed.",
       facts: drop("Identity"),
     };
@@ -380,7 +376,13 @@ function shape(
   return { sentence: [standing, impact].filter(Boolean).join(" ") || null, facts };
 }
 
-const canonicalText = (value: unknown) => describe(value).toLowerCase();
+function lasted(record: RecordData | null, event: Event): Fact[] {
+  const started = typeof record?.started === "string" ? Date.parse(record.started) : Number.NaN;
+  const minutes = Math.round((Date.parse(event.detected_at) - started) / 60000);
+  if (!Number.isFinite(minutes) || minutes <= 0) return [];
+  const value = minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
+  return [{ label: "Lasted", value }];
+}
 
 function present(raw: unknown): boolean {
   return !(raw === null || raw === undefined || raw === "");
@@ -643,7 +645,8 @@ export function eventEmbed(
         event.source,
         event.confidence ?? "observed",
         // A maker's own status page is not a rumour; "unconfirmed" under it read as doubt about the outage.
-        event.stream === "incidents" ? "brief" : detail,
+        // A sighting's emoji and sentence already say nobody has announced it.
+        SIGHTINGS.has(event.stream) ? "brief" : detail,
         event.stream === "web" ? "a text change is not a shipped feature" : undefined,
       ),
     },

@@ -54,7 +54,7 @@ function logoData(logo: string | null): string | null {
 /** Black and white makers glow in a neutral light rather than vanishing into the background. */
 function glowOf(vendor: string, fallback = 0x5865f2): string {
   const brand = hex(vendorColor(vendor) ?? fallback);
-  return brand === "#0a0a0a" || brand === "#000000" || brand === "#ffffff" ? "#9aa4b8" : brand;
+  return brand === "#e6e6e6" || brand === "#000000" || brand === "#ffffff" ? "#9aa4b8" : brand;
 }
 
 function backdrop(width: number, height: number, glow: string): string {
