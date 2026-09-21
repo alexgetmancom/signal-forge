@@ -137,7 +137,12 @@ function photoOf(embeds: Embed[], banners: Banner[]): TelegramMessage["photo"] {
 export function telegramMessage(body: string, now = Date.now()): TelegramMessage {
   if (!body.startsWith("{")) return { html: escapeHtml(body), photo: null };
   const payload = JSON.parse(body) as { content?: string; embeds?: Embed[]; banners?: Banner[] };
-  const embeds = payload.embeds ?? [];
+  // A reset's picture already counts the hours in UTC; Telegram has no reader's clock to add.
+  const quoted = new Set((payload.banners ?? []).filter((banner) => banner.quote).map((banner) => banner.filename));
+  const embeds = (payload.embeds ?? []).map(
+    (embed): Embed =>
+      quoted.has(attachment(embed.image?.url) ?? "") ? (({ description: _timer, ...rest }) => rest)(embed) : embed,
+  );
   // A role mention names a Discord role; in Telegram it is a string of digits.
   const content = (payload.content ?? "").replace(/<@&\d+>/g, "").trim();
   const html = [content ? block(content, now) : "", ...embeds.map((embed) => embedHtml(embed, now))]

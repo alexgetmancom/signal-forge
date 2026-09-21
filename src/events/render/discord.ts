@@ -756,11 +756,12 @@ export function eventEmbed(
         ...(applied ? { accent: 0x3ddc84 } : {}),
       },
     };
-    const author = resetAuthor(after);
-    const credit = `— [${announcer.name}](https://x.com/${author})`;
+    // The picture names who said it and the title links to the post, so the text keeps only the
+    // timer, which Discord counts down in each reader's own time.
     embed.image = { url: `attachment://${banner.filename}` };
     embed.banner = banner;
-    embed.description = due !== null ? `Resets <t:${due}:R> · <t:${due}:t> your time.\n${credit}` : credit;
+    if (due !== null) embed.description = `Resets <t:${due}:R> · <t:${due}:t> your time.`;
+    else delete embed.description;
   } else if (words) {
     const banner: Banner = { ...words, filename: bannerName(`${event.source}-${event.entity_id}`), logo };
     // The banner carries the maker's tile, so the corner stays empty rather than showing it twice.
