@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { AppConfig } from "./config.js";
-import { signalClass } from "./events/signals.js";
+import { signalOf } from "./events/classify.js";
 import type { Event } from "./events/types.js";
 import type { Fetch } from "./http-client.js";
 import { log } from "./logger.js";
@@ -293,7 +293,7 @@ export async function judgeEvents(
       continue;
     }
     refused = 0;
-    const judgement: Judgement = { ...answer, rules: signalClass(event), at: now.toISOString() };
+    const judgement: Judgement = { ...answer, rules: signalOf(event), at: now.toISOString() };
     // The backfill asks the same window the cycle does, and both pick their pending set before
     // either writes: two passes half a second apart judged event 39041 at version 3 at once and the
     // second was refused outright. A judgement already stored is the answer we just paid for again.

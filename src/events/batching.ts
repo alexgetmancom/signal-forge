@@ -6,6 +6,7 @@ import { sourceLabel } from "../sources/labels.js";
 import { clip } from "../text.js";
 import { breakoutLine, breakoutOf } from "./breakouts.js";
 import { splitMessage } from "./canonical.js";
+import { classify } from "./classify.js";
 import { CONFIDENCE_LEVELS } from "./confidence.js";
 import { deliveryBaseline, withBaseline } from "./cooldown.js";
 import { corroborationLine, corroborationOfEvent } from "./corroboration.js";
@@ -26,7 +27,7 @@ import {
 } from "./render/lifecycle.js";
 import { renderStoryText, type StoryRenderEvent, storyEmbed } from "./render/story.js";
 import { renderEvent } from "./render/telegram.js";
-import { listsAnotherMakersModel, pingWorthy, type SignalClass, signalClass } from "./signals.js";
+import { listsAnotherMakersModel, pingWorthy, type SignalClass } from "./signals.js";
 import { sourceFamily } from "./sourceFamily.js";
 import { clearSuppression, recordSuppression, type SuppressionReason } from "./suppression.js";
 import type { Event, RecordData } from "./types.js";
@@ -497,7 +498,7 @@ export function replayVerdicts(
   db: Database,
   events: readonly Event[],
 ): { eventId: number; signal: SignalClass; reason: SuppressionReason | null }[] {
-  const classed = events.map((event) => ({ ...event, signal: signalClass(event) }));
+  const classed = events.map((event) => ({ ...event, signal: classify(db, event) }));
   const view = batchViewOf(db, classed);
   return classed.map((event) => ({ eventId: event.id, signal: event.signal, reason: standingReason(db, event, view) }));
 }
@@ -520,7 +521,7 @@ export function replayDestinationVerdicts(
   events: readonly Event[],
   destinationId: string,
 ): { eventId: number; signal: SignalClass; reason: SuppressionReason | null }[] {
-  const classed = events.map((event) => ({ ...event, signal: signalClass(event) }));
+  const classed = events.map((event) => ({ ...event, signal: classify(db, event) }));
   const view = batchViewOf(db, classed);
   const batchOf = (eventId: number): number =>
     db.query<{ batch_id: number }, [number]>("SELECT batch_id FROM batch_events WHERE event_id=?").get(eventId)

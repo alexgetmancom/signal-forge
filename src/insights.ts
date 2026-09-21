@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import type { AppConfig } from "./config.js";
-import { signalClass } from "./events/signals.js";
+import { signalOf } from "./events/classify.js";
 import type { Event } from "./events/types.js";
 import type { Fetch } from "./http-client.js";
 import { type Judgement, judgeEvents, judgementOf, worthCutoff } from "./jev.js";
@@ -93,7 +93,7 @@ async function noteFindings(db: Database, config: AppConfig, request: Fetch, now
   let written = 0;
   for (const event of events) {
     if (written >= 10) break;
-    const signal = signalClass(event);
+    const signal = signalOf(event);
     const finding = signal === "safety" || signal === "research";
     if (!finding) continue;
     if (await summarizeForRecap(db, config, event, FINDING_GUIDANCE, request, now)) written++;

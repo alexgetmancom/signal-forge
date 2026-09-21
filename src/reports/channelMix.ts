@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import type { AppConfig, Destination } from "../config.js";
-import { signalClass } from "../events/signals.js";
+import { signalOf } from "../events/classify.js";
 import type { Event } from "../events/types.js";
 import { buildSourceRegistry } from "../sources/registry.js";
 
@@ -63,7 +63,7 @@ export function channelMix(db: Database, config: AppConfig, days = 7, now = Date
     { events: number; delivered: number; routed: boolean; unrouted: number; shadow: number }
   >();
   for (const event of events) {
-    const signal = signalClass(event) || "unclassified";
+    const signal = signalOf(event) || "unclassified";
     const routed = subscribed.has(signal as Destination["signals"][number]);
     const held = classes.get(signal) ?? { events: 0, delivered: 0, routed, unrouted: 0, shadow: 0 };
     held.events += 1;

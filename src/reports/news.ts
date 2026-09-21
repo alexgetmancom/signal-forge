@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
-import { SIGNAL_CLASSES, type SignalClass, signalClass } from "../events/signals.js";
+import { signalOf } from "../events/classify.js";
+import { SIGNAL_CLASSES, type SignalClass } from "../events/signals.js";
 import type { Event } from "../events/types.js";
 import { listStories } from "../stories.js";
 
@@ -102,7 +103,7 @@ export function news(
   const classOf = new Map<number, string>();
   const classes = new Map<string, { events: number; delivered: number; sources: Map<string, number> }>();
   for (const event of events) {
-    const signal = signalClass(event) || "unclassified";
+    const signal = signalOf(event) || "unclassified";
     classOf.set(event.id, signal);
     const held = classes.get(signal) ?? { events: 0, delivered: 0, sources: new Map() };
     held.events += 1;
@@ -127,7 +128,7 @@ export function news(
     const known = classOf.get(id);
     if (known) return known;
     const event = lookup.get(id);
-    const signal = event ? signalClass(event) || "unclassified" : "unclassified";
+    const signal = event ? signalOf(event) || "unclassified" : "unclassified";
     classOf.set(id, signal);
     return signal;
   };

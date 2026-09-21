@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { classify } from "../src/events/classify.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import { signalClass } from "../src/events/signals.js";
 import type { Event } from "../src/events/types.js";
@@ -53,12 +54,6 @@ test("a consumer ChatGPT feature is evidence; one about models still travels", (
   ).toBe("release");
 });
 
-test("a reseller's serving mode of a known model is not a new model", () => {
-  const row = { source: "dashscope", stream: "api-models" };
-  expect(signalClass(event({ ...row, entity_id: "glm-5.3-prime", record: { id: "glm-5.3-prime" } }))).toBe("evidence");
-  expect(signalClass(event({ ...row, entity_id: "glm-5.4", record: { id: "glm-5.4" } }))).toBe("codename");
-});
-
 test("catalogue lookups: a docs slug finds its launched model, an old model knows its successor", () => {
   const db = openDatabase(":memory:");
   saveCollection(
@@ -80,5 +75,59 @@ test("catalogue lookups: a docs slug finds its launched model, an old model know
   expect(listedInCatalogue(db, "grok-4-8")).toBe(false);
   expect(olderThanKnown(db, "anthropic/claude-sonnet-4")).toBe(true);
   expect(olderThanKnown(db, "anthropic/claude-sonnet-4.6")).toBe(false);
+  saveCollection(
+    db,
+    {
+      source: "dashscope",
+      stream: "api-models",
+      url: "https://x",
+      raw: [],
+      records: [{ id: "glm-5.3", name: "GLM-5.3" }],
+    },
+    [],
+  );
+  const row = { source: "dashscope", stream: "api-models" };
+  // A mode of a listed model is a trail; a mode whose base nobody sells is still the first word.
+  expect(classify(db, event({ ...row, entity_id: "glm-5.3-prime", record: { id: "glm-5.3-prime" } }))).toBe("evidence");
+  expect(classify(db, event({ ...row, entity_id: "glm-6-fast", record: { id: "glm-6-fast" } }))).toBe("codename");
+  // A docs page for a model already on sale is late; one for a model nobody sells is a sighting.
+  const page = { source: "pages:xai-docs", stream: "pages" };
+  expect(
+    classify(
+      db,
+      event({ ...page, entity_id: "/developers/grok-4-7", record: { id: "/developers/grok-4-7", name: "Grok 4 7" } }),
+    ),
+  ).toBe("evidence");
+  expect(
+    classify(
+      db,
+      event({ ...page, entity_id: "/developers/grok-4-8", record: { id: "/developers/grok-4-8", name: "Grok 4 8" } }),
+    ),
+  ).toBe("codename");
+  // An old model's context moving is housekeeping; its price moving still travels.
+  const or = { source: "openrouter", stream: "openrouter", kind: "changed" as const };
+  const sonnet = { id: "anthropic/claude-sonnet-4", context_length: 200000, pricing: { prompt: 3 } };
+  expect(
+    classify(
+      db,
+      event({
+        ...or,
+        entity_id: sonnet.id,
+        before_json: JSON.stringify({ ...sonnet, context_length: 1000000 }),
+        record: sonnet,
+      }),
+    ),
+  ).toBe("evidence");
+  expect(
+    classify(
+      db,
+      event({
+        ...or,
+        entity_id: sonnet.id,
+        before_json: JSON.stringify({ ...sonnet, pricing: { prompt: 6 } }),
+        record: sonnet,
+      }),
+    ),
+  ).toBe("change");
   db.close();
 });

@@ -57,4 +57,6 @@ export type Event = {
   confidence?: Confidence;
   evidence_type?: EvidenceType;
   authority?: SourceAuthority;
+  /** The class the store routed this event by; NULL on events stored before it was kept. */
+  signal?: string | null;
 };

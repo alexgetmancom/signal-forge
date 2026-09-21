@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { AppConfig, Destination } from "./config.js";
 import { breakoutOf } from "./events/breakouts.js";
+import { signalOf } from "./events/classify.js";
 import { readableName } from "./events/naming.js";
 import { isScheduledPricingRotation } from "./events/oscillation.js";
 import { renamedEvents } from "./events/rename.js";
@@ -12,7 +13,6 @@ import {
   DEBUT_PLACES,
   isMainBoard,
   isUnfollowedMakerAtAReseller,
-  signalClass,
 } from "./events/signals.js";
 import type { Event, RecordData } from "./events/types.js";
 import {
@@ -349,7 +349,7 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
   const events = db
     .query<Event, [string, string]>("SELECT * FROM events WHERE detected_at>=? AND detected_at<? ORDER BY id")
     .all(from, to);
-  const classified = events.map((event) => ({ event, signal: signalClass(event) }));
+  const classified = events.map((event) => ({ event, signal: signalOf(event) }));
   const renamed = renamedEvents(db, events);
   const witnessed = witnessedSubjects(db);
   // What anything had already named before the period began. A catalogue listing a model is not
