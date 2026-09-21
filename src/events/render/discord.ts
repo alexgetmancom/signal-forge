@@ -419,6 +419,21 @@ function specLine(facts: Fact[]): { line: string | null; chips: string[]; rest: 
   return { line: line || null, chips, rest: facts.filter((fact) => fact !== context && fact !== price) };
 }
 
+/**
+ * The banner's top line says what the card's title does not: when, and that it can be called. A
+ * screenshot posted elsewhere loses Discord's timestamp, and the date on the picture is what shows
+ * the news was early. "3 new models · Xiaomi" repeated the title word for word.
+ */
+function bannerEyebrow(vendor: string, detectedAt: string): string {
+  const day = new Date(detectedAt).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    timeZone: "UTC",
+  });
+  return `${vendor} · In the API · ${day}`;
+}
+
 const bannerName = (key: string) =>
   `banner-${key
     .toLowerCase()
@@ -518,7 +533,7 @@ export function eventEmbed(
   if (launch) {
     const banner: Banner = {
       filename: bannerName(`${event.source}-${event.entity_id}`),
-      eyebrow: `New model · ${vendor}`,
+      eyebrow: bannerEyebrow(vendor, event.detected_at),
       title: name,
       chips: spec.chips,
       vendor,
@@ -597,7 +612,7 @@ export function rosterEmbed(
     const stem = sharedStem(names);
     const banner: Banner = {
       filename: bannerName(`${first.source}-${first.entity_id}-roster`),
-      eyebrow: `${events.length} new models · ${maker}`,
+      eyebrow: bannerEyebrow(maker, first.detected_at),
       title: stem || `${events.length} new models`,
       chips: names.map((name) => (stem ? name.slice(stem.length).trim() : name) || name),
       vendor,
