@@ -24,6 +24,8 @@ export type MentionWatch = {
   authority: SourceAuthority;
   /** Only these files are read, where the rest of a repository names models that are not its own. */
   paths?: readonly string[];
+  /** A closed product's repository: no code, only its users' issues. */
+  talkOnly?: true;
 };
 
 export const MODEL_MENTION_REPOS: readonly MentionWatch[] = [
@@ -58,6 +60,20 @@ export const MODEL_MENTION_REPOS: readonly MentionWatch[] = [
     paths: ["model_prices_and_context_window.json", "litellm/model_prices_and_context_window_backup.json"],
   },
   { repo: "anomalyco/opencode", authority: "third_party" },
+  /**
+   * Vercel's AI Gateway settings list every model the gateway routes. `deepseek-v4.1-flash-beta`
+   * entered it on 2026-09-08; DeepSeek's weights reached Hugging Face on 2026-09-10.
+   */
+  {
+    repo: "vercel/ai",
+    authority: "third_party",
+    paths: ["packages/gateway/src/gateway-language-model-settings.ts"],
+  },
+  /**
+   * Command Code, a coding agent on open models, keeps its code private; its repository is its
+   * issue tracker, where users say which model answered them.
+   */
+  { repo: "CommandCodeAI/command-code", authority: "third_party", talkOnly: true },
 ];
 
 /**
@@ -66,7 +82,7 @@ export const MODEL_MENTION_REPOS: readonly MentionWatch[] = [
  * left out; they match too much that is not a model.
  */
 const MODEL_ID =
-  /(?<![a-z0-9.-])(?:gpt-\d+(?:\.\d+)?|claude-(?:opus|sonnet|haiku|fable|[a-z]+)-\d+(?:[.-]\d+)*|gemini-\d+(?:\.\d+)?|grok-\d+(?:\.\d+)?|glm-\d+(?:\.\d+)?)(?:-[a-z0-9]+(?:\.\d+)*)*(?![a-z0-9])/g;
+  /(?<![a-z0-9.-])(?:gpt-\d+(?:\.\d+)?|claude-(?:opus|sonnet|haiku|fable|[a-z]+)-\d+(?:[.-]\d+)*|gemini-\d+(?:\.\d+)?|grok-\d+(?:\.\d+)?|glm-\d+(?:\.\d+)?|kimi-k\d+(?:\.\d+)?|deepseek-[vr]\d+(?:\.\d+)?|qwen\d+(?:\.\d+)?|minimax-m\d+(?:\.\d+)?|(?:mistral|magistral|devstral|codestral)-(?:large-|medium-|small-)?\d+(?:\.\d+)?)(?:-[a-z0-9]+(?:\.\d+)*)*(?![a-z0-9])/g;
 
 /**
  * "GPT-6-specific defaults" and "Claude-4-based agents" are prose about a family, not a model.
@@ -75,8 +91,21 @@ const MODEL_ID =
 const PROSE_SUFFIX =
   /-(?:specific|based|like|style|class|level|family|compatible|era|only|powered|series|generation|native|aware|ready|friendly)$/;
 
-/** `gpt-5.6-and-later`, `gpt-4-turbo-and-gpt-4`: a sentence joined by hyphens, not one model. */
-const JOINED = /-(?:and|or|vs|versus|to|than|through)(?:-|$)/;
+/**
+ * `gpt-5.6-and-later`, `gpt-4-turbo-and-gpt-4`: a sentence joined by hyphens, not one model. And a
+ * page's path is one too -- LiteLLM's price table carried `kimi-k2-5-now-in-microsoft-foundry` and
+ * `kimi-k2-5-quickstart` from the links in its entries.
+ */
+const JOINED = /-(?:and|or|vs|versus|to|than|through|in|now|with|for|on|quickstart|demo|guide|docs)(?:-|$)/;
+
+/**
+ * A size, a quantisation, a host's throughput tier or region: one open-weight model served another
+ * way, not another model. Replayed from August, these were most of what gateways and coding agents
+ * named in the open families -- `qwen3-1p7b-fp8-draft`, `qwen3-coder-30b-a3b-instruct-gguf`,
+ * `deepseek-r1-0528-tput`, `kimi-k3-us`.
+ */
+const CHECKPOINT =
+  /-(?:a?\d+(?:p\d+)?[bm]|fp\d+|nvfp\d+|bf16|int\d+|w\d+a\d+|gguf|awq|gptq|mlx|tput|throughput|draft|maas|us|eu|global)(?:-|$)/;
 
 /** A file whose contents are recorded output, not anyone writing a model's name. */
 const IGNORED_FILE = /(^|\/)(package-lock\.json|bun\.lock|pnpm-lock\.yaml|yarn\.lock|Cargo\.lock|uv\.lock)$|\.snap$/;
@@ -112,7 +141,7 @@ function modelIdsInLines(lines: readonly string[]): Map<string, string> {
     for (const match of line.toLowerCase().matchAll(MODEL_ID)) {
       // A trailing dot is the end of a sentence, not a version.
       const id = match[0].replace(/[.-]+$/, "");
-      if (PROSE_SUFFIX.test(id) || JOINED.test(id)) continue;
+      if (PROSE_SUFFIX.test(id) || JOINED.test(id) || CHECKPOINT.test(id)) continue;
       if (!found.has(id)) found.set(id, line.trim().slice(0, 240));
     }
   }

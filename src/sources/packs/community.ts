@@ -110,18 +110,19 @@ export function communitySources({ db, config, cache }: SourceContext): SourceEn
   }
 
   for (const [index, watch] of MODEL_MENTION_REPOS.entries()) {
-    definitions.push({
-      id: mentionSource(watch.repo),
-      authority: watch.authority,
-      ...(watch.vendor ? { vendor: watch.vendor } : {}),
-      group: "GitHub",
-      stream: "github",
-      // One request when nothing moved; one more per commit when something did.
-      intervalSeconds: 600 + index * 20,
-      requiredCapabilities: ["GITHUB_TOKEN"],
-      capabilityId: "github",
-      collector: () => collectModelMentions(db, config, watch, fetch),
-    });
+    if (!watch.talkOnly)
+      definitions.push({
+        id: mentionSource(watch.repo),
+        authority: watch.authority,
+        ...(watch.vendor ? { vendor: watch.vendor } : {}),
+        group: "GitHub",
+        stream: "github",
+        // One request when nothing moved; one more per commit when something did.
+        intervalSeconds: 600 + index * 20,
+        requiredCapabilities: ["GITHUB_TOKEN"],
+        capabilityId: "github",
+        collector: () => collectModelMentions(db, config, watch, fetch),
+      });
     definitions.push({
       id: talkSource(watch.repo),
       authority: "third_party",

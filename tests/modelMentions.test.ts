@@ -239,9 +239,9 @@ test("hyphen-joined prose is not a model", () => {
 });
 
 test("an old or misspelt model users say answered them is older than what is listed", () => {
-  expect(familyVersion("gpt-5-6-thinking")).toEqual({ family: "gpt", version: [5] });
-  expect(familyVersion("claude-opus-5-1")).toEqual({ family: "claude-opus", version: [5, 1] });
-  expect(familyVersion("gemini-3.8-live")).toEqual({ family: "gemini", version: [3, 8] });
+  expect(familyVersion("gpt-5-6-thinking")).toEqual({ family: "gpt-", version: [5] });
+  expect(familyVersion("claude-opus-5-1")).toEqual({ family: "claude-opus-", version: [5, 1] });
+  expect(familyVersion("gemini-3.8-live")).toEqual({ family: "gemini-", version: [3, 8] });
   const db = openDatabase(":memory:");
   saveCollection(
     db,
@@ -336,4 +336,27 @@ test("a gateway is read only in its price table, never for an old model, and the
   });
   expect(ledger[0]?.cost_usd).toBeGreaterThan(0);
   db.close();
+});
+
+test("open models are found by family and version", () => {
+  const ids = modelIdsInPatch(
+    '+ models: ["kimi-k3-thinking", "deepseek-v4-flash", "qwen3.6-max-preview", "minimax-m3", "mistral-large-3", "devstral-small-2"] // qwen-max, deepseek-chat',
+  );
+  expect([...ids.keys()]).toEqual([
+    "kimi-k3-thinking",
+    "deepseek-v4-flash",
+    "qwen3.6-max-preview",
+    "minimax-m3",
+    "mistral-large-3",
+    "devstral-small-2",
+  ]);
+  expect(familyVersion("kimi-k2.5")).toEqual({ family: "kimi-k", version: [2, 5] });
+  expect(familyVersion("qwen3.6-max-preview")).toEqual({ family: "qwen", version: [3, 6] });
+});
+
+test("a checkpoint, a quantisation or a page's path is not a model", () => {
+  const ids = modelIdsInPatch(
+    '+ "qwen3-1p7b-fp8-draft", "qwen3-coder-30b-a3b-instruct-gguf", "deepseek-r1-0528-tput", "kimi-k3-us", "kimi-k2-5-now-in-microsoft-foundry", "kimi-k2-5-quickstart", "deepseek-v4.1-flash-beta", "gpt-6-astra-fast"',
+  );
+  expect([...ids.keys()]).toEqual(["deepseek-v4.1-flash-beta", "gpt-6-astra-fast"]);
 });

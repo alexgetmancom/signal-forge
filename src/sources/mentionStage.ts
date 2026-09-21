@@ -197,10 +197,12 @@ export function stageKnown(db: Database, id: string, stage: MentionStage): boole
 
 /** A family and its version: `gpt-5.6-luna` is gpt 5.6, `claude-opus-5-1` is claude-opus 5.1. */
 export function familyVersion(id: string): { family: string; version: number[] } | null {
-  const match = /^(gpt|gemini|grok|glm)-(\d+(?:\.\d+)?)(?![\d.])|^(claude-[a-z]+)-(\d+(?:[.-]\d{1,2})?)(?!\d)/.exec(
-    undated(id),
-  );
+  const match =
+    /^(gpt-|gemini-|grok-|glm-|kimi-k|deepseek-[vr]|qwen|minimax-m|(?:mistral|magistral|devstral|codestral)-(?:large-|medium-|small-)?)(\d+(?:\.\d+)?)(?![\d.])|^(claude-[a-z]+-)(\d+(?:[.-]\d{1,2})?)(?!\d)/.exec(
+      undated(id),
+    );
   if (!match) return null;
+  // The family is the text before the version, hyphen kept: `kimi-k` of `kimi-k2.5`, `qwen` of `qwen3.5`.
   const family = match[1] ?? match[3] ?? "";
   const version = (match[2] ?? match[4] ?? "").split(/[.-]/).map(Number);
   // models.dev writes `gpt-52` for gpt-5.2 and a Google post's path `gemini-15` for 1.5. No family
@@ -231,7 +233,7 @@ export function olderThanKnown(db: Database, id: string): boolean {
     .query<{ id: string }, [string]>(
       // Discovery records are repository names -- `gpt-6-astra-vs-gemini-3-8-flash` -- and page records
       // are paths, `/gemini-20-deep-dive-code-execution`; neither is a model.
-      `SELECT DISTINCT id FROM records WHERE NOT ${MENTION_SOURCES} AND source NOT LIKE 'discovery:%' AND source NOT LIKE 'pages:%' AND id NOT LIKE '/%' AND (id LIKE ?1 || '-%' OR id LIKE '%/' || ?1 || '-%')`,
+      `SELECT DISTINCT id FROM records WHERE NOT ${MENTION_SOURCES} AND source NOT LIKE 'discovery:%' AND source NOT LIKE 'pages:%' AND id NOT LIKE '/%' AND (id LIKE ?1 || '%' OR id LIKE '%/' || ?1 || '%')`,
     )
     .all(own.family);
   return rows.some((row) => {
