@@ -576,15 +576,29 @@ function numberBanner(
  * The confirmed reset in the announcer's own words: "Reset all propagated. Sweet dreams." is the
  * line people repost, so the card quotes it and names who said it rather than paraphrasing it.
  */
+/**
+ * The people who announce resets, by their X handle: the name a reader knows them by and the photo
+ * that sits in the corner, since a reset is his word before it is anything else.
+ */
+const ANNOUNCERS: Record<string, { name: string; photo: string }> = {
+  thsottiaux: { name: "Tibo, Codex at OpenAI", photo: "thsottiaux.png" },
+};
+
+const resetAuthor = (record: RecordData | null) =>
+  typeof record?.announcement === "string" ? record.announcement.match(/@(\w+)/)?.[1] : undefined;
+
+/** The announcer's own words, big enough to read in a screenshot, with who said them under. */
 function resetConfirmation(record: RecordData): string {
   const post = typeof record.summary === "string" ? record.summary.replace(/https:\/\/t\.co\/\S+/g, "").trim() : "";
-  const author = typeof record.announcement === "string" ? record.announcement.match(/@(\w+)/)?.[1] : undefined;
+  const author = resetAuthor(record);
   if (!post) return "Seen by the tracker without a post. Usage limits are back.";
   const quote = excerpt(post, 280)
     .split("\n")
-    .map((line) => `> ${line}`)
+    .filter((line) => line.trim())
+    .map((line) => `### ${line}`)
     .join("\n");
-  return author ? `${quote}\n— [@${author}](https://x.com/${author})` : quote;
+  if (!author) return quote;
+  return `${quote}\n— [${ANNOUNCERS[author]?.name ?? `@${author}`}](https://x.com/${author})`;
 }
 
 /** When a promised reset is due, if the tracker knows: "2026-09-22 18:00 UTC" as a Unix second. */
@@ -703,8 +717,11 @@ export function eventEmbed(
       ),
     },
   };
-  const thumbnail = vendorLogo(vendor);
-  const logo = thumbnail ? thumbnail.slice("attachment://".length) : null;
+  const logo = vendorLogo(vendor)?.slice("attachment://".length) ?? null;
+  // A confirmed reset shows the person who announced it rather than the maker's tile.
+  const announcer =
+    event.stream === "resets" && after?.stage === "Applied" ? ANNOUNCERS[resetAuthor(after) ?? ""] : undefined;
+  const thumbnail = announcer ? `attachment://${announcer.photo}` : logo ? `attachment://${logo}` : null;
   const words: Omit<Banner, "filename" | "logo"> | null = launch
     ? { eyebrow: bannerEyebrow(vendor, event.detected_at), title: name, chips: spec.chips, vendor }
     : numberBanner(event, before, after, vendor, name);
