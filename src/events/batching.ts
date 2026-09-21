@@ -16,7 +16,7 @@ import { departedAs, isOscillating, isReappearance, isScheduledPricingRotation }
 import { renamedEvents } from "./rename.js";
 import { type Attachment, eventAttachment } from "./render/attachment.js";
 import { pageEmbeds } from "./render/budget.js";
-import { eventEmbed } from "./render/discord.js";
+import { eventEmbed, isRoster, rosterEmbed } from "./render/discord.js";
 import type { LeadTime } from "./render/facts.js";
 import {
   parseLifecycleReminderContext,
@@ -790,30 +790,38 @@ export function prepareDeliveries(
           const corroboration = corroborationOfEvent(db, event.id);
           return corroboration ? [corroborationLine(corroboration)] : [];
         });
-        const embeds = items.map((group) =>
-          group.length > 1
-            ? storyEmbed(group, summaries, destination.detail)
-            : eventEmbed(
-                group[0] as StoryRenderEvent,
-                (group[0] as StoryRenderEvent).url,
-                summaries.get((group[0] as StoryRenderEvent).id),
-                destination.detail,
-              ),
-        );
+        const roster = !batch.digest && items.every((group) => group.length === 1) && isRoster(items.flat());
+        const rendered = roster
+          ? [rosterEmbed(items.flat(), destination.detail)]
+          : items.map((group) =>
+              group.length > 1
+                ? storyEmbed(group, summaries, destination.detail)
+                : eventEmbed(
+                    group[0] as StoryRenderEvent,
+                    (group[0] as StoryRenderEvent).url,
+                    summaries.get((group[0] as StoryRenderEvent).id),
+                    destination.detail,
+                  ),
+            );
+        const embeds = distinctLinks(rendered);
         // An embed and its evidence file travel together: the page an embed lands on decides
         // which message carries its attachment.
         const attachments = new Map<Record<string, unknown>, Attachment>();
         const behind = new Map<Record<string, unknown>, StoryRenderEvent[]>();
-        items.forEach((group, index) => {
-          const file = group.length === 1 ? eventAttachment(group[0] as StoryRenderEvent) : null;
-          const embed = embeds[index];
-          if (!embed) return;
-          if (file) attachments.set(embed, file);
-          behind.set(embed, group);
-        });
+        if (roster) behind.set(embeds[0] as Record<string, unknown>, items.flat());
+        else
+          items.forEach((group, index) => {
+            const file = group.length === 1 ? eventAttachment(group[0] as StoryRenderEvent) : null;
+            const embed = embeds[index];
+            if (!embed) return;
+            if (file) attachments.set(embed, file);
+            behind.set(embed, group);
+          });
         const pages = pageEmbeds(embeds);
         pages.forEach((page, index) => {
-          const content = index === 0 ? [header.trim(), ...tookOff, mentions].filter(Boolean).join("\n") : "";
+          // A roster card names its own count and catalogue; the "3 updates" line above it would repeat it.
+          const content =
+            index === 0 ? [roster ? "" : header.trim(), ...tookOff, mentions].filter(Boolean).join("\n") : "";
           const files = page.map((embed) => attachments.get(embed)).filter((file): file is Attachment => Boolean(file));
           const carried = page.flatMap((embed) => behind.get(embed) ?? []);
           // A page that continues one story hangs off the message that told it first, so the
@@ -864,4 +872,21 @@ export function prepareDeliveries(
     }
     if (seal || !hasSpeakingEvents) sealBatch(db, batch.id);
   }
+}
+
+/**
+ * Discord folds embeds of one message that share a link into the first of them, so three cards that
+ * all pointed at one catalogue page showed as one. A fragment keeps each link going to the same page
+ * while making it the card's own.
+ */
+function distinctLinks(embeds: Record<string, unknown>[]): Record<string, unknown>[] {
+  const seen = new Map<string, number>();
+  return embeds.map((embed) => {
+    if (typeof embed.url !== "string") return embed;
+    const count = seen.get(embed.url) ?? 0;
+    seen.set(embed.url, count + 1);
+    if (count === 0) return embed;
+    const [base] = embed.url.split("#");
+    return { ...embed, url: `${base}#${count + 1}` };
+  });
 }

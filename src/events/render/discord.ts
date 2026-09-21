@@ -7,7 +7,7 @@ import type { Event, RecordData } from "../types.js";
 import { DESCRIPTION_CHARACTERS } from "./budget.js";
 import { describe, type Fact, factText, pricePair, withoutMakerPrefix } from "./common.js";
 import { type CardContext, eventFactParts } from "./facts.js";
-import { sourceLogo, vendorLogo } from "./logos.js";
+import { sourceLogo, vendorColor, vendorLogo } from "./logos.js";
 
 const EYEBROWS: Record<string, string> = {
   "api-models": "MODEL CATALOGUE",
@@ -28,6 +28,9 @@ const EYEBROWS: Record<string, string> = {
 };
 
 const KIND_COLORS: Record<Event["kind"], number> = { new: 0x2ecc71, changed: 0xf1c40f, removed: 0xe74c3c };
+
+/** Streams where a new row is a model someone can use or download, told in its maker's colour. */
+const MODEL_STREAMS = new Set(["api-models", "openrouter", "weights"]);
 
 const KIND_ICONS: Record<Event["kind"], string> = { new: "🆕", changed: "✏️", removed: "🗑️" };
 
@@ -437,7 +440,12 @@ export function eventEmbed(
       ...(sourceIcon ? { icon_url: sourceIcon } : {}),
     },
     title: eventHeadline(event, name, incident).slice(0, 250),
-    color: incident?.color ?? (event.stream === "deprecations" ? 0xe67e22 : KIND_COLORS[event.kind]),
+    color:
+      incident?.color ??
+      (event.stream === "deprecations"
+        ? 0xe67e22
+        : ((event.kind === "new" && MODEL_STREAMS.has(event.stream) ? vendorColor(vendor) : null) ??
+          KIND_COLORS[event.kind])),
     ...(description ? { description } : {}),
     ...(fields.length ? { fields } : {}),
     // Discord renders its own timestamp in the reader's timezone, which is one line of card spent
@@ -457,3 +465,84 @@ export function eventEmbed(
   if (link) embed.url = link;
   return embed;
 }
+
+/**
+ * Several models arriving together, as one card: "3 new Xiaomi models" with a line for each.
+ *
+ * On 2026-09-21 Xiaomi's API listed MiMo V2.6 Flash, Pro and Pro Ultraspeed in one poll. The message
+ * carried three cards, but all three linked to the same catalogue page and Discord folds embeds that
+ * share a link into the first, so the channel showed Flash alone under "3 updates". A launch of a
+ * family is one piece of news, and a card that lists it is also the one worth a screenshot.
+ */
+export function rosterEmbed(
+  events: (Event & CardContext & { url: string })[],
+  detail: Detail = "evidence",
+): Record<string, unknown> {
+  const cards = events.map((event) => eventEmbed(event, event.url, undefined, detail));
+  const first = events[0] as Event & { url: string };
+  const record = first.after_json ? (JSON.parse(first.after_json) as RecordData) : null;
+  const vendor = vendorOf(first, record);
+  const maker = vendor === "Unknown" ? null : vendor;
+  const where = place(first.source);
+  const lines = cards.map((card, index) => {
+    const event = events[index] as Event;
+    const title = String(card.title ?? "").replace(/^\S+\s+/, "");
+    const fields = ((card.fields ?? []) as { name: string; value: string }[])
+      .filter((field) => !EVIDENCE_ONLY.has(field.name))
+      .slice(0, 3)
+      .map((field) => `${field.name} ${field.value}`);
+    const id = /\s/.test(event.entity_id) ? null : `\`${event.entity_id.split("/").at(-1)}\``;
+    // Every row of one catalogue usually links the same page, which the title already links.
+    const link = typeof card.url === "string" && card.url !== first.url ? `[${title}](${card.url})` : title;
+    return [`**${link}**${id ? ` · ${id}` : ""}`, ...(fields.length ? [`-# ${fields.join(" · ")}`] : [])].join("\n");
+  });
+  const embed: Record<string, unknown> = {
+    author: {
+      name: ["NEW MODELS", maker?.toUpperCase()].filter(Boolean).join(" · "),
+      ...(sourceLogo(first.source) ? { icon_url: sourceLogo(first.source) } : {}),
+    },
+    title: `🚀 ${events.length} new ${maker ? `${maker} ` : ""}models`,
+    color: vendorColor(vendor) ?? KIND_COLORS.new,
+    description: clipLines([`Added to ${where}.`, "", ...lines], DESCRIPTION_CHARACTERS),
+    timestamp: new Date(first.detected_at).toISOString(),
+    footer: { text: footerText(first.source, first.confidence ?? "observed", detail) },
+  };
+  const thumbnail = vendorLogo(vendor);
+  if (thumbnail) embed.thumbnail = { url: thumbnail };
+  if (first.url) embed.url = first.url;
+  return embed;
+}
+
+/** Whole lines up to the limit: a model's line is never cut in half. */
+function clipLines(lines: string[], limit: number): string {
+  let kept = "";
+  for (const line of lines) {
+    if (`${kept}\n${line}`.length > limit) break;
+    kept = kept ? `${kept}\n${line}` : line;
+  }
+  return kept;
+}
+
+/**
+ * A message of cards where each is one new model by one maker from the same catalogue reads as one
+ * roster. Two makers on a reseller's list are two stories, and past eight names a list is a wall.
+ */
+export function isRoster(events: readonly Event[]): boolean {
+  const first = events[0];
+  if (!first || events.length < 2 || events.length > MAX_ROSTER) return false;
+  const maker = (event: Event) =>
+    vendorOf(event, event.after_json ? (JSON.parse(event.after_json) as RecordData) : null);
+  const vendor = maker(first);
+  return (
+    vendor !== "Unknown" &&
+    events.every(
+      (event) =>
+        event.kind === "new" &&
+        MODEL_STREAMS.has(event.stream) &&
+        event.source === first.source &&
+        maker(event) === vendor,
+    )
+  );
+}
+
+const MAX_ROSTER = 8;

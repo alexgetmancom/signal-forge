@@ -23,7 +23,34 @@ const VENDOR_LOGOS: Record<string, string> = {
   MiniMax: "minimax",
   ByteDance: "bytedance",
   Tencent: "tencent",
+  Xiaomi: "xiaomi",
 };
+
+/**
+ * Each maker's own colour, for the stripe beside a card that introduces one of its models. The
+ * logos are the same colour tiles, so the stripe and the corner read as one brand in a screenshot.
+ */
+const VENDOR_COLORS: Record<string, number> = {
+  OpenAI: 0x000000,
+  Anthropic: 0xd97757,
+  Google: 0x4285f4,
+  xAI: 0xffffff,
+  DeepSeek: 0x4d6bfe,
+  Qwen: 0x615ced,
+  NVIDIA: 0x76b900,
+  Moonshot: 0x000000,
+  "Z.ai": 0x1f63ec,
+  Meta: 0x0668e1,
+  Mistral: 0xfa520f,
+  MiniMax: 0xe73562,
+  ByteDance: 0x325ab4,
+  Tencent: 0x0052d9,
+  Xiaomi: 0xff6900,
+};
+
+export function vendorColor(vendor: string): number | null {
+  return VENDOR_COLORS[vendor] ?? null;
+}
 
 const SOURCE_LOGOS: [RegExp, string][] = [
   [/^openrouter(?:-usage)?$/, "openrouter"],
