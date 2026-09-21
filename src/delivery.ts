@@ -6,6 +6,7 @@ import { prepareDeliveries } from "./events/batching.js";
 import { releaseSettledMoves } from "./events/cooldown.js";
 import { type Banner, bannerPng } from "./events/render/banner.js";
 import { logoFiles } from "./events/render/logos.js";
+import { CAPTION_LIMIT, clipHtml, TEXT_LIMIT, telegramMessage, visibleLength } from "./events/render/telegramCard.js";
 import type { Fetch } from "./http-client.js";
 import { log } from "./logger.js";
 import { measure } from "./runtime/metrics.js";
@@ -89,6 +90,14 @@ const rateLimit = z.object({
 /** Discord takes a message and its files as one multipart request with the payload as a field. */
 function multipart(prepared: PreparedDelivery): FormData {
   const form = new FormData();
+  // Telegram takes each field as its own part and the photo by name; Discord takes one JSON part.
+  if (prepared.destination.platform === "telegram") {
+    for (const [key, value] of Object.entries(prepared.body as Record<string, unknown>))
+      if (value !== undefined) form.append(key, String(value));
+    const [photo] = prepared.files ?? [];
+    if (photo) form.append("photo", new Blob([photo.content], { type: "image/png" }), photo.filename);
+    return form;
+  }
   form.append("payload_json", JSON.stringify(prepared.body));
   (prepared.files ?? []).forEach((file, index) => {
     const type = typeof file.content === "string" ? "text/plain" : "image/png";
@@ -149,17 +158,38 @@ export async function deliverPending(db: Database, config: AppConfig, request: F
           const destination = destinationSchema.parse(JSON.parse(job.destination_json));
           if (destination.platform === "telegram") {
             if (!config.TELEGRAM_BOT_TOKEN) throw new Error("missing Telegram token");
-            prepared = {
-              destination,
-              url: `https://api.telegram.org/bot${config.TELEGRAM_BOT_TOKEN}/sendMessage`,
-              headers: { "content-type": "application/json" },
-              body: {
-                chat_id: destination.chatId,
-                message_thread_id: destination.topicId,
-                text: job.body,
-                link_preview_options: { is_disabled: true },
-              },
-            };
+            const message = telegramMessage(job.body);
+            const text = visibleLength(message.html) > TEXT_LIMIT ? clipHtml(message.html) : message.html;
+            // A picture carries a caption of a quarter of a message; a longer card is sent as text.
+            let photo: { filename: string; content: Uint8Array } | null = null;
+            if (message.photo && visibleLength(text) <= CAPTION_LIMIT) {
+              try {
+                photo =
+                  "banner" in message.photo
+                    ? { filename: message.photo.banner.filename, content: await bannerPng(message.photo.banner) }
+                    : (logoFiles(`attachment://${message.photo.filename}`)[0] ?? null);
+              } catch (failure) {
+                log("warn", "Banner not drawn", {
+                  error: failure instanceof Error ? failure.message : String(failure),
+                });
+              }
+            }
+            const base = `https://api.telegram.org/bot${config.TELEGRAM_BOT_TOKEN}`;
+            const common = { chat_id: destination.chatId, message_thread_id: destination.topicId, parse_mode: "HTML" };
+            prepared = photo
+              ? {
+                  destination,
+                  url: `${base}/sendPhoto`,
+                  headers: {},
+                  body: { ...common, caption: text },
+                  files: [photo],
+                }
+              : {
+                  destination,
+                  url: `${base}/sendMessage`,
+                  headers: { "content-type": "application/json" },
+                  body: { ...common, text, link_preview_options: { is_disabled: true } },
+                };
           } else {
             if (!config.DISCORD_BOT_TOKEN) throw new Error("missing Discord token");
             const parsed = job.body.startsWith("{")

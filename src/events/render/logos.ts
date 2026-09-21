@@ -83,3 +83,8 @@ export function logoFiles(payload: unknown): { filename: string; content: Uint8A
     return existsSync(path) ? [{ filename, content: readFileSync(path) }] : [];
   });
 }
+
+/** People's photos beside the logos: a card shows one where a person's word is the news. */
+const PORTRAITS = new Set(["thsottiaux.png"]);
+
+export const isPortrait = (filename: string) => PORTRAITS.has(filename);

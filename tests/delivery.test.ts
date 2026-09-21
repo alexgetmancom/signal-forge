@@ -11,6 +11,7 @@ import {
   pageEmbeds,
 } from "../src/events/render/budget.js";
 import { logoFiles, sourceLogo, vendorLogo } from "../src/events/render/logos.js";
+import { telegramMessage } from "../src/events/render/telegramCard.js";
 import { SIGNAL_CLASSES } from "../src/events/signals.js";
 import type { Collection } from "../src/events/types.js";
 import { listActionableIssues } from "../src/reports/issues.js";
@@ -591,7 +592,7 @@ test("a digest past its cap says why each withheld story stayed quiet, and every
   local.close();
 });
 
-test("a Telegram digest split into parts links each story to the part that tells it", () => {
+test("a Telegram digest links each story to the message that tells it", () => {
   const local = openDatabase(":memory:");
   const telegram: Destination[] = [{ id: "tg", platform: "telegram", chatId: "-1", signals: [...SIGNAL_CLASSES] }];
   const status = (ids: string[]): Collection => ({
@@ -611,7 +612,6 @@ test("a Telegram digest split into parts links each story to the part that tells
   prepareDeliveries(local, Date.parse("2026-09-08T12:00:00.000Z"));
 
   const parts = local.query<{ id: number; body: string }, []>("SELECT id,body FROM deliveries ORDER BY part").all();
-  expect(parts.length).toBeGreaterThan(1);
   const links = local
     .query<{ entity_id: string; delivery_id: number }, []>(
       "SELECT e.entity_id,de.delivery_id FROM delivery_events de JOIN events e ON e.id=de.event_id",
@@ -620,10 +620,8 @@ test("a Telegram digest split into parts links each story to the part that tells
   for (const id of ["s1", "s2", "s3", "s4", "s5"]) {
     const bodies = parts.filter((part) => links.some((link) => link.entity_id === id && link.delivery_id === part.id));
     expect(bodies.length).toBeGreaterThan(0);
-    expect(bodies.map((part) => part.body).join("")).toContain(`service ${id} `);
+    expect(bodies.map((part) => telegramMessage(part.body).html).join("")).toContain(`service ${id} `);
   }
-  // The story cut in two is linked to both halves.
-  expect(links.length).toBeGreaterThan(5);
   local.close();
 });
 

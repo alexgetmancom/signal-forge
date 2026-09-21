@@ -36,6 +36,8 @@ export const destinationSchema = z.discriminatedUnion("platform", [
     chatId: z.string().regex(/^-?\d+$/),
     topicId: z.number().int().positive().optional(),
     signals,
+    /** As a Discord channel's: a Telegram topic reads the same cards, told in its markup. */
+    detail: z.enum(["brief", "evidence"]).optional(),
   }),
   z.object({
     id: z.string().min(1),

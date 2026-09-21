@@ -385,6 +385,13 @@ function weekPoster(context: RecapContext): Banner | null {
   };
 }
 
+/**
+ * Discord and Telegram read the same cards: a card is stored as Discord writes it and a Telegram
+ * message is told from it when it is sent. Plain text is what a platform without cards gets.
+ */
+const readsCards = (destination: Destination) =>
+  destination.platform === "discord" || destination.platform === "telegram";
+
 function prepareRecap(db: Database, batch: PendingBatch, targets: BatchTarget[], now: number): void {
   const context = recapContextSchema.parse(JSON.parse(batch.context_json ?? "{}"));
   for (const target of targets) {
@@ -394,19 +401,18 @@ function prepareRecap(db: Database, batch: PendingBatch, targets: BatchTarget[],
     if (!lines.length) continue;
     const embed = renderRecapEmbed(context, destination.signals);
     const poster = weekPoster(context);
-    const body =
-      destination.platform === "discord"
-        ? JSON.stringify({
-            content: "",
-            // The poster says what the author line would; the text below it stays as the week's detail.
-            embeds: [
-              poster && embed
-                ? { ...embed, author: undefined, image: { url: `attachment://${poster.filename}` } }
-                : embed,
-            ],
-            ...(poster ? { banners: [poster] } : {}),
-          })
-        : lines.join("\n");
+    const body = readsCards(destination)
+      ? JSON.stringify({
+          content: "",
+          // The poster says what the author line would; the text below it stays as the week's detail.
+          embeds: [
+            poster && embed
+              ? { ...embed, author: undefined, image: { url: `attachment://${poster.filename}` } }
+              : embed,
+          ],
+          ...(poster ? { banners: [poster] } : {}),
+        })
+      : lines.join("\n");
     upsertDelivery(db, batch.id, target, body, 0, now, false);
   }
   sealBatch(db, batch.id);
@@ -427,7 +433,7 @@ function prepareLifecycleReminder(
   const context = parseLifecycleReminderContext(JSON.parse(batch.context_json));
   for (const target of targets) {
     const destination = JSON.parse(target.destination_json) as Destination;
-    if (destination.platform === "discord") {
+    if (readsCards(destination)) {
       upsertDelivery(
         db,
         batch.id,
@@ -796,7 +802,7 @@ export function prepareDeliveries(
           );
       };
 
-      if (destination.platform === "discord") {
+      if (readsCards(destination)) {
         const pinged = batch.digest ? [] : speaking.filter(pingWorthy);
         const roles = [
           // A reader who follows everything is mentioned beside the vendor roles, never instead
@@ -852,7 +858,8 @@ export function prepareDeliveries(
             if (file) attachments.set(embed, file);
             behind.set(embed, group);
           });
-        const pages = pageEmbeds(embeds);
+        // Telegram counts a message's characters to 4096; the markup and the footer lines take the rest.
+        const pages = pageEmbeds(embeds, destination.platform === "telegram" ? 3200 : undefined);
         pages.forEach((page, index) => {
           // A roster card names its own count and catalogue; the "3 updates" line above it would repeat it.
           const content =

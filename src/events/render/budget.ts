@@ -45,14 +45,15 @@ function fitAlone(embed: Embed): Embed {
  * Splits embeds into messages that respect both the count and the character budget. Order is
  * preserved, and no embed is dropped: one that cannot share a message gets one of its own.
  */
-export function pageEmbeds(embeds: Embed[]): Embed[][] {
+/** `budget` is the platform's budget: Telegram fits a message of cards in 4096 where Discord fits 6000. */
+export function pageEmbeds(embeds: Embed[], budget = MESSAGE_CHARACTERS): Embed[][] {
   const pages: Embed[][] = [];
   let page: Embed[] = [];
   let characters = 0;
   for (const embed of embeds) {
     const fitted = fitAlone(embed);
     const size = embedCharacters(fitted);
-    if (page.length > 0 && (page.length >= EMBEDS_PER_MESSAGE || characters + size > MESSAGE_CHARACTERS)) {
+    if (page.length > 0 && (page.length >= EMBEDS_PER_MESSAGE || characters + size > budget)) {
       pages.push(page);
       page = [];
       characters = 0;

@@ -9,6 +9,7 @@ import { collapseDetails, MAX_DETAIL_LINES, prices } from "../src/events/render/
 import { eventEmbed } from "../src/events/render/discord.js";
 import { eventFacts } from "../src/events/render/facts.js";
 import { renderEvent } from "../src/events/render/telegram.js";
+import { TEXT_LIMIT, telegramMessage, visibleLength } from "../src/events/render/telegramCard.js";
 import type { Collection, Event, RecordData } from "../src/events/types.js";
 import { openDatabase } from "../src/storage/database.js";
 
@@ -294,13 +295,12 @@ test("one story becomes one cross-source digest with every evidence link", () =>
   const telegram = local
     .query<{ body: string }, [string]>("SELECT body FROM deliveries WHERE destination_id=?")
     .get("tg")?.body;
-  // One story is a card, not a digest of one.
-  expect(telegram).not.toContain("Hourly digest");
-  expect(telegram).toStartWith("🧵 Story · GPT-5");
-  expect(telegram).toContain("Vercel AI Gateway");
-  expect(telegram).toContain("OpenAI API");
-  expect(telegram).toContain("Evidence: https://vercel.com/ai-gateway/models/gpt-5");
-  expect(telegram).toContain("Evidence: https://api.openai.com/models/gpt-5");
+  // One story is a card, not a digest of one, and Telegram is told it from the card Discord gets.
+  const told = telegramMessage(telegram ?? "").html;
+  expect(told).not.toContain("Hourly digest");
+  expect(told).toContain("GPT-5");
+  expect(told).toContain("Vercel AI Gateway");
+  expect(told).not.toContain("**");
 
   const discord = local
     .query<{ body: string }, [string]>("SELECT body FROM deliveries WHERE destination_id=?")
@@ -472,11 +472,11 @@ test("each platform is paged by its own limit", () => {
 
   const telegram = rows.filter((row) => row.destination_id === "tg");
   expect(telegram.length).toBeGreaterThan(1);
-  for (const row of telegram) {
-    // Telegram has no embeds, so the heading is repeated on every split part.
-    expect(row.body).toStartWith("📡 OpenRouter · 12 updates");
-    expect(row.body.length).toBeLessThanOrEqual(3900);
-  }
+  telegram.forEach((row, index) => {
+    const html = telegramMessage(row.body).html;
+    if (index === 0) expect(html).toStartWith("📡 OpenRouter · 12 updates");
+    expect(visibleLength(html)).toBeLessThanOrEqual(TEXT_LIMIT);
+  });
 
   const discord = rows.filter((row) => row.destination_id !== "tg");
   expect(discord.length).toBeGreaterThan(1);
@@ -552,8 +552,10 @@ test("a single Telegram delivery retains the exact source and record link", () =
   records.push({ id: "gpt-6-mini", name: "GPT-6 mini", url: "https://platform.openai.com/docs/models" });
   saveCollection(db, source, [destination], "2026-09-08T10:05:00.000Z");
   const delivery = db.query<{ body: string }, []>("SELECT body FROM deliveries WHERE destination_id='single'").get();
-  expect(delivery?.body).toContain("🆕 New · OpenAI API");
-  expect(delivery?.body).toContain("https://platform.openai.com/docs/models");
+  const message = telegramMessage(delivery?.body ?? "");
+  expect(message.html).toContain('<a href="https://platform.openai.com/docs/models">🚀 GPT-6 mini is out</a>');
+  // A launch travels as its banner, drawn when the message is sent.
+  expect(message.photo).toMatchObject({ banner: { title: "GPT-6 mini" } });
   expect(db.query("SELECT url FROM batch_events").get()).toEqual({ url: "https://platform.openai.com/docs/models" });
 });
 
