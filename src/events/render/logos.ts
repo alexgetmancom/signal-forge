@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 /**
@@ -76,8 +76,9 @@ export function sourceLogo(source: string): string | null {
 /** The logo files a Discord payload refers to, each once however many cards on the page share it. */
 export function logoFiles(payload: unknown): { filename: string; content: Uint8Array }[] {
   const names = new Set([...JSON.stringify(payload).matchAll(ATTACHMENT)].map((match) => match[1] as string));
-  return [...names].map((filename) => ({
-    filename,
-    content: readFileSync(fileURLToPath(new URL(`./logos/${filename}`, import.meta.url))),
-  }));
+  // A launch banner is an attachment too, drawn at send time rather than kept here.
+  return [...names].flatMap((filename) => {
+    const path = fileURLToPath(new URL(`./logos/${filename}`, import.meta.url));
+    return existsSync(path) ? [{ filename, content: readFileSync(path) }] : [];
+  });
 }

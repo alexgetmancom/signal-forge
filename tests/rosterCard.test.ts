@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { type Banner, bannerPng } from "../src/events/render/banner.js";
 import { isRoster, rosterEmbed } from "../src/events/render/discord.js";
+import { logoFiles } from "../src/events/render/logos.js";
 import type { Event } from "../src/events/types.js";
 
 const model = (id: string, name: string, source = "mimo"): Event & { url: string } => ({
@@ -51,4 +52,11 @@ test("a launch banner draws as a PNG", async () => {
     logo: "xai.png",
   });
   expect([...png.slice(1, 4)].map((byte) => String.fromCharCode(byte)).join("")).toBe("PNG");
+});
+
+test("a banner in a payload is not looked for among the logos", () => {
+  const payload = {
+    embeds: [{ image: { url: "attachment://banner-x.png" }, thumbnail: { url: "attachment://xai.png" } }],
+  };
+  expect(logoFiles(payload).map((file) => file.filename)).toEqual(["xai.png"]);
 });
