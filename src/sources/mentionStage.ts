@@ -151,9 +151,9 @@ export function familyVersion(id: string): { family: string; version: number[] }
   if (!match) return null;
   const family = match[1] ?? match[3] ?? "";
   const version = (match[2] ?? match[4] ?? "").split(/[.-]/).map(Number);
-  // models.dev writes `gpt-52` for gpt-5.2 and `gpt-56-luna` for gpt-5.6-luna. No family here is
-  // past version twenty, so a larger number is a spelling, not a version.
-  if ((version[0] ?? 0) > 20) return null;
+  // models.dev writes `gpt-52` for gpt-5.2 and a Google post's path `gemini-15` for 1.5. No family
+  // here is past version twelve, so a larger number is a spelling, not a version.
+  if ((version[0] ?? 0) > 12) return null;
   return { family, version };
 }
 
@@ -177,8 +177,9 @@ export function olderThanKnown(db: Database, id: string): boolean {
   if (!own) return false;
   const rows = db
     .query<{ id: string }, [string]>(
-      // Discovery records are repository names -- `gpt-6-astra-vs-gemini-3-8-flash` -- not models.
-      `SELECT DISTINCT id FROM records WHERE NOT ${MENTION_SOURCES} AND source NOT LIKE 'discovery:%' AND (id LIKE ?1 || '-%' OR id LIKE '%/' || ?1 || '-%')`,
+      // Discovery records are repository names -- `gpt-6-astra-vs-gemini-3-8-flash` -- and page records
+      // are paths, `/gemini-20-deep-dive-code-execution`; neither is a model.
+      `SELECT DISTINCT id FROM records WHERE NOT ${MENTION_SOURCES} AND source NOT LIKE 'discovery:%' AND source NOT LIKE 'pages:%' AND id NOT LIKE '/%' AND (id LIKE ?1 || '-%' OR id LIKE '%/' || ?1 || '-%')`,
     )
     .all(own.family);
   return rows.some((row) => {
