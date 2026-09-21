@@ -4,6 +4,7 @@ import { applyCardAmendments, queueIncidentAmendments } from "./amendments.js";
 import { type AppConfig, type Destination, destinationSchema } from "./config.js";
 import { prepareDeliveries } from "./events/batching.js";
 import { releaseSettledMoves } from "./events/cooldown.js";
+import { type Banner, bannerPng } from "./events/render/banner.js";
 import { logoFiles } from "./events/render/logos.js";
 import type { Fetch } from "./http-client.js";
 import { log } from "./logger.js";
@@ -59,11 +60,16 @@ type PreparedDelivery = {
 function withoutMissingLogos(embed: Record<string, unknown>, carried: Set<string>): Record<string, unknown> {
   const missing = (url: unknown) =>
     typeof url === "string" && url.startsWith("attachment://") && !carried.has(url.slice("attachment://".length));
-  const { thumbnail, author, ...rest } = embed as { thumbnail?: { url?: unknown }; author?: { icon_url?: unknown } };
+  const { thumbnail, image, author, ...rest } = embed as {
+    thumbnail?: { url?: unknown };
+    image?: { url?: unknown };
+    author?: { icon_url?: unknown };
+  };
   const { icon_url, ...name } = author ?? {};
   return {
     ...rest,
     ...(thumbnail && !missing(thumbnail.url) ? { thumbnail } : {}),
+    ...(image && !missing(image.url) ? { image } : {}),
     ...(author ? { author: missing(icon_url) ? name : author } : {}),
   };
 }
@@ -159,12 +165,28 @@ export async function deliverPending(db: Database, config: AppConfig, request: F
             const parsed = job.body.startsWith("{")
               ? (JSON.parse(job.body) as Record<string, unknown>)
               : { content: job.body };
-            const { files: evidence = [], ...payload } = parsed as Record<string, unknown> & {
+            const {
+              files: text = [],
+              banners = [],
+              ...payload
+            } = parsed as Record<string, unknown> & {
               files?: { filename: string; content: string }[];
+              banners?: Banner[];
             };
+            const evidence: { filename: string; content: string | Uint8Array }[] = [...text];
+            // A banner that fails to draw costs the card its picture, never the message.
+            for (const banner of banners.slice(0, MAX_FILES - evidence.length)) {
+              try {
+                evidence.push({ filename: banner.filename, content: await bannerPng(banner) });
+              } catch (failure) {
+                log("warn", "Banner not drawn", {
+                  error: failure instanceof Error ? failure.message : String(failure),
+                });
+              }
+            }
             // Evidence first: a logo is decoration, and one that does not fit is taken off the card.
             const logos = logoFiles(payload).slice(0, Math.max(0, MAX_FILES - evidence.length));
-            const carried = new Set(logos.map((logo) => logo.filename));
+            const carried = new Set([...logos, ...evidence].map((file) => file.filename));
             if (Array.isArray(payload.embeds))
               payload.embeds = (payload.embeds as Record<string, unknown>[]).map((embed) =>
                 withoutMissingLogos(embed, carried),

@@ -2,8 +2,9 @@ import { sourceLabel } from "../../sources/labels.js";
 import { readerStanding } from "../confidence.js";
 import { vendorOf } from "../interpretation.js";
 import { displayTitle } from "../naming.js";
-import { boardPlace, DEBUT_PLACES, scoredDebutIndex } from "../signals.js";
+import { boardPlace, DEBUT_PLACES, listsAnotherMakersModel, scoredDebutIndex } from "../signals.js";
 import type { Event, RecordData } from "../types.js";
+import type { Banner } from "./banner.js";
 import { DESCRIPTION_CHARACTERS } from "./budget.js";
 import { describe, type Fact, factText, pricePair, withoutMakerPrefix } from "./common.js";
 import { type CardContext, eventFactParts } from "./facts.js";
@@ -391,6 +392,39 @@ export function footerText(source: string, confidence: string, detail: Detail, c
   ].join(" · ");
 }
 
+/**
+ * A model its own maker has put in its own catalogue: the moment a release is real, and the card
+ * that gets screenshotted. A reseller listing the same model is availability, not the launch.
+ */
+function isLaunch(event: Event, vendor: string): boolean {
+  return (
+    event.kind === "new" && event.stream === "api-models" && vendor !== "Unknown" && !listsAnotherMakersModel(event)
+  );
+}
+
+/** Context and price, the two numbers a reader weighs a new model by, lifted out of the fields. */
+function specLine(facts: Fact[]): { line: string | null; chips: string[]; rest: Fact[] } {
+  const pick = (label: string) =>
+    facts.find((fact): fact is Exclude<Fact, string> => typeof fact !== "string" && fact.label === label);
+  const context = pick("Context");
+  const price = pick("Price");
+  const chips = [
+    ...(context ? [`${context.value} context`] : []),
+    ...(price ? [price.value.replace(/\s*\/\s*1M tokens$/, "")] : []),
+  ];
+  const line = [
+    ...(context ? [`**${context.value}** context`] : []),
+    ...(price ? [`**${price.value.replace(/\s*\/\s*1M tokens$/, "")}** per 1M tokens`] : []),
+  ].join(" · ");
+  return { line: line || null, chips, rest: facts.filter((fact) => fact !== context && fact !== price) };
+}
+
+const bannerName = (key: string) =>
+  `banner-${key
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .slice(0, 60)}.png`;
+
 export function eventEmbed(
   event: Event & CardContext,
   url: string,
@@ -418,15 +452,23 @@ export function eventEmbed(
     (fact) =>
       detail === "evidence" || (typeof fact === "string" ? !/^> [+−] /.test(fact) : !EVIDENCE_ONLY.has(fact.label)),
   );
-  const { lines, fields } = factLayout(facts);
-  // The name a scout copies into an API call, when the headline prettified it.
+  const launch = isLaunch(event, vendor);
+  const newModel = event.kind === "new" && MODEL_STREAMS.has(event.stream);
+  const spec = newModel ? specLine(facts) : { line: null, chips: [], rest: facts };
+  const { lines, fields } = factLayout(spec.rest);
+  // The name a developer copies into an API call: on every new model, and for a scout whenever the
+  // headline prettified it.
+  const bareId = String(record?.id ?? event.entity_id);
   const handle =
-    detail === "evidence" && rawName !== name && !/\s/.test(rawName) && event.stream !== "packages"
-      ? `\`${rawName}\``
-      : null;
+    newModel && !/\s/.test(bareId)
+      ? `\`${bareId}\``
+      : detail === "evidence" && rawName !== name && !/\s/.test(rawName) && event.stream !== "packages"
+        ? `\`${rawName}\``
+        : null;
   const description = [
     ...(summary ? [`*${summary}*`] : []),
     ...(shaped.sentence ? [shaped.sentence] : []),
+    ...(spec.line ? [spec.line] : []),
     ...lines,
     ...(handle ? [handle] : []),
   ]
@@ -436,10 +478,17 @@ export function eventEmbed(
   const sourceIcon = sourceLogo(event.source);
   const embed: Record<string, unknown> = {
     author: {
-      name: [eyebrow(event), vendor === "Unknown" ? null : vendor.toUpperCase()].filter(Boolean).join(" · "),
+      name: [launch ? "NEW MODEL" : eyebrow(event), vendor === "Unknown" ? null : vendor.toUpperCase()]
+        .filter(Boolean)
+        .join(" · "),
       ...(sourceIcon ? { icon_url: sourceIcon } : {}),
     },
-    title: eventHeadline(event, name, incident).slice(0, 250),
+    title: (launch
+      ? `🚀 ${name} is out`
+      : newModel && event.stream !== "weights"
+        ? `🆕 ${name} on ${place(event.source)}`
+        : eventHeadline(event, name, incident)
+    ).slice(0, 250),
     color:
       incident?.color ??
       (event.stream === "deprecations"
@@ -461,9 +510,32 @@ export function eventEmbed(
     },
   };
   const thumbnail = vendorLogo(vendor);
-  if (thumbnail) embed.thumbnail = { url: thumbnail };
+  if (launch) {
+    const banner: Banner = {
+      filename: bannerName(`${event.source}-${event.entity_id}`),
+      eyebrow: `New model · ${vendor}`,
+      title: name,
+      chips: spec.chips,
+      vendor,
+      logo: thumbnail ? thumbnail.slice("attachment://".length) : null,
+    };
+    // The banner carries the maker's tile, so the corner stays empty rather than showing it twice.
+    embed.image = { url: `attachment://${banner.filename}` };
+    embed.banner = banner;
+  } else if (thumbnail) embed.thumbnail = { url: thumbnail };
   if (link) embed.url = link;
   return embed;
+}
+
+/** The words two names share at the start: "MiMo V2.6" of "MiMo V2.6 Flash" and "MiMo V2.6 Pro". */
+function sharedStem(names: string[]): string {
+  const split = names.map((name) => name.split(/\s+/));
+  const stem: string[] = [];
+  for (const [index, word] of (split[0] ?? []).entries()) {
+    if (split.every((words) => words[index]?.toLowerCase() === word.toLowerCase())) stem.push(word);
+    else break;
+  }
+  return stem.join(" ");
 }
 
 /**
@@ -486,7 +558,11 @@ export function rosterEmbed(
   const where = place(first.source);
   const lines = cards.map((card, index) => {
     const event = events[index] as Event;
-    const title = String(card.title ?? "").replace(/^\S+\s+/, "");
+    const title = String(card.title ?? "")
+      .replace(/^\S+\s+/, "")
+      .replace(/ (?:is out|on .+)$/, "");
+    const spec =
+      typeof card.description === "string" ? /^\*\*.+ context.*$|^\*\*.+per 1M tokens$/m.exec(card.description) : null;
     const fields = ((card.fields ?? []) as { name: string; value: string }[])
       .filter((field) => !EVIDENCE_ONLY.has(field.name))
       .slice(0, 3)
@@ -494,7 +570,8 @@ export function rosterEmbed(
     const id = /\s/.test(event.entity_id) ? null : `\`${event.entity_id.split("/").at(-1)}\``;
     // Every row of one catalogue usually links the same page, which the title already links.
     const link = typeof card.url === "string" && card.url !== first.url ? `[${title}](${card.url})` : title;
-    return [`**${link}**${id ? ` · ${id}` : ""}`, ...(fields.length ? [`-# ${fields.join(" · ")}`] : [])].join("\n");
+    const under = [...(spec ? [spec[0].replace(/\*\*/g, "")] : []), ...fields];
+    return [`**${link}**${id ? ` · ${id}` : ""}`, ...(under.length ? [`-# ${under.join(" · ")}`] : [])].join("\n");
   });
   const embed: Record<string, unknown> = {
     author: {
@@ -508,7 +585,24 @@ export function rosterEmbed(
     footer: { text: footerText(first.source, first.confidence ?? "observed", detail) },
   };
   const thumbnail = vendorLogo(vendor);
-  if (thumbnail) embed.thumbnail = { url: thumbnail };
+  if (maker && isLaunch(first, vendor)) {
+    const names = cards.map((card) =>
+      String(card.title ?? "")
+        .replace(/^\S+\s+/, "")
+        .replace(/ is out$/, ""),
+    );
+    const stem = sharedStem(names);
+    const banner: Banner = {
+      filename: bannerName(`${first.source}-${first.entity_id}-roster`),
+      eyebrow: `${events.length} new models · ${maker}`,
+      title: stem || `${events.length} new models`,
+      chips: names.map((name) => (stem ? name.slice(stem.length).trim() : name) || name),
+      vendor,
+      logo: thumbnail ? thumbnail.slice("attachment://".length) : null,
+    };
+    embed.image = { url: `attachment://${banner.filename}` };
+    embed.banner = banner;
+  } else if (thumbnail) embed.thumbnail = { url: thumbnail };
   if (first.url) embed.url = first.url;
   return embed;
 }

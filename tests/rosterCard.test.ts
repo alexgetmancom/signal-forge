@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { type Banner, bannerPng } from "../src/events/render/banner.js";
 import { isRoster, rosterEmbed } from "../src/events/render/discord.js";
 import type { Event } from "../src/events/types.js";
 
@@ -23,7 +24,13 @@ test("models arriving together from one catalogue are one card that names every 
   expect(isRoster(events)).toBe(true);
   const card = rosterEmbed(events, "brief");
   expect(card.title).toBe("🚀 3 new Xiaomi models");
-  expect(card.thumbnail).toEqual({ url: "attachment://xiaomi.png" });
+  // Xiaomi's own catalogue: a launch, so the maker's tile is in the banner rather than the corner.
+  expect(card.image).toEqual({ url: `attachment://${(card.banner as Banner).filename}` });
+  expect(card.banner).toMatchObject({
+    title: "Mimo V2.6",
+    chips: ["Flash", "Pro", "Pro Ultraspeed"],
+    logo: "xiaomi.png",
+  });
   expect(card.color).toBe(0xff6900);
   for (const id of ["mimo-v2.6-flash", "mimo-v2.6-pro", "mimo-v2.6-pro-ultraspeed"])
     expect(String(card.description)).toContain(`\`${id}\``);
@@ -32,4 +39,16 @@ test("models arriving together from one catalogue are one card that names every 
 test("one model, or models from two catalogues, are not a roster", () => {
   expect(isRoster([model("a", "A")])).toBe(false);
   expect(isRoster([model("a", "A"), model("b", "B", "openrouter")])).toBe(false);
+});
+
+test("a launch banner draws as a PNG", async () => {
+  const png = await bannerPng({
+    filename: "banner-x.png",
+    eyebrow: "New model · xAI",
+    title: "Grok 4.7",
+    chips: ["500K context", "$2 in · $10 out"],
+    vendor: "xAI",
+    logo: "xai.png",
+  });
+  expect([...png.slice(1, 4)].map((byte) => String.fromCharCode(byte)).join("")).toBe("PNG");
 });

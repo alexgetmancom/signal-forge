@@ -586,7 +586,7 @@ test("a Discord card leads with the name and says what it means in one line", ()
     thumbnail: { url: "attachment://openai.png" },
     author: { icon_url: "attachment://openrouter.png" },
   });
-  expect(embed.title).toBe("🆕 GPT-6");
+  expect(embed.title).toBe("🆕 GPT-6 on OpenRouter");
   expect(embed.description).toStartWith("Added to OpenRouter.");
   expect(embed.footer.text).toBe("OpenRouter · confirmed by the provider");
   // A news reader's card names the source and nothing about how sure it is.

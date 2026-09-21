@@ -827,10 +827,13 @@ export function prepareDeliveries(
           // A page that continues one story hangs off the message that told it first, so the
           // reveal of a codename carries a jump back to the sighting rather than repeating it.
           const replyTo = index === 0 ? firstTelling(db, carried, storyIds, target.destination_id) : null;
+          // A banner's words travel beside the embeds, and its picture is drawn when the message is sent.
+          const banners = page.flatMap((embed) => (embed.banner ? [embed.banner] : []));
           store(
             JSON.stringify({
               content,
-              embeds: page,
+              embeds: page.map(({ banner: _banner, ...embed }) => embed),
+              ...(banners.length ? { banners } : {}),
               ...(files.length ? { files } : {}),
               ...(replyTo ? { message_reference: { message_id: replyTo, fail_if_not_exists: false } } : {}),
               ...(index === 0 && roles.length ? { allowed_mentions: { parse: [], roles } } : {}),
