@@ -31,14 +31,15 @@ const VENDOR_LOGOS: Record<string, string> = {
  * logos are the same colour tiles, so the stripe and the corner read as one brand in a screenshot.
  */
 const VENDOR_COLORS: Record<string, number> = {
-  OpenAI: 0x000000,
+  // Discord reads a colour of 0 as none and draws its default grey; this is black on screen.
+  OpenAI: 0x0a0a0a,
   Anthropic: 0xd97757,
   Google: 0x4285f4,
   xAI: 0xffffff,
   DeepSeek: 0x4d6bfe,
   Qwen: 0x615ced,
   NVIDIA: 0x76b900,
-  Moonshot: 0x000000,
+  Moonshot: 0x0a0a0a,
   "Z.ai": 0x1f63ec,
   Meta: 0x0668e1,
   Mistral: 0xfa520f,

@@ -1,3 +1,5 @@
+import { WATCHED_SITES } from "./pages.js";
+
 const STATIC_LABELS: Record<string, string> = {
   openrouter: "OpenRouter",
   "models-dev": "models.dev · catalogue",
@@ -103,7 +105,10 @@ export function sourceLabel(id: string): string {
     return `Artificial Analysis · ${id.slice("artificial-analysis:".length)} arena`;
   if (id.startsWith("designarena:")) return `DesignArena · ${id.slice("designarena:".length)}`;
   if (id.startsWith("app:ios:")) return `App Store · ${id.slice("app:ios:".length)}`;
-  if (id.startsWith("pages:")) return `${id.slice("pages:".length)} · site pages`;
+  if (id.startsWith("pages:")) {
+    const site = WATCHED_SITES.find((one) => one.id === id.slice("pages:".length));
+    return site ? site.name : `${id.slice("pages:".length)} · site pages`;
+  }
   if (id.startsWith("npm:")) return `npm · ${id.slice("npm:".length)}`;
   if (id.startsWith("pypi:")) return `PyPI · ${id.slice("pypi:".length)}`;
   if (id.startsWith("github:")) {

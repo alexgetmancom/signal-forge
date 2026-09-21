@@ -77,27 +77,29 @@ function mentionSighting(event: Event): boolean {
  * backend had answered as `gpt-6-luna`, an unannounced model.
  */
 function mentionSentence(record: RecordData): string {
-  const model = typeof record.model === "string" ? record.model : String(record.name ?? "");
   const where = [record.title, record.commit].find(
     (value): value is string => typeof value === "string" && !!value.trim(),
   );
   const line = typeof record.line === "string" && record.line.trim() ? `> ${excerpt(record.line.trim(), 200)}` : null;
   const lead =
     record.stage === "served"
-      ? `A request came back answered by \`${model}\`, a model no catalogue lists yet: the API is already serving it to someone.`
-      : `\`${model}\` is written into code before any catalogue lists it. Named, not yet seen answering.`;
-  return [lead, where ? `From: ${excerpt(where, 160)}` : null, line].filter(Boolean).join("\n");
+      ? "Already answering real requests, before any catalogue lists it."
+      : "Written into code before any catalogue lists it. Not seen answering yet.";
+  // The line itself first: the quote is the evidence, the commit title only says where it was.
+  return [lead, line, where ? `-# ${excerpt(where, 160)}` : null].filter(Boolean).join("\n");
 }
 
 function eventHeadline(event: Event, name: string, incident: Incident | null): string {
   if (event.stream === "deprecations" && event.kind === "new") return `⚠️ ${name} is being retired`;
-  if (incident) return `${incident.icon} ${name}`;
+  if (incident) return `${incident.icon} ${incident.icon === "🟢" ? "Resolved · " : ""}${name}`;
   if (mentionSighting(event)) {
     const record = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
     const model = typeof record?.model === "string" ? record.model : name;
     if (record?.stage === "served") return `📡 ${model} is answering requests`;
     if (event.kind === "new") return `🔎 ${model} named in code`;
   }
+  // A docs page for a model nobody sells yet: the page is the sighting, not a new model.
+  if (event.stream === "pages" && event.kind === "new") return `📄 New page: ${name}`;
   if (event.stream === "training") {
     const record = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
     const maker = typeof record?.maker === "string" ? `${record.maker} ` : "";
@@ -115,6 +117,9 @@ function eventHeadline(event: Event, name: string, incident: Incident | null): s
   }
   return `${KIND_ICONS[event.kind]} ${name}`;
 }
+
+/** Early signs of a model, read on the scouts channel, and outages: each card is about one maker. */
+const SIGHTINGS = new Set(["github", "pages", "arena", "training", "incidents"]);
 
 /** What the observation means for someone deciding whether to care. */
 function readerImpact(event: Event, record: RecordData | null): string | null {
@@ -253,9 +258,15 @@ function shape(
     const summary = typeof record?.summary === "string" ? excerpt(record.summary, 200) : null;
     const status = (value: unknown) => capital(describe(value).replace(/^unlisted$/, "no longer listed"));
     return {
-      sentence: event.kind === "removed" ? "No longer listed on the status page." : summary,
+      // The icon and stripe already say how bad it is, and a green one that it is over; "This incident
+      // has been resolved" under a 🟢 said it a third time.
+      sentence:
+        event.kind === "removed"
+          ? "No longer listed on the status page."
+          : summary && /^this incident has been resolved\.?$/i.test(summary)
+            ? null
+            : summary,
       facts: [
-        ...(present(record?.impact) ? [{ label: "Impact", value: capital(describe(record?.impact)) }] : []),
         ...(present(after?.stage)
           ? [
               {
@@ -360,8 +371,10 @@ function shape(
   if (mentionSighting(event) && record) return { sentence: mentionSentence(record), facts: [] };
   const impact = readerImpact(event, record);
   // A changed arena row and an entry other catalogues already list say where they stand themselves.
+  // A training run's footer already says "unconfirmed"; "Seen by one source, unconfirmed" said it twice.
   const standing =
-    event.stream === "arena" && (event.elsewhere?.length || event.siblings?.length || impact)
+    event.stream === "training" ||
+    (event.stream === "arena" && (event.elsewhere?.length || event.siblings?.length || impact))
       ? null
       : readerStanding(event);
   return { sentence: [standing, impact].filter(Boolean).join(" ") || null, facts };
@@ -575,7 +588,11 @@ export function eventEmbed(
   const handle =
     newModel && !/\s/.test(bareId)
       ? `\`${bareId}\``
-      : detail === "evidence" && rawName !== name && !/\s/.test(rawName) && event.stream !== "packages"
+      : detail === "evidence" &&
+          rawName !== name &&
+          !/\s/.test(rawName) &&
+          event.stream !== "packages" &&
+          !mentionSighting(event)
         ? `\`${rawName}\``
         : null;
   // A new model's title already says where it appeared, and the footer says it again.
@@ -593,7 +610,9 @@ export function eventEmbed(
   const sourceIcon = sourceLogo(event.source);
   const embed: Record<string, unknown> = {
     // A new model's title and banner name the maker and the moment; an eyebrow would say it a third time.
-    ...(newModel
+    // A sighting's maker is its logo in the corner; "REPOSITORY · OPENAI" above it named our feed
+    // and the maker again. The eyebrow stays where there is no logo to say who.
+    ...(newModel || (SIGHTINGS.has(event.stream) && vendorLogo(vendor))
       ? {}
       : {
           author: {
@@ -611,8 +630,9 @@ export function eventEmbed(
       incident?.color ??
       (event.stream === "deprecations"
         ? 0xe67e22
-        : ((event.kind === "new" && MODEL_STREAMS.has(event.stream) ? vendorColor(vendor) : null) ??
-          KIND_COLORS[event.kind])),
+        : ((event.kind === "new" && (MODEL_STREAMS.has(event.stream) || SIGHTINGS.has(event.stream))
+            ? vendorColor(vendor)
+            : null) ?? KIND_COLORS[event.kind])),
     ...(description ? { description } : {}),
     ...(fields.length ? { fields } : {}),
     // Discord renders its own timestamp in the reader's timezone, which is one line of card spent
@@ -622,7 +642,8 @@ export function eventEmbed(
       text: footerText(
         event.source,
         event.confidence ?? "observed",
-        detail,
+        // A maker's own status page is not a rumour; "unconfirmed" under it read as doubt about the outage.
+        event.stream === "incidents" ? "brief" : detail,
         event.stream === "web" ? "a text change is not a shipped feature" : undefined,
       ),
     },
