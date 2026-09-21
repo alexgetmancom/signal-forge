@@ -99,6 +99,9 @@ const envSchema = z.object({
   MIMO_API_KEY: optionalSecret,
   POOLSIDE_API_KEY: optionalSecret,
   DEEPINFRA_API_KEY: optionalSecret,
+  LLAMA_API_KEY: optionalSecret,
+  AWS_ACCESS_KEY_ID: optionalSecret,
+  AWS_SECRET_ACCESS_KEY: optionalSecret,
   ARTIFICIAL_ANALYSIS_API_KEY: optionalSecret,
 });
 export const settingsSchema = z

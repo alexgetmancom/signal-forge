@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { collectBedrock } from "../bedrock.js";
 import {
   collectAnthropic,
   collectGemini,
@@ -211,6 +212,17 @@ export function cataloguesSources({ db, config, cache }: SourceContext): SourceE
       capabilityId: "google-cloud",
       requiredCapabilities: ["GOOGLE_CLOUD_SERVICE_ACCOUNT"],
       collector: () => collectVertexModelGarden(config),
+    },
+    {
+      id: "bedrock",
+      authority: "third_party",
+      group: "Catalogues",
+      stream: "api-models",
+      // Sixteen signed reads, one per region, each a few kilobytes.
+      intervalSeconds: 900,
+      capabilityId: "aws",
+      requiredCapabilities: ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
+      collector: () => collectBedrock(config),
     },
     {
       id: "huggingface-router",

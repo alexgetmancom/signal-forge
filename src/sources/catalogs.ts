@@ -299,6 +299,17 @@ export const PROVIDER_CATALOGUES: ProviderCatalogue[] = [
     key: "STEPFUN_API_KEY",
     authority: "first_party",
   },
+  // Meta lists Muse, SAM and Llama here; "sam-3.1" on 2026-09-18 and the Llama withdrawals of
+  // 2026-07-07 were read only by others. The compatibility address answers in OpenAI's shape.
+  {
+    id: "meta",
+    name: "Meta",
+    vendor: "Meta",
+    apiUrl: "https://api.llama.com/compat/v1/models",
+    url: "https://llama.developer.meta.com/docs/models",
+    key: "LLAMA_API_KEY",
+    authority: "first_party",
+  },
   {
     id: "deepinfra",
     name: "DeepInfra",
