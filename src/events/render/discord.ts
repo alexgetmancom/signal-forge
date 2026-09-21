@@ -127,7 +127,15 @@ function eventHeadline(event: Event, name: string, incident: Incident | null): s
   if (event.stream === "packages" && event.kind !== "removed" && version)
     return `📦 ${name.replace(/@[^@/]+$/, "")} ${version} on ${place(event.source)}`;
   if (event.stream === "apps" && event.kind !== "removed" && version) return `📱 ${name} ${version}`;
-  if (event.stream === "resets") return `🔄 ${name.replace(/ usage limits /, " limits ")}`;
+  if (event.stream === "resets") {
+    const reset = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
+    // Confirmed: the tracker moved it into its history once the announcer said it had propagated.
+    if (reset?.stage === "Applied")
+      return reset.resetType === "banked"
+        ? "💳 A free Codex reset is banked for everyone"
+        : "🎉 Codex limits are back — for everyone";
+    return `⏳ ${name.replace(/ usage limits /, " limits ")}`;
+  }
   return `${KIND_ICONS[event.kind]} ${name}`;
 }
 
@@ -300,7 +308,19 @@ function shape(
     };
   }
   // A reset's stage and type were fields under a sentence that already said both.
-  if (event.stream === "resets") return { sentence: readerImpact(event, record), facts: [] };
+  if (event.stream === "resets") {
+    // A promise with a time counts down on every reader's screen; Discord keeps the timer running.
+    const due = resetDue(record);
+    return {
+      sentence:
+        record?.stage === "Applied"
+          ? resetConfirmation(record)
+          : due !== null
+            ? `Resets <t:${due}:R> · <t:${due}:t> your time.`
+            : readerImpact(event, record),
+      facts: [],
+    };
+  }
   if (event.stream === "news") {
     const text = [record?.summary, record?.description, record?.message].find(
       (value): value is string => typeof value === "string" && value.trim().length > 0,
@@ -552,6 +572,28 @@ function numberBanner(
   return null;
 }
 
+/**
+ * The confirmed reset in the announcer's own words: "Reset all propagated. Sweet dreams." is the
+ * line people repost, so the card quotes it and names who said it rather than paraphrasing it.
+ */
+function resetConfirmation(record: RecordData): string {
+  const post = typeof record.summary === "string" ? record.summary.replace(/https:\/\/t\.co\/\S+/g, "").trim() : "";
+  const author = typeof record.announcement === "string" ? record.announcement.match(/@(\w+)/)?.[1] : undefined;
+  if (!post) return "Seen by the tracker without a post. Usage limits are back.";
+  const quote = excerpt(post, 280)
+    .split("\n")
+    .map((line) => `> ${line}`)
+    .join("\n");
+  return author ? `${quote}\n— [@${author}](https://x.com/${author})` : quote;
+}
+
+/** When a promised reset is due, if the tracker knows: "2026-09-22 18:00 UTC" as a Unix second. */
+function resetDue(record: RecordData | null): number | null {
+  if (record?.stage === "Applied" || typeof record?.expected !== "string") return null;
+  const at = Date.parse(record.expected.replace(" UTC", "Z").replace(" ", "T"));
+  return Number.isFinite(at) ? Math.floor(at / 1000) : null;
+}
+
 const bannerName = (key: string) =>
   `banner-${key
     .toLowerCase()
@@ -593,15 +635,17 @@ export function eventEmbed(
   // headline prettified it.
   const bareId = String(record?.id ?? event.entity_id);
   const handle =
-    newModel && !/\s/.test(bareId)
-      ? `\`${bareId}\``
-      : detail === "evidence" &&
-          rawName !== name &&
-          !/\s/.test(rawName) &&
-          event.stream !== "packages" &&
-          !mentionSighting(event)
-        ? `\`${rawName}\``
-        : null;
+    event.stream === "training" || event.stream === "resets"
+      ? null
+      : newModel && !/\s/.test(bareId)
+        ? `\`${bareId}\``
+        : detail === "evidence" &&
+            rawName !== name &&
+            !/\s/.test(rawName) &&
+            event.stream !== "packages" &&
+            !mentionSighting(event)
+          ? `\`${rawName}\``
+          : null;
   // A new model's title already says where it appeared, and the footer says it again.
   const sentence = newModel && /^Added to /.test(shaped.sentence ?? "") ? null : shaped.sentence;
   const description = [
@@ -635,6 +679,7 @@ export function eventEmbed(
     ).slice(0, 250),
     color:
       incident?.color ??
+      (event.stream === "resets" && record?.stage === "Applied" ? 0x3ddc84 : null) ??
       (event.stream === "deprecations"
         ? 0xe67e22
         : ((event.kind === "new" && (MODEL_STREAMS.has(event.stream) || SIGHTINGS.has(event.stream))
@@ -654,7 +699,7 @@ export function eventEmbed(
         // A maker's own status page is not a rumour; "unconfirmed" under it read as doubt about the outage.
         // A sighting's emoji and sentence already say nobody has announced it.
         SIGHTINGS.has(event.stream) ? "brief" : detail,
-        event.stream === "web" ? "a text change is not a shipped feature" : undefined,
+        event.stream === "web" ? "not shipped yet" : undefined,
       ),
     },
   };
@@ -669,7 +714,8 @@ export function eventEmbed(
     embed.image = { url: `attachment://${banner.filename}` };
     embed.banner = banner;
     if (!launch) trimToBanner(embed, banner, handle, event.source);
-  } else if (thumbnail) embed.thumbnail = { url: thumbnail };
+  } else if (thumbnail && (description || fields.length)) embed.thumbnail = { url: thumbnail };
+  // A title alone beside a logo left a logo-high empty card above; the stripe says whose it is.
   if (link) embed.url = link;
   return embed;
 }

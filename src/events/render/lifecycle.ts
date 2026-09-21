@@ -82,6 +82,20 @@ export function renderLifecycleReminderEmbed(context: LifecycleReminderContext, 
 
 const NAMES_PER_VENDOR = 3;
 
+/** "text/overall" and "webdev" are keys; the digest names the board a reader knows. */
+const BOARD_NAMES: Record<string, string> = {
+  webdev: "WebDev",
+  "text-to-image": "Text-to-Image",
+  "image-edit": "Image Edit",
+};
+function boardName(board: string): string {
+  // A board the source already names ("Arena text", "Intelligence Index") is read as it is.
+  if (/arena|index|leaderboard/i.test(board)) return board;
+  const key = board.replace(/\/overall$/, "").toLowerCase();
+  const named = BOARD_NAMES[key] ?? key.replace(/[-_/]+/g, " ").replace(/^\w/, (letter) => letter.toUpperCase());
+  return /arena|index|leaderboard/i.test(named) ? named : `${named} Arena`;
+}
+
 /**
  * A price move in the terms a reader pays it in: a cut as the share that came off, a rise as the
  * multiple it became once it is more than a doubling. "Up 74%" for a price that nearly quadrupled
@@ -141,7 +155,7 @@ export function renderRecapLines(context: RecapContext, signals: readonly string
     for (const [topic, heading, desk] of [
       ["safety", "🛡 **Safety**", null],
       ["research", "🔬 **Research**", null],
-      ["other", "📰 **Also from the labs**", true],
+      ["other", "🏢 **Also from the labs**", true],
       ["other", "📎 **Elsewhere**", false],
     ] as const) {
       const section = context.headlines.filter((line) => line.topic === topic && (desk === null || line.desk === desk));
@@ -161,9 +175,12 @@ export function renderRecapLines(context: RecapContext, signals: readonly string
         : []),
       ...(signals.includes("codename")
         ? [
-            ...context.leaders.map((leader) => `🏆 ${withoutMakerPrefix(leader.name)} now leads ${leader.board}`),
+            ...context.leaders.map(
+              (leader) => `🏆 ${withoutMakerPrefix(leader.name)} now leads ${boardName(leader.board)}`,
+            ),
             ...context.climbers.map(
-              (climb) => `📈 ${withoutMakerPrefix(climb.name)} · #${climb.from} → #${climb.to} on ${climb.board}`,
+              (climb) =>
+                `📈 ${withoutMakerPrefix(climb.name)} · #${climb.from} → #${climb.to} on ${boardName(climb.board)}`,
             ),
             ...context.indexed.map(
               (entry) =>
@@ -171,7 +188,7 @@ export function renderRecapLines(context: RecapContext, signals: readonly string
             ),
             ...context.newBoards.map(
               (board) =>
-                `🆕 New board: ${board.board}${board.leader ? ` · led by ${withoutMakerPrefix(board.leader)}` : ""}`,
+                `🆕 New board: ${boardName(board.board)}${board.leader ? ` · led by ${withoutMakerPrefix(board.leader)}` : ""}`,
             ),
             ...context.resellerArrivals.map(
               (entry) => `🆕 ${entry.name}${entry.maker ? ` · ${entry.maker}` : ""} — now on ${entry.reseller}`,

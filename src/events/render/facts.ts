@@ -304,7 +304,10 @@ export function eventFactParts(event: Event & CardContext, summary?: string): Fa
         : null;
     const started = day(after.started);
     const ended = day(after.ended);
-    if (started) lines.push({ label: "Started", value: started });
+    // A run that started the day it is told has its start in the timestamp already.
+    if (started && !ended && started !== day(new Date().toISOString()))
+      lines.push({ label: "Started", value: started });
+    else if (started && ended) lines.push({ label: "Started", value: started });
     if (ended) lines.push({ label: "Finished", value: ended });
     const days =
       typeof after.started === "string" && typeof after.ended === "string"

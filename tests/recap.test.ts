@@ -329,7 +329,7 @@ test("the scouts get one morning message about what moved at the top of a board,
   prepareDeliveries(db, now);
   const body = db.query<{ body: string }, []>("SELECT body FROM deliveries").get()?.body ?? "";
   expect(body).toContain("📊 What moved");
-  expect(body).toContain("now leads text/overall");
+  expect(body).toContain("now leads Text Arena");
   expect(body).not.toContain("<@&");
 });
 
@@ -454,7 +454,7 @@ test("the day's news reads in sections, one maker takes two lines of each, and b
   expect(text).toContain("silently uploads your Git history");
   expect(text).toContain("🔬 **Research**");
   expect(text).toContain("Navier–Stokes");
-  expect(text).toContain("📰 **Also from the labs**");
+  expect(text).toContain("🏢 **Also from the labs**");
   expect(text).toContain("Prompting fundamentals");
 
   // A customer story is kept and never sent, and other people's opinions are not the labs' news.
@@ -565,7 +565,7 @@ test("a front-page story is not something the labs announced", () => {
     ],
   });
   const text = renderRecapLines(context, ["launch"]).join("\n");
-  expect(text.indexOf("📰 **Also from the labs**")).toBeLessThan(text.indexOf("📎 **Elsewhere**"));
+  expect(text.indexOf("🏢 **Also from the labs**")).toBeLessThan(text.indexOf("📎 **Elsewhere**"));
   expect(text.slice(text.indexOf("Also from the labs"), text.indexOf("Elsewhere"))).not.toContain("Alibaba");
 });
 
