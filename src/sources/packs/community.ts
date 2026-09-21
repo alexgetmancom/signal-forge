@@ -4,6 +4,7 @@ import type { SourceContext, SourceEntry } from "../definition.js";
 import { collectGithubDiscovery, collectHuggingFaceTrending, GITHUB_DISCOVERY_QUERIES } from "../discovery.js";
 import { collectGithubCommits, collectGithubPulls, collectGithubReleases } from "../github.js";
 import { collectPolymarket } from "../markets.js";
+import { collectModelMentions, MODEL_MENTION_REPOS, mentionSource } from "../modelMentions.js";
 import { collectMimoTraining } from "../training.js";
 
 /**
@@ -104,6 +105,21 @@ export function communitySources({ db, config, cache }: SourceContext): SourceEn
       stream: "github",
       intervalSeconds: 1800,
       collector: () => collectGithubCommits(db, config, spec, fetch, cache),
+    });
+  }
+
+  for (const [index, watch] of MODEL_MENTION_REPOS.entries()) {
+    definitions.push({
+      id: mentionSource(watch.repo),
+      authority: watch.authority,
+      ...(watch.vendor ? { vendor: watch.vendor } : {}),
+      group: "GitHub",
+      stream: "github",
+      // One request when nothing moved; one more per commit when something did.
+      intervalSeconds: 600 + index * 20,
+      requiredCapabilities: ["GITHUB_TOKEN"],
+      capabilityId: "github",
+      collector: () => collectModelMentions(db, config, watch, fetch),
     });
   }
 

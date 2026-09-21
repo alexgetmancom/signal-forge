@@ -507,6 +507,10 @@ export function signalClass(event: Event): SignalClass {
       ? "codename"
       : "evidence";
   }
+  // A model ID written into code for the first time, which no catalogue here has listed: the same
+  // early word as a slug entering the Codex model list.
+  if (event.stream === "github" && event.source.endsWith(":models"))
+    return event.kind === "new" ? "codename" : "evidence";
   if (event.stream === "github")
     return event.source.endsWith(":releases") && event.kind === "new" && !patchBuild(recordFor(event))
       ? "release"
