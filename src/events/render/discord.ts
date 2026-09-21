@@ -77,14 +77,12 @@ function mentionSighting(event: Event): boolean {
  * backend had answered as `gpt-6-luna`, an unannounced model.
  */
 function mentionSentence(record: RecordData): string {
-  const where = [record.title, record.commit].find(
-    (value): value is string => typeof value === "string" && !!value.trim(),
-  );
   const line = typeof record.line === "string" && record.line.trim() ? `> ${excerpt(record.line.trim(), 200)}` : null;
   const lead =
     record.stage === "served" ? "Not in any catalogue yet." : "Not in any catalogue, not seen answering yet.";
-  // The line itself first: the quote is the evidence, the commit title only says where it was.
-  return [lead, line, where ? `-# ${excerpt(where, 160)}` : null].filter(Boolean).join("\n");
+  // The quote is the evidence; the commit title under it was grey text the size of the sentence,
+  // since Discord draws no small print inside an embed, and the title links to the commit anyway.
+  return [lead, line].filter(Boolean).join("\n");
 }
 
 /**
@@ -127,7 +125,7 @@ function eventHeadline(event: Event, name: string, incident: Incident | null): s
 }
 
 /** Early signs of a model, read on the scouts channel, and outages: each card is about one maker. */
-const SIGHTINGS = new Set(["github", "pages", "arena", "training", "incidents"]);
+const SIGHTINGS = new Set(["github", "pages", "arena", "training", "incidents", "packages", "apps", "web", "resets"]);
 
 /** What the observation means for someone deciding whether to care. */
 function readerImpact(event: Event, record: RecordData | null): string | null {
@@ -267,14 +265,13 @@ function shape(
     return {
       // The icon and stripe already say how bad it is, and a green one that it is over; "This incident
       // has been resolved" under a 🟢 said it a third time.
+      // The icon says the status; what a closed one adds is how long it lasted, said as a sentence:
+      // a "Lasted" field spent two lines on three words.
       sentence:
-        event.kind === "removed"
-          ? "No longer listed on the status page."
-          : summary && /^this incident has been resolved\.?$/i.test(summary)
-            ? null
-            : summary,
-      // The icon says the status; what a closed one adds is how long it lasted.
-      facts: event.kind === "removed" || /resolved/i.test(describe(after?.stage)) ? lasted(record, event) : [],
+        event.kind === "removed" || /resolved/i.test(describe(after?.stage))
+          ? (lasted(record, event) ?? (event.kind === "removed" ? "No longer listed on the status page." : null))
+          : summary,
+      facts: [],
     };
   }
   if (event.stream === "apps" && after) {
@@ -376,12 +373,11 @@ function shape(
   return { sentence: [standing, impact].filter(Boolean).join(" ") || null, facts };
 }
 
-function lasted(record: RecordData | null, event: Event): Fact[] {
+function lasted(record: RecordData | null, event: Event): string | null {
   const started = typeof record?.started === "string" ? Date.parse(record.started) : Number.NaN;
   const minutes = Math.round((Date.parse(event.detected_at) - started) / 60000);
-  if (!Number.isFinite(minutes) || minutes <= 0) return [];
-  const value = minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
-  return [{ label: "Lasted", value }];
+  if (!Number.isFinite(minutes) || minutes <= 0) return null;
+  return `Lasted ${minutes < 60 ? `${minutes} min` : `${Math.floor(minutes / 60)} h ${minutes % 60} min`}.`;
 }
 
 function present(raw: unknown): boolean {

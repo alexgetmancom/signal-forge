@@ -226,9 +226,8 @@ test("documentation diffs normalize Markdown and suppress boilerplate-only chang
   const text = renderEvent(event, "https://developers.openai.com/codex/");
   expect(text).toContain("+ Claude Code can now open a remote worktree");
   expect(text).not.toContain("+ - Claude Code");
-  expect(eventEmbed(event, "https://developers.openai.com/codex/")).toMatchObject({
-    author: { name: "DOCUMENTATION · OPENAI" },
-  });
+  // The maker's logo says whose docs; an eyebrow over it said so again.
+  expect(eventEmbed(event, "https://developers.openai.com/codex/").author).toBeUndefined();
   expect(JSON.stringify(eventEmbed(event, "https://developers.openai.com/codex/"))).not.toContain("Full report");
   expect(
     renderEvent(event, "https://developers.openai.com/codex/", "telegram", "The docs add remote worktree support."),

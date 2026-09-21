@@ -213,11 +213,16 @@ export function renderRecapLines(context: RecapContext, signals: readonly string
 export function renderRecapEmbed(context: RecapContext, signals: readonly string[]): Record<string, unknown> | null {
   const lines = renderRecapLines(context, signals);
   if (!lines.length) return null;
-  return {
-    author: {
-      name:
-        context.period === "news" ? "THE DAY IN AI" : context.period === "day" ? "WHAT MOVED" : "THE WEEK IN MODELS",
-    },
-    description: clip(lines.join("\n"), 4000),
-  };
+  // The name and the date are the title; an eyebrow in capitals over a bold date line said it in two
+  // voices before the first model.
+  const to = new Date(context.to).toLocaleDateString("en-GB", { day: "numeric", month: "long", timeZone: "UTC" });
+  const from = new Date(context.from).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
+  const title =
+    context.period === "news"
+      ? `📰 The day in AI · ${to}`
+      : context.period === "day"
+        ? `📊 What moved · ${to}`
+        : `🗓 The week in models · ${from} – ${to}`;
+  const body = lines[1] === "" ? lines.slice(2) : lines.slice(1);
+  return { title, color: 0x5865f2, description: clip(body.join("\n"), 4000) };
 }

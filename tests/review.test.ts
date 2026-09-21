@@ -71,5 +71,6 @@ test("nothing a model wrote reaches the weekly recap", () => {
   expect("lead" in context).toBe(false);
   const embed = renderRecapEmbed(context, ["launch"]);
   expect(String(embed?.description)).not.toContain("most significant development");
-  expect(String(embed?.description)).toStartWith("**13 September");
+  expect(String(embed?.description)).toStartWith("🚀 **1 model arrived**");
+  expect(String(embed?.title)).toContain("13 Sep");
 });

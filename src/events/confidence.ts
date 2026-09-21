@@ -98,7 +98,7 @@ const standings: Record<EvidenceType, string> = {
   official_news: "The maker announced this themselves.",
   arena_roster: "Spotted on a public arena. Nobody has said what it is yet.",
   leaderboard: "Reported by a public leaderboard.",
-  web_diff: "Spotted as a change on the maker's own site, with no announcement.",
+  web_diff: "On the maker's own site. Not announced yet.",
   github_activity: "From the project's repository. Work in progress, not a release.",
   package_release: "Published to the registry. You can install it now.",
   open_weights: "Published to an open-weights registry. The files are downloadable.",

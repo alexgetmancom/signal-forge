@@ -328,7 +328,7 @@ test("the scouts get one morning message about what moved at the top of a board,
   expect(scheduleRecaps(db, { destinations: [scouts] } as never, now)).toEqual(["day"]);
   prepareDeliveries(db, now);
   const body = db.query<{ body: string }, []>("SELECT body FROM deliveries").get()?.body ?? "";
-  expect(body).toContain("WHAT MOVED");
+  expect(body).toContain("📊 What moved");
   expect(body).toContain("now leads text/overall");
   expect(body).not.toContain("<@&");
 });
@@ -401,7 +401,7 @@ test("the wire gets one morning list of what the labs published, and the sightin
   expect(context.headlines.map((line) => line.title)).toEqual(["mistral x mozilla"]);
   prepareDeliveries(db, now);
   const body = db.query<{ body: string }, []>("SELECT body FROM deliveries").get()?.body ?? "";
-  expect(body).toContain("THE DAY IN AI");
+  expect(body).toContain("📰 The day in AI");
   expect(body).toContain("https://pages:mistral.example/news/mistral-x-mozilla");
   expect(body).not.toContain("<@&");
   // A room that carries no launches does not get the list.
