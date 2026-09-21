@@ -45,7 +45,7 @@ const STATIC_LABELS: Record<string, string> = {
   simplebench: "SimpleBench · leaderboard",
   "claude-web": "Claude · interface",
   "codex-docs": "Codex · docs",
-  "codex-resets": "Codex Resets · limit resets",
+  "codex-resets": "codex-resets.com",
   "vercel-gateway": "Vercel AI Gateway",
   "cursor-changelog": "Cursor · changelog",
   "app:ios:chatgpt": "App Store · ChatGPT",

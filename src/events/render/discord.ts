@@ -316,8 +316,8 @@ function shape(
         record?.stage === "Applied"
           ? resetConfirmation(record)
           : due !== null
-            ? `Resets <t:${due}:R> · <t:${due}:t> your time.`
-            : readerImpact(event, record),
+            ? [resetWords(record), `Resets <t:${due}:R> · <t:${due}:t> your time.`].filter(Boolean).join("\n\n")
+            : (resetWords(record) ?? readerImpact(event, record)),
       facts: [],
     };
   }
@@ -588,10 +588,10 @@ const resetAuthor = (record: RecordData | null) =>
   typeof record?.announcement === "string" ? record.announcement.match(/@(\w+)/)?.[1] : undefined;
 
 /** The announcer's own words, big enough to read in a screenshot, with who said them under. */
-function resetConfirmation(record: RecordData): string {
-  const post = typeof record.summary === "string" ? record.summary.replace(/https:\/\/t\.co\/\S+/g, "").trim() : "";
+function resetWords(record: RecordData | null): string | null {
+  const post = typeof record?.summary === "string" ? record.summary.replace(/https:\/\/t\.co\/\S+/g, "").trim() : "";
   const author = resetAuthor(record);
-  if (!post) return "Seen by the tracker without a post. Usage limits are back.";
+  if (!post || !record) return null;
   const quote = excerpt(post, 280)
     .split("\n")
     .filter((line) => line.trim())
@@ -599,6 +599,10 @@ function resetConfirmation(record: RecordData): string {
     .join("\n");
   if (!author) return quote;
   return `${quote}\n— [${ANNOUNCERS[author]?.name ?? `@${author}`}](https://x.com/${author})`;
+}
+
+function resetConfirmation(record: RecordData): string {
+  return resetWords(record) ?? "Seen by the tracker without a post. Usage limits are back.";
 }
 
 /** When a promised reset is due, if the tracker knows: "2026-09-22 18:00 UTC" as a Unix second. */
@@ -718,9 +722,8 @@ export function eventEmbed(
     },
   };
   const logo = vendorLogo(vendor)?.slice("attachment://".length) ?? null;
-  // A confirmed reset shows the person who announced it rather than the maker's tile.
-  const announcer =
-    event.stream === "resets" && after?.stage === "Applied" ? ANNOUNCERS[resetAuthor(after) ?? ""] : undefined;
+  // A reset, promised or confirmed, shows the person who announced it rather than the maker's tile.
+  const announcer = event.stream === "resets" ? ANNOUNCERS[resetAuthor(after) ?? ""] : undefined;
   const thumbnail = announcer ? `attachment://${announcer.photo}` : logo ? `attachment://${logo}` : null;
   const words: Omit<Banner, "filename" | "logo"> | null = launch
     ? { eyebrow: bannerEyebrow(vendor, event.detected_at), title: name, chips: spec.chips, vendor }
