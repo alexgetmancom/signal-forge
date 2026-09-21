@@ -578,16 +578,12 @@ test("a Discord card leads with the name and says what it means in one line", ()
     footer: { text: string };
     timestamp: string;
   };
-  // The eyebrow names the surface, the title names the thing, then how solid it is, then why it
-  // matters. A reader decides whether to believe a card before deciding whether to act on it.
-  expect(embed.author.name).toBe("AVAILABILITY · OPENAI");
-  // Who made it on the right, where it was seen beside the eyebrow.
-  expect(embed).toMatchObject({
-    thumbnail: { url: "attachment://openai.png" },
-    author: { icon_url: "attachment://openrouter.png" },
-  });
+  // A new model's title says what and where; no eyebrow and no "Added to" repeat it.
+  expect(embed.author).toBeUndefined();
+  expect(embed).toMatchObject({ thumbnail: { url: "attachment://openai.png" } });
   expect(embed.title).toBe("🆕 GPT-6 on OpenRouter");
-  expect(embed.description).toStartWith("Added to OpenRouter.");
+  expect(embed.description).not.toContain("Added to");
+  expect(embed.description).toContain("`openai/gpt-6`");
   expect(embed.footer.text).toBe("OpenRouter · confirmed by the provider");
   // A news reader's card names the source and nothing about how sure it is.
   expect((eventEmbed(event, "https://openrouter.ai", undefined, "brief").footer as { text: string }).text).toBe(
@@ -1338,7 +1334,7 @@ test("a training run that ends reads as a finished run, not as fields that moved
     },
     "https://mimo.xiaomi.com/rl/",
   ) as { title: string; description: string; fields: { name: string; value: string }[] };
-  expect(embed.title).toBe("🏁 Xiaomi finished training Mimo V2.6 Flash");
+  expect(embed.title).toBe("🏁 Xiaomi finished training MiMo V2.6 Flash");
   expect(embed.description).toContain("the step before a release");
   expect(embed.fields.map((field) => `${field.name}: ${field.value}`)).toEqual([
     "Started: 5 September",

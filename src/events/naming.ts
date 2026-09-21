@@ -60,7 +60,7 @@ function isLiteralSighting(stream: string, source: string): boolean {
  * public channel on 2026-09-18 as "Glm 5.3 Flashx" while the Vercel card for the same model said
  * "GLM 5.3 FlashX".
  */
-const SPELLED: Readonly<Record<string, string>> = { flashx: "FlashX" };
+const SPELLED: Readonly<Record<string, string>> = { flashx: "FlashX", mimo: "MiMo" };
 
 function word(part: string): string {
   if (!part) return part;

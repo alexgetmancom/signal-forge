@@ -465,9 +465,11 @@ export function eventEmbed(
       : detail === "evidence" && rawName !== name && !/\s/.test(rawName) && event.stream !== "packages"
         ? `\`${rawName}\``
         : null;
+  // A new model's title already says where it appeared, and the footer says it again.
+  const sentence = newModel && /^Added to /.test(shaped.sentence ?? "") ? null : shaped.sentence;
   const description = [
     ...(summary ? [`*${summary}*`] : []),
-    ...(shaped.sentence ? [shaped.sentence] : []),
+    ...(sentence ? [sentence] : []),
     ...(spec.line ? [spec.line] : []),
     ...lines,
     ...(handle ? [handle] : []),
@@ -477,12 +479,15 @@ export function eventEmbed(
   const incident = incidentLook(event, record);
   const sourceIcon = sourceLogo(event.source);
   const embed: Record<string, unknown> = {
-    author: {
-      name: [launch ? "NEW MODEL" : eyebrow(event), vendor === "Unknown" ? null : vendor.toUpperCase()]
-        .filter(Boolean)
-        .join(" · "),
-      ...(sourceIcon ? { icon_url: sourceIcon } : {}),
-    },
+    // A new model's title and banner name the maker and the moment; an eyebrow would say it a third time.
+    ...(newModel
+      ? {}
+      : {
+          author: {
+            name: [eyebrow(event), vendor === "Unknown" ? null : vendor.toUpperCase()].filter(Boolean).join(" · "),
+            ...(sourceIcon ? { icon_url: sourceIcon } : {}),
+          },
+        }),
     title: (launch
       ? `🚀 ${name} is out`
       : newModel && event.stream !== "weights"
@@ -555,7 +560,6 @@ export function rosterEmbed(
   const record = first.after_json ? (JSON.parse(first.after_json) as RecordData) : null;
   const vendor = vendorOf(first, record);
   const maker = vendor === "Unknown" ? null : vendor;
-  const where = place(first.source);
   const lines = cards.map((card, index) => {
     const event = events[index] as Event;
     const title = String(card.title ?? "")
@@ -567,20 +571,19 @@ export function rosterEmbed(
       .filter((field) => !EVIDENCE_ONLY.has(field.name))
       .slice(0, 3)
       .map((field) => `${field.name} ${field.value}`);
-    const id = /\s/.test(event.entity_id) ? null : `\`${event.entity_id.split("/").at(-1)}\``;
-    // Every row of one catalogue usually links the same page, which the title already links.
+    const id = event.entity_id.split("/").at(-1) ?? event.entity_id;
+    // `mimo-v2.6-pro` says "MiMo V2.6 Pro" already; a name is shown only when it tells more.
+    const plain = (text: string) => text.toLowerCase().replace(/[^a-z0-9.]+/g, "");
+    const named = /\s/.test(id) || plain(title) !== plain(id);
     const link = typeof card.url === "string" && card.url !== first.url ? `[${title}](${card.url})` : title;
+    const head = /\s/.test(id) ? `**${link}**` : named ? `**${link}** · \`${id}\`` : `\`${id}\``;
     const under = [...(spec ? [spec[0].replace(/\*\*/g, "")] : []), ...fields];
-    return [`**${link}**${id ? ` · ${id}` : ""}`, ...(under.length ? [`-# ${under.join(" · ")}`] : [])].join("\n");
+    return [head, ...under].join(" · ");
   });
   const embed: Record<string, unknown> = {
-    author: {
-      name: ["NEW MODELS", maker?.toUpperCase()].filter(Boolean).join(" · "),
-      ...(sourceLogo(first.source) ? { icon_url: sourceLogo(first.source) } : {}),
-    },
     title: `🚀 ${events.length} new ${maker ? `${maker} ` : ""}models`,
     color: vendorColor(vendor) ?? KIND_COLORS.new,
-    description: clipLines([`Added to ${where}.`, "", ...lines], DESCRIPTION_CHARACTERS),
+    description: clipLines(lines, DESCRIPTION_CHARACTERS),
     timestamp: new Date(first.detected_at).toISOString(),
     footer: { text: footerText(first.source, first.confidence ?? "observed", detail) },
   };
