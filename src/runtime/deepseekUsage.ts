@@ -56,6 +56,15 @@ const DEEPSEEK_CODE_PATHS = [
     optimization:
       "One attempt per event, a 6,000-character input cap, a 90-token output cap and a 300-attempt daily ceiling.",
   },
+  {
+    operation: "mentions.judge",
+    path: "src/sources/mentionStage.ts",
+    function: "judgeMentions",
+    purpose: "Says whether a model ID in a commit or a user's post was written down, served to someone, or is noise.",
+    trigger: "A commit or issue naming a model that no catalogue lists and no watched repository has told.",
+    optimization:
+      "Only unlisted IDs newer than every listed version are judged; a 4,000-character input cap and one call per post.",
+  },
 ] as const;
 
 type DeepSeekUsageContext = {
@@ -482,4 +491,49 @@ export function deepSeekAttemptsToday(db: Database, now: Date): number {
     )
     .get(start, end);
   return Math.max(0, Number(row?.attempts ?? 0));
+}
+
+/**
+ * Records one call that answers no event -- a judge, not a summary -- already settled, so its cost
+ * is in the same ledger. The schema's outcomes are a summary's; an answer is stored as
+ * `summarized`, and the operation tells the two apart.
+ */
+export function recordDeepSeekCall(
+  db: Database,
+  context: { operation: string; source: string; stream: string; inputChars: number; attemptedAt: Date },
+  result: DeepSeekAttemptResult,
+): void {
+  try {
+    const cost = calculateDeepSeekCost(result.usage, context.attemptedAt);
+    db.query(
+      `INSERT INTO deepseek_usage(
+         event_id,attempted_at,operation,source,stream,model,attempts,attempt,input_chars,response_status,outcome,
+         prompt_tokens,completion_tokens,total_tokens,prompt_cache_hit_tokens,prompt_cache_miss_tokens,
+         cost_usd,cost_basis,pricing_period,error_type
+       ) VALUES(NULL,?,?,?,?,?,1,1,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    ).run(
+      context.attemptedAt.toISOString(),
+      context.operation,
+      context.source,
+      context.stream,
+      DEEPSEEK_SUMMARY_MODEL,
+      Math.max(0, Math.round(context.inputChars)),
+      result.responseStatus,
+      result.outcome,
+      result.usage?.promptTokens ?? null,
+      result.usage?.completionTokens ?? null,
+      result.usage?.totalTokens ?? null,
+      result.usage?.promptCacheHitTokens ?? null,
+      result.usage?.promptCacheMissTokens ?? null,
+      cost.costUsd,
+      cost.costBasis,
+      cost.pricingPeriod,
+      result.errorType,
+    );
+  } catch (error) {
+    log("warn", "DeepSeek call could not be recorded", {
+      operation: context.operation,
+      errorType: safeErrorType(error),
+    });
+  }
 }

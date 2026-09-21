@@ -282,3 +282,58 @@ test("without a judge, users' words never make a model served", async () => {
   );
   expect(commit.get("gpt-6-luna")).toBe("served");
 });
+
+test("a gateway is read only in its price table, never for an old model, and the judge's cost is kept", async () => {
+  const db = openDatabase(":memory:");
+  saveCollection(
+    db,
+    {
+      source: "openai",
+      stream: "api-models",
+      url: "https://x",
+      raw: [],
+      records: [{ id: "gpt-6-astra", name: "gpt-6-astra" }],
+    },
+    [],
+  );
+  const keyed = { ...config, DEEPSEEK_API_KEY: "key" };
+  const watch = {
+    repo: "BerriAI/litellm",
+    authority: "third_party" as const,
+    paths: ["model_prices_and_context_window.json"],
+  };
+  let head = commit(1, "Initial");
+  const request = async (url: string) => {
+    if (url.includes("deepseek"))
+      return Response.json({
+        choices: [{ message: { content: '{"gpt-6-nova":"named"}' } }],
+        usage: { prompt_tokens: 100, completion_tokens: 50, prompt_cache_hit_tokens: 0, prompt_cache_miss_tokens: 100 },
+      });
+    if (url.includes("/commits?per_page=1")) return Response.json([head]);
+    if (url.includes("/compare/")) return Response.json({ status: "ahead", commits: [head] });
+    return Response.json({
+      ...head,
+      files: [
+        { filename: "model_prices_and_context_window.json", patch: '+  "gpt-6-nova": {},\n+  "gpt-5-image": {},' },
+        { filename: "litellm/llms/huggingface/hf_text_generation_models.txt", patch: "+gpt-2-finetuned-code" },
+      ],
+    });
+  };
+  saveCollection(db, await collectModelMentions(db, keyed, watch, request), []);
+  head = commit(2, "price sync");
+  const second = await collectModelMentions(db, keyed, watch, request);
+  expect(second.records.map((r) => r.id)).toEqual(["@head", "gpt-6-nova"]);
+  const ledger = db
+    .query<{ operation: string; source: string; outcome: string; cost_usd: number | null }, []>(
+      "SELECT operation, source, outcome, cost_usd FROM deepseek_usage",
+    )
+    .all();
+  expect(ledger).toHaveLength(1);
+  expect(ledger[0]).toMatchObject({
+    operation: "mentions.judge",
+    source: "github:BerriAI/litellm:models",
+    outcome: "summarized",
+  });
+  expect(ledger[0]?.cost_usd).toBeGreaterThan(0);
+  db.close();
+});

@@ -4,7 +4,7 @@ import type { AppConfig } from "../config.js";
 import type { Collection, RecordData, SourceAuthority } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
 import { fetchText } from "./http.js";
-import { judgeMentions, type MentionStage, stageKnown, stageRecordId } from "./mentionStage.js";
+import { judgeMentions, type MentionStage, olderThanKnown, stageKnown, stageRecordId } from "./mentionStage.js";
 
 export { undated } from "./mentionStage.js";
 
@@ -18,7 +18,13 @@ export { undated } from "./mentionStage.js";
  * So every commit of a watched repository is read, and the only thing taken from it is a model ID
  * on an added line. A commit is never the event; an ID nothing here has recorded anywhere is.
  */
-export type MentionWatch = { repo: string; vendor?: string; authority: SourceAuthority };
+export type MentionWatch = {
+  repo: string;
+  vendor?: string;
+  authority: SourceAuthority;
+  /** Only these files are read, where the rest of a repository names models that are not its own. */
+  paths?: readonly string[];
+};
 
 export const MODEL_MENTION_REPOS: readonly MentionWatch[] = [
   // The client ships a model list, a Bedrock catalogue and per-model prompts; every Codex model so
@@ -35,6 +41,23 @@ export const MODEL_MENTION_REPOS: readonly MentionWatch[] = [
   // actually serves, which no catalogue says.
   { repo: "d4rken/clankermux", authority: "third_party" },
   { repo: "2lab-ai/llmux", authority: "third_party" },
+  /**
+   * Gateways and coding agents that price or list a model the day it can be called. Replayed from
+   * June to 2026-09-21: opencode listed `grok-4.7` seven minutes before xAI's catalogue did, and
+   * LiteLLM priced `claude-mythos-5-1` on 2026-09-05. Most of their additions trail the vendors by
+   * hours -- they are here for the ones that do not.
+   *
+   * LiteLLM is read only for its price table: its Hugging Face lists carry a hundred `gpt-2-*`
+   * fine-tunes, and its router presets version every model `-v1`. Cline was left out -- it names
+   * its own variants, `claude-opus-5-thinking`, `gpt-6-astra-fast`, that no vendor serves -- and so
+   * were Aider (untouched since May) and OpenRouter's repositories, whose catalogue is read already.
+   */
+  {
+    repo: "BerriAI/litellm",
+    authority: "third_party",
+    paths: ["model_prices_and_context_window.json", "litellm/model_prices_and_context_window_backup.json"],
+  },
+  { repo: "anomalyco/opencode", authority: "third_party" },
 ];
 
 /**
@@ -172,18 +195,22 @@ export async function collectModelMentions(
     for (const file of detail.files) {
       if (!file.patch || IGNORED_FILE.test(file.filename)) continue;
       if (watch.authority === "third_party" && isTestFile(file.filename)) continue;
+      if (watch.paths && !watch.paths.includes(file.filename)) continue;
       for (const [id, line] of modelIdsInPatch(file.patch)) {
         if (seen.has(id) || found.has(id)) continue;
         // Told at both stages already, or listed by a catalogue: nothing this commit says is news,
         // and there is nothing to ask the judge.
         if (stored(source, id) && stored(source, stageRecordId(id, "served"))) continue;
         if (stageKnown(db, id, "named") && stageKnown(db, id, "served")) continue;
+        // A third party writing down an old model is catching up, not early: `gpt-5-image` priced
+        // on 2026-09-17 while `gpt-6-astra` was listed. A vendor's own old name can still be news.
+        if (watch.authority === "third_party" && olderThanKnown(db, id)) continue;
         found.set(id, { file: file.filename, line });
       }
     }
     if (found.size === 0) continue;
     const text = [detail.commit.message, ...[...found].map(([id, at]) => `${at.file}: ${at.line} [${id}]`)].join("\n");
-    const stages = await judgeMentions(config, request, "commit", text, [...found.keys()]);
+    const stages = await judgeMentions(config, request, "commit", text, [...found.keys()], { db, source });
     for (const [id, at] of found) {
       const stage: MentionStage = stages.get(id) ?? "named";
       const recordId = stageRecordId(id, stage);

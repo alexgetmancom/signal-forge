@@ -178,6 +178,7 @@ export async function collectRepoTalk(
       "issue",
       text,
       ids.map(([id]) => id),
+      { db, source },
     );
     for (const [id, line] of ids) {
       const stage = stages.get(id) ?? "named";
