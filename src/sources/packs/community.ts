@@ -5,6 +5,7 @@ import { collectGithubDiscovery, collectHuggingFaceTrending, GITHUB_DISCOVERY_QU
 import { collectGithubCommits, collectGithubPulls, collectGithubReleases } from "../github.js";
 import { collectPolymarket } from "../markets.js";
 import { collectModelMentions, MODEL_MENTION_REPOS, mentionSource } from "../modelMentions.js";
+import { collectRepoTalk, talkSource } from "../repoTalk.js";
 import { collectMimoTraining } from "../training.js";
 
 /**
@@ -120,6 +121,18 @@ export function communitySources({ db, config, cache }: SourceContext): SourceEn
       requiredCapabilities: ["GITHUB_TOKEN"],
       capabilityId: "github",
       collector: () => collectModelMentions(db, config, watch, fetch),
+    });
+    definitions.push({
+      id: talkSource(watch.repo),
+      authority: "third_party",
+      ...(watch.vendor ? { vendor: watch.vendor } : {}),
+      group: "GitHub",
+      stream: "github",
+      // Two REST requests and one GraphQL query a poll, whatever was said.
+      intervalSeconds: 900 + index * 20,
+      requiredCapabilities: ["GITHUB_TOKEN"],
+      capabilityId: "github",
+      collector: () => collectRepoTalk(db, config, watch, fetch),
     });
   }
 

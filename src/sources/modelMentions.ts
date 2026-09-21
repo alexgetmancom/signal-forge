@@ -4,7 +4,9 @@ import type { AppConfig } from "../config.js";
 import type { Collection, RecordData, SourceAuthority } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
 import { fetchText } from "./http.js";
-import { bareModelSlug } from "./mirrors.js";
+import { judgeMentions, type MentionStage, stageKnown, stageRecordId } from "./mentionStage.js";
+
+export { undated } from "./mentionStage.js";
 
 /**
  * A model is written into code before it is announced. `gpt-6-astra` entered the Codex client's
@@ -64,21 +66,28 @@ export function isTestFile(path: string): boolean {
   );
 }
 
-/** `gpt-5.4-mini-2026-03-17` is a dated snapshot of `gpt-5.4-mini`; knowing one is knowing the other. */
-export function undated(id: string): string {
-  return id.replace(/-(?:\d{4}-\d{2}-\d{2}|\d{8})$/, "");
-}
-
 /** Model IDs on the added lines of one file's patch, each with the first line that carried it. */
 export function modelIdsInPatch(patch: string): Map<string, string> {
+  const added = patch
+    .split("\n")
+    .filter((line) => line.startsWith("+") && !line.startsWith("+++"))
+    .map((line) => line.slice(1));
+  return modelIdsInLines(added);
+}
+
+/** Model IDs in prose -- an issue, a comment -- each with the first line that carried it. */
+export function modelIdsInText(text: string): Map<string, string> {
+  return modelIdsInLines(text.split("\n"));
+}
+
+function modelIdsInLines(lines: readonly string[]): Map<string, string> {
   const found = new Map<string, string>();
-  for (const line of patch.split("\n")) {
-    if (!line.startsWith("+") || line.startsWith("+++")) continue;
+  for (const line of lines) {
     for (const match of line.toLowerCase().matchAll(MODEL_ID)) {
       // A trailing dot is the end of a sentence, not a version.
       const id = match[0].replace(/[.-]+$/, "");
       if (PROSE_SUFFIX.test(id)) continue;
-      if (!found.has(id)) found.set(id, line.slice(1).trim().slice(0, 240));
+      if (!found.has(id)) found.set(id, line.trim().slice(0, 240));
     }
   }
   return found;
@@ -98,20 +107,13 @@ const CURSOR = "@head";
 /** Commits read in one poll. A busier repository catches up over the following polls. */
 const BATCH = 30;
 
-/** Whether any source here has recorded this model, under any spelling a platform gives it. */
-function alreadyRecorded(db: Database, id: string): boolean {
-  const bare = bareModelSlug(id);
-  return Boolean(
-    db
-      .query(
-        "SELECT 1 FROM records WHERE source NOT LIKE 'github:%:models' AND (id=?1 OR id LIKE '%/' || ?1 OR id LIKE '%.' || ?1 || '%' OR body LIKE '%\"' || ?1 || '\"%') LIMIT 1",
-      )
-      .get(bare),
-  );
-}
-
 export function mentionSource(repo: string): string {
   return `github:${repo}:models`;
+}
+
+function recordLookup(db: Database): (source: string, id: string) => boolean {
+  const query = db.query("SELECT 1 FROM records WHERE source=? AND id=?");
+  return (source, id) => Boolean(query.get(source, id));
 }
 
 export async function collectModelMentions(
@@ -121,6 +123,7 @@ export async function collectModelMentions(
   request: Fetch = fetch,
 ): Promise<Collection> {
   const source = mentionSource(watch.repo);
+  const stored = recordLookup(db);
   const api = `https://api.github.com/repos/${watch.repo}`;
   const headers: Record<string, string> = {
     Accept: "application/vnd.github+json",
@@ -128,10 +131,10 @@ export async function collectModelMentions(
   };
   if (config.GITHUB_TOKEN) headers.Authorization = `Bearer ${config.GITHUB_TOKEN}`;
   const base = { source, stream: "github", url: `https://github.com/${watch.repo}`, appendOnly: true } as const;
-  const stored = db
+  const cursorRow = db
     .query<{ body: string }, [string, string]>("SELECT body FROM records WHERE source=? AND id=?")
     .get(source, CURSOR);
-  const cursor = stored ? (JSON.parse(stored.body) as { sha?: string }).sha : undefined;
+  const cursor = cursorRow ? (JSON.parse(cursorRow.body) as { sha?: string }).sha : undefined;
   const head = z
     .array(commitSchema)
     .min(1)
@@ -162,25 +165,38 @@ export async function collectModelMentions(
   for (const commit of batch) {
     const detail = detailSchema.parse(JSON.parse(await fetchText(`${api}/commits/${commit.sha}`, headers, request)));
     raw.push({ sha: detail.sha, files: detail.files.map((file) => file.filename) });
+    const found = new Map<string, { file: string; line: string }>();
     for (const file of detail.files) {
       if (!file.patch || IGNORED_FILE.test(file.filename)) continue;
       if (watch.authority === "third_party" && isTestFile(file.filename)) continue;
       for (const [id, line] of modelIdsInPatch(file.patch)) {
-        if (seen.has(id)) continue;
-        seen.add(id);
-        if (db.query("SELECT 1 FROM records WHERE source=? AND id=?").get(source, id)) continue;
-        records.push({
-          id,
-          name: id,
-          ...(watch.vendor ? { maker: watch.vendor } : {}),
-          url: `${detail.html_url}`,
-          commit: detail.commit.message.split("\n")[0]?.trim() || detail.sha,
-          ...(detail.commit.author?.date ? { committed: detail.commit.author.date } : {}),
-          file: file.filename,
-          line,
-        });
-        if (alreadyRecorded(db, id) || (undated(id) !== id && alreadyRecorded(db, undated(id)))) silentIds.push(id);
+        if (seen.has(id) || found.has(id)) continue;
+        // Told at both stages here already: nothing this commit says can be news.
+        if (stored(source, id) && stored(source, stageRecordId(id, "served"))) continue;
+        found.set(id, { file: file.filename, line });
       }
+    }
+    if (found.size === 0) continue;
+    const text = [detail.commit.message, ...[...found].map(([id, at]) => `${at.file}: ${at.line} [${id}]`)].join("\n");
+    const stages = await judgeMentions(config, request, "commit", text, [...found.keys()]);
+    for (const [id, at] of found) {
+      const stage: MentionStage = stages.get(id) ?? "named";
+      const recordId = stageRecordId(id, stage);
+      if (stored(source, recordId)) continue;
+      seen.add(id);
+      records.push({
+        id: recordId,
+        name: stage === "served" ? `${id} served` : id,
+        model: id,
+        stage,
+        ...(watch.vendor ? { maker: watch.vendor } : {}),
+        url: detail.html_url,
+        commit: detail.commit.message.split("\n")[0]?.trim() || detail.sha,
+        ...(detail.commit.author?.date ? { committed: detail.commit.author.date } : {}),
+        file: at.file,
+        line: at.line,
+      });
+      if (stageKnown(db, id, stage)) silentIds.push(recordId);
     }
   }
   const last = batch.at(-1)?.sha ?? head.sha;

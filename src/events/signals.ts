@@ -509,8 +509,7 @@ export function signalClass(event: Event): SignalClass {
   }
   // A model ID written into code for the first time, which no catalogue here has listed: the same
   // early word as a slug entering the Codex model list.
-  if (event.stream === "github" && event.source.endsWith(":models"))
-    return event.kind === "new" ? "codename" : "evidence";
+  if (event.stream === "github" && isModelSighting(event)) return event.kind === "new" ? "codename" : "evidence";
   if (event.stream === "github")
     return event.source.endsWith(":releases") && event.kind === "new" && !patchBuild(recordFor(event))
       ? "release"
@@ -556,10 +555,16 @@ export function signalClass(event: Event): SignalClass {
  * A role mention interrupts a person's day, so it is reserved for the two classes they subscribed
  * for. Numbers moving and raw evidence never ping.
  */
+function isModelSighting(event: Event): boolean {
+  return event.stream === "github" && /^github:.+:(?:models|talk)$/.test(event.source);
+}
+
 export function pingWorthy(event: Event): boolean {
   // A promised reset is worth reading and not worth interrupting: nothing has come back yet, and
   // the same announcement pings for real when it is applied.
   if (event.stream === "resets" && recordFor(event)?.stage !== "Applied") return false;
+  // A model written into code is coming; one answering people is here. Only the second interrupts.
+  if (isModelSighting(event) && recordFor(event)?.stage !== "served") return false;
   const signal = signalClass(event);
   return signal === "launch" || signal === "codename" || signal === "feature" || signal === "debut";
 }

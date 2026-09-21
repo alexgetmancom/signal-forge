@@ -1,8 +1,10 @@
 import { expect, test } from "bun:test";
 import { loadConfig } from "../src/config.js";
 import { saveCollection } from "../src/events/pipeline.js";
-import { signalClass } from "../src/events/signals.js";
+import { pingWorthy, signalClass } from "../src/events/signals.js";
+import { guessStage } from "../src/sources/mentionStage.js";
 import { collectModelMentions, isTestFile, modelIdsInPatch, undated } from "../src/sources/modelMentions.js";
+import { collectRepoTalk } from "../src/sources/repoTalk.js";
 import { openDatabase } from "../src/storage/database.js";
 
 const config = {
@@ -103,5 +105,128 @@ test("the first read is a cursor; a later commit tells only the model nothing he
   // Nothing moved: one request, nothing told, the cursor kept.
   const third = await collectModelMentions(db, config, watch, request);
   expect(third.records.map((r) => r.id)).toEqual(["@head"]);
+  db.close();
+});
+
+type Row = { entity_id: string; kind: string; source: string; stream: string; after_json: string };
+const eventsOf = (db: ReturnType<typeof openDatabase>, source: string) =>
+  db.query<Row, [string]>("SELECT * FROM events WHERE source=? ORDER BY id").all(source);
+
+/** A DeepSeek that answers with the given classes, and counts how often it was asked. */
+function judge(stages: Record<string, string>) {
+  const calls: string[] = [];
+  return {
+    calls,
+    answer(body: string) {
+      calls.push(body);
+      return Response.json({ choices: [{ message: { content: JSON.stringify(stages) } }] });
+    },
+  };
+}
+
+test("without a judge, only words about a response make a sighting served", () => {
+  expect(guessStage("fix: gpt-5.6-luna requests are being returned as gpt-6-luna")).toBe("served");
+  expect(guessStage("I asked for gpt-5.6 and got gpt-6-luna back")).toBe("served");
+  expect(guessStage("feat: add gpt-6-astra to the model list")).toBe("named");
+});
+
+test("a model named, then served, is told twice; only being served pings; another repo repeats nothing", async () => {
+  const db = openDatabase(":memory:");
+  const keyed = { ...config, DEEPSEEK_API_KEY: "key" };
+  let stages = judge({ "gpt-7-nova": "named" });
+  let head = commit(1, "Initial");
+  const files = { current: [{ filename: "models.json", patch: '+  { "slug": "gpt-7-nova" }' }] };
+  const request = async (url: string, init?: RequestInit) => {
+    if (url.includes("deepseek")) return stages.answer(String(init?.body));
+    if (url.includes("/commits?per_page=1")) return Response.json([head]);
+    if (url.includes("/compare/")) return Response.json({ status: "ahead", commits: [head] });
+    return Response.json({ ...head, files: files.current });
+  };
+  const codex = { repo: "openai/codex", vendor: "OpenAI", authority: "vendor_owned" as const };
+  const proxy = { repo: "d4rken/clankermux", authority: "third_party" as const };
+  for (const watch of [codex, proxy]) saveCollection(db, await collectModelMentions(db, keyed, watch, request), []);
+
+  head = commit(2, "feat: list gpt-7-nova");
+  saveCollection(db, await collectModelMentions(db, keyed, codex, request), []);
+  const named = eventsOf(db, "github:openai/codex:models");
+  expect(named.map((e) => e.entity_id)).toEqual(["gpt-7-nova"]);
+  expect(signalClass(named[0] as never)).toBe("codename");
+  expect(pingWorthy(named[0] as never)).toBe(false);
+
+  // The proxy names it too: already told by codex, so it is kept without a word.
+  saveCollection(db, await collectModelMentions(db, keyed, proxy, request), []);
+  expect(eventsOf(db, "github:d4rken/clankermux:models")).toEqual([]);
+
+  // Then the proxy has to price it because the backend returned it.
+  head = commit(3, "fix(pricing): gpt-5.6-luna requests are being returned as gpt-7-nova");
+  files.current = [{ filename: "src/pricing.ts", patch: '+  "gpt-7-nova": { input: 1 },' }];
+  stages = judge({ "gpt-7-nova": "served" });
+  saveCollection(db, await collectModelMentions(db, keyed, proxy, request), []);
+  const served = eventsOf(db, "github:d4rken/clankermux:models");
+  expect(served.map((e) => e.entity_id)).toEqual(["gpt-7-nova:served"]);
+  expect(JSON.parse(served[0]?.after_json ?? "{}")).toMatchObject({ model: "gpt-7-nova", stage: "served" });
+  expect(pingWorthy(served[0] as never)).toBe(true);
+  expect(stages.calls[0]).toContain("returned as gpt-7-nova");
+  db.close();
+});
+
+test("users reporting a model they were served are told; a model they merely name is kept", async () => {
+  const db = openDatabase(":memory:");
+  const keyed = { ...config, DEEPSEEK_API_KEY: "key" };
+  const watch = { repo: "openai/codex", vendor: "OpenAI", authority: "vendor_owned" as const };
+  const stages = judge({ "gpt-6-luna": "served", "gpt-7": "noise", "gpt-6-astra": "named" });
+  const request = async (url: string, init?: RequestInit) => {
+    if (url.includes("deepseek")) return stages.answer(String(init?.body));
+    if (url.endsWith("/graphql"))
+      return Response.json({
+        data: {
+          repository: {
+            discussions: {
+              nodes: [
+                {
+                  url: "https://github.com/openai/codex/discussions/9",
+                  title: "When gpt-7?",
+                  body: "Hoping for gpt-7 soon, gpt-6-astra is fine",
+                  updatedAt: "2026-09-21T12:00:00Z",
+                  author: { login: "fan" },
+                  comments: { nodes: [] },
+                },
+              ],
+            },
+          },
+        },
+      });
+    if (url.includes("/issues/comments")) return Response.json([]);
+    return Response.json([
+      {
+        html_url: "https://github.com/openai/codex/issues/1",
+        title: "Response model is gpt-6-luna though I picked gpt-5.6-luna",
+        body: "The usage panel shows gpt-6-luna for every turn since this morning.",
+        updated_at: "2026-09-21T11:00:00Z",
+        user: { login: "someone" },
+      },
+      {
+        html_url: "https://github.com/openai/codex/pull/2",
+        title: "gpt-6-luna pricing",
+        updated_at: "2026-09-21T11:30:00Z",
+        pull_request: {},
+      },
+    ]);
+  };
+  const first = await collectRepoTalk(db, keyed, watch, request, new Date("2026-09-21T10:00:00Z"));
+  expect(first.records.map((r) => r.id)).toEqual(["@since"]);
+  saveCollection(db, first, []);
+
+  const second = await collectRepoTalk(db, keyed, watch, request);
+  saveCollection(db, second, []);
+  const told = eventsOf(db, "github:openai/codex:talk");
+  expect(told.map((e) => e.entity_id)).toEqual(["gpt-6-luna:served"]);
+  expect(JSON.parse(told[0]?.after_json ?? "{}")).toMatchObject({
+    url: "https://github.com/openai/codex/issues/1",
+    author: "someone",
+  });
+  expect(pingWorthy(told[0] as never)).toBe(true);
+  expect(second.records.find((r) => r.id === "@since")).toMatchObject({ at: "2026-09-21T12:00:00Z" });
+  expect(second.records.map((r) => r.id)).toContain("gpt-6-astra");
   db.close();
 });
