@@ -49,7 +49,10 @@ export async function judgeMentions(
   text: string,
   ids: readonly string[],
 ): Promise<Map<string, MentionStage>> {
-  const fallback = new Map(ids.map((id) => [id, guessStage(text)] as const));
+  // Users' words are no evidence without a judge: gemini-cli#28859 tabled the models it *requested*
+  // -- `gemini-4.2-flash`, `gemini-3.9-pro`, none real -- beside "served", and the words alone made
+  // all three served. A commit's words are the developer's own account, so they still count there.
+  const fallback = new Map(ids.map((id) => [id, kind === "commit" ? guessStage(text) : "named"] as const));
   if (!config.DEEPSEEK_API_KEY || ids.length === 0) return fallback;
   const where =
     kind === "commit"
@@ -63,8 +66,9 @@ export async function judgeMentions(
       body: JSON.stringify({
         model: DEEPSEEK_SUMMARY_MODEL,
         // The model reasons before it answers: at 200 tokens it spent them all deciding that the
-        // clankermux commit of 2026-09-21 was `served`, and never wrote the answer.
-        max_tokens: 2_000,
+        // clankermux commit of 2026-09-21 was `served`, and never wrote the answer; at 2,000 it did
+        // the same over the eleven-model table of gemini-cli#28859.
+        max_tokens: 6_000,
         temperature: 0,
         response_format: { type: "json_object" },
         messages: [
@@ -76,7 +80,8 @@ export async function judgeMentions(
               "routed traffic to that model (a response named it, requests for one model came back as it, a user " +
               'reports receiving it); "named" -- the model is written into a list, config, price table, docs or code ' +
               'without evidence anyone was served it; "noise" -- a placeholder, example, hypothetical, typo, ' +
-              "speculation or a model that is only compared against. Reply with a JSON object mapping every ID to " +
+              "speculation, a model that is only compared against, or a model someone requested that " +
+              "something else answered instead (the answer is served, the request is not). Reply with a JSON object mapping every ID to " +
               "its class and nothing else.",
           },
           { role: "user", content: `IDs: ${ids.join(", ")}\n\n${text.slice(0, JUDGE_MAX_CHARS)}` },

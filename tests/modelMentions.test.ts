@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { loadConfig } from "../src/config.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import { pingWorthy, signalClass } from "../src/events/signals.js";
-import { familyVersion, guessStage, olderThanKnown } from "../src/sources/mentionStage.js";
+import { familyVersion, guessStage, judgeMentions, olderThanKnown } from "../src/sources/mentionStage.js";
 import { collectModelMentions, isTestFile, modelIdsInPatch, undated } from "../src/sources/modelMentions.js";
 import { collectRepoTalk } from "../src/sources/repoTalk.js";
 import { openDatabase } from "../src/storage/database.js";
@@ -262,4 +262,23 @@ test("an old or misspelt model users say answered them is older than what is lis
   for (const id of ["gpt-6-luna", "gpt-6-nova", "gpt-6.1", "gpt-7", "claude-opus-5", "gemini-4", "sora-3"])
     expect(olderThanKnown(db, id)).toBe(false);
   db.close();
+});
+
+test("without a judge, users' words never make a model served", async () => {
+  const stages = await judgeMentions(
+    config,
+    fetch,
+    "issue",
+    "any gemini-4.2-flash is silently served by gemini-3.5-flash",
+    ["gemini-4.2-flash"],
+  );
+  expect(stages.get("gemini-4.2-flash")).toBe("named");
+  const commit = await judgeMentions(
+    config,
+    fetch,
+    "commit",
+    "the backend answers some gpt-5.6-luna sends with gpt-6-luna",
+    ["gpt-6-luna"],
+  );
+  expect(commit.get("gpt-6-luna")).toBe("served");
 });
