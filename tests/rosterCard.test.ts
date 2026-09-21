@@ -83,7 +83,7 @@ test("a card read for one number draws that number big: a price's move, a debut'
     },
     "https://lmarena.ai",
   );
-  expect((debut.banner as Banner).hero).toMatchObject({ text: "#3", caption: "Text" });
+  expect((debut.banner as Banner).hero).toMatchObject({ text: "#3", caption: "Arena · Text" });
   const png = await bannerPng(debut.banner as Banner);
   expect(png.length).toBeGreaterThan(10_000);
 });

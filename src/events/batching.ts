@@ -372,9 +372,13 @@ function weekPoster(context: RecapContext): Banner | null {
   const count = context.arrivalCount;
   return {
     filename: `week-${context.to.slice(0, 10)}.png`,
-    eyebrow: `The week in models · ${day(context.from)} – ${day(context.to)}`,
+    eyebrow: `${day(context.from)} – ${day(context.to)}`,
     title: `${count} new model${count === 1 ? "" : "s"}`,
-    chips: [],
+    // The makers past the five the poster has room for, counted rather than dropped silently.
+    chips:
+      context.arrivals.length > 5
+        ? [`+ ${context.arrivals.length - 5} more maker${context.arrivals.length === 6 ? "" : "s"}`]
+        : [],
     vendor: context.arrivals[0]?.vendor ?? "",
     logo: null,
     rows: context.arrivals.map((row) => ({
@@ -398,7 +402,12 @@ function prepareRecap(db: Database, batch: PendingBatch, targets: BatchTarget[],
       destination.platform === "discord"
         ? JSON.stringify({
             content: "",
-            embeds: [poster ? { ...embed, image: { url: `attachment://${poster.filename}` } } : embed],
+            // The poster says what the author line would; the text below it stays as the week's detail.
+            embeds: [
+              poster && embed
+                ? { ...embed, author: undefined, image: { url: `attachment://${poster.filename}` } }
+                : embed,
+            ],
             ...(poster ? { banners: [poster] } : {}),
           })
         : lines.join("\n");

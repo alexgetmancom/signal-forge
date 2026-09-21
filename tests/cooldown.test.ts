@@ -24,10 +24,16 @@ function cards(db: ReturnType<typeof openDatabase>): string[] {
     .flatMap((row) => {
       const payload = JSON.parse(row.body) as {
         embeds?: { description?: string; fields?: { name: string; value: string }[] }[];
+        banners?: { chips: string[] }[];
       };
       // What the card says, in reading order: its sentences, then its labelled facts.
-      return (payload.embeds ?? []).map((embed) =>
-        [embed.description ?? "", ...(embed.fields ?? []).map((field) => `${field.name}: ${field.value}`)].join("\n"),
+      // A price card's move is on its banner, not in its text.
+      return (payload.embeds ?? []).map((embed, index) =>
+        [
+          embed.description ?? "",
+          ...(embed.fields ?? []).map((field) => `${field.name}: ${field.value}`),
+          ...(payload.banners?.[index]?.chips ?? []),
+        ].join("\n"),
       );
     });
 }
@@ -45,7 +51,7 @@ test("a price that slides all day is one message about the whole slide, not six 
 
   const delivered = cards(db);
   expect(delivered).toHaveLength(1);
-  expect(delivered[0]).toContain("$15 → $13 / 1M tokens");
+  expect(delivered[0]).toContain("$15 → $13 per 1M");
   db.close();
 });
 
@@ -67,7 +73,7 @@ test("once the wait is over the card covers the whole move, not the last step", 
   expect(delivered).toHaveLength(2);
   // The reader last saw $13 and the price is now $9.48. The steps in between are in the database,
   // not in the message: one card covers the whole move that reader missed.
-  expect(delivered[1]).toContain("$13 → $9.48 / 1M tokens");
+  expect(delivered[1]).toContain("$13 → $9.48 per 1M");
   expect(delivered[1]).not.toContain("$11.7");
   db.close();
 });
@@ -115,6 +121,6 @@ test("steps too small to report on their own add up to one card", () => {
   expect(delivered).toHaveLength(1);
   // It speaks as soon as the accumulated drift crosses the line, and the card covers the whole
   // drift rather than the small step that happened to cross it.
-  expect(delivered[0]).toContain("$1.9 → $1.63 / 1M tokens");
+  expect(delivered[0]).toContain("$1.9 → $1.63 per 1M");
   db.close();
 });

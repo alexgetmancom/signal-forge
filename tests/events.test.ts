@@ -457,7 +457,7 @@ test("a cross-stream digest stays scoped to each destination", () => {
   const bodies = new Map(
     rows.map((row) => [row.destination_id, JSON.parse(row.body) as { embeds: { title: string }[] }]),
   );
-  expect(bodies.get("models")?.embeds.map((embed) => embed.title)).toEqual(["✏️ Router model"]);
+  expect(bodies.get("models")?.embeds.map((embed) => embed.title)).toEqual(["📈 Router model is 2× dearer"]);
   expect(bodies.get("benchmarks")?.embeds.map((embed) => embed.title)).toEqual(["🏆 Newcomer model debuts at #3"]);
   local.close();
 });
@@ -751,14 +751,16 @@ test("entering a board is a sentence, and only a top-ten debut is told at once",
     detected_at: "2026-09-08T19:27:00.000Z",
   };
   const embed = eventEmbed(event, "https://arena.ai/leaderboard") as {
-    description: string;
+    description?: string;
     title: string;
-    author: { name: string };
+    author?: { name: string };
+    banner: { hero: { text: string; caption: string }; vendor: string };
   };
-  expect(embed.description).toContain("Enters text-to-image/overall at rank 1");
-  // The eyebrow already says OpenAI; the body must not say it again.
-  expect(embed.author.name).toBe("ARENA · LEADERBOARDS · OPENAI");
-  expect(embed.description).not.toContain("Maker:");
+  // The place is the picture; the card around it does not say it, or the maker, a second time.
+  expect(embed.banner.hero).toMatchObject({ text: "#1", caption: "Arena · text to image" });
+  expect(embed.banner.vendor).toBe("OpenAI");
+  expect(embed.author).toBeUndefined();
+  expect(embed.description).toBeUndefined();
   // A model taking first place on a board people quote is a debut, told at once.
   expect(isRoutine(event)).toBe(false);
   expect(embed.title).toBe("🏆 gpt-image-2.5-sunburst debuts at #1");

@@ -108,35 +108,55 @@ function bannerSvg(banner: Banner): string {
 const POSTER_WIDTH = 1200;
 /** Twitter shows a 16:9 picture whole; the week is the one image meant to be posted there. */
 const POSTER_HEIGHT = 675;
-const POSTER_ROWS = 7;
+/** Discord shows the poster at two thirds of its size; five makers is what stays legible there. */
+const POSTER_ROWS = 5;
+const POSTER_NAMES = 2;
 
 /**
- * The week in one picture: each maker that shipped, its tile, and what it shipped, most first. A
- * recap is otherwise a column of text, and the text does not survive being posted anywhere else.
+ * The week in one picture: how many models arrived, big, and beside it the makers that shipped them
+ * with their tiles. The first draft listed seven makers in three columns of one weight and every
+ * model by name; shrunk into Discord it read as a footnote. The rest of the week is in the text.
  */
 function posterSvg(banner: Banner): string {
   const rows = (banner.rows ?? []).slice(0, POSTER_ROWS);
   const glow = glowOf(rows[0]?.vendor ?? "", 0x5865f2);
-  const top = 240;
-  const step = Math.min(64, Math.floor((POSTER_HEIGHT - top - 40) / Math.max(rows.length, 1)));
-  const tile = step - 14;
+  const [count = "", ...label] = banner.title.split(" ");
+  const left = 72;
+  const column = 470;
+  const tile = 76;
+  const step = 104;
+  const top = Math.round((POSTER_HEIGHT - rows.length * step) / 2) + 14;
+  const room = POSTER_WIDTH - 72 - (column + tile + 28);
   const body = rows
     .map((row, index) => {
       const y = top + index * step;
       const logo = logoData(row.logo);
-      const names = row.names.join("  ·  ");
-      const room = POSTER_WIDTH - 72 - 360;
-      const size = textWidth(names, 30) <= room ? 30 : textWidth(names, 24) <= room ? 24 : 20;
-      const shown = textWidth(names, size) <= room ? names : `${names.slice(0, Math.floor(room / (size * 0.56)) - 1)}…`;
-      return `${logo ? `<image x="72" y="${y}" width="${tile}" height="${tile}" href="${logo}"/>` : ""}
-  <text x="${72 + tile + 20}" y="${y + tile * 0.68}" font-family="Inter Display" font-weight="700" font-size="30" fill="#ffffff">${xml(row.vendor)}</text>
-  <text x="360" y="${y + tile * 0.68}" font-family="Inter" font-weight="600" font-size="${size}" fill="#ffffff" fill-opacity="0.78">${xml(shown)}</text>`;
+      // Fewer names before a cut one: "MiMo V2.6 Pro +2" rather than "MiMo V2.6 Pro, MiMo V2.6 Flas…".
+      const fit = (count: number) =>
+        row.names.slice(0, count).join(", ") + (row.names.length > count ? ` +${row.names.length - count}` : "");
+      let names = fit(POSTER_NAMES);
+      let size = 38;
+      for (const [count, font] of [
+        [POSTER_NAMES, 38],
+        [POSTER_NAMES, 32],
+        [1, 38],
+        [1, 32],
+      ] as const) {
+        names = fit(count);
+        size = font;
+        if (textWidth(names, font) <= room) break;
+      }
+      if (textWidth(names, size) > room) names = `${names.slice(0, Math.floor(room / (size * 0.56)) - 1)}…`;
+      return `${logo ? `<image x="${column}" y="${y}" width="${tile}" height="${tile}" href="${logo}"/>` : ""}
+  <text x="${column + tile + 28}" y="${y + tile / 2 + size * 0.36}" font-family="Inter Display" font-weight="700" font-size="${size}" fill="#ffffff">${xml(names)}</text>`;
     })
     .join("\n  ");
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${POSTER_WIDTH}" height="${POSTER_HEIGHT}" viewBox="0 0 ${POSTER_WIDTH} ${POSTER_HEIGHT}">
   ${backdrop(POSTER_WIDTH, POSTER_HEIGHT, glow)}
-  <text x="72" y="96" font-family="Inter" font-weight="600" font-size="26" letter-spacing="4" fill="#ffffff" fill-opacity="0.6">${xml(banner.eyebrow.toUpperCase())}</text>
-  <text x="72" y="184" font-family="Inter Display" font-weight="700" font-size="${Math.min(72, titleSize(banner.title))}" letter-spacing="-1.5" fill="#ffffff">${xml(banner.title)}</text>
+  <text x="${left}" y="130" font-family="Inter" font-weight="600" font-size="28" letter-spacing="4" fill="#ffffff" fill-opacity="0.6">${xml(banner.eyebrow.toUpperCase())}</text>
+  <text x="${left - 8}" y="400" font-family="Inter Display" font-weight="700" font-size="${count.length > 2 ? 190 : 250}" letter-spacing="-8" fill="#ffffff">${xml(count)}</text>
+  <text x="${left}" y="476" font-family="Inter Display" font-weight="700" font-size="54" fill="#ffffff" fill-opacity="0.85">${xml(label.join(" "))}</text>
+  ${banner.chips[0] ? `<text x="${left}" y="560" font-family="Inter" font-weight="600" font-size="28" fill="#ffffff" fill-opacity="0.55">${xml(banner.chips[0])}</text>` : ""}
   ${body}
 </svg>`;
 }

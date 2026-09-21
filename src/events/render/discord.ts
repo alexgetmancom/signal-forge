@@ -455,6 +455,12 @@ function shortDate(value: string, year = false): string {
   });
 }
 
+/** "Shutdown · in 23 days": how long is left is what a reader with the model in production needs. */
+function shutdownCaption(day: string, from: string): string {
+  const days = Math.round((Date.parse(day) - Date.parse(from)) / 86_400_000);
+  return days > 0 ? `Shutdown · in ${days} day${days === 1 ? "" : "s"}` : "Shutdown";
+}
+
 /**
  * The picture for a card read for one number -- a debut's place, a price's move, a shutdown date --
  * so the number is what a screenshot shows first. Everything else keeps the plain card.
@@ -471,12 +477,26 @@ function numberBanner(
     const rank = boardPlace(event);
     if (rank === null || rank > DEBUT_PLACES) return null;
     const board = place(event.source);
-    const category = typeof after?.category === "string" ? after.category : null;
+    // "text-to-image/overall" is a key; the caption under the place reads "Arena · text to image".
+    const category =
+      typeof after?.category === "string"
+        ? after.category
+            .replace(/\/overall$/, "")
+            .replace(/[-_/]+/g, " ")
+            .trim() || null
+        : null;
     return {
       ...base,
-      eyebrow: bannerEyebrow(vendor, event.detected_at, `${board} debut`),
-      chips: [],
-      hero: { text: `#${rank}`, caption: category ?? board, color: rank === 1 ? 0xf5c451 : 0xffffff },
+      eyebrow: bannerEyebrow(vendor, event.detected_at, "Debut"),
+      chips: [after?.score, after?.rating]
+        .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
+        .slice(0, 1)
+        .map((value) => `Score ${Math.round(value)}`),
+      hero: {
+        text: `#${rank}`,
+        caption: [board, category].filter(Boolean).join(" · "),
+        color: rank === 1 ? 0xf5c451 : 0xffffff,
+      },
     };
   }
   if ((event.stream === "api-models" || event.stream === "openrouter") && before && after) {
@@ -499,9 +519,12 @@ function numberBanner(
     if (!day) return null;
     return {
       ...base,
-      eyebrow: bannerEyebrow(vendor, event.detected_at, "Retiring"),
-      chips: present(after.replacement) ? [`→ ${describe(after.replacement)}`] : [],
-      hero: { text: shortDate(day), caption: `shutdown ${new Date(day).getUTCFullYear()}`, color: 0xffa94d },
+      // Two dates on one picture read as one: the top line says which is the announcement.
+      eyebrow: [vendor === "Unknown" ? null : vendor, `Announced ${shortDate(event.detected_at)}`]
+        .filter(Boolean)
+        .join(" · "),
+      chips: present(after.replacement) ? [`Replaced by ${describe(after.replacement)}`] : [],
+      hero: { text: shortDate(day), caption: shutdownCaption(day, event.detected_at), color: 0xffa94d },
     };
   }
   return null;
@@ -612,9 +635,30 @@ export function eventEmbed(
     // The banner carries the maker's tile, so the corner stays empty rather than showing it twice.
     embed.image = { url: `attachment://${banner.filename}` };
     embed.banner = banner;
+    if (!launch) trimToBanner(embed, banner, handle);
   } else if (thumbnail) embed.thumbnail = { url: thumbnail };
   if (link) embed.url = link;
   return embed;
+}
+
+/**
+ * A card whose picture carries its number says nothing else: the first debut card said #1 four times
+ * -- eyebrow, title, a sentence and the banner -- and a price card quoted its move three. What stays
+ * is the title to click, the ID to copy and the source; the stripe takes the number's colour.
+ */
+function trimToBanner(embed: Record<string, unknown>, banner: Banner, handle: string | null): void {
+  delete embed.author;
+  delete embed.fields;
+  if (handle) embed.description = handle;
+  else delete embed.description;
+  const hero = banner.hero;
+  if (!hero) return;
+  if (hero.caption === "cheaper" || hero.caption === "dearer") {
+    const step = hero.text.replace(/^[−+]/, "");
+    embed.title = `${hero.caption === "cheaper" ? "💸" : "📈"} ${banner.title} is ${step} ${hero.caption === "cheaper" ? "cheaper" : "dearer"}`;
+  }
+  embed.color =
+    hero.color === 0xffffff || hero.color === 0xf5c451 ? (vendorColor(banner.vendor) ?? embed.color) : hero.color;
 }
 
 /** The words two names share at the start: "MiMo V2.6" of "MiMo V2.6 Flash" and "MiMo V2.6 Pro". */
