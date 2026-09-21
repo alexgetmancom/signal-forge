@@ -52,6 +52,9 @@ const MODEL_ID =
 const PROSE_SUFFIX =
   /-(?:specific|based|like|style|class|level|family|compatible|era|only|powered|series|generation|native|aware|ready|friendly)$/;
 
+/** `gpt-5.6-and-later`, `gpt-4-turbo-and-gpt-4`: a sentence joined by hyphens, not one model. */
+const JOINED = /-(?:and|or|vs|versus|to|than|through)(?:-|$)/;
+
 /** A file whose contents are recorded output, not anyone writing a model's name. */
 const IGNORED_FILE = /(^|\/)(package-lock\.json|bun\.lock|pnpm-lock\.yaml|yarn\.lock|Cargo\.lock|uv\.lock)$|\.snap$/;
 
@@ -86,7 +89,7 @@ function modelIdsInLines(lines: readonly string[]): Map<string, string> {
     for (const match of line.toLowerCase().matchAll(MODEL_ID)) {
       // A trailing dot is the end of a sentence, not a version.
       const id = match[0].replace(/[.-]+$/, "");
-      if (PROSE_SUFFIX.test(id)) continue;
+      if (PROSE_SUFFIX.test(id) || JOINED.test(id)) continue;
       if (!found.has(id)) found.set(id, line.trim().slice(0, 240));
     }
   }
@@ -171,8 +174,10 @@ export async function collectModelMentions(
       if (watch.authority === "third_party" && isTestFile(file.filename)) continue;
       for (const [id, line] of modelIdsInPatch(file.patch)) {
         if (seen.has(id) || found.has(id)) continue;
-        // Told at both stages here already: nothing this commit says can be news.
+        // Told at both stages already, or listed by a catalogue: nothing this commit says is news,
+        // and there is nothing to ask the judge.
         if (stored(source, id) && stored(source, stageRecordId(id, "served"))) continue;
+        if (stageKnown(db, id, "named") && stageKnown(db, id, "served")) continue;
         found.set(id, { file: file.filename, line });
       }
     }

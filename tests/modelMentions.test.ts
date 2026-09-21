@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { loadConfig } from "../src/config.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import { pingWorthy, signalClass } from "../src/events/signals.js";
-import { guessStage } from "../src/sources/mentionStage.js";
+import { familyVersion, guessStage, olderThanKnown } from "../src/sources/mentionStage.js";
 import { collectModelMentions, isTestFile, modelIdsInPatch, undated } from "../src/sources/modelMentions.js";
 import { collectRepoTalk } from "../src/sources/repoTalk.js";
 import { openDatabase } from "../src/storage/database.js";
@@ -87,8 +87,9 @@ test("the first read is a cursor; a later commit tells only the model nothing he
 
   head = commit(2, "fix(pricing): price gpt-6-luna and refresh the stale GPT-5.6 rates");
   const second = await collectModelMentions(db, config, watch, request);
-  expect(second.records.map((r) => r.id).sort()).toEqual(["@head", "gpt-5.6-luna", "gpt-6-luna"]);
-  expect(second.silentIds?.sort()).toEqual(["@head", "gpt-5.6-luna"]);
+  // gpt-5.6-luna is listed by a catalogue: not news, not stored, not judged.
+  expect(second.records.map((r) => r.id).sort()).toEqual(["@head", "gpt-6-luna"]);
+  expect(second.silentIds).toEqual(["@head"]);
   saveCollection(db, second, []);
 
   const events = db
@@ -228,5 +229,37 @@ test("users reporting a model they were served are told; a model they merely nam
   expect(pingWorthy(told[0] as never)).toBe(true);
   expect(second.records.find((r) => r.id === "@since")).toMatchObject({ at: "2026-09-21T12:00:00Z" });
   expect(second.records.map((r) => r.id)).toContain("gpt-6-astra");
+  db.close();
+});
+
+test("hyphen-joined prose is not a model", () => {
+  expect([...modelIdsInPatch("+works for gpt-5.6-and-later, gpt-4-turbo-and-gpt-4 and gpt-5-vs-gpt-6").keys()]).toEqual(
+    [],
+  );
+});
+
+test("an old or misspelt model users say answered them is older than what is listed", () => {
+  expect(familyVersion("gpt-5-6-thinking")).toEqual({ family: "gpt", version: [5] });
+  expect(familyVersion("claude-opus-5-1")).toEqual({ family: "claude-opus", version: [5, 1] });
+  expect(familyVersion("gemini-3.8-live")).toEqual({ family: "gemini", version: [3, 8] });
+  const db = openDatabase(":memory:");
+  saveCollection(
+    db,
+    {
+      source: "openai",
+      stream: "api-models",
+      url: "https://x",
+      raw: [],
+      records: [
+        { id: "gpt-6-astra", name: "gpt-6-astra" },
+        { id: "openai/gpt-5.6-luna", name: "gpt-5.6-luna" },
+      ],
+    },
+    [],
+  );
+  for (const id of ["gpt-5.3", "gpt-5-6-thinking", "gpt-5-mini-2025-08-07-batch", "gpt-5.5-codex"])
+    expect(olderThanKnown(db, id)).toBe(true);
+  for (const id of ["gpt-6-luna", "gpt-6.1", "gpt-7", "claude-opus-5", "sora-3"])
+    expect(olderThanKnown(db, id)).toBe(false);
   db.close();
 });

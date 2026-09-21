@@ -4,7 +4,7 @@ import type { AppConfig } from "../config.js";
 import type { Collection, RecordData } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
 import { fetchText } from "./http.js";
-import { judgeMentions, stageKnown, stageRecordId } from "./mentionStage.js";
+import { judgeMentions, olderThanKnown, stageKnown, stageRecordId } from "./mentionStage.js";
 import { type MentionWatch, modelIdsInText } from "./modelMentions.js";
 
 /**
@@ -162,8 +162,14 @@ export async function collectRepoTalk(
   const told = new Set<string>();
   for (const post of found) {
     const text = `${post.title ? `${post.title}\n\n` : ""}${post.body}`;
+    // Only a model answering people can be news from users, so only an ID that could still be
+    // that -- not served-and-told, not listed, not older than a listed version -- is judged at all.
     const ids = [...modelIdsInText(text)].filter(
-      ([id]) => !told.has(id) && !stored.get(source, stageRecordId(id, "served")),
+      ([id]) =>
+        !told.has(id) &&
+        !stored.get(source, stageRecordId(id, "served")) &&
+        !stageKnown(db, id, "served") &&
+        !olderThanKnown(db, id),
     );
     if (ids.length === 0) continue;
     const stages = await judgeMentions(
@@ -191,7 +197,7 @@ export async function collectRepoTalk(
         line,
       });
       // Only a report of being served is news from users; a name they type is not.
-      if (stage !== "served" || stageKnown(db, id, stage)) silentIds.push(recordId);
+      if (stage !== "served") silentIds.push(recordId);
     }
   }
   // Pages are read oldest first, so a full page moves the cursor to its last post, not past the rest.

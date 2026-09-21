@@ -142,3 +142,43 @@ export function stageKnown(db: Database, id: string, stage: MentionStage): boole
       : recorded(candidate) || recorded(stageRecordId(candidate, "served")),
   );
 }
+
+/** A family and its version: `gpt-5.6-luna` is gpt 5.6, `claude-opus-5-1` is claude-opus 5.1. */
+export function familyVersion(id: string): { family: string; version: number[] } | null {
+  const match = /^(gpt|gemini|grok|glm)-(\d+(?:\.\d+)?)(?![\d.])|^(claude-[a-z]+)-(\d+(?:[.-]\d{1,2})?)(?!\d)/.exec(
+    undated(id),
+  );
+  if (!match) return null;
+  const family = match[1] ?? match[3] ?? "";
+  const version = (match[2] ?? match[4] ?? "").split(/[.-]/).map(Number);
+  return { family, version };
+}
+
+function compareVersions(a: readonly number[], b: readonly number[]): number {
+  for (let index = 0; index < Math.max(a.length, b.length); index++) {
+    const difference = (a[index] ?? 0) - (b[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
+/**
+ * Whether a catalogue here already lists a later version of the same family. Users write old and
+ * misspelt names: in the fortnight to 2026-09-21 the OpenAI repositories' issues reported being
+ * served `gpt-5.3`, `gpt-5-6-thinking` and `gpt-5-mini-2025-08-07-batch` while `gpt-6-astra` was
+ * listed. None was news, and each would have pinged. `gpt-6-luna` beside `gpt-6-astra` is the same
+ * version, so it stays news.
+ */
+export function olderThanKnown(db: Database, id: string): boolean {
+  const own = familyVersion(id);
+  if (!own) return false;
+  const rows = db
+    .query<{ id: string }, [string]>(
+      `SELECT DISTINCT id FROM records WHERE NOT ${MENTION_SOURCES} AND (id LIKE ?1 || '-%' OR id LIKE '%/' || ?1 || '-%')`,
+    )
+    .all(own.family);
+  return rows.some((row) => {
+    const other = familyVersion(bareModelSlug(row.id).toLowerCase());
+    return other?.family === own.family && compareVersions(other.version, own.version) > 0;
+  });
+}
