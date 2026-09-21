@@ -74,6 +74,20 @@ export function identityFor(event: Event, record: RecordData | null): ModelIdent
     };
   }
 
+  /**
+   * A docs page is titled for its site -- "xAI Docs: Grok 4 7" -- and that prefix kept it out of the
+   * Grok 4.7 story on 2026-09-21: the term was "xai docs grok 4 7" where the catalogue's was
+   * "grok 4 7", so the check that silences a sighting after its launch never saw the two together
+   * and the page reached the scouts. The page is named without its site, and a path ending in a
+   * versioned name -- `/developers/grok-4-7` -- names the model too.
+   */
+  if (event.stream === "pages") {
+    const title = name.replace(/^[^:]{1,40}:\s+/, "");
+    const slug = (id ?? event.entity_id).split(/[?#]/)[0]?.replace(/\/+$/, "").split("/").at(-1) ?? "";
+    const versioned = /^[a-z]+(?:-[a-z]+){0,2}-v?\d+(?:-\d+){0,2}(?:-[a-z]+)?$/i.test(slug) ? slug : null;
+    return { canonicalId: null, displayName: title, aliases: unique([title, versioned]), status: "unknown" };
+  }
+
   if (event.stream === "deprecations") {
     const canonicalId = text(record?.canonical_id) ?? text(record?.canonicalId) ?? text(record?.modelId);
     return {

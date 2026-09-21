@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { classify } from "../src/events/classify.js";
+import { identityFor, identityTerms } from "../src/events/identity.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import { signalClass } from "../src/events/signals.js";
 import type { Event } from "../src/events/types.js";
@@ -130,4 +131,25 @@ test("catalogue lookups: a docs slug finds its launched model, an old model know
     ),
   ).toBe("change");
   db.close();
+});
+
+test("a docs page joins its model's story by title without the site and by a versioned path", () => {
+  const page = event({
+    source: "pages:xai-docs",
+    stream: "pages",
+    entity_id: "/developers/grok-4-7",
+    record: { id: "/developers/grok-4-7", name: "xAI Docs: Grok 4 7" },
+  });
+  const launch = event({ source: "xai", stream: "api-models", entity_id: "grok-4.7", record: { id: "grok-4.7" } });
+  const terms = (e: Event) => identityTerms(identityFor(e, JSON.parse(e.after_json ?? "{}")));
+  expect(terms(page)).toContain("grok 4 7");
+  expect(terms(page).some((term) => terms(launch).includes(term))).toBe(true);
+  // A blog path is not a model's name.
+  const blog = event({
+    source: "pages:google-devs",
+    stream: "pages",
+    entity_id: "/gemini-20-deep-dive-code-execution",
+    record: { id: "/gemini-20-deep-dive-code-execution", name: "Google Developers: Deep dive" },
+  });
+  expect(terms(blog)).toEqual(["deep dive"]);
 });
