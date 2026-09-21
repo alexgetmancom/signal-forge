@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { loadConfig } from "../src/config.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import { pingWorthy, signalClass } from "../src/events/signals.js";
-import { familyVersion, guessStage, judgeMentions, olderThanKnown } from "../src/sources/mentionStage.js";
+import { familyVersion, guessStage, judgeMentions, olderThanKnown, stageKnown } from "../src/sources/mentionStage.js";
 import { collectModelMentions, isTestFile, modelIdsInPatch, undated } from "../src/sources/modelMentions.js";
 import { collectRepoTalk } from "../src/sources/repoTalk.js";
 import { openDatabase } from "../src/storage/database.js";
@@ -359,4 +359,27 @@ test("a checkpoint, a quantisation or a page's path is not a model", () => {
     '+ "qwen3-1p7b-fp8-draft", "qwen3-coder-30b-a3b-instruct-gguf", "deepseek-r1-0528-tput", "kimi-k3-us", "kimi-k2-5-now-in-microsoft-foundry", "kimi-k2-5-quickstart", "deepseek-v4.1-flash-beta", "gpt-6-astra-fast"',
   );
   expect([...ids.keys()]).toEqual(["deepseek-v4.1-flash-beta", "gpt-6-astra-fast"]);
+});
+
+test("a family stem or a hyphen spelling of a listed model is known", () => {
+  const db = openDatabase(":memory:");
+  saveCollection(
+    db,
+    {
+      source: "dashscope",
+      stream: "api-models",
+      url: "https://x",
+      raw: [],
+      records: [
+        { id: "kimi-k2.7-code", name: "kimi-k2.7-code" },
+        { id: "qwen3.8-27b", name: "qwen3.8-27b" },
+        { id: "moonshotai/kimi-k2-6", name: "kimi-k2-6" },
+      ],
+    },
+    [],
+  );
+  for (const id of ["kimi-k2.7", "qwen3.8", "kimi-k2.6"]) expect(stageKnown(db, id, "named")).toBe(true);
+  for (const id of ["kimi-k2.8", "qwen3.9", "qwen3.8-max", "kimi-k2.7-codex"])
+    expect(stageKnown(db, id, "named")).toBe(false);
+  db.close();
 });

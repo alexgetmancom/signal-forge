@@ -154,13 +154,13 @@ const MENTION_SOURCES = "(source LIKE 'github:%:models' OR source LIKE 'github:%
 /** Whether a source other than the repositories' own sightings has recorded this model. */
 function publiclyListed(db: Database, id: string): boolean {
   const bare = bareModelSlug(id);
-  return Boolean(
-    db
-      .query(
-        `SELECT 1 FROM records WHERE NOT ${MENTION_SOURCES} AND (id=?1 OR id LIKE '%/' || ?1 OR id LIKE '%.' || ?1 || '%' OR body LIKE '%"' || ?1 || '"%') LIMIT 1`,
-      )
-      .get(bare),
+  // Catalogues spell `kimi-k2.7` as `kimi-k2-7` too, and a repository names a family by the stem
+  // its listed models extend: `qwen3.8` for `qwen3.8-27b`, `kimi-k2.7` for `kimi-k2.7-code`.
+  const spellings = [...new Set([bare, bare.replace(/(\d)\.(\d)/g, "$1-$2")])];
+  const query = db.query(
+    `SELECT 1 FROM records WHERE NOT ${MENTION_SOURCES} AND (lower(id)=?1 OR lower(id) LIKE '%/' || ?1 OR lower(id) LIKE ?1 || '-%' OR lower(id) LIKE '%/' || ?1 || '-%' OR id LIKE '%.' || ?1 || '%' OR body LIKE '%"' || ?1 || '"%') LIMIT 1`,
   );
+  return spellings.some((spelling) => Boolean(query.get(spelling)));
 }
 
 /** `gpt-5.4-mini-2026-03-17` is a dated snapshot of `gpt-5.4-mini`; knowing one is knowing the other. */
