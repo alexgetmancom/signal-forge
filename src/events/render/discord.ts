@@ -523,7 +523,9 @@ function numberBanner(
       eyebrow: [vendor === "Unknown" ? null : vendor, `Announced ${shortDate(event.detected_at)}`]
         .filter(Boolean)
         .join(" · "),
-      chips: present(after.replacement) ? [`Replaced by ${describe(after.replacement)}`] : [],
+      chips: present(after.replacement)
+        ? [`Replaced by ${displayTitle(describe(after.replacement), "api-models", event.source)}`]
+        : [],
       hero: { text: shortDate(day), caption: shutdownCaption(day, event.detected_at), color: 0xffa94d },
     };
   }
@@ -635,7 +637,7 @@ export function eventEmbed(
     // The banner carries the maker's tile, so the corner stays empty rather than showing it twice.
     embed.image = { url: `attachment://${banner.filename}` };
     embed.banner = banner;
-    if (!launch) trimToBanner(embed, banner, handle);
+    if (!launch) trimToBanner(embed, banner, handle, event.source);
   } else if (thumbnail) embed.thumbnail = { url: thumbnail };
   if (link) embed.url = link;
   return embed;
@@ -646,8 +648,11 @@ export function eventEmbed(
  * -- eyebrow, title, a sentence and the banner -- and a price card quoted its move three. What stays
  * is the title to click, the ID to copy and the source; the stripe takes the number's colour.
  */
-function trimToBanner(embed: Record<string, unknown>, banner: Banner, handle: string | null): void {
+function trimToBanner(embed: Record<string, unknown>, banner: Banner, handle: string | null, source: string): void {
   delete embed.author;
+  // "Arena · leaderboards" names our feed; the reader wants the place, as a price card's "OpenRouter".
+  const footer = embed.footer as { text: string };
+  footer.text = footer.text.replace(sourceLabel(source), place(source));
   delete embed.fields;
   if (handle) embed.description = handle;
   else delete embed.description;

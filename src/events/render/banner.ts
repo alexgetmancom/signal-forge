@@ -125,38 +125,30 @@ function posterSvg(banner: Banner): string {
   const column = 470;
   const tile = 76;
   const step = 104;
-  const top = Math.round((POSTER_HEIGHT - rows.length * step) / 2) + 14;
+  const size = 36;
+  // The list starts where the dates do, so the two columns share a top edge.
+  const top = 92;
   const room = POSTER_WIDTH - 72 - (column + tile + 28);
   const body = rows
     .map((row, index) => {
       const y = top + index * step;
       const logo = logoData(row.logo);
-      // Fewer names before a cut one: "MiMo V2.6 Pro +2" rather than "MiMo V2.6 Pro, MiMo V2.6 Flas…".
+      // Fewer names before a cut one, and one size for every row: a row that shrank to fit read as a footnote.
       const fit = (count: number) =>
         row.names.slice(0, count).join(", ") + (row.names.length > count ? ` +${row.names.length - count}` : "");
-      let names = fit(POSTER_NAMES);
-      let size = 38;
-      for (const [count, font] of [
-        [POSTER_NAMES, 38],
-        [POSTER_NAMES, 32],
-        [1, 38],
-        [1, 32],
-      ] as const) {
-        names = fit(count);
-        size = font;
-        if (textWidth(names, font) <= room) break;
-      }
-      if (textWidth(names, size) > room) names = `${names.slice(0, Math.floor(room / (size * 0.56)) - 1)}…`;
+      // Inter Display Bold runs nearer half an em than the 0.56 that sizes a title with room to spare.
+      const width = (text: string) => text.length * size * 0.5;
+      let names = width(fit(POSTER_NAMES)) <= room ? fit(POSTER_NAMES) : fit(1);
+      if (width(names) > room) names = `${names.slice(0, Math.floor(room / (size * 0.5)) - 1)}…`;
       return `${logo ? `<image x="${column}" y="${y}" width="${tile}" height="${tile}" href="${logo}"/>` : ""}
   <text x="${column + tile + 28}" y="${y + tile / 2 + size * 0.36}" font-family="Inter Display" font-weight="700" font-size="${size}" fill="#ffffff">${xml(names)}</text>`;
     })
     .join("\n  ");
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${POSTER_WIDTH}" height="${POSTER_HEIGHT}" viewBox="0 0 ${POSTER_WIDTH} ${POSTER_HEIGHT}">
   ${backdrop(POSTER_WIDTH, POSTER_HEIGHT, glow)}
-  <text x="${left}" y="130" font-family="Inter" font-weight="600" font-size="28" letter-spacing="4" fill="#ffffff" fill-opacity="0.6">${xml(banner.eyebrow.toUpperCase())}</text>
+  <text x="${left}" y="${top + tile / 2 + 10}" font-family="Inter" font-weight="600" font-size="28" letter-spacing="4" fill="#ffffff" fill-opacity="0.6">${xml(banner.eyebrow.toUpperCase())}</text>
   <text x="${left - 8}" y="400" font-family="Inter Display" font-weight="700" font-size="${count.length > 2 ? 190 : 250}" letter-spacing="-8" fill="#ffffff">${xml(count)}</text>
   <text x="${left}" y="476" font-family="Inter Display" font-weight="700" font-size="54" fill="#ffffff" fill-opacity="0.85">${xml(label.join(" "))}</text>
-  ${banner.chips[0] ? `<text x="${left}" y="560" font-family="Inter" font-weight="600" font-size="28" fill="#ffffff" fill-opacity="0.55">${xml(banner.chips[0])}</text>` : ""}
   ${body}
 </svg>`;
 }
