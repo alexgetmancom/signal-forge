@@ -26,7 +26,7 @@ import {
 } from "../releaseNotes.js";
 
 /** Official vendor newsrooms, blogs, changelogs and release notes. */
-export function newsSources({ cache }: SourceContext): SourceEntry[] {
+export function newsSources({ db, config, cache }: SourceContext): SourceEntry[] {
   return [
     {
       id: "openai-news",
@@ -52,7 +52,7 @@ export function newsSources({ cache }: SourceContext): SourceEntry[] {
       group: "Official news",
       stream: "news",
       intervalSeconds: 900,
-      collector: () => collectOpenAIChatGPTReleaseNotes(fetch, cache),
+      collector: () => collectOpenAIChatGPTReleaseNotes(fetch, cache, { db, config }),
     },
     {
       id: "openai-codex-changelog",

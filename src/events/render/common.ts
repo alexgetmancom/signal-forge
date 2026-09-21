@@ -3,6 +3,7 @@ import { meaningfulWebString, normalizeWebString } from "../web.js";
 
 /** Observation metadata that is useful in evidence but not useful in a notification. */
 export const NOISE = new Set([
+  "audience",
   "head",
   "updated",
   "published",

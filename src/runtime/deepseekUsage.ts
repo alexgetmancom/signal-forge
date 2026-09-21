@@ -65,6 +65,14 @@ const DEEPSEEK_CODE_PATHS = [
     optimization:
       "Only unlisted IDs newer than every listed version are judged; a 4,000-character input cap and one call per post.",
   },
+  {
+    operation: "audience.judge",
+    path: "src/sources/audienceJudge.ts",
+    function: "judgeAudience",
+    purpose: "Says whether a ChatGPT release note is for builders (models, API, Codex, agents) or for consumers.",
+    trigger: "A ChatGPT release-notes entry the database has not stored before.",
+    optimization: "Only new entries, all of one poll in one call, 400 characters of each, a 2,000-token output cap.",
+  },
 ] as const;
 
 type DeepSeekUsageContext = {

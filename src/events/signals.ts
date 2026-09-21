@@ -129,7 +129,8 @@ const TOOL_CHANGELOGS = new Set([
 /**
  * ChatGPT's release notes are mostly consumer features. "Credit scores in Finances" reached the
  * public channel on 2026-09-21 and the owner called it noise: a reader here came for models and the
- * tools they build with. An entry travels only when it names a model or a builder's surface.
+ * tools they build with. The collector asks a judge who each entry is for (`audience`); this word list
+ * decides only when the judge could not be asked.
  */
 const CHATGPT_FOR_BUILDERS =
   /\b(?:claude|opus|sonnet|haiku|gpt|o\d|gemini|grok|codex|model|models|api|developers?|agents?|apps sdk|mcp|connectors?|reasoning|context window)\b[\s-]?\d?/i;
@@ -460,7 +461,11 @@ export function signalClass(event: Event): SignalClass {
      */
     const words = `${text(record?.name)} ${text(record?.summary)} ${text(record?.description)}`;
     if (!text(record?.version) && RETIREMENT_WORDS.test(words) && !PREVIEW_SUCCESSION.test(words)) return "retirement";
-    if (event.source === "openai-chatgpt-release-notes" && !CHATGPT_FOR_BUILDERS.test(words)) return "evidence";
+    if (event.source === "openai-chatgpt-release-notes") {
+      // The judge's answer when it gave one, the word list when it could not be asked.
+      const audience = text(record?.audience);
+      if (audience ? audience === "consumers" : !CHATGPT_FOR_BUILDERS.test(words)) return "evidence";
+    }
     return TOOL_CHANGELOGS.has(event.source) && !patchBuild(record) ? "release" : "evidence";
   }
 

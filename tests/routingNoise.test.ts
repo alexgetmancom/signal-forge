@@ -1,9 +1,12 @@
 import { expect, test } from "bun:test";
+import type { AppConfig } from "../src/config.js";
 import { classify } from "../src/events/classify.js";
 import { identityFor, identityTerms } from "../src/events/identity.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import { signalClass } from "../src/events/signals.js";
 import type { Event } from "../src/events/types.js";
+import type { Fetch } from "../src/http-client.js";
+import { withAudience } from "../src/sources/audienceJudge.js";
 import { listedInCatalogue, olderThanKnown } from "../src/sources/mentionStage.js";
 import { openDatabase } from "../src/storage/database.js";
 
@@ -152,4 +155,40 @@ test("a docs page joins its model's story by title without the site and by a ver
     record: { id: "/gemini-20-deep-dive-code-execution", name: "Google Developers: Deep dive" },
   });
   expect(terms(blog)).toEqual(["deep dive"]);
+});
+
+test("the audience judge's answer outranks the word list for ChatGPT notes", () => {
+  const notes = { source: "openai-chatgpt-release-notes", stream: "news" };
+  const note = (audience: string, name: string) =>
+    signalClass(event({ ...notes, record: { ...notes, id: name, name, summary: "", audience } }));
+  expect(note("consumers", "Connected apps for GPT-6 in Shopping")).toBe("evidence");
+  expect(note("builders", "Scheduled tasks in ChatGPT")).toBe("release");
+});
+
+test("a stored ChatGPT note keeps its audience and is never judged again", async () => {
+  const db = openDatabase(":memory:");
+  saveCollection(
+    db,
+    {
+      source: "s",
+      stream: "news",
+      url: "https://x",
+      raw: [],
+      records: [{ id: "old", name: "Old", audience: "consumers" }],
+    },
+    [],
+  );
+  const asked: string[] = [];
+  const request = (async (_url: string, init: RequestInit) => {
+    asked.push(String(init.body));
+    return new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify({ new: "builders" }) } }] }));
+  }) as unknown as Fetch;
+  const config = { DEEPSEEK_API_KEY: "k" } as AppConfig;
+  const records = await withAudience(db, config, request, "s", [
+    { id: "old", name: "Old" },
+    { id: "new", name: "New" },
+  ]);
+  expect(records.map((record) => record.audience)).toEqual(["consumers", "builders"]);
+  expect(asked).toHaveLength(1);
+  expect(asked[0]).not.toContain("ID: old");
 });

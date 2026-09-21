@@ -1,8 +1,11 @@
+import type { Database } from "bun:sqlite";
 import { z } from "zod";
+import type { AppConfig } from "../config.js";
 import type { Collection, RecordData } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
 import type { HttpCache } from "../storage/httpCache.js";
 import { slug } from "../text.js";
+import { withAudience } from "./audienceJudge.js";
 import { attribute, htmlText } from "./html.js";
 import { fetchText } from "./http.js";
 
@@ -225,10 +228,17 @@ export function parseOpenAIChatGPTReleaseNotes(html: string): Collection {
   return releaseCollection("openai-chatgpt-release-notes", OPENAI_CHATGPT_RELEASE_NOTES_URL, records);
 }
 
-export async function collectOpenAIChatGPTReleaseNotes(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
-  return parseOpenAIChatGPTReleaseNotes(
+export async function collectOpenAIChatGPTReleaseNotes(
+  request: Fetch = fetch,
+  cache?: HttpCache,
+  judge?: { db: Database; config: AppConfig },
+): Promise<Collection> {
+  const collection = parseOpenAIChatGPTReleaseNotes(
     await fetchText(OPENAI_CHATGPT_RELEASE_NOTES_FETCH_URL, {}, request, undefined, cache),
   );
+  if (!judge) return collection;
+  const records = await withAudience(judge.db, judge.config, request, collection.source, collection.records);
+  return { ...collection, records };
 }
 
 /** Parse one dated section per entry from Google's official Gemini API changelog. */
