@@ -21,7 +21,7 @@ export type MentionStage = "named" | "served" | "noise";
 
 /** Words that say a model came back from a backend rather than being written down by someone. */
 const SERVED_HINT =
-  /\b(?:returned|returns|returning|served|serving|re-?routed|rerouting|routed to|fallback|falls back|responds? with|responded with|came back|coming back|answered|answering|unrecogni[sz]ed|unknown model|reported model|response model|model in (?:the )?response|got|getting|receiv(?:e|ed|ing)|switched to)\b/i;
+  /\b(?:returned|returns|returning|served|serving|re-?routed|rerouting|routed to|fallback|falls back|responds? with|responded with|came back|coming back|answers? [\w.-]+(?: [\w.-]+){0,3} with|answered|answering|unrecogni[sz]ed|unknown model|reported model|response model|model in (?:the )?response|got|getting|receiv(?:e|ed|ing)|switched to)\b/i;
 
 /** What the stage is when no model can be asked: served only where the text says so. */
 export function guessStage(text: string): Exclude<MentionStage, "noise"> {
@@ -62,7 +62,9 @@ export async function judgeMentions(
       signal: AbortSignal.timeout(30_000),
       body: JSON.stringify({
         model: DEEPSEEK_SUMMARY_MODEL,
-        max_tokens: 200,
+        // The model reasons before it answers: at 200 tokens it spent them all deciding that the
+        // clankermux commit of 2026-09-21 was `served`, and never wrote the answer.
+        max_tokens: 2_000,
         temperature: 0,
         response_format: { type: "json_object" },
         messages: [
