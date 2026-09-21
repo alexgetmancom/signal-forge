@@ -8,7 +8,7 @@ import type { Event, RecordData } from "../types.js";
 import { utcStamp, withoutMakerPrefix } from "./common.js";
 import { TRUST } from "./discord.js";
 import { type CardContext, eventFactParts, eventFacts } from "./facts.js";
-import { vendorLogo } from "./logos.js";
+import { vendorColor, vendorLogo } from "./logos.js";
 
 export type StoryRenderEvent = Event & CardContext & { url: string };
 
@@ -124,7 +124,6 @@ export function storyEmbed(
   const kind = kinds.includes("changed") ? "changed" : kinds.includes("new") ? "new" : "removed";
   const vendor = vendorOf(latest, recordFor(latest));
   const confidences = [...new Set(events.map((event) => event.confidence ?? "observed"))];
-  const latestStamp = Math.floor(Date.parse(latest.detected_at) / 1000);
   const fields = [
     ...(detail === "evidence" && aliases.length
       ? [
@@ -142,15 +141,17 @@ export function storyEmbed(
     ...(boards.size
       ? [{ name: "Leaderboards", value: [...boards.values()].slice(0, 4).join("\n"), inline: false }]
       : []),
-    { name: "Seen on", value: [...sources].join(" · ").slice(0, 1024), inline: true },
-    { name: "Latest", value: `<t:${latestStamp}:R>`, inline: true },
+    { name: "Seen on", value: [...sources].join(" · ").slice(0, 1024), inline: false },
   ];
   const embed: Record<string, unknown> = {
     author: { name: ["STORY", vendor === "Unknown" ? null : vendor.toUpperCase()].filter(Boolean).join(" · ") },
     title: `🧵 ${title}`.slice(0, 250),
-    color: KIND_COLORS[kind],
+    // The maker's colour, as on its launch card, so a thread reads as the same model's.
+    color: vendorColor(vendor) ?? KIND_COLORS[kind],
     description: clip([sentence, ...others].join("\n"), 4000),
     fields,
+    // Discord shows its own timestamp in the reader's timezone; "Latest" said it once more as a field.
+    timestamp: new Date(latest.detected_at).toISOString(),
     footer: {
       text:
         detail === "evidence"

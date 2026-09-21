@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { Destination } from "../config.js";
 import { promotionContextSchema } from "../promotion.js";
-import { recapContextSchema } from "../recap.js";
+import { type RecapContext, recapContextSchema } from "../recap.js";
 import { sourceLabel } from "../sources/labels.js";
 import { clip } from "../text.js";
 import { breakoutLine, breakoutOf } from "./breakouts.js";
@@ -15,6 +15,7 @@ import { hasNotificationContent } from "./notification.js";
 import { departedAs, isOscillating, isReappearance, isScheduledPricingRotation } from "./oscillation.js";
 import { renamedEvents } from "./rename.js";
 import { type Attachment, eventAttachment } from "./render/attachment.js";
+import type { Banner } from "./render/banner.js";
 import { pageEmbeds } from "./render/budget.js";
 import { eventEmbed, isRoster, rosterEmbed } from "./render/discord.js";
 import type { LeadTime } from "./render/facts.js";
@@ -25,6 +26,7 @@ import {
   renderRecapEmbed,
   renderRecapLines,
 } from "./render/lifecycle.js";
+import { vendorLogo } from "./render/logos.js";
 import { renderStoryText, type StoryRenderEvent, storyEmbed } from "./render/story.js";
 import { renderEvent } from "./render/telegram.js";
 import { listsAnotherMakersModel, pingWorthy, type SignalClass } from "./signals.js";
@@ -362,6 +364,27 @@ function preparePromotion(db: Database, batch: PendingBatch, targets: BatchTarge
   sealBatch(db, batch.id);
 }
 
+/** The week's arrivals as one picture, the post meant to leave Discord; a quiet week has none. */
+function weekPoster(context: RecapContext): Banner | null {
+  if (context.period !== "week" || !context.arrivals.length) return null;
+  const day = (value: string) =>
+    new Date(value).toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+  const count = context.arrivalCount;
+  return {
+    filename: `week-${context.to.slice(0, 10)}.png`,
+    eyebrow: `The week in models · ${day(context.from)} – ${day(context.to)}`,
+    title: `${count} new model${count === 1 ? "" : "s"}`,
+    chips: [],
+    vendor: context.arrivals[0]?.vendor ?? "",
+    logo: null,
+    rows: context.arrivals.map((row) => ({
+      vendor: row.vendor,
+      logo: vendorLogo(row.vendor)?.slice("attachment://".length) ?? null,
+      names: row.names,
+    })),
+  };
+}
+
 function prepareRecap(db: Database, batch: PendingBatch, targets: BatchTarget[], now: number): void {
   const context = recapContextSchema.parse(JSON.parse(batch.context_json ?? "{}"));
   for (const target of targets) {
@@ -370,8 +393,15 @@ function prepareRecap(db: Database, batch: PendingBatch, targets: BatchTarget[],
     // A day is prices for one room and leaders for the other; a room whose part is empty hears nothing.
     if (!lines.length) continue;
     const embed = renderRecapEmbed(context, destination.signals);
+    const poster = weekPoster(context);
     const body =
-      destination.platform === "discord" ? JSON.stringify({ content: "", embeds: [embed] }) : lines.join("\n");
+      destination.platform === "discord"
+        ? JSON.stringify({
+            content: "",
+            embeds: [poster ? { ...embed, image: { url: `attachment://${poster.filename}` } } : embed],
+            ...(poster ? { banners: [poster] } : {}),
+          })
+        : lines.join("\n");
     upsertDelivery(db, batch.id, target, body, 0, now, false);
   }
   sealBatch(db, batch.id);

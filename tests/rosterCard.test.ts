@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { type Banner, bannerPng } from "../src/events/render/banner.js";
-import { isRoster, rosterEmbed } from "../src/events/render/discord.js";
+import { eventEmbed, isRoster, rosterEmbed } from "../src/events/render/discord.js";
 import { logoFiles } from "../src/events/render/logos.js";
 import type { Event } from "../src/events/types.js";
 
@@ -59,4 +59,48 @@ test("a banner in a payload is not looked for among the logos", () => {
     embeds: [{ image: { url: "attachment://banner-x.png" }, thumbnail: { url: "attachment://xai.png" } }],
   };
   expect(logoFiles(payload).map((file) => file.filename)).toEqual(["xai.png"]);
+});
+
+test("a card read for one number draws that number big: a price's move, a debut's place", async () => {
+  const price = eventEmbed(
+    {
+      ...model("anthropic/claude-sonnet-4.6", "Anthropic: Claude Sonnet 4.6", "openrouter"),
+      stream: "openrouter",
+      kind: "changed",
+      before_json: JSON.stringify({ id: "anthropic/claude-sonnet-4.6", pricing: { completion: "0.000015" } }),
+      after_json: JSON.stringify({ id: "anthropic/claude-sonnet-4.6", pricing: { completion: "0.0000075" } }),
+    },
+    "https://openrouter.ai",
+  );
+  expect((price.banner as Banner).hero).toMatchObject({ text: "−50%", caption: "cheaper" });
+  expect((price.banner as Banner).chips).toEqual(["$15 → $7.5 per 1M output"]);
+  expect(price.thumbnail).toBeUndefined();
+  const debut = eventEmbed(
+    {
+      ...model("gemini-3.8-flash", "Gemini 3.8 Flash", "arena-leaderboards"),
+      stream: "leaderboards",
+      after_json: JSON.stringify({ id: "gemini-3.8-flash", name: "Gemini 3.8 Flash", rank: 3, category: "Text" }),
+    },
+    "https://lmarena.ai",
+  );
+  expect((debut.banner as Banner).hero).toMatchObject({ text: "#3", caption: "Text" });
+  const png = await bannerPng(debut.banner as Banner);
+  expect(png.length).toBeGreaterThan(10_000);
+});
+
+test("a week's arrivals are drawn as one 16:9 poster", async () => {
+  const png = await bannerPng({
+    filename: "week.png",
+    eyebrow: "The week in models · Sep 15 – Sep 21",
+    title: "4 new models",
+    chips: [],
+    vendor: "OpenAI",
+    logo: null,
+    rows: [
+      { vendor: "OpenAI", logo: "openai.png", names: ["GPT-6", "GPT-6 Mini"] },
+      { vendor: "Xiaomi", logo: "xiaomi.png", names: ["MiMo V2.6 Pro", "MiMo V2.6 Flash"] },
+    ],
+  });
+  // PNG height lives in the IHDR chunk at bytes 20..23.
+  expect(new DataView(png.buffer, png.byteOffset).getUint32(20)).toBe(675);
 });

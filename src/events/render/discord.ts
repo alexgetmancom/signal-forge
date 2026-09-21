@@ -186,22 +186,40 @@ function excerpt(text: string, limit: number): string {
   return kept || `${clean.slice(0, limit - 1).trimEnd()}…`;
 }
 
-/** "2× more expensive on OpenRouter", "30% cheaper on OpenRouter", from the rate a reader pays most. */
-function priceSentence(event: Event, before: RecordData, after: RecordData): string | null {
+/** The rate a reader pays most, before and after, when it moved. */
+function priceMove(
+  event: Event,
+  before: RecordData,
+  after: RecordData,
+): { from: number; to: number; field: string } | null {
   const old = (before.pricing ?? {}) as Record<string, unknown>;
   const next = (after.pricing ?? {}) as Record<string, unknown>;
   const key = ["completion", "output", "prompt", "input"].find((name) =>
     pricePair(old[name], next[name], event.source),
   );
   const pair = key ? pricePair(old[key], next[key], event.source) : null;
-  if (!pair || pair.from <= 0 || pair.from === pair.to) return null;
-  const where = place(event.source);
-  if (pair.to < pair.from) return `${Math.round((1 - pair.to / pair.from) * 100)}% cheaper on ${where}.`;
-  const ratio = pair.to / pair.from;
-  return ratio >= 1.95
-    ? `${Number(ratio.toFixed(1))}× more expensive on ${where}.`
-    : `${Math.round((ratio - 1) * 100)}% more expensive on ${where}.`;
+  if (!key || !pair || pair.from <= 0 || pair.from === pair.to) return null;
+  return { ...pair, field: key === "completion" || key === "output" ? "output" : "input" };
 }
+
+/** "−30%", "+40%", "2×": how far a price moved, in the size a reader compares. */
+function priceStep(from: number, to: number): string {
+  if (to < from) return `−${Math.round((1 - to / from) * 100)}%`;
+  const ratio = to / from;
+  return ratio >= 1.95 ? `${Number(ratio.toFixed(1))}×` : `+${Math.round((ratio - 1) * 100)}%`;
+}
+
+/** "2× more expensive on OpenRouter", "30% cheaper on OpenRouter", from the rate a reader pays most. */
+function priceSentence(event: Event, before: RecordData, after: RecordData): string | null {
+  const move = priceMove(event, before, after);
+  if (!move) return null;
+  const where = place(event.source);
+  const step = priceStep(move.from, move.to);
+  if (move.to < move.from) return `${step.slice(1)} cheaper on ${where}.`;
+  return step.endsWith("×") ? `${step} more expensive on ${where}.` : `${step.slice(1)} more expensive on ${where}.`;
+}
+
+const dollars = (value: number) => `$${Number(value.toFixed(value < 1 ? 3 : 2))}`;
 
 /**
  * What a card says first, in one sentence, and which of its values stay. The facts are the record's;
@@ -424,14 +442,69 @@ function specLine(facts: Fact[]): { line: string | null; chips: string[]; rest: 
  * screenshot posted elsewhere loses Discord's timestamp, and the date on the picture is what shows
  * the news was early. "3 new models · Xiaomi" repeated the title word for word.
  */
-function bannerEyebrow(vendor: string, detectedAt: string): string {
-  const day = new Date(detectedAt).toLocaleDateString("en-US", {
+function bannerEyebrow(vendor: string, detectedAt: string, where = "In the API"): string {
+  return [vendor === "Unknown" ? null : vendor, where, shortDate(detectedAt, true)].filter(Boolean).join(" · ");
+}
+
+function shortDate(value: string, year = false): string {
+  return new Date(value).toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
-    year: "numeric",
+    ...(year ? { year: "numeric" } : {}),
     timeZone: "UTC",
   });
-  return `${vendor} · In the API · ${day}`;
+}
+
+/**
+ * The picture for a card read for one number -- a debut's place, a price's move, a shutdown date --
+ * so the number is what a screenshot shows first. Everything else keeps the plain card.
+ */
+function numberBanner(
+  event: Event,
+  before: RecordData | null,
+  after: RecordData | null,
+  vendor: string,
+  name: string,
+): Omit<Banner, "filename" | "logo"> | null {
+  const base = { title: name, vendor };
+  if (event.stream === "leaderboards" && event.kind === "new") {
+    const rank = boardPlace(event);
+    if (rank === null || rank > DEBUT_PLACES) return null;
+    const board = place(event.source);
+    const category = typeof after?.category === "string" ? after.category : null;
+    return {
+      ...base,
+      eyebrow: bannerEyebrow(vendor, event.detected_at, `${board} debut`),
+      chips: [],
+      hero: { text: `#${rank}`, caption: category ?? board, color: rank === 1 ? 0xf5c451 : 0xffffff },
+    };
+  }
+  if ((event.stream === "api-models" || event.stream === "openrouter") && before && after) {
+    const move = priceMove(event, before, after);
+    if (!move) return null;
+    return {
+      ...base,
+      eyebrow: bannerEyebrow(vendor, event.detected_at, `Price on ${place(event.source)}`),
+      chips: [`${dollars(move.from)} → ${dollars(move.to)} per 1M ${move.field}`],
+      hero: {
+        text: priceStep(move.from, move.to),
+        caption: move.to < move.from ? "cheaper" : "dearer",
+        color: move.to < move.from ? 0x3ddc84 : 0xff5c5c,
+      },
+    };
+  }
+  if (event.stream === "deprecations" && event.kind === "new" && after) {
+    const shutdown = after.shutdown ?? after.retirement ?? after.deprecated;
+    const day = typeof shutdown === "string" && !Number.isNaN(Date.parse(shutdown)) ? shutdown : null;
+    if (!day) return null;
+    return {
+      ...base,
+      eyebrow: bannerEyebrow(vendor, event.detected_at, "Retiring"),
+      chips: present(after.replacement) ? [`→ ${describe(after.replacement)}`] : [],
+      hero: { text: shortDate(day), caption: `shutdown ${new Date(day).getUTCFullYear()}`, color: 0xffa94d },
+    };
+  }
+  return null;
 }
 
 const bannerName = (key: string) =>
@@ -530,15 +603,12 @@ export function eventEmbed(
     },
   };
   const thumbnail = vendorLogo(vendor);
-  if (launch) {
-    const banner: Banner = {
-      filename: bannerName(`${event.source}-${event.entity_id}`),
-      eyebrow: bannerEyebrow(vendor, event.detected_at),
-      title: name,
-      chips: spec.chips,
-      vendor,
-      logo: thumbnail ? thumbnail.slice("attachment://".length) : null,
-    };
+  const logo = thumbnail ? thumbnail.slice("attachment://".length) : null;
+  const words: Omit<Banner, "filename" | "logo"> | null = launch
+    ? { eyebrow: bannerEyebrow(vendor, event.detected_at), title: name, chips: spec.chips, vendor }
+    : numberBanner(event, before, after, vendor, name);
+  if (words) {
+    const banner: Banner = { ...words, filename: bannerName(`${event.source}-${event.entity_id}`), logo };
     // The banner carries the maker's tile, so the corner stays empty rather than showing it twice.
     embed.image = { url: `attachment://${banner.filename}` };
     embed.banner = banner;
