@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { Destination } from "../config.js";
+import { listedInCatalogue, olderThanKnown } from "../sources/mentionStage.js";
 import { storeSnapshot } from "../storage/snapshots.js";
 import { isLearnedMaker } from "./breakouts.js";
 import { canonical } from "./canonical.js";
@@ -8,6 +9,27 @@ import { confidenceFor, evidenceTypeFor } from "./confidence.js";
 import { isRoutine } from "./interpretation.js";
 import { isUnfollowedMakerAtAReseller, resellerMaker, type SignalClass, signalClass } from "./signals.js";
 import type { Collection, Event } from "./types.js";
+
+/**
+ * A sighting of a model a catalogue already sells is late. xAI's `grok-4-7` docs page reached the
+ * scouts on 2026-09-21 twenty-six minutes after Grok 4.7 reached the public channel from the API:
+ * the scouts' channel is for what is coming, and this had come.
+ */
+function launchedAlready(db: Database, event: Event): boolean {
+  if (event.stream !== "pages" || event.kind !== "new") return false;
+  const slug = event.entity_id.split("?")[0]?.replace(/\/+$/, "").split("/").at(-1) ?? "";
+  return /\d/.test(slug) && listedInCatalogue(db, slug);
+}
+
+/**
+ * A number moving on a model its family has moved past is housekeeping. Claude Sonnet 4's context
+ * on OpenRouter falling from 1M to 200K reached the public channel on 2026-09-21, a model retired
+ * in June while Sonnet 4.6 is listed beside it; nobody reading chooses Sonnet 4 today.
+ */
+function supersededModel(db: Database, event: Event): boolean {
+  if (!["api-models", "openrouter"].includes(event.stream) || event.kind !== "changed") return false;
+  return olderThanKnown(db, event.entity_id.toLowerCase());
+}
 
 export const COLLECTION_DEGRADED_PREFIX = "Collection degraded:";
 
@@ -356,8 +378,15 @@ export function persistCollection(
     const events = emitted.filter((event) => isRoutine(event) === digest && !onANewBoard(event));
     // A small company whose model took off here is followed from then on: its next arrival at a
     // reseller is a sighting on arrival, not a line in tomorrow's recap.
-    const routed = (event: Event): SignalClass =>
-      isUnfollowedMakerAtAReseller(event) && isLearnedMaker(db, resellerMaker(event)) ? "codename" : signalClass(event);
+    const routed = (event: Event): SignalClass => {
+      if (isUnfollowedMakerAtAReseller(event) && isLearnedMaker(db, resellerMaker(event))) return "codename";
+      const signal = signalClass(event);
+      return signal === "codename" && launchedAlready(db, event)
+        ? "evidence"
+        : signal === "change" && supersededModel(db, event)
+          ? "evidence"
+          : signal;
+    };
     const present = new Set(events.map(routed));
     const targets = destinations.filter((destination) => destination.signals.some((signal) => present.has(signal)));
     if (!events.length || !targets.length) continue;

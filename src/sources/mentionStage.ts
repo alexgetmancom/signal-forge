@@ -163,6 +163,20 @@ function publiclyListed(db: Database, id: string): boolean {
   return spellings.some((spelling) => Boolean(query.get(spelling)));
 }
 
+/**
+ * Whether a model catalogue -- an API's list or OpenRouter, not a page, a post or a repository --
+ * lists this model, under either spelling of its version: a docs path writes `grok-4-7` for the
+ * `grok-4.7` xAI's API lists.
+ */
+export function listedInCatalogue(db: Database, id: string): boolean {
+  const bare = bareModelSlug(id).toLowerCase();
+  const spellings = [...new Set([bare, bare.replace(/(\d)-(\d)/g, "$1.$2"), bare.replace(/(\d)\.(\d)/g, "$1-$2")])];
+  const query = db.query(
+    `SELECT 1 FROM records WHERE stream IN ('api-models','openrouter') AND (lower(id)=?1 OR lower(id) LIKE '%/' || ?1) LIMIT 1`,
+  );
+  return spellings.some((spelling) => Boolean(query.get(spelling)));
+}
+
 /** `gpt-5.4-mini-2026-03-17` is a dated snapshot of `gpt-5.4-mini`; knowing one is knowing the other. */
 export function undated(id: string): string {
   return id.replace(/-(?:\d{4}-\d{2}-\d{2}|\d{8})$/, "");
@@ -227,7 +241,7 @@ function compareVersions(a: readonly number[], b: readonly number[]): number {
  * version, so it stays news.
  */
 export function olderThanKnown(db: Database, id: string): boolean {
-  const own = familyVersion(id);
+  const own = familyVersion(bareModelSlug(id).toLowerCase());
   if (!own) return false;
   const rows = db
     .query<{ id: string }, [string]>(

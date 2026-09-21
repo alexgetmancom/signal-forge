@@ -61,9 +61,39 @@ function withUntrackedMaker(name: string, vendor: string, record: RecordData | n
   return name.toLowerCase().includes(readable.toLowerCase()) ? name : `${readable} ${name}`;
 }
 
+/** A model ID seen in a watched repository's code, commits, issues or pull requests. */
+function mentionSighting(event: Event): boolean {
+  return event.stream === "github" && /^github:.+:(?:models|talk)$/.test(event.source);
+}
+
+/**
+ * What a model ID in a repository means, said plainly. "gpt-6-luna served" over "From the
+ * project's repository. Work in progress, not a release. Repository activity is not a release.
+ * served" reached the scouts on 2026-09-21 and the owner could not tell what had happened: a
+ * backend had answered as `gpt-6-luna`, an unannounced model.
+ */
+function mentionSentence(record: RecordData): string {
+  const model = typeof record.model === "string" ? record.model : String(record.name ?? "");
+  const where = [record.title, record.commit].find(
+    (value): value is string => typeof value === "string" && !!value.trim(),
+  );
+  const line = typeof record.line === "string" && record.line.trim() ? `> ${excerpt(record.line.trim(), 200)}` : null;
+  const lead =
+    record.stage === "served"
+      ? `A request came back answered by \`${model}\`, a model no catalogue lists yet: the API is already serving it to someone.`
+      : `\`${model}\` is written into code before any catalogue lists it. Named, not yet seen answering.`;
+  return [lead, where ? `From: ${excerpt(where, 160)}` : null, line].filter(Boolean).join("\n");
+}
+
 function eventHeadline(event: Event, name: string, incident: Incident | null): string {
   if (event.stream === "deprecations" && event.kind === "new") return `⚠️ ${name} is being retired`;
   if (incident) return `${incident.icon} ${name}`;
+  if (mentionSighting(event)) {
+    const record = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
+    const model = typeof record?.model === "string" ? record.model : name;
+    if (record?.stage === "served") return `📡 ${model} is answering requests`;
+    if (event.kind === "new") return `🔎 ${model} named in code`;
+  }
   if (event.stream === "training") {
     const record = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
     const maker = typeof record?.maker === "string" ? `${record.maker} ` : "";
@@ -305,6 +335,7 @@ function shape(
     };
   }
   if (event.stream === "leaderboards") return { sentence: null, facts };
+  if (mentionSighting(event) && record) return { sentence: mentionSentence(record), facts: [] };
   const impact = readerImpact(event, record);
   // A changed arena row and an entry other catalogues already list say where they stand themselves.
   const standing =

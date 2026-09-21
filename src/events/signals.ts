@@ -127,6 +127,21 @@ const TOOL_CHANGELOGS = new Set([
 ]);
 
 /**
+ * ChatGPT's release notes are mostly consumer features. "Credit scores in Finances" reached the
+ * public channel on 2026-09-21 and the owner called it noise: a reader here came for models and the
+ * tools they build with. An entry travels only when it names a model or a builder's surface.
+ */
+const CHATGPT_FOR_BUILDERS =
+  /\b(?:claude|opus|sonnet|haiku|gpt|o\d|gemini|grok|codex|model|models|api|developers?|agents?|apps sdk|mcp|connectors?|reasoning|context window)\b[\s-]?\d?/i;
+
+/**
+ * A mode of a model a reseller already sells is not a model. `glm-5.3-prime` reached the scouts as
+ * new on 2026-09-21: Model Studio's "Prime mode" is a faster serving of `glm-5.3`, as
+ * `glm-5.2-fast-preview` is of `glm-5.2`.
+ */
+const SERVING_MODE = /-(?:prime|fast|turbo-mode)(?:-preview)?$/i;
+
+/**
  * Watched sites whose new pages are not the tell a product page is.
  *
  * A page appearing on a vendor's product site before any announcement is a sighting. A help-centre
@@ -452,6 +467,7 @@ export function signalClass(event: Event): SignalClass {
      */
     const words = `${text(record?.name)} ${text(record?.summary)} ${text(record?.description)}`;
     if (!text(record?.version) && RETIREMENT_WORDS.test(words) && !PREVIEW_SUCCESSION.test(words)) return "retirement";
+    if (event.source === "openai-chatgpt-release-notes" && !CHATGPT_FOR_BUILDERS.test(words)) return "evidence";
     return TOOL_CHANGELOGS.has(event.source) && !patchBuild(record) ? "release" : "evidence";
   }
 
@@ -536,6 +552,7 @@ export function signalClass(event: Event): SignalClass {
        * A name that names nobody -- `whisper-1`, `codestral`, `wan2.5` -- is the catalogue's own.
        */
       if (!listsAnotherMakersModel(event)) return "launch";
+      if (SERVING_MODE.test(event.entity_id)) return "evidence";
       return isUnfollowedMakerAtAReseller(event) ? "evidence" : "codename";
     }
     // Listed first and switched on later: the switch is the release. In the maker's own catalogue it
