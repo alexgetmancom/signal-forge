@@ -264,7 +264,7 @@ export function prices(before: unknown, after: unknown, source?: string): Fact[]
   for (const key of new Set([...Object.keys(old), ...Object.keys(next)])) {
     if (canonical(old[key]) === canonical(next[key])) continue;
     if (!labels[key] && (nested(old[key]) || nested(next[key]))) {
-      alsoMoved.push(key.replace(/_tiers$/, " tiers").replace(/_/g, " "));
+      alsoMoved.push(SHEETS[key] ?? key.replace(/_tiers$/, " tiers").replace(/_/g, " "));
       continue;
     }
     if (labels[key]) {
@@ -278,6 +278,9 @@ export function prices(before: unknown, after: unknown, source?: string): Fact[]
   if (alsoMoved.length) result.push({ label: "Also repriced", value: alsoMoved.join(", ") });
   return result;
 }
+
+/** A price sheet by what a reader calls it; "regional" alone read as a word missing its noun. */
+const SHEETS: Record<string, string> = { regional: "prices by region" };
 
 function nested(value: unknown): boolean {
   return value !== null && typeof value === "object";

@@ -192,3 +192,22 @@ test("a stored ChatGPT note keeps its audience and is never judged again", async
   expect(asked).toHaveLength(1);
   expect(asked[0]).not.toContain("ID: old");
 });
+
+test("a reseller moving only its cache or regional rates is evidence; input and output still travel", () => {
+  const db = openDatabase(":memory:");
+  const flash = { id: "deepseek/deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash" };
+  const priced = (pricing: Record<string, unknown>) => ({ ...flash, pricing });
+  const at = { source: "vercel-ai-gateway", stream: "api-models", kind: "changed" as const, entity_id: flash.id };
+  const was = { input: "0.0000002", output: "0.0000008", input_cache_read: "0.00000003", regional: { us: 1 } };
+  const side = { ...was, input_cache_read: "0.000000007", regional: { us: 2 } };
+  expect(classify(db, event({ ...at, before_json: JSON.stringify(priced(was)), record: priced(side) }))).toBe(
+    "evidence",
+  );
+  const cheaper = { ...side, output: "0.0000004" };
+  expect(classify(db, event({ ...at, before_json: JSON.stringify(priced(was)), record: priced(cheaper) }))).toBe(
+    "change",
+  );
+  // OpenRouter is the catalogue people price by: its cache moving still reaches the public channel.
+  const or = { ...at, source: "openrouter", stream: "openrouter" };
+  expect(classify(db, event({ ...or, before_json: JSON.stringify(priced(was)), record: priced(side) }))).toBe("change");
+});

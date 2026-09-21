@@ -2,7 +2,13 @@ import type { Database } from "bun:sqlite";
 import { listedInCatalogue, olderThanKnown } from "../sources/mentionStage.js";
 import { isLearnedMaker } from "./breakouts.js";
 import { recordFor } from "./record.js";
-import { isUnfollowedMakerAtAReseller, resellerMaker, type SignalClass, signalClass } from "./signals.js";
+import {
+  isUnfollowedMakerAtAReseller,
+  resellerMaker,
+  type SignalClass,
+  sellsAnotherMakersModel,
+  signalClass,
+} from "./signals.js";
 import type { Event } from "./types.js";
 
 /**
@@ -20,6 +26,7 @@ export function classify(db: Database, event: Event): SignalClass {
   const signal = signalClass(event);
   if (signal === "codename" && (launchedAlready(db, event) || servingModeOfKnownModel(db, event))) return "evidence";
   if (signal === "change" && supersededModel(db, event) && !movesWhatAReaderActsOn(event)) return "evidence";
+  if (signal === "change" && sideRepricingAtReseller(event)) return "evidence";
   return signal;
 }
 
@@ -66,6 +73,28 @@ function movesWhatAReaderActsOn(event: Event): boolean {
   const before = event.before_json ? (JSON.parse(event.before_json) as Record<string, unknown>) : {};
   const after: Record<string, unknown> = recordFor(event) ?? {};
   return ACTED_ON.some((field) => JSON.stringify(before[field]) !== JSON.stringify(after[field]));
+}
+
+/**
+ * A reseller moving a rate nobody chooses a model by is its own bookkeeping. The Vercel AI Gateway
+ * cutting DeepSeek V4.1 Flash's cache read from $0.03 to $0.007 and redrawing its regional sheet
+ * reached the public channel on 2026-09-21 as a price card; the input and output prices had not
+ * moved. OpenRouter is the catalogue people price models by, and a maker's own sheet is the price.
+ */
+const RATES = ["prompt", "completion", "input", "output"];
+function sideRepricingAtReseller(event: Event): boolean {
+  if (event.kind !== "changed" || event.source === "openrouter" || !sellsAnotherMakersModel(event)) return false;
+  const before = event.before_json ? (JSON.parse(event.before_json) as Record<string, unknown>) : {};
+  const after: Record<string, unknown> = recordFor(event) ?? {};
+  const moved = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter(
+    (key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]),
+  );
+  if (!moved.length || moved.some((key) => key !== "pricing")) return false;
+  const rates = (value: unknown) => (value && typeof value === "object" ? (value as Record<string, unknown>) : {});
+  const old = rates(before.pricing);
+  const next = rates(after.pricing);
+  // A small step in the rates themselves is the threshold's to judge, as on any catalogue.
+  return RATES.every((key) => JSON.stringify(old[key]) === JSON.stringify(next[key]));
 }
 
 /** The class an event was routed by: kept on the row, or the event-only rule for older rows. */

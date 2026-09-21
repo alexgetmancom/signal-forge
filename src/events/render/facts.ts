@@ -203,7 +203,9 @@ export function eventFactParts(event: Event & CardContext, summary?: string): Fa
   const record = after ?? before;
   const title = String(record?.name ?? event.entity_id);
   const lines: Fact[] = [];
-  if (event.lead) lines.push(leadLine(event.lead, title));
+  // Who was first is the story of an arrival; on a price moving it was a model seen twelve days
+  // before its cache read got cheaper, which nobody reading asked.
+  if (event.lead && event.kind !== "changed") lines.push(leadLine(event.lead, title));
   // A roster entry beside its own siblings says "already out" in its own sentence.
   const sibling = event.stream === "arena" && !before && Boolean(event.siblings?.length);
   if (event.elsewhere && !(sibling && event.elsewhere.length)) lines.push(elsewhereLine(event.elsewhere));

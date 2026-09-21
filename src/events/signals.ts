@@ -376,7 +376,12 @@ export function isUnfollowedMakerAtAReseller(event: Event): boolean {
 
 /** True when a catalogue arrival is a platform listing somebody else's model, not its maker shipping it. */
 export function listsAnotherMakersModel(event: Event): boolean {
-  if (event.kind !== "new" || (event.stream !== "api-models" && event.stream !== "openrouter")) return false;
+  return event.kind === "new" && sellsAnotherMakersModel(event);
+}
+
+/** True when a catalogue row is a platform selling somebody else's model, whatever happened to it. */
+export function sellsAnotherMakersModel(event: Event): boolean {
+  if (event.stream !== "api-models" && event.stream !== "openrouter") return false;
   const owner = CATALOGUE_MAKER[event.source];
   if (!owner) return true;
   const record = recordFor(event);
