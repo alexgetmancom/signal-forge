@@ -588,8 +588,11 @@ const resetAuthor = (record: RecordData | null) =>
   typeof record?.announcement === "string" ? record.announcement.match(/@(\w+)/)?.[1] : undefined;
 
 /** The announcer's own words, big enough to read in a screenshot, with who said them under. */
+const resetPost = (record: RecordData | null) =>
+  typeof record?.summary === "string" ? record.summary.replace(/https:\/\/t\.co\/\S+/g, "").trim() : "";
+
 function resetWords(record: RecordData | null): string | null {
-  const post = typeof record?.summary === "string" ? record.summary.replace(/https:\/\/t\.co\/\S+/g, "").trim() : "";
+  const post = resetPost(record);
   const author = resetAuthor(record);
   if (!post || !record) return null;
   const quote = excerpt(post, 280)
@@ -728,7 +731,37 @@ export function eventEmbed(
   const words: Omit<Banner, "filename" | "logo"> | null = launch
     ? { eyebrow: bannerEyebrow(vendor, event.detected_at), title: name, chips: spec.chips, vendor }
     : numberBanner(event, before, after, vendor, name);
-  if (words) {
+  const post = announcer ? resetPost(after) : "";
+  if (announcer && after && post) {
+    // A reset is a person's word: the post is the picture, and the card under it keeps what a picture
+    // cannot, the timer that counts down on every screen and the link to who said it.
+    const applied = after.stage === "Applied";
+    const due = resetDue(after);
+    const day = new Date(event.detected_at).toLocaleDateString("en-US", {
+      month: "short",
+      day: "numeric",
+      timeZone: "UTC",
+    });
+    const banner: Banner = {
+      eyebrow: `Codex · ${applied ? "limits are back" : "reset announced"} · ${day}`,
+      title: excerpt(post.replace(/\s+/g, " "), 140),
+      chips: [],
+      vendor,
+      filename: bannerName(`${event.source}-${event.entity_id}-${applied ? "applied" : "announced"}`),
+      logo: null,
+      quote: {
+        by: announcer.name,
+        portrait: announcer.photo,
+        ...(due !== null ? { due } : {}),
+        ...(applied ? { accent: 0x3ddc84 } : {}),
+      },
+    };
+    const author = resetAuthor(after);
+    const credit = `— [${announcer.name}](https://x.com/${author})`;
+    embed.image = { url: `attachment://${banner.filename}` };
+    embed.banner = banner;
+    embed.description = due !== null ? `Resets <t:${due}:R> · <t:${due}:t> your time.\n${credit}` : credit;
+  } else if (words) {
     const banner: Banner = { ...words, filename: bannerName(`${event.source}-${event.entity_id}`), logo };
     // The banner carries the maker's tile, so the corner stays empty rather than showing it twice.
     embed.image = { url: `attachment://${banner.filename}` };

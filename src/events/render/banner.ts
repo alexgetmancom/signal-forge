@@ -27,6 +27,11 @@ export type Banner = {
   hero?: { text: string; caption: string; color?: number };
   /** A week told as one picture: the makers that shipped and what, instead of a title and chips. */
   rows?: { vendor: string; logo: string | null; names: string[] }[];
+  /**
+   * A person's words as the picture: the post big, their photo in the corner. A promise carries
+   * when it is due, and the hours left are counted when the picture is drawn, not when it was queued.
+   */
+  quote?: { by: string; portrait: string; due?: number; accent?: number };
 };
 
 const WIDTH = 1200;
@@ -76,6 +81,7 @@ function backdrop(width: number, height: number, glow: string): string {
 
 function bannerSvg(banner: Banner): string {
   if (banner.rows) return posterSvg(banner);
+  if (banner.quote) return quoteSvg(banner, banner.quote);
   const glow = glowOf(banner.vendor);
   const logo = logoData(banner.logo);
   const hero = banner.hero;
@@ -102,6 +108,65 @@ function bannerSvg(banner: Banner): string {
   <text x="72" y="118" font-family="Inter" font-weight="600" font-size="28" letter-spacing="4" fill="#ffffff" fill-opacity="0.6">${xml(banner.eyebrow.toUpperCase())}</text>
   <text x="72" y="${200 + size * 0.55}" font-family="Inter Display" font-weight="700" font-size="${size}" letter-spacing="-1.5" fill="#ffffff">${xml(banner.title)}</text>
   ${chips.join("\n  ")}
+</svg>`;
+}
+
+/**
+ * Words broken into lines no wider than `room`, at the largest size whose lines fit between the
+ * eyebrow and the name under them: three lines at the size of a launch's title ran into the name.
+ */
+const QUOTE_TOP = 160;
+const QUOTE_BOTTOM = 372;
+
+function wrap(text: string, room: number): { size: number; lines: string[] } {
+  for (const size of [76, 66, 58, 50, 44]) {
+    const lines: string[] = [];
+    for (const word of text.split(/\s+/)) {
+      const last = lines.at(-1);
+      // Inter Display Bold runs nearer half an em, as the poster's rows measure it.
+      if (last !== undefined && `${last} ${word}`.length * size * 0.5 <= room)
+        lines[lines.length - 1] = `${last} ${word}`;
+      else lines.push(word);
+    }
+    const fits = QUOTE_TOP + size + (lines.length - 1) * size * 1.14 <= QUOTE_BOTTOM;
+    if (fits || size === 44) return { size, lines: lines.slice(0, 3) };
+  }
+  return { size: 44, lines: [text] };
+}
+
+const two = (value: number) => String(value).padStart(2, "0");
+
+function quoteSvg(banner: Banner, quote: NonNullable<Banner["quote"]>): string {
+  const glow = quote.accent ? hex(quote.accent) : glowOf(banner.vendor);
+  const photo = logoData(quote.portrait);
+  const tile = 150;
+  const px = WIDTH - 72 - tile;
+  const { size, lines } = wrap(`“${banner.title}”`, WIDTH - 144 - tile - 40);
+  const step = size * 1.14;
+  const top = QUOTE_TOP + size;
+  const text = lines
+    .map(
+      (line, index) =>
+        `<text x="72" y="${top + index * step}" font-family="Inter Display" font-weight="700" font-size="${size}" letter-spacing="-1" fill="#ffffff">${xml(line)}</text>`,
+    )
+    .join("\n  ");
+  let hero = "";
+  if (quote.due !== undefined) {
+    const minutes = Math.round((quote.due * 1000 - Date.now()) / 60_000);
+    const left = minutes <= 0 ? "now" : minutes < 60 ? `${minutes} min` : `${Math.round(minutes / 60)} h`;
+    const at = new Date(quote.due * 1000);
+    hero = `<text x="${WIDTH - 72}" y="${HEIGHT - 84}" text-anchor="end" font-family="Inter Display" font-weight="700" font-size="84" letter-spacing="-2" fill="#ffffff">${xml(minutes <= 0 ? left : `in ${left}`)}</text>
+  <text x="${WIDTH - 72}" y="${HEIGHT - 46}" text-anchor="end" font-family="Inter" font-weight="600" font-size="22" letter-spacing="3" fill="#ffffff" fill-opacity="0.55">RESETS AT ${two(at.getUTCHours())}:${two(at.getUTCMinutes())} UTC</text>`;
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}">
+  ${backdrop(WIDTH, HEIGHT, glow)}
+  <defs><clipPath id="portrait"><circle cx="${px + tile / 2}" cy="${64 + tile / 2}" r="${tile / 2}"/></clipPath></defs>
+  ${photo ? `<image x="${px}" y="64" width="${tile}" height="${tile}" href="${photo}" clip-path="url(#portrait)" preserveAspectRatio="xMidYMid slice"/>` : ""}
+  <circle cx="${px + tile / 2}" cy="${64 + tile / 2}" r="${tile / 2 + 3}" fill="none" stroke="${glow}" stroke-width="5"/>
+  <text x="72" y="118" font-family="Inter" font-weight="600" font-size="28" letter-spacing="4" fill="#ffffff" fill-opacity="0.6">${xml(banner.eyebrow.toUpperCase())}</text>
+  ${text}
+  <text x="72" y="${HEIGHT - 56}" font-family="Inter" font-weight="600" font-size="32" fill="#ffffff" fill-opacity="0.8">— ${xml(quote.by)}</text>
+  ${hero}
 </svg>`;
 }
 
