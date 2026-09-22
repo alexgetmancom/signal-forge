@@ -5,6 +5,7 @@ import { claudeModelIds } from "../src/sources/claudeCode.js";
 import { commandCodeModelIds, isFreeModel, isSmallModel } from "../src/sources/codingPlans.js";
 import { skuModels } from "../src/sources/googleSkus.js";
 import { parseAnthropicRoutes } from "../src/sources/news.js";
+import { modelPages } from "../src/sources/sitemaps.js";
 
 test("the Claude Code binary's model ids, aliases read as their model, tools named like models dropped", () => {
   const binary = `"claude-opus-4-8" x claude-sonnet-4-5-20250929 claude-opus-4-1-v1 claude-eval-9 claude-desktop-3p
@@ -72,4 +73,14 @@ test("a big model going free on a coding plan is a launch, any other new name a 
     }) as unknown as Event;
   expect(signalClass(event("nemotron-3-ultra-free", true))).toBe("launch");
   expect(signalClass(event("omen-alpha", false))).toBe("codename");
+});
+
+test("a lab's sitemap gives the pages of its models, not the stories about them", () => {
+  const xml = ["/index/gpt-6-astra/", "/index/gpt-5-6-in-kiro/", "/models/model-cards/gemini-3-8-flash/", "/careers/"]
+    .map((path) => `<loc>https://openai.com${path}</loc>`)
+    .join("");
+  expect(modelPages(xml)).toEqual([
+    "https://openai.com/index/gpt-6-astra",
+    "https://openai.com/models/model-cards/gemini-3-8-flash",
+  ]);
 });

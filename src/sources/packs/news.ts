@@ -30,6 +30,7 @@ import {
   collectOpenAIChatGPTReleaseNotes,
   collectXaiReleaseNotes,
 } from "../releaseNotes.js";
+import { collectLabSitemap } from "../sitemaps.js";
 
 /** Official vendor newsrooms, blogs, changelogs and release notes. */
 export function newsSources({ db, config, cache }: SourceContext): SourceEntry[] {
@@ -97,6 +98,36 @@ export function newsSources({ db, config, cache }: SourceContext): SourceEntry[]
       // The Opus 5.5 slug was listed for hours, not days; the newsroom's quarter hour could miss it.
       intervalSeconds: 300,
       collector: () => collectAnthropicRoutes(),
+    },
+    {
+      id: "openai-sitemap",
+      authority: "first_party",
+      vendor: "OpenAI",
+      group: "Official news",
+      stream: "github",
+      // A launch page sits unlinked for hours; half an hour of a multi-megabyte sitemap is enough.
+      intervalSeconds: 1800,
+      collector: () => collectLabSitemap("openai-sitemap"),
+    },
+    {
+      id: "deepmind-sitemap",
+      authority: "first_party",
+      vendor: "Google",
+      group: "Official news",
+      stream: "github",
+      // A launch page sits unlinked for hours; half an hour of a multi-megabyte sitemap is enough.
+      intervalSeconds: 1800,
+      collector: () => collectLabSitemap("deepmind-sitemap"),
+    },
+    {
+      id: "anthropic-sitemap",
+      authority: "first_party",
+      vendor: "Anthropic",
+      group: "Official news",
+      stream: "github",
+      // A launch page sits unlinked for hours; half an hour of a multi-megabyte sitemap is enough.
+      intervalSeconds: 1800,
+      collector: () => collectLabSitemap("anthropic-sitemap"),
     },
     {
       id: "claude-blog",
