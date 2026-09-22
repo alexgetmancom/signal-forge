@@ -29,6 +29,7 @@ const summary = z.object({
         shortlink: z.string().nullish(),
         started_at: z.string().nullish(),
         incident_updates: z.array(z.object({ body: z.string() })).default([]),
+        components: z.array(z.object({ name: z.string() })).default([]),
       }),
     )
     .default([]),
@@ -94,6 +95,9 @@ export function parsePlatformStatus(payload: string, platform: (typeof PLATFORMS
       stage: incident.status,
       impact: incident.impact,
       started: incident.started_at ?? null,
+      // What broke, as the page names it: "claude.ai", "Claude API", "Codex". An outage of the API
+      // alone is nothing a reader on a $20 plan feels.
+      components: incident.components.map((component) => component.name),
       // Only the newest update: the history is on their page, and repeating it here would resend
       // the whole incident every time a line is appended.
       summary: incident.incident_updates[0]?.body.slice(0, 600) ?? null,

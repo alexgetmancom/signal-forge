@@ -106,6 +106,32 @@ function multipart(prepared: PreparedDelivery): FormData {
   return form;
 }
 
+/**
+ * The first 👍 under a Telegram post, as Discord gets one under every card: an empty row asks
+ * nobody anything, and one already there says "tap if this was useful". A bot has a single reaction
+ * per message, so there is no 👎 beside it. Decoration: a refusal never touches the delivery.
+ */
+async function seedReaction(destination: Destination, messageId: number, config: AppConfig, request: Fetch) {
+  if (destination.platform !== "telegram") return;
+  try {
+    const response = await request(`https://api.telegram.org/bot${config.TELEGRAM_BOT_TOKEN}/setMessageReaction`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        chat_id: destination.chatId,
+        message_id: messageId,
+        reaction: [{ type: "emoji", emoji: "👍" }],
+      }),
+      signal: AbortSignal.timeout(10_000),
+      redirect: "error",
+    });
+    await response.body?.cancel();
+    if (!response.ok) log("warn", "Telegram reaction not set", { status: response.status });
+  } catch (failure) {
+    log("warn", "Telegram reaction not set", { error: failure instanceof Error ? failure.message : String(failure) });
+  }
+}
+
 export function recoverInterruptedDeliveries(db: Database): void {
   db.query(
     "UPDATE deliveries SET status='ambiguous',error='Process stopped during send; verify destination before retrying',updated_at=? WHERE status='sending'",
@@ -280,6 +306,7 @@ export async function deliverPending(db: Database, config: AppConfig, request: F
                 if (success.success) {
                   externalId = String(success.data.result.message_id);
                   status = "sent";
+                  await seedReaction(prepared.destination, success.data.result.message_id, config, request);
                 } else if (telegramErrorResponse.safeParse(data).success) {
                   status = "failed";
                   error = "Telegram rejected delivery";

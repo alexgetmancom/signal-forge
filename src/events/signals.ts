@@ -1,5 +1,5 @@
 import { text } from "../text.js";
-import { incidentIsSevere } from "./incidents.js";
+import { incidentIsSevere, incidentTouchesSubscribers } from "./incidents.js";
 import { recordFor } from "./record.js";
 import type { Event } from "./types.js";
 import { vendorOfName } from "./vendors.js";
@@ -503,7 +503,9 @@ export function signalClass(event: Event): SignalClass {
   // A major outage is the one incident that has to interrupt: it travels with the launches, which
   // is where everything a reader must act on right now already goes. Everything else the vendors
   // grade lower is on the board and nowhere else.
-  if (event.stream === "incidents") return incidentIsSevere(event) ? "launch" : "incident";
+  // Only a subscriber's product: an API outage is the builders' news, and the board carries it.
+  if (event.stream === "incidents")
+    return incidentIsSevere(event) && incidentTouchesSubscribers(event) ? "launch" : "incident";
 
   /**
    * Limits coming back is the most direct "you can use this now" in the system: nothing was

@@ -58,9 +58,13 @@ test("sends to Telegram topic and Discord channel with bot auth and no mentions"
   });
   expect(calls[0]?.body.chat_id).toBe("-100123");
   expect(calls[0]?.body.message_thread_id).toBe(42);
-  expect(calls[1]?.url).toBe("https://discord.com/api/v10/channels/123456/messages");
-  expect(calls[1]?.headers.get("Authorization")).toBe("Bot fake-discord");
-  expect(calls[1]?.body.allowed_mentions).toEqual({ parse: [] });
+  const discord = calls.find((call) => call.url.includes("discord"));
+  expect(discord?.url).toBe("https://discord.com/api/v10/channels/123456/messages");
+  expect(discord?.headers.get("Authorization")).toBe("Bot fake-discord");
+  expect(discord?.body.allowed_mentions).toEqual({ parse: [] });
+  // The post goes out with its first 👍 already under it.
+  const reaction = calls.find((call) => call.url.endsWith("/setMessageReaction"));
+  expect(reaction?.body).toEqual({ chat_id: "-100123", message_id: 99, reaction: [{ type: "emoji", emoji: "👍" }] });
   await deliverPending(db, config, async () => {
     throw new Error("must not send twice");
   });

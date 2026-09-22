@@ -64,6 +64,24 @@ export function incidentSilence(event: Event): string | null {
     : "The incident moved between working stages";
 }
 
+/**
+ * The products the wire's readers pay $20 a month for. "Elevated errors for multiple models" on
+ * 2026-09-22 was Anthropic's API, graded major, and reached a room of Codex and Claude subscribers
+ * who felt none of it.
+ */
+const CONSUMER_PRODUCTS = /\b(?:chatgpt|codex|sora|claude\.ai|claude code|claude app|kimi|chat|app)\b/i;
+
+/**
+ * Whether the outage touched a subscriber's product. A page that names no component says nothing
+ * either way, and the incident's own title is read instead.
+ */
+export function incidentTouchesSubscribers(event: Event): boolean {
+  const components = record(event)?.components;
+  const names = Array.isArray(components) ? components.filter((name) => typeof name === "string") : [];
+  if (names.length) return names.some((name) => CONSUMER_PRODUCTS.test(name));
+  return CONSUMER_PRODUCTS.test(String(record(event)?.name ?? "").replace(/^[^:]+:\s*/, ""));
+}
+
 /** An outage interrupts a reader only when the vendor calls it severe and it has just started. */
 export function incidentIsUrgent(event: Event): boolean {
   if (event.stream !== "incidents") return false;

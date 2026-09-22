@@ -219,12 +219,12 @@ test("a newsroom post is what the vendor said, not a model a reader can use", ()
 });
 
 test("only an outage the vendor calls severe reaches a reader, and it reaches the launches", () => {
-  const incident = (impact: string) =>
+  const incident = (impact: string, components = ["ChatGPT", "Codex"]) =>
     event({
       stream: "incidents",
       kind: "new",
       source: "status:openai",
-      after_json: JSON.stringify({ name: "OpenAI: Elevated errors", impact, stage: "investigating" }),
+      after_json: JSON.stringify({ name: "OpenAI: Elevated errors", impact, stage: "investigating", components }),
     });
   expect(signalClass(incident("major"))).toBe("launch");
   expect(signalClass(incident("critical"))).toBe("launch");
@@ -232,6 +232,10 @@ test("only an outage the vendor calls severe reaches a reader, and it reaches th
   // The Platform health board already shows these, and no destination subscribes to the class.
   expect(signalClass(incident("minor"))).toBe("incident");
   expect(signalClass(incident("none"))).toBe("incident");
+  // A subscriber on a $20 plan feels ChatGPT, Codex, claude.ai or Claude Code going down, not the API.
+  expect(signalClass(incident("major", ["Claude API (api.anthropic.com)"]))).toBe("incident");
+  expect(signalClass(incident("major", ["claude.ai", "Claude API (api.anthropic.com)"]))).toBe("launch");
+  expect(signalClass(incident("major", []))).toBe("incident");
 });
 
 test("only the two classes a reader subscribed for carry a role mention", () => {
