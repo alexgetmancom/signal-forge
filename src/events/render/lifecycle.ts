@@ -111,37 +111,6 @@ function bestEffortOnly<T extends { name: string; index: number }>(entries: read
 }
 
 /**
- * A price move in the terms a reader pays it in: a cut as the share that came off, a rise as the
- * multiple it became once it is more than a doubling. "Up 74%" for a price that nearly quadrupled
- * is arithmetic nobody is charged.
- */
-function money(amount: number): string {
-  return `$${amount >= 1 ? amount.toFixed(2).replace(/\.00$/, "") : amount.toFixed(amount >= 0.1 ? 2 : 3).replace(/0+$/, "")}`;
-}
-
-function priceMove(move: {
-  percent: number;
-  cheaper: boolean;
-  from?: number | null;
-  to?: number | null;
-  field?: string;
-  discountEnded?: boolean;
-}): string {
-  // The move, then what it costs now. A percentage alone is a number a reader cannot act on:
-  // "down 27%" and "$2.40 → $1.75 per M" are the same fact, and only the second one is a price.
-  const size = move.cheaper
-    ? `down ${Math.round(move.percent * 100)}%`
-    : move.percent >= 1
-      ? `${(move.percent + 1).toFixed(1)}× more expensive`
-      : `up ${Math.round(move.percent * 100)}%`;
-  const pair =
-    typeof move.from === "number" && typeof move.to === "number"
-      ? ` · ${money(move.from)} → ${money(move.to)} per 1M${move.field ? ` ${move.field}` : ""}`
-      : "";
-  return move.discountEnded && !move.cheaper ? `launch pricing ended · ${size}${pair}` : `${size}${pair}`;
-}
-
-/**
  * The week, in the order a reader would ask about it: what can I use now, what got cheaper, and
  * what did the people watching early see before anybody announced it.
  */
@@ -185,12 +154,12 @@ export function renderRecapLines(context: RecapContext, signals: readonly string
     return lines;
   }
   if (context.period === "day") {
-    // API prices are the scouts'. Most of the wire's readers are on a $20 Codex or Claude plan, and
-    // "Qwen3.8 27B · 2.1× more expensive per 1M input" changed nothing they pay.
+    // No API prices, for either room: the wire's readers are on a $20 Codex or Claude plan, and the
+    // scouts came for what nobody has announced yet. A promotion ending on a published price list is
+    // neither. A price for a model not yet out is a sighting of its own.
     const moved = [
       ...(signals.includes("codename")
         ? [
-            ...context.priceMoves.map((move) => `📊 ${withoutMakerPrefix(move.name)} · ${priceMove(move)}`),
             ...context.leaders.map(
               (leader) => `🏆 ${withoutMakerPrefix(leader.name)} now leads ${boardName(leader.board)}`,
             ),

@@ -190,12 +190,9 @@ test("a price line is what a reader pays, and says nothing when the rows disagre
       discountEnded: false,
     },
   ]);
-  // Nearly quadrupling is not "up 74%", whatever the ranking arithmetic says.
-  // The week is models; a price is the day's post, and that is where the line is read.
+  // Neither room reads a price list: the day says nothing about it.
   const day = recapContext(db, "2026-09-10T06:00:00.000Z", "day");
-  expect(renderRecapLines(day, ["codename"])).toContain(
-    "📊 Qwen3 14B · 3.8× more expensive · $0.24 → $0.91 per 1M output",
-  );
+  expect(renderRecapLines(day, ["codename"]).join("\n")).not.toContain("Qwen3 14B");
 });
 
 test("a price only speaks for a model something other than a price list knows", () => {
@@ -249,10 +246,6 @@ test("a price only speaks for a model something other than a price list knows", 
       discountEnded: true,
     },
   ]);
-  const day = recapContext(db, "2026-09-10T06:00:00.000Z", "day");
-  expect(renderRecapLines(day, ["codename"])).toContain(
-    "📊 Solar Pro 4 · launch pricing ended · 3.0× more expensive · $0.03 → $0.09 per 1M input",
-  );
 });
 
 test("a price that goes up and comes back down again is not a week's news", () => {
@@ -352,7 +345,7 @@ test("a price that went both ways inside the period is not reported as a move", 
   expect(recapContext(db, "2026-09-17T06:00:00.000Z", "day").priceMoves).toEqual([]);
 });
 
-test("a day's prices and its leaders go to the scouts, and the wire gets neither", () => {
+test("a day's leaders go to the scouts, its prices to nobody, and the wire gets neither", () => {
   const day = recapContextSchema.parse({
     period: "day",
     from: "2026-09-16T06:00:00.000Z",
@@ -368,7 +361,7 @@ test("a day's prices and its leaders go to the scouts, and the wire gets neither
     ],
   });
   const scouts = renderRecapLines(day, ["codename"]).join("\n");
-  expect(scouts).toContain("📊 GLM 5.3 Flash · down 30%");
+  expect(scouts).not.toContain("GLM");
   expect(scouts).toContain("GPT-6 Astra");
   // One model scored at two efforts is one line, at its best.
   expect(scouts).toContain("Grok 4.7 (xhigh) scored 46.4");
@@ -376,7 +369,7 @@ test("a day's prices and its leaders go to the scouts, and the wire gets neither
   expect(renderRecapLines(day, ["launch", "change"])).toEqual([]);
 });
 
-test("the scouts get one morning list of what the labs published, and the wire does not", () => {
+test("the labs' day of posts is collected for the reports and sent to no room", () => {
   const db = openDatabase(":memory:");
   const site = (source: string, paths: string[]): Collection => ({
     source,
@@ -406,15 +399,10 @@ test("the scouts get one morning list of what the labs published, and the wire d
 
   const now = Date.parse("2026-09-17T07:00:00.000Z");
   expect(scheduleRecaps(db, { destinations: [wire] } as never, now)).toEqual([]);
-  expect(scheduleRecaps(db, scoutsOnly, now)).toEqual(["news"]);
+  expect(scheduleRecaps(db, scoutsOnly, now)).toEqual([]);
   const context = recapContext(db, lastRecapPeriod(now, "news"), "news");
   // The partnership is the day's news; the model page is a sighting and the help article is neither.
   expect(context.headlines.map((line) => line.title)).toEqual(["mistral x mozilla"]);
-  prepareDeliveries(db, now);
-  const body = db.query<{ body: string }, []>("SELECT body FROM deliveries").get()?.body ?? "";
-  expect(body).toContain("📰 The day in AI");
-  expect(body).toContain("https://pages:mistral.example/news/mistral-x-mozilla");
-  expect(body).not.toContain("<@&");
   // The wire is for readers on a $20 plan; a day of lab posts is filler to them.
   expect(renderRecapLines(context, ["launch", "change"])).toEqual([]);
 });

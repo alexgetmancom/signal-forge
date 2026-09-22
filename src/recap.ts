@@ -62,8 +62,9 @@ const PERIODS = {
   // the vendor talking rather than a model changing, so it is never a card of its own, and on
   // 2026-09-16 "Mistral X Mozilla" and "Claude Cowork and chat are now one Claude" reached nobody.
   // One morning list of headlines carries them without making the wire louder.
-  // Read by the scouts since 2026-09-22: to a reader on a $20 plan a day of lab posts was filler.
-  news: { source: "daily-news", ms: 24 * 3_600_000, signals: ["codename"], untold: true },
+  // Nobody's since 2026-09-22: to a reader on a $20 plan a day of lab posts was filler, and to the
+  // scouts, who came to hear first, it is what everyone already published. Kept for the reports.
+  news: { source: "daily-news", ms: 24 * 3_600_000, signals: [], untold: true },
 } as const;
 export type RecapPeriod = keyof typeof PERIODS;
 /**
@@ -827,8 +828,7 @@ function scheduleRecap(db: Database, config: AppConfig, period: RecapPeriod, now
     period === "news"
       ? !context.headlines.length
       : period === "day"
-        ? !context.priceMoves.length &&
-          !context.leaders.length &&
+        ? !context.leaders.length &&
           !context.climbers.length &&
           !context.newBoards.length &&
           !context.resellerArrivals.length &&
