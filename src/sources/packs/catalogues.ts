@@ -66,9 +66,9 @@ export function cataloguesSources({ db, config, cache }: SourceContext): SourceE
       vendor: "Microsoft",
       group: "Catalogues",
       stream: "api-models",
-      // A bot opens the pull request and it merges within the day; hourly is ahead of the cadence
-      // the repository actually changes at, and the tree is one request.
-      intervalSeconds: 3600,
+      // It repeats what Azure Foundry and the other catalogues already listed: 42 appearances in the
+      // month to 2026-09-22, none of them first, a median eleven days behind. Daily keeps its record.
+      intervalSeconds: 86_400,
       requiredCapabilities: ["GITHUB_TOKEN"],
       collector: () => collectTrueFoundryAzure(config.GITHUB_TOKEN ?? "", fetch, cache),
     },

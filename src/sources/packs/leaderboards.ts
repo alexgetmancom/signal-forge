@@ -74,7 +74,9 @@ export function leaderboardsSources({ config, cache }: SourceContext): SourceEnt
         authority: "third_party",
         group: "Arena",
         stream: "leaderboards",
-        intervalSeconds: 3600,
+        // The video arena ranks a model after its launch: over the month to 2026-09-22 it was never
+        // the first to name one, so a day is as early as it has ever been useful.
+        intervalSeconds: arena === "text-to-video" ? 86_400 : 3600,
         capabilityId: "artificial-analysis",
         requiredCapabilities: ["ARTIFICIAL_ANALYSIS_API_KEY"],
         collector: () => collectMediaArena(config, arena),
