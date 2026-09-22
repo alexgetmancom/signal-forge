@@ -30,17 +30,30 @@ export type ReleaseAuditRow = {
   cardAt: string | null;
 };
 
-type EventRow = Event & { card_at: string | null };
+type EventRow = Event & { card_at: string | null; authority: string | null };
 
 function modelKey(canonicalId: string): string {
   return normalizeIdentity(canonicalId.split("/").pop() ?? canonicalId);
 }
 
 /**
+ * A docs page names its model only in its path — `/gemini-api/docs/models/gemini-3.8-live` — and
+ * carries no model id, so the card it made on 2026-09-15 read as "no card" until the slug counted.
+ */
+function slugModel(event: Event): string | null {
+  const slug = event.entity_id.replace(/\/$/, "").split("/").at(-1) ?? "";
+  return /^[a-z][a-z0-9.-]*\d[a-z0-9.-]*$/i.test(slug) ? slug : null;
+}
+
+/**
+ * Only the maker dates its own model: OpenRouter's `created` is when OpenRouter set the model up,
+ * which put nex-n2.5-mini thirteen days before anyone could call it.
+ *
  * A `created` that falls on a whole hour is a date written as a time — xAI's midnight, Z.ai's
  * midnight in Beijing — and would put the release hours before it happened.
  */
-function upstreamTime(event: Event): string | null {
+function upstreamTime(event: Event & { authority?: string | null }): string | null {
+  if (event.authority !== "first_party" && event.authority !== "vendor_owned") return null;
   const created = (JSON.parse(event.after_json ?? "{}") as { created?: unknown }).created;
   if (typeof created !== "string" || !Number.isFinite(Date.parse(created))) return null;
   return /:00:00(?:\.000)?Z$/.test(created) ? null : new Date(created).toISOString();
@@ -71,7 +84,7 @@ export function releaseAudit(db: Database, days = 7, now = Date.now()): { since:
     { model: string; first: EventRow; families: Set<string>; upstreamAt: string | null; cardAt: string | null }
   >();
   for (const event of events) {
-    const canonicalId = identityFor(event, recordFor(event)).canonicalId;
+    const canonicalId = identityFor(event, recordFor(event)).canonicalId ?? slugModel(event);
     if (!canonicalId) continue;
     const key = modelKey(canonicalId);
     // A model known before the window is not this week's release, only a new listing of it.
