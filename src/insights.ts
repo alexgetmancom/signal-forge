@@ -5,6 +5,7 @@ import type { Event } from "./events/types.js";
 import type { Fetch } from "./http-client.js";
 import { type Judgement, judgeEvents, judgementOf, worthCutoff } from "./jev.js";
 import { publishMonthlyAudit } from "./review.js";
+import { olderThanKnown } from "./sources/mentionStage.js";
 import { summarizeForRecap } from "./summary.js";
 
 /**
@@ -62,6 +63,21 @@ const FINDING_GUIDANCE =
   "This is a safety or research post about AI. In at most 25 words, say what was found or shown and, if the text says, how serious or widespread it is. No opinions of your own.";
 
 /** The commits of the last day worth a line, best first. */
+/**
+ * A commit whose news is a model name already superseded by a newer one of its kind. "Add gpt-5.1-mini
+ * to the model list" landed in openai-openapi on 2026-09-21, with gpt-5.4-mini long on sale, and the
+ * scouts read it as a sighting.
+ */
+function addsOnlyOlderModels(db: Database, event: Event): boolean {
+  const record = event.after_json ? (JSON.parse(event.after_json) as { name?: string; summary?: string }) : {};
+  const added = `${record.name ?? ""}\n${(record.summary ?? "")
+    .split("\n")
+    .filter((line) => line.startsWith("+"))
+    .join("\n")}`;
+  const models = new Set(added.match(/\b(?:gpt|claude|gemini|grok|o\d)-[a-z0-9.-]*\d[a-z0-9.-]*/gi) ?? []);
+  return models.size > 0 && [...models].every((model) => olderThanKnown(db, model.toLowerCase(), true));
+}
+
 export function notableCommits(db: Database, from: string, to: string): { event: Event; judgement: Judgement }[] {
   const cutoff = worthCutoffs(db, new Date(to)).commit;
   return db
@@ -71,6 +87,7 @@ export function notableCommits(db: Database, from: string, to: string): { event:
     .all(from, to)
     .map((event) => ({ event, judgement: judgementOf(db, event.id) }))
     .filter((entry): entry is { event: Event; judgement: Judgement } => isNotableCommit(entry.judgement, cutoff))
+    .filter(({ event }) => !addsOnlyOlderModels(db, event))
     .sort((one, other) => other.judgement.worth - one.judgement.worth)
     .slice(0, COMMIT_LINES);
 }

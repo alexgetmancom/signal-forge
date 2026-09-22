@@ -127,12 +127,29 @@ test("a post carries how old it already was when we found it", async () => {
 test("commits are judged, and only the notable one gets a DeepSeek line", async () => {
   const db = openDatabase(":memory:");
   const now = new Date("2026-09-19T08:00:00Z");
-  commits(db, ["Add gpt-6-astra model preset", "Refactor prompt crate"], new Date(now.getTime() - 3_600_000));
+  // gpt-5.1-mini is on the list the day gpt-5.4-mini is on sale: a name the scouts already know is old.
+  saveCollection(
+    db,
+    {
+      source: "openrouter",
+      stream: "openrouter",
+      url: "https://x.test",
+      raw: {},
+      records: [{ id: "openai/gpt-5.4-mini", name: "GPT-5.4 Mini" }],
+    },
+    [],
+    new Date(now.getTime() - 7_200_000).toISOString(),
+  );
+  commits(
+    db,
+    ["Add gpt-6-astra model preset", "Add gpt-5.1-mini to the model list", "Refactor prompt crate"],
+    new Date(now.getTime() - 3_600_000),
+  );
   const asked: string[] = [];
   const request = async (url: string, init?: RequestInit) => {
     const body = String(init?.body ?? "");
     if (url.includes("typesafe")) {
-      const feature = body.includes("astra");
+      const feature = body.includes("astra") || body.includes("5.1-mini");
       return Response.json({
         answers: {
           kind: { choice: feature ? "new_model" : "internal", confidence: 0.9 },
