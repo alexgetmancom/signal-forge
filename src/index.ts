@@ -25,6 +25,7 @@ import { openDatabase } from "./storage/database.js";
 import { HttpCache } from "./storage/httpCache.js";
 import { expireSnapshotBodies, pruneShadowCandidates, pruneSnapshots } from "./storage/retention.js";
 import { rebuildStories, rememberStoryProjection } from "./stories.js";
+import { readTelegramReactions } from "./telegramReactions.js";
 
 const config = loadConfig();
 // Logs live beside the database, on the volume that outlives the container.
@@ -66,6 +67,12 @@ supervisor.register(
   }),
 );
 supervisor.register(startIntervalWorker(db, "delivery", 1500, () => deliverPending(db, config)));
+// Telegram tells a reaction once and forgets it, so it is read every minute rather than every five.
+supervisor.register(
+  startIntervalWorker(db, "telegram-reactions", 60_000, async () => {
+    await readTelegramReactions(db, config);
+  }),
+);
 supervisor.register(
   startIntervalWorker(db, "promotion", 300_000, async () => {
     await promoteVouchedMessages(db, config);
