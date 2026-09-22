@@ -597,6 +597,20 @@ export function replayDestinationVerdicts(
   });
 }
 
+/** The server's emoji for each vendor, as uploaded to the Discord guild the roles live in. */
+const VENDOR_EMOJIS: Record<string, string> = {
+  Anthropic: "<:anthropic:1551934115282944060>",
+  OpenAI: "<:openai:1551934248267546665>",
+  Google: "<:gemini:1551934399975661688>",
+  DeepSeek: "<:deepseek:1551934735742279690>",
+  Qwen: "<:qwen:1551935251465379900>",
+  xAI: "<:xai:1551939748443062302>",
+  "Z.ai": "<:zai:1551939865904549948>",
+  Meta: "<:meta:1551939937216110632>",
+  Moonshot: "<:kimi:1551940005532803173>",
+  Xiaomi: "<:xiaomi:1551940073019285555>",
+};
+
 export function prepareDeliveries(
   db: Database,
   now = Date.now(),
@@ -804,23 +818,23 @@ export function prepareDeliveries(
 
       if (readsCards(destination)) {
         const pinged = batch.digest ? [] : speaking.filter(pingWorthy);
+        const vendors = [
+          ...new Set(
+            pinged.map((event) => {
+              const record = event.after_json
+                ? (JSON.parse(event.after_json) as RecordData)
+                : event.before_json
+                  ? (JSON.parse(event.before_json) as RecordData)
+                  : null;
+              return vendorOf(event, record);
+            }),
+          ),
+        ];
         const roles = [
           // A reader who follows everything is mentioned beside the vendor roles, never instead
           // of them, and never for routine movement.
           ...(pinged.length && allSignalsRole ? [allSignalsRole] : []),
-          ...new Set(
-            pinged
-              .map((event) => {
-                const record = event.after_json
-                  ? (JSON.parse(event.after_json) as RecordData)
-                  : event.before_json
-                    ? (JSON.parse(event.before_json) as RecordData)
-                    : null;
-                return vendorOf(event, record);
-              })
-              .map((vendor) => vendorRoles[vendor])
-              .filter((role): role is string => Boolean(role)),
-          ),
+          ...new Set(vendors.map((vendor) => vendorRoles[vendor]).filter((role): role is string => Boolean(role))),
         ];
         const mentions = roles.map((role) => `<@&${role}>`).join(" ");
         // A small company's model that took off says why it is a card now and was a recap line before.
@@ -845,6 +859,14 @@ export function prepareDeliveries(
                   ),
             );
         const embeds = distinctLinks(rendered);
+        // On Discord the ping reads as a headline: "@Xiaomi · [logo] New Xiaomi models", the way the
+        // role menu names the vendor. Telegram drops the mention and has no server emoji to show.
+        const title = String(embeds[0]?.title ?? "").replace(/^[^\p{L}\p{N}]+/u, "");
+        const emoji = vendors.map((vendor) => VENDOR_EMOJIS[vendor]).find(Boolean);
+        const pingLine =
+          destination.platform === "discord" && mentions && title
+            ? `${mentions} · ${emoji ? `${emoji} ` : ""}${title}`
+            : mentions;
         // An embed and its evidence file travel together: the page an embed lands on decides
         // which message carries its attachment.
         const attachments = new Map<Record<string, unknown>, Attachment>();
@@ -863,7 +885,7 @@ export function prepareDeliveries(
         pages.forEach((page, index) => {
           // A roster card names its own count and catalogue; the "3 updates" line above it would repeat it.
           const content =
-            index === 0 ? [roster ? "" : header.trim(), ...tookOff, mentions].filter(Boolean).join("\n") : "";
+            index === 0 ? [roster ? "" : header.trim(), ...tookOff, pingLine].filter(Boolean).join("\n") : "";
           const files = page.map((embed) => attachments.get(embed)).filter((file): file is Attachment => Boolean(file));
           const carried = page.flatMap((embed) => behind.get(embed) ?? []);
           // A page that continues one story hangs off the message that told it first, so the

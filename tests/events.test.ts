@@ -705,6 +705,8 @@ test("a new model pings the role of its vendor and nothing else", async () => {
   };
   expect(payload.content).toContain("<@&111>");
   expect(payload.content).not.toContain("<@&222>");
+  // The ping carries the vendor's logo and the card's title, as the role menu names the vendor.
+  expect(payload.content).toMatch(/<@&111> · <:openai:\d+> \S/);
   // The permission list names exactly the roles the message mentions, so a stray id cannot ping.
   expect(payload.allowed_mentions?.roles).toEqual(["111"]);
 });
