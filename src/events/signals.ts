@@ -546,6 +546,9 @@ export function signalClass(event: Event): SignalClass {
       "openai-sitemap",
       "deepmind-sitemap",
       "anthropic-sitemap",
+      "xiaomi-sitemap",
+      "zai-sitemap",
+      "meta-blog",
     ].includes(event.source)
   )
     return event.kind === "new" ? "codename" : "evidence";

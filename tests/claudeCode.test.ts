@@ -85,6 +85,28 @@ test("a lab's sitemap gives the pages of its models, not the stories about them"
   ]);
 });
 
+test("Xiaomi's and Z.ai's model pages, and Meta's Muse posts, are read like the others", () => {
+  const xml = [
+    "/models/zh-CN/mimo-v2.6-pro",
+    "/news/latest/v2-6",
+    "/guides/llm/glm-5.3",
+    "/devpack/notice/event-glm-5.3-flash",
+  ]
+    .map((path) => `<loc>https://x.test${path}</loc>`)
+    .join("");
+  expect(modelPages(xml)).toEqual(["https://x.test/models/zh-CN/mimo-v2.6-pro", "https://x.test/guides/llm/glm-5.3"]);
+  const blog = [
+    "/blog/introducing-muse-spark-meta-model-api/",
+    "/blog/brain2qwerty-brain-ai-human-communication/",
+    "/blog/?page=2",
+  ]
+    .map((path) => `<a href="https://ai.meta.com${path}">`)
+    .join("");
+  expect(modelPages(blog, /(?:^|-)(?:muse|llama)(?:-|$)/)).toEqual([
+    "https://ai.meta.com/blog/introducing-muse-spark-meta-model-api",
+  ]);
+});
+
 test("a free serving is of the model it serves, so the two join one story", () => {
   expect(servedModel("grok-4.7-free")).toBe("grok-4.7");
   expect(servedModel("tencent/hy3:free")).toBe("tencent/hy3");

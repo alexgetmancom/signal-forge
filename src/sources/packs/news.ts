@@ -130,6 +130,36 @@ export function newsSources({ db, config, cache }: SourceContext): SourceEntry[]
       collector: () => collectLabSitemap("anthropic-sitemap"),
     },
     {
+      id: "xiaomi-sitemap",
+      authority: "first_party",
+      vendor: "Xiaomi",
+      group: "Official news",
+      stream: "github",
+      // A small page, and the labs that no feed here reads announce on it first.
+      intervalSeconds: 600,
+      collector: () => collectLabSitemap("xiaomi-sitemap"),
+    },
+    {
+      id: "zai-sitemap",
+      authority: "first_party",
+      vendor: "Z.ai",
+      group: "Official news",
+      stream: "github",
+      // A small page, and the labs that no feed here reads announce on it first.
+      intervalSeconds: 600,
+      collector: () => collectLabSitemap("zai-sitemap"),
+    },
+    {
+      id: "meta-blog",
+      authority: "first_party",
+      vendor: "Meta",
+      group: "Official news",
+      stream: "github",
+      // A small page, and the labs that no feed here reads announce on it first.
+      intervalSeconds: 600,
+      collector: () => collectLabSitemap("meta-blog"),
+    },
+    {
       id: "claude-blog",
       authority: "first_party",
       vendor: "Anthropic",
