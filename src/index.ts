@@ -67,10 +67,12 @@ supervisor.register(
   }),
 );
 supervisor.register(startIntervalWorker(db, "delivery", 1500, () => deliverPending(db, config)));
-// Telegram tells a reaction once and forgets it, so it is read every minute rather than every five.
+// Hourly: the Telegram counts feed no decision, only the reports, and Telegram keeps what is unread
+// for a day. Discord's are read every five minutes because the scouts' votes promote a card.
 supervisor.register(
-  startIntervalWorker(db, "telegram-reactions", 60_000, async () => {
-    await readTelegramReactions(db, config);
+  startIntervalWorker(db, "telegram-reactions", 3_600_000, async () => {
+    // A busy hour is more than one page: read until Telegram has nothing left.
+    for (let page = 0; page < 20 && (await readTelegramReactions(db, config)) === 100; page++);
   }),
 );
 supervisor.register(
