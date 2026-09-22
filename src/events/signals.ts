@@ -584,9 +584,8 @@ function isModelSighting(event: Event): boolean {
 }
 
 export function pingWorthy(event: Event): boolean {
-  // A promised reset is worth reading and not worth interrupting: nothing has come back yet, and
-  // the same announcement pings for real when it is applied.
-  if (event.stream === "resets" && recordFor(event)?.stage !== "Applied") return false;
+  // A promised reset pings too: "Codex limits reset announced" on 2026-09-22 reached the OpenAI
+  // role's readers without a mention, and a reset is the news a Codex subscriber waits for.
   // A model written into code is coming; one answering people is here. Only the second interrupts.
   if (isModelSighting(event) && recordFor(event)?.stage !== "served") return false;
   const signal = signalClass(event);

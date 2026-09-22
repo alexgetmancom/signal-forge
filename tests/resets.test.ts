@@ -69,7 +69,7 @@ const promise = {
   source: { type: "x_post", author: "thsottiaux", url: "https://x.com/thsottiaux/status/2" },
 };
 
-test("a promised reset is a record that says it is a promise, and never pings", async () => {
+test("a promised reset is a record that says it is a promise, and pings like the applied one", async () => {
   const { fetcher } = server([page([announcement])], { total: 1 }, promise);
   const collection = await collectCodexResets(fetcher);
 
@@ -83,7 +83,7 @@ test("a promised reset is a record that says it is a promise, and never pings", 
 
   const event = resetEvent("new", pending as Record<string, unknown>);
   expect(signalClass(event)).toBe("launch");
-  expect(pingWorthy(event)).toBe(false);
+  expect(pingWorthy(event)).toBe(true);
 });
 
 test("the same announcement applied is the second card, and that one pings", async () => {
