@@ -174,6 +174,9 @@ export async function collectHuggingFaceRouter(request: Fetch = fetch, cache?: H
     source: "huggingface-router",
     stream: "api-models",
     url: "https://huggingface.co/inference/models",
+    // A model drops out while no host is up and comes back: GLM-5.1-FP8 and Command A Vision each
+    // "left" and "arrived" in September 2026, and neither was news.
+    appendOnly: true,
     raw: records,
     records,
   };
