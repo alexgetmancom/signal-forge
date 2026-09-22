@@ -1,6 +1,7 @@
 import type { AppConfig } from "../../config.js";
 import { collectClaudeCodeModels } from "../claudeCode.js";
 import { collectCodexModels } from "../codex.js";
+import { collectCommandCodeModels, collectOpenCodeGo, collectOpenCodeZen } from "../codingPlans.js";
 import type { SourceContext, SourceEntry } from "../definition.js";
 import { collectGithubDiscovery, collectHuggingFaceTrending, GITHUB_DISCOVERY_QUERIES } from "../discovery.js";
 import { collectGithubCommits, collectGithubPulls, collectGithubReleases } from "../github.js";
@@ -75,6 +76,32 @@ export function communitySources({ db, config, cache }: SourceContext): SourceEn
       // A release is a 70 MB download, read only when the version moves.
       intervalSeconds: 3600,
       collector: () => collectClaudeCodeModels(fetch),
+    },
+    // The coding subscriptions' model lists: small JSON answers, read every quarter hour.
+    {
+      id: "opencode-zen",
+      authority: "third_party",
+      group: "Catalogues",
+      stream: "api-models",
+      intervalSeconds: 900,
+      collector: () => collectOpenCodeZen(fetch),
+    },
+    {
+      id: "opencode-go",
+      authority: "third_party",
+      group: "Catalogues",
+      stream: "api-models",
+      intervalSeconds: 900,
+      collector: () => collectOpenCodeGo(fetch),
+    },
+    {
+      id: "command-code-models",
+      authority: "third_party",
+      group: "Catalogues",
+      stream: "api-models",
+      // A 2 MB package, downloaded only when its version moves.
+      intervalSeconds: 1800,
+      collector: () => collectCommandCodeModels(fetch),
     },
   ];
 

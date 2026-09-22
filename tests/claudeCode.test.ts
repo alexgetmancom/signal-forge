@@ -1,5 +1,8 @@
 import { expect, test } from "bun:test";
+import { signalClass } from "../src/events/signals.js";
+import type { Event } from "../src/events/types.js";
 import { claudeModelIds } from "../src/sources/claudeCode.js";
+import { commandCodeModelIds, isFreeModel, isSmallModel } from "../src/sources/codingPlans.js";
 import { skuModels } from "../src/sources/googleSkus.js";
 import { parseAnthropicRoutes } from "../src/sources/news.js";
 
@@ -34,4 +37,39 @@ test("a model priced on Google Cloud is named once however it is billed", () => 
       "Vector Search Index Serving e2-standard-16",
     ]),
   ).toEqual(["gemini-3.8-flash-cyber", "gemini-3.8-flash-lite-tts", "gemini-3.8-flash-tts", "glm-5.2"]);
+});
+
+test("Command Code's CLI names its models, hidden ones included, once per id", () => {
+  const bundle = `"moonshotai/Kimi-K3" "moonshotai/kimi-k3" "thinkingmachines/inkling" "MiniMaxAI/MiniMax-M3-Free" "openai/v1" "claude-sonnet-4-20250514" "gpt-6-astra"`;
+  expect(commandCodeModelIds(bundle)).toEqual([
+    "gpt-6-astra",
+    "minimaxai/minimax-m3-free",
+    "moonshotai/kimi-k3",
+    "thinkingmachines/inkling",
+  ]);
+});
+
+test("a free model is a headline unless it is a small variant", () => {
+  expect(isFreeModel("nemotron-3-ultra-free")).toBe(true);
+  expect(isFreeModel("tencent/hy3:free")).toBe(true);
+  expect(isFreeModel("big-pickle")).toBe(true);
+  expect(isFreeModel("glm-5.3")).toBe(false);
+  expect(isSmallModel("nemotron-3.5-lightning-free")).toBe(true);
+  expect(isSmallModel("minimaxai/minimax-m3-free")).toBe(false);
+});
+
+test("a big model going free on a coding plan is a launch, any other new name a sighting", () => {
+  const event = (id: string, headline: boolean) =>
+    ({
+      id: 1,
+      source: "opencode-zen",
+      stream: "api-models",
+      entity_id: id,
+      kind: "new",
+      before_json: null,
+      after_json: JSON.stringify({ id, name: id, free: headline, headline }),
+      detected_at: "2026-09-22T12:00:00.000Z",
+    }) as unknown as Event;
+  expect(signalClass(event("nemotron-3-ultra-free", true))).toBe("launch");
+  expect(signalClass(event("omen-alpha", false))).toBe("codename");
 });

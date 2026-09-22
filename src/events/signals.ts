@@ -528,6 +528,15 @@ export function signalClass(event: Event): SignalClass {
       ? "codename"
       : "evidence";
   }
+  // A model a coding subscription starts offering free is news for a reader on a $20 plan: they can
+  // use it today. Any other name entering those lists is a sighting.
+  if (["opencode-zen", "opencode-go", "command-code-models"].includes(event.source)) {
+    const after = recordFor(event);
+    const before = event.before_json ? (JSON.parse(event.before_json) as Record<string, unknown>) : null;
+    const freed = after?.headline === true && before?.headline !== true;
+    if (freed && event.kind !== "removed") return "launch";
+    return event.kind === "new" ? "codename" : "evidence";
+  }
   // A model id entering the Claude Code binary, a launch page or a price list is the same early word; one leaving is not news.
   if (["claude-code-models", "anthropic-routes", "google-skus"].includes(event.source))
     return event.kind === "new" ? "codename" : "evidence";
