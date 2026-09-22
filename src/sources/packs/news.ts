@@ -13,7 +13,13 @@ import {
   collectOpenAIAlignment,
   collectOpenAICodexChangelog,
 } from "../feeds.js";
-import { collectAnthropicNews, collectClaudeBlog, collectHackerNews, collectOpenAINews } from "../news.js";
+import {
+  collectAnthropicNews,
+  collectAnthropicRoutes,
+  collectClaudeBlog,
+  collectHackerNews,
+  collectOpenAINews,
+} from "../news.js";
 import {
   collectGeminiApiChangelog,
   collectGroqChangelog,
@@ -81,6 +87,16 @@ export function newsSources({ db, config, cache }: SourceContext): SourceEntry[]
       stream: "news",
       intervalSeconds: 900,
       collector: () => collectAnthropicNews(),
+    },
+    {
+      id: "anthropic-routes",
+      authority: "first_party",
+      vendor: "Anthropic",
+      group: "Official news",
+      stream: "github",
+      // The Opus 5.5 slug was listed for hours, not days; the newsroom's quarter hour could miss it.
+      intervalSeconds: 300,
+      collector: () => collectAnthropicRoutes(),
     },
     {
       id: "claude-blog",

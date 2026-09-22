@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { claudeModelIds } from "../src/sources/claudeCode.js";
+import { parseAnthropicRoutes } from "../src/sources/news.js";
 
 test("the Claude Code binary's model ids, aliases read as their model, tools named like models dropped", () => {
   const binary = `"claude-opus-4-8" x claude-sonnet-4-5-20250929 claude-opus-4-1-v1 claude-eval-9 claude-desktop-3p
@@ -11,5 +12,13 @@ test("the Claude Code binary's model ids, aliases read as their model, tools nam
     "claude-opus-4-1",
     "claude-opus-4-8",
     "claude-sonnet-4-5",
+  ]);
+});
+
+test("a launch page in anthropic.com's route list is read before it is linked", () => {
+  const html = String.raw`[\"slug\",\"news\",\"oc\",[\"careers\",\"claude-corps\",\"claude-fable-and-mythos-5-1\",\"claude-opus-5-5\"]] \"/claude-fable-and-mythos-5-1\"`;
+  expect(parseAnthropicRoutes(html).records.map((record) => record.id)).toEqual([
+    "claude-fable-and-mythos-5-1",
+    "claude-opus-5-5",
   ]);
 });

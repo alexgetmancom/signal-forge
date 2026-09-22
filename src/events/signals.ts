@@ -529,7 +529,8 @@ export function signalClass(event: Event): SignalClass {
       : "evidence";
   }
   // A model id entering the Claude Code binary is the same early word; one leaving it is not news.
-  if (event.source === "claude-code-models") return event.kind === "new" ? "codename" : "evidence";
+  if (event.source === "claude-code-models" || event.source === "anthropic-routes")
+    return event.kind === "new" ? "codename" : "evidence";
   // A model ID written into code for the first time, which no catalogue here has listed: the same
   // early word as a slug entering the Codex model list.
   if (event.stream === "github" && isModelSighting(event)) return event.kind === "new" ? "codename" : "evidence";

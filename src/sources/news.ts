@@ -129,6 +129,32 @@ export async function collectAnthropicNews(request: Fetch = fetch, now = new Dat
   return freshNewsroom(parseAnthropicNews(await fetchText("https://www.anthropic.com/news", {}, request)), now);
 }
 
+/**
+ * The pages anthropic.com is built with, listed in every page's route data. A launch page is in the
+ * list before it is linked: `claude-opus-5-5` was there at 03:23 UTC on 2026-09-22, beside the
+ * published `claude-fable-and-mythos-5-1`, and gone again by the afternoon. Only the slugs that start with "claude-" and
+ * hold a number are kept; "careers" and "claude-corps" are the site, "redeploying-fable-5" an article.
+ */
+export function parseAnthropicRoutes(html: string): Collection {
+  const slugs = new Set<string>();
+  for (const [, slug] of html.matchAll(/\\?"\/?([a-z0-9-]+)\\?"/g))
+    if (slug && /^claude-[a-z0-9-]*\d/.test(slug)) slugs.add(slug);
+  if (!/\\?"slug\\?",\\?"news\\?"/.test(html)) throw new Error("Anthropic route list not found");
+  return {
+    source: "anthropic-routes",
+    stream: "github",
+    url: "https://www.anthropic.com/news",
+    raw: [...slugs].sort().join("\n"),
+    records: [...slugs]
+      .sort()
+      .map((slug) => ({ id: slug, name: slug, maker: "Anthropic", url: `https://www.anthropic.com/${slug}` })),
+  };
+}
+
+export async function collectAnthropicRoutes(request: Fetch = fetch): Promise<Collection> {
+  return parseAnthropicRoutes(await fetchText("https://www.anthropic.com/news", {}, request));
+}
+
 const claudeBlogItem =
   /<h2 class="u-text-style-h6[^"]*">([^<]+)<\/h2><div class="u-text-style-caption[^"]*">([^<]+)<\/div><\/div><div class="clickable_wrap[^"]*"><a [^>]*href="(\/blog\/[^"]+)"/g;
 
