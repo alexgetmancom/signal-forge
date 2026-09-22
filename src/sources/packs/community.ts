@@ -1,4 +1,5 @@
 import type { AppConfig } from "../../config.js";
+import { collectClaudeCodeModels } from "../claudeCode.js";
 import { collectCodexModels } from "../codex.js";
 import type { SourceContext, SourceEntry } from "../definition.js";
 import { collectGithubDiscovery, collectHuggingFaceTrending, GITHUB_DISCOVERY_QUERIES } from "../discovery.js";
@@ -64,6 +65,16 @@ export function communitySources({ db, config, cache }: SourceContext): SourceEn
       stream: "github",
       intervalSeconds: 1800,
       collector: () => collectCodexModels(fetch, cache),
+    },
+    {
+      id: "claude-code-models",
+      authority: "vendor_owned",
+      vendor: "Anthropic",
+      group: "GitHub",
+      stream: "github",
+      // A release is a 70 MB download, read only when the version moves.
+      intervalSeconds: 3600,
+      collector: () => collectClaudeCodeModels(fetch),
     },
   ];
 

@@ -1,0 +1,15 @@
+import { expect, test } from "bun:test";
+import { claudeModelIds } from "../src/sources/claudeCode.js";
+
+test("the Claude Code binary's model ids, aliases read as their model, tools named like models dropped", () => {
+  const binary = `"claude-opus-4-8" x claude-sonnet-4-5-20250929 claude-opus-4-1-v1 claude-eval-9 claude-desktop-3p
+    anthropic.claude-haiku-4-5-0 claude-mythos-5-1 claude-fable-5`;
+  expect(claudeModelIds(binary)).toEqual([
+    "claude-fable-5",
+    "claude-haiku-4-5",
+    "claude-mythos-5-1",
+    "claude-opus-4-1",
+    "claude-opus-4-8",
+    "claude-sonnet-4-5",
+  ]);
+});
