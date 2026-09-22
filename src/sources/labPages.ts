@@ -50,10 +50,14 @@ export function minimaxReleases(markdown: string): LabPage[] {
   }));
 }
 
+/** The index names a page once per section it sits in, so a quickstart can appear twice. */
 export function kimiQuickstarts(index: string): LabPage[] {
-  return [...index.matchAll(/\[([^\]]+)\]\((https:\/\/[^)\s]+\/guide\/kimi-[a-z0-9-]+-quickstart)(?:\.md)?\)/g)].map(
-    ([, name = "", url = ""]) => ({ id: url, name, maker: "Moonshot", url }),
-  );
+  const pages = new Map<string, LabPage>();
+  for (const [, name = "", url = ""] of index.matchAll(
+    /\[([^\]]+)\]\((https:\/\/[^)\s]+\/guide\/kimi-[a-z0-9-]+-quickstart)(?:\.md)?\)/g,
+  ))
+    if (!pages.has(url)) pages.set(url, { id: url, name, maker: "Moonshot", url });
+  return [...pages.values()];
 }
 
 const PARSERS: Record<LabPageSource, (body: string) => LabPage[]> = {

@@ -127,7 +127,7 @@ test("Qwen's posts, MiniMax's release cards and Kimi's quickstarts are read from
   ]);
   expect(
     kimiQuickstarts(
-      "- [Kimi K3](https://platform.kimi.ai/docs/guide/kimi-k3-quickstart.md): x\n- [Chat](https://platform.kimi.ai/docs/api/chat.md): y",
+      "- [Kimi K3](https://platform.kimi.ai/docs/guide/kimi-k3-quickstart.md): x\n- [K3](https://platform.kimi.ai/docs/guide/kimi-k3-quickstart.md): x\n- [Chat](https://platform.kimi.ai/docs/api/chat.md): y",
     ).map((page) => page.name),
   ).toEqual(["Kimi K3"]);
 });
