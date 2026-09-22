@@ -233,6 +233,14 @@ function compareVersions(a: readonly number[], b: readonly number[]): number {
   return 0;
 }
 
+/** What follows the version: `-mini` of `gpt-5.1-mini`, `` of `gpt-6`, `-flash` of `gemini-3.5-flash`. */
+function variantOf(slug: string): string {
+  return undated(slug).replace(
+    /^(?:gpt-|gemini-|grok-|glm-|kimi-k|deepseek-[vr]|qwen|minimax-m|(?:mistral|magistral|devstral|codestral)-(?:large-|medium-|small-)?)\d+(?:\.\d+)?|^claude-[a-z]+-\d+(?:[.-]\d{1,2})?/,
+    "",
+  );
+}
+
 /**
  * Whether a catalogue here already lists a later version of the same family. Users write old and
  * misspelt names: in the fortnight to 2026-09-21 the OpenAI repositories' issues reported being
@@ -240,8 +248,9 @@ function compareVersions(a: readonly number[], b: readonly number[]): number {
  * listed. None was news, and each would have pinged. `gpt-6-luna` beside `gpt-6-astra` is the same
  * version, so it stays news.
  */
-export function olderThanKnown(db: Database, id: string): boolean {
-  const own = familyVersion(bareModelSlug(id).toLowerCase());
+export function olderThanKnown(db: Database, id: string, sameVariant = false): boolean {
+  const slug = bareModelSlug(id).toLowerCase();
+  const own = familyVersion(slug);
   if (!own) return false;
   const rows = db
     .query<{ id: string }, [string]>(
@@ -251,7 +260,9 @@ export function olderThanKnown(db: Database, id: string): boolean {
     )
     .all(own.family);
   return rows.some((row) => {
-    const other = familyVersion(bareModelSlug(row.id).toLowerCase());
+    const otherSlug = bareModelSlug(row.id).toLowerCase();
+    const other = familyVersion(otherSlug);
+    if (sameVariant && variantOf(otherSlug) !== variantOf(slug)) return false;
     return other?.family === own.family && compareVersions(other.version, own.version) > 0;
   });
 }

@@ -9,6 +9,9 @@ import { openDatabase } from "../src/storage/database.js";
 
 const wire: Destination = { id: "wire", platform: "discord", channelId: "1", signals: ["launch", "change"] };
 const config = { destinations: [wire] } as never;
+const scoutsOnly = {
+  destinations: [{ id: "scouts", platform: "discord", channelId: "2", signals: ["codename"] } satisfies Destination],
+} as never;
 
 test("a recap covers the week that ended on the most recent Sunday evening", () => {
   // Wednesday: the last complete week ended on Sunday the 13th.
@@ -190,7 +193,7 @@ test("a price line is what a reader pays, and says nothing when the rows disagre
   // Nearly quadrupling is not "up 74%", whatever the ranking arithmetic says.
   // The week is models; a price is the day's post, and that is where the line is read.
   const day = recapContext(db, "2026-09-10T06:00:00.000Z", "day");
-  expect(renderRecapLines(day, ["change"])).toContain(
+  expect(renderRecapLines(day, ["codename"])).toContain(
     "📊 Qwen3 14B · 3.8× more expensive · $0.24 → $0.91 per 1M output",
   );
 });
@@ -247,7 +250,7 @@ test("a price only speaks for a model something other than a price list knows", 
     },
   ]);
   const day = recapContext(db, "2026-09-10T06:00:00.000Z", "day");
-  expect(renderRecapLines(day, ["change"])).toContain(
+  expect(renderRecapLines(day, ["codename"])).toContain(
     "📊 Solar Pro 4 · launch pricing ended · 3.0× more expensive · $0.03 → $0.09 per 1M input",
   );
 });
@@ -349,7 +352,7 @@ test("a price that went both ways inside the period is not reported as a move", 
   expect(recapContext(db, "2026-09-17T06:00:00.000Z", "day").priceMoves).toEqual([]);
 });
 
-test("a day's prices go to the room that carries changes and its leaders to the room that carries sightings", () => {
+test("a day's prices and its leaders go to the scouts, and the wire gets neither", () => {
   const day = recapContextSchema.parse({
     period: "day",
     from: "2026-09-16T06:00:00.000Z",
@@ -359,14 +362,21 @@ test("a day's prices go to the room that carries changes and its leaders to the 
     priceMoves: [{ name: "Z.ai: GLM 5.3 Flash", percent: 0.3, cheaper: true }],
     codenameCount: 0,
     leaders: [{ board: "text/overall", name: "GPT-6 Astra" }],
+    indexed: [
+      { name: "Grok 4.7 (high)", index: 46.3, place: 17 },
+      { name: "Grok 4.7 (xhigh)", index: 46.4, place: 16 },
+    ],
   });
-  expect(renderRecapLines(day, ["launch", "change"]).join("\n")).toContain("📊 GLM 5.3 Flash · down 30%");
-  expect(renderRecapLines(day, ["launch", "change"]).join("\n")).not.toContain("GPT-6 Astra");
-  expect(renderRecapLines(day, ["codename"]).join("\n")).not.toContain("GLM");
-  expect(renderRecapLines(day, ["launch"])).toEqual([]);
+  const scouts = renderRecapLines(day, ["codename"]).join("\n");
+  expect(scouts).toContain("📊 GLM 5.3 Flash · down 30%");
+  expect(scouts).toContain("GPT-6 Astra");
+  // One model scored at two efforts is one line, at its best.
+  expect(scouts).toContain("Grok 4.7 (xhigh) scored 46.4");
+  expect(scouts).not.toContain("Grok 4.7 (high)");
+  expect(renderRecapLines(day, ["launch", "change"])).toEqual([]);
 });
 
-test("the wire gets one morning list of what the labs published, and the sightings stay with the scouts", () => {
+test("the scouts get one morning list of what the labs published, and the wire does not", () => {
   const db = openDatabase(":memory:");
   const site = (source: string, paths: string[]): Collection => ({
     source,
@@ -395,7 +405,8 @@ test("the wire gets one morning list of what the labs published, and the sightin
   );
 
   const now = Date.parse("2026-09-17T07:00:00.000Z");
-  expect(scheduleRecaps(db, config, now)).toEqual(["news"]);
+  expect(scheduleRecaps(db, { destinations: [wire] } as never, now)).toEqual([]);
+  expect(scheduleRecaps(db, scoutsOnly, now)).toEqual(["news"]);
   const context = recapContext(db, lastRecapPeriod(now, "news"), "news");
   // The partnership is the day's news; the model page is a sighting and the help article is neither.
   expect(context.headlines.map((line) => line.title)).toEqual(["mistral x mozilla"]);
@@ -404,8 +415,8 @@ test("the wire gets one morning list of what the labs published, and the sightin
   expect(body).toContain("📰 The day in AI");
   expect(body).toContain("https://pages:mistral.example/news/mistral-x-mozilla");
   expect(body).not.toContain("<@&");
-  // A room that carries no launches does not get the list.
-  expect(renderRecapLines(context, ["codename"])).toEqual([]);
+  // The wire is for readers on a $20 plan; a day of lab posts is filler to them.
+  expect(renderRecapLines(context, ["launch", "change"])).toEqual([]);
 });
 
 test("the day's news reads in sections, one maker takes two lines of each, and business is left out", () => {
@@ -448,7 +459,7 @@ test("the day's news reads in sections, one maker takes two lines of each, and b
     "2026-09-16T12:00:00.000Z",
   );
   const context = recapContext(db, lastRecapPeriod(Date.parse("2026-09-17T07:00:00.000Z"), "news"), "news");
-  const text = renderRecapLines(context, ["launch"]).join("\n");
+  const text = renderRecapLines(context, ["codename"]).join("\n");
   expect(text).toContain("🛡 **Safety**");
   expect(text).toContain("+1 more");
   expect(text).toContain("silently uploads your Git history");
@@ -564,7 +575,7 @@ test("a front-page story is not something the labs announced", () => {
       },
     ],
   });
-  const text = renderRecapLines(context, ["launch"]).join("\n");
+  const text = renderRecapLines(context, ["codename"]).join("\n");
   expect(text.indexOf("🏢 **Also from the labs**")).toBeLessThan(text.indexOf("📎 **Elsewhere**"));
   expect(text.slice(text.indexOf("Also from the labs"), text.indexOf("Elsewhere"))).not.toContain("Alibaba");
 });

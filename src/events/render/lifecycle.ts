@@ -90,10 +90,24 @@ const BOARD_NAMES: Record<string, string> = {
 };
 function boardName(board: string): string {
   // A board the source already names ("Arena text", "Intelligence Index") is read as it is.
-  if (/arena|index|leaderboard/i.test(board)) return board;
+  if (/arena|index|leaderboard/i.test(board)) return board.replace(/artificial analysis/i, "Artificial Analysis");
   const key = board.replace(/\/overall$/, "").toLowerCase();
   const named = BOARD_NAMES[key] ?? key.replace(/[-_/]+/g, " ").replace(/^\w/, (letter) => letter.toUpperCase());
   return /arena|index|leaderboard/i.test(named) ? named : `${named} Arena`;
+}
+
+/**
+ * One line per model, at its best effort. "Grok 4.7 (xhigh)" and "Grok 4.7 (high)" scored on the same
+ * morning read as two models; the reader wants where Grok 4.7 landed.
+ */
+function bestEffortOnly<T extends { name: string; index: number }>(entries: readonly T[]): T[] {
+  const best = new Map<string, T>();
+  for (const entry of entries) {
+    const model = entry.name.replace(/\s*\([^)]*\)\s*$/, "");
+    const held = best.get(model);
+    if (!held || entry.index > held.index) best.set(model, entry);
+  }
+  return entries.filter((entry) => best.get(entry.name.replace(/\s*\([^)]*\)\s*$/, "")) === entry);
 }
 
 /**
@@ -147,7 +161,9 @@ export function renderRecapLines(context: RecapContext, signals: readonly string
   const day = (at: string) =>
     new Date(at).toLocaleDateString("en-GB", { day: "numeric", month: "long", timeZone: "UTC" });
   if (context.period === "news") {
-    if (!signals.includes("launch") || !context.headlines.length) return [];
+    // The labs' posts are read by the scouts. The wire's reader pays $20 for Codex or Claude, and a
+    // morning of essays and customer stories under "Also from the labs" was filler to them.
+    if (!signals.includes("codename") || !context.headlines.length) return [];
     const lines = [`**${day(context.from)} → ${day(context.to)}**`];
     // "Also from the labs" is the labs' own posts. A front-page story somebody else wrote is read
     // for the same day and belongs under its own heading: "Alibaba open-sources a medical model"
@@ -169,12 +185,12 @@ export function renderRecapLines(context: RecapContext, signals: readonly string
     return lines;
   }
   if (context.period === "day") {
+    // API prices are the scouts'. Most of the wire's readers are on a $20 Codex or Claude plan, and
+    // "Qwen3.8 27B · 2.1× more expensive per 1M input" changed nothing they pay.
     const moved = [
-      ...(signals.includes("change")
-        ? context.priceMoves.map((move) => `📊 ${withoutMakerPrefix(move.name)} · ${priceMove(move)}`)
-        : []),
       ...(signals.includes("codename")
         ? [
+            ...context.priceMoves.map((move) => `📊 ${withoutMakerPrefix(move.name)} · ${priceMove(move)}`),
             ...context.leaders.map(
               (leader) => `🏆 ${withoutMakerPrefix(leader.name)} now leads ${boardName(leader.board)}`,
             ),
@@ -182,7 +198,7 @@ export function renderRecapLines(context: RecapContext, signals: readonly string
               (climb) =>
                 `📈 ${withoutMakerPrefix(climb.name)} · #${climb.from} → #${climb.to} on ${boardName(climb.board)}`,
             ),
-            ...context.indexed.map(
+            ...bestEffortOnly(context.indexed).map(
               (entry) =>
                 `🧠 ${withoutMakerPrefix(entry.name)} scored ${entry.index.toFixed(1)} on the Intelligence Index${entry.place ? ` · #${entry.place}` : ""}`,
             ),

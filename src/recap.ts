@@ -57,12 +57,13 @@ const PERIODS = {
   // `untold`: only moves no card carried. A week is what moved furthest, told or not; a day is the
   // moves too small for a card of their own, and says so in its footer.
   week: { source: "weekly-recap", ms: 7 * 24 * 3_600_000, signals: ["launch"], untold: false },
-  day: { source: "daily-recap", ms: 24 * 3_600_000, signals: ["change", "codename"], untold: true },
+  day: { source: "daily-recap", ms: 24 * 3_600_000, signals: ["codename"], untold: true },
   // What the labs published in a day, for the wire: a partnership, an essay, a research result is
   // the vendor talking rather than a model changing, so it is never a card of its own, and on
   // 2026-09-16 "Mistral X Mozilla" and "Claude Cowork and chat are now one Claude" reached nobody.
   // One morning list of headlines carries them without making the wire louder.
-  news: { source: "daily-news", ms: 24 * 3_600_000, signals: ["launch"], untold: true },
+  // Read by the scouts since 2026-09-22: to a reader on a $20 plan a day of lab posts was filler.
+  news: { source: "daily-news", ms: 24 * 3_600_000, signals: ["codename"], untold: true },
 } as const;
 export type RecapPeriod = keyof typeof PERIODS;
 /**

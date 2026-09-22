@@ -234,6 +234,10 @@ export async function collectModelMentions(
         // A third party writing down an old model is catching up, not early: `gpt-5-image` priced
         // on 2026-09-17 while `gpt-6-astra` was listed. A vendor's own old name can still be news.
         if (watch.authority === "third_party" && olderThanKnown(db, id)) continue;
+        // The vendor's own old name is news only while nothing newer of that size is listed:
+        // openai-python adding `gpt-5.1-mini` on 2026-09-22 reached the scouts as "named in code"
+        // while gpt-5.4-mini was on sale. `gpt-5.6-mini` beside `gpt-6` alone would still be news.
+        if (olderThanKnown(db, id, true)) continue;
         found.set(id, { file: file.filename, line });
       }
     }

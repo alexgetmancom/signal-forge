@@ -253,10 +253,15 @@ test("an old or misspelt model users say answered them is older than what is lis
       records: [
         { id: "gpt-6-astra", name: "gpt-6-astra" },
         { id: "openai/gpt-5.6-luna", name: "gpt-5.6-luna" },
+        { id: "gpt-5.4-mini", name: "gpt-5.4-mini" },
       ],
     },
     [],
   );
+  // A vendor's own name counts as old only beside a newer one of the same size.
+  expect(olderThanKnown(db, "gpt-5.1-mini", true)).toBe(true);
+  for (const id of ["gpt-5.6-mini", "gpt-5.6-nano", "gpt-5.3", "gpt-6-luna"])
+    expect(olderThanKnown(db, id, true)).toBe(false);
   for (const id of ["gpt-5.3", "gpt-5-6-thinking", "gpt-5-mini-2025-08-07-batch", "gpt-5.5-codex"])
     expect(olderThanKnown(db, id)).toBe(true);
   for (const id of ["gpt-6-luna", "gpt-6-nova", "gpt-6.1", "gpt-7", "claude-opus-5", "gemini-4", "sora-3"])
