@@ -528,8 +528,8 @@ export function signalClass(event: Event): SignalClass {
       ? "codename"
       : "evidence";
   }
-  // A model id entering the Claude Code binary is the same early word; one leaving it is not news.
-  if (event.source === "claude-code-models" || event.source === "anthropic-routes")
+  // A model id entering the Claude Code binary, a launch page or a price list is the same early word; one leaving is not news.
+  if (["claude-code-models", "anthropic-routes", "google-skus"].includes(event.source))
     return event.kind === "new" ? "codename" : "evidence";
   // A model ID written into code for the first time, which no catalogue here has listed: the same
   // early word as a slug entering the Codex model list.

@@ -10,6 +10,7 @@ import {
 } from "../catalogs.js";
 import { collectDeepSeekModels, collectDeepSeekPricing } from "../deepseek.js";
 import type { SourceContext, SourceEntry } from "../definition.js";
+import { collectGoogleSkus } from "../googleSkus.js";
 import { collectModelsDev, collectTrueFoundryAzure } from "../mirrors.js";
 import {
   collectHuggingFace,
@@ -212,6 +213,16 @@ export function cataloguesSources({ db, config, cache }: SourceContext): SourceE
       capabilityId: "google-cloud",
       requiredCapabilities: ["GOOGLE_CLOUD_SERVICE_ACCOUNT"],
       collector: () => collectVertexModelGarden(config),
+    },
+    {
+      id: "google-skus",
+      authority: "third_party",
+      group: "Catalogues",
+      stream: "api-models",
+      intervalSeconds: 3600,
+      capabilityId: "google-cloud",
+      requiredCapabilities: ["GOOGLE_CLOUD_SERVICE_ACCOUNT"],
+      collector: () => collectGoogleSkus(config),
     },
     {
       id: "bedrock",

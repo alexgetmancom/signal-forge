@@ -83,6 +83,17 @@ async function accessToken(account: ServiceAccount, request: Fetch): Promise<str
   return answer.access_token;
 }
 
+/**
+ * The service account's headers. The price catalogue is not billed to a project, and naming one asks
+ * for a role the account does not hold, so `billed` is false there.
+ */
+export async function googleCloudHeaders(config: AppConfig, request: Fetch, billed = true) {
+  const { headers } = await authorized(config, request);
+  if (billed) return headers;
+  const { "x-goog-user-project": _, ...rest } = headers;
+  return rest;
+}
+
 async function authorized(config: AppConfig, request: Fetch) {
   const account = serviceAccount(config);
   const token = await accessToken(account, request);
