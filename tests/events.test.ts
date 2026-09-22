@@ -45,6 +45,25 @@ test("first snapshot is quiet, new records fan out exactly once", () => {
     { destination_id: "dc" },
   ]);
 });
+test("a market's liquidity moving is no change, its price moving is", () => {
+  const market = (price: number, liquidityUsd: number): Collection => ({
+    source: "polymarket",
+    stream: "markets",
+    url: "https://polymarket.com",
+    raw: [],
+    records: [{ id: "m1", name: "Gemini 4 released by September 30?", price, liquidityUsd }],
+  });
+  saveCollection(db, market(0.05, 44_000), []);
+  saveCollection(db, market(0.05, 34_000), []);
+  expect(db.query("SELECT count(*) AS n FROM events").get()).toEqual({ n: 0 });
+  // The record still holds the newest liquidity for whatever reads it.
+  expect(String((db.query("SELECT body FROM records WHERE id='m1'").get() as { body: string }).body)).toContain(
+    "34000",
+  );
+  saveCollection(db, market(0.4, 34_000), []);
+  expect(db.query("SELECT count(*) AS n FROM events WHERE kind='changed'").get()).toEqual({ n: 1 });
+});
+
 test("a destination receives only the signal classes it subscribed to", () => {
   const local = openDatabase(":memory:");
   const launches: Destination = { id: "new", platform: "discord", channelId: "1", signals: ["launch"] };

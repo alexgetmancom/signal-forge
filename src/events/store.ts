@@ -82,10 +82,25 @@ function comparable(record: Record<string, unknown>): Record<string, unknown> {
   return copy;
 }
 
+/**
+ * Fields that move on every poll and never made a card. Measured on production 2026-09-22 over a
+ * week: 332 of 375 Polymarket changes were liquidity alone, 700 of 771 on the Hugging Face router
+ * were the list of providers serving a model, 194 of 352 on models.dev its provider count. Each kept
+ * its snapshot from being pruned, and the market pages alone held 52 MB. The record still takes the
+ * new value; only the event is not written.
+ */
+const RESTLESS_FIELDS: Readonly<Record<string, readonly string[]>> = {
+  markets: ["liquidityUsd"],
+  "api-models": ["providers", "providerCount", "created"],
+};
+
 function comparisonBody(stream: string, body: string): string {
-  if (stream !== "leaderboards") return body;
+  const restless = RESTLESS_FIELDS[stream];
+  if (stream !== "leaderboards" && !restless) return body;
   try {
-    return canonical(comparable(JSON.parse(body) as Record<string, unknown>));
+    const record = JSON.parse(body) as Record<string, unknown>;
+    if (stream === "leaderboards") return canonical(comparable(record));
+    return canonical(Object.fromEntries(Object.entries(record).filter(([key]) => !restless?.includes(key))));
   } catch {
     return body;
   }
