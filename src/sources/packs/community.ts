@@ -194,7 +194,7 @@ export function communitySources({ db, config, cache }: SourceContext): SourceEn
     stream: "weights",
     // The list moves with likes over days, so an hour is early enough to see a model enter it.
     intervalSeconds: 3600,
-    pace: { group: "huggingface.co", seconds: 60 },
+    pace: { group: "huggingface.co", seconds: 10 },
     collector: () => collectHuggingFaceTrending(config, fetch, cache, new Date()),
   });
 

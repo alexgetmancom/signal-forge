@@ -60,7 +60,30 @@ export const HF_AUTHORS = [
   "prism-ml",
   // Abacus.AI's Smaug models (Agentic, Flash, Mini) reached the Hub weeks before any listing.
   "abacusai",
+  // MiMo V2.6's weights reached the Hub on 2026-09-21 and were seen only once they trended.
+  "XiaomiMiMo",
+  "stepfun-ai",
 ];
+
+/**
+ * The labs whose weights are news the minute they land. One request lists an organisation's fifty
+ * newest repositories, and the token allows a thousand every five minutes.
+ */
+export const HF_LABS = new Set([
+  "openai",
+  "google",
+  "meta-llama",
+  "meta-models",
+  "deepseek-ai",
+  "Qwen",
+  "moonshotai",
+  "mistralai",
+  "MiniMaxAI",
+  "zai-org",
+  "xai-org",
+  "XiaomiMiMo",
+  "stepfun-ai",
+]);
 
 export function parseHuggingFace(payload: string, author: string): Collection {
   const models = hfModels.parse(JSON.parse(payload)).filter((model) => !model.private);

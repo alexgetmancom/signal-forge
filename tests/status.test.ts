@@ -66,7 +66,7 @@ test("multi-source hosts have one shared request pace", async () => {
     const paced = jobs.filter((job) => job.id.startsWith(prefix)).map((job) => job.pace);
     expect(paced.length).toBeGreaterThan(1);
     expect(new Set(paced.map((pace) => pace?.group)).size).toBe(1);
-    expect(paced.every((pace) => pace?.seconds === 60)).toBe(true);
+    expect(new Set(paced.map((pace) => pace?.seconds)).size).toBe(1);
   }
   db.close();
 });

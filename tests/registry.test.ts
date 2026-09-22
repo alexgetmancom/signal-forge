@@ -91,7 +91,7 @@ test("source registry has unique IDs, valid streams, labels and consistent pacin
   }
   expect(paceGroups).toEqual(
     new Map([
-      ["huggingface.co", 60],
+      ["huggingface.co", 10],
       ["designarena.ai", 60],
       ["itunes.apple.com", 10],
       ["github-search", 60],
