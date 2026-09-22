@@ -6,6 +6,7 @@ import { channelMix } from "../reports/channelMix.js";
 import { coverageGaps } from "../reports/coverageGaps.js";
 import { leadTime } from "../reports/leadTime.js";
 import { passedOver } from "../reports/passedOver.js";
+import { releaseAudit } from "../reports/releaseAudit.js";
 import { signalQuality } from "../reports/signalQuality.js";
 import { sourceVerdicts } from "../reports/sourceVerdicts.js";
 import { deepSeekUsage } from "../runtime/deepseekUsage.js";
@@ -65,6 +66,18 @@ export function sourcesOperations(db: Database, config: AppConfig, _all: () => O
       cli: { args: [{ name: "days", optional: true }] },
       http: { method: "get", path: "/api/coverage-gaps" },
       handler: (input: { days: number }) => coverageGaps(db, input.days),
+    },
+    release_audit: {
+      section: "sources",
+      summary:
+        "Each model released in the window: the source that named it first, the lag behind the model's own created time, and whether a card went out.",
+      startHere: "how early did we catch this week's releases",
+      mutates: false,
+      agent: true,
+      schema: z.object({ days: count(30, 7) }),
+      cli: { args: [{ name: "days", optional: true }] },
+      http: { method: "get", path: "/api/release-audit" },
+      handler: (input: { days: number }) => releaseAudit(db, input.days),
     },
     channel_mix: {
       section: "sources",

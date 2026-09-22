@@ -6,6 +6,7 @@ import type { SourceAuthority } from "./events/types.js";
 import type { Fetch } from "./http-client.js";
 import { log } from "./logger.js";
 import { coverageGaps } from "./reports/coverageGaps.js";
+import { releaseAudit } from "./reports/releaseAudit.js";
 import { sourceLabel } from "./sources/labels.js";
 import { PLATFORMS } from "./sources/platforms.js";
 import { buildSourceRegistry } from "./sources/registry.js";
@@ -645,7 +646,42 @@ export function coverageEmbed(db: Database, now = Date.now()): Record<string, un
   };
 }
 
-export type BoardKey = "activity" | "platforms" | "suppressions" | "status" | "coverage";
+function minutesText(minutes: number): string {
+  if (minutes < 60) return `${minutes} min`;
+  if (minutes < 48 * 60) return `${Math.round(minutes / 60)} h`;
+  return `${Math.round(minutes / 1440)} d`;
+}
+
+/**
+ * This week's releases, each with the source that named it first, how long after the model's own
+ * timestamp, and whether it made a card: the audit that was run by hand after MiMo V2.6.
+ */
+function releaseAuditEmbed(db: Database, now = Date.now()): Record<string, unknown> {
+  const { releases } = releaseAudit(db, 7, now);
+  const missed = releases.filter((release) => !release.cardAt).length;
+  const lines = releases.length
+    ? releases
+        .slice(-20)
+        .reverse()
+        .map((release) => {
+          const lag =
+            release.lagMinutes === null ? "" : ` · ${minutesText(release.lagMinutes)} after its own timestamp`;
+          const card = release.cardAt
+            ? `card ${minutesText(Math.max(0, Math.round((Date.parse(release.cardAt) - Date.parse(release.firstSeenAt)) / 60_000)))} later`
+            : "**no card**";
+          return `· **${clip(release.model, 60)}** — ${release.firstLabel} ${release.firstSeenAt.slice(5, 16).replace("T", " ")}${lag} · ${card}`;
+        })
+    : ["No model was released this week"];
+  return {
+    title: "Releases, last 7 days",
+    description: lines.join("\n"),
+    color: missed ? COLORS.degraded : COLORS.ok,
+    footer: { text: "First source · lag behind the model's own created time · card delay · times UTC" },
+    timestamp: new Date(now).toISOString(),
+  };
+}
+
+export type BoardKey = "activity" | "platforms" | "suppressions" | "status" | "coverage" | "releases";
 
 /**
  * The boards, in the order the channel reads them: what happened, then how the vendors are doing,
@@ -676,13 +712,24 @@ const BOARDS: Record<
     channel: (config) => config.platformBoardChannelId ?? config.statusChannelId,
     embed: (db, _config, now) => coverageEmbed(db, now),
   },
+  releases: {
+    channel: (config) => config.statusChannelId,
+    embed: (db, _config, now) => releaseAuditEmbed(db, now),
+  },
   status: {
     channel: (config) => config.statusChannelId,
     embed: (db, config, now) => statusEmbed(sourceHealth(db, config, now), now),
   },
 };
 
-export const BOARD_ORDER: readonly BoardKey[] = ["activity", "platforms", "suppressions", "status", "coverage"];
+export const BOARD_ORDER: readonly BoardKey[] = [
+  "activity",
+  "platforms",
+  "suppressions",
+  "status",
+  "coverage",
+  "releases",
+];
 
 export async function publishBoard(
   db: Database,
