@@ -552,6 +552,8 @@ export function signalClass(event: Event): SignalClass {
       "qwen-blog",
       "minimax-release-notes",
       "kimi-docs",
+      "zai-release-notes",
+      "deepseek-sitemap",
     ].includes(event.source)
   )
     return event.kind === "new" ? "codename" : "evidence";

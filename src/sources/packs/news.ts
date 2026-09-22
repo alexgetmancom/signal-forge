@@ -160,6 +160,15 @@ export function newsSources({ db, config, cache }: SourceContext): SourceEntry[]
       intervalSeconds: 600,
       collector: () => collectLabSitemap("meta-blog"),
     },
+    {
+      id: "deepseek-sitemap",
+      authority: "first_party",
+      vendor: "DeepSeek",
+      group: "Official news",
+      stream: "github",
+      intervalSeconds: 600,
+      collector: () => collectLabSitemap("deepseek-sitemap"),
+    },
     ...Object.entries(LAB_PAGE_SOURCES).map(
       ([id, vendor], index): SourceEntry => ({
         id,

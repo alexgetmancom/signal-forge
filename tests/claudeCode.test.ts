@@ -4,7 +4,7 @@ import type { Event } from "../src/events/types.js";
 import { claudeModelIds } from "../src/sources/claudeCode.js";
 import { commandCodeModelIds, isFreeModel, isSmallModel, servedModel } from "../src/sources/codingPlans.js";
 import { skuModels } from "../src/sources/googleSkus.js";
-import { kimiQuickstarts, minimaxReleases, qwenPosts } from "../src/sources/labPages.js";
+import { kimiQuickstarts, minimaxReleases, qwenPosts, zaiReleases } from "../src/sources/labPages.js";
 import { parseAnthropicRoutes } from "../src/sources/news.js";
 import { modelPages } from "../src/sources/sitemaps.js";
 
@@ -130,4 +130,16 @@ test("Qwen's posts, MiniMax's release cards and Kimi's quickstarts are read from
       "- [Kimi K3](https://platform.kimi.ai/docs/guide/kimi-k3-quickstart.md): x\n- [K3](https://platform.kimi.ai/docs/guide/kimi-k3-quickstart.md): x\n- [Chat](https://platform.kimi.ai/docs/api/chat.md): y",
     ).map((page) => page.name),
   ).toEqual(["Kimi K3"]);
+});
+
+test("Z.ai's release notes and DeepSeek's dated news pages name a release each", () => {
+  expect(
+    zaiReleases(
+      '<Update label="2026-08-26" description="  GLM-5.3-Flash">\n<Update label="2026-08-18" description="  GLM-5.3">',
+    ).map((page) => page.name),
+  ).toEqual(["GLM-5.3-Flash", "GLM-5.3"]);
+  const xml = ["/news/news260910", "/quick_start/pricing", "/zh-cn/news/news260910"]
+    .map((path) => `<loc>https://api-docs.deepseek.com${path}</loc>`)
+    .join("");
+  expect(modelPages(xml, /^news\d{6}$/)).toEqual(["https://api-docs.deepseek.com/news/news260910"]);
 });

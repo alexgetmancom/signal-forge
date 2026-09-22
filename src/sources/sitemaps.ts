@@ -23,6 +23,8 @@ const SITEMAPS: readonly { url: string; maker: string; pages?: RegExp }[] = [
   // Meta has no sitemap to read, but its blog's front page is plain HTML, and Muse launches are
   // named without a version: "introducing-muse-spark-meta-model-api".
   { url: "https://ai.meta.com/blog/", maker: "Meta", pages: /(?:^|-)(?:muse|llama)(?:-|$)/ },
+  // DeepSeek names its announcements by date, `/news/news260910`, and each one is a release.
+  { url: "https://api-docs.deepseek.com/sitemap.xml", maker: "DeepSeek", pages: /^news\d{6}$/ },
 ];
 
 const MODEL_PAGE =
@@ -34,9 +36,13 @@ const STORY_WORDS =
 
 export function modelPages(xml: string, pattern?: RegExp): string[] {
   const pages = new Set<string>();
-  const links = pattern ? xml.matchAll(/href="(https:\/\/[^"]+)"/g) : xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/g);
+  const links = pattern
+    ? xml.matchAll(/(?:href="|<loc>\s*)(https:\/\/[^"<\s]+)/g)
+    : xml.matchAll(/<loc>\s*([^<\s]+)\s*<\/loc>/g);
   for (const [, loc = ""] of links) {
     const url = new URL(loc);
+    // A translated copy of a page is the same announcement: DeepSeek serves each under `/zh-cn/` too.
+    if (/^\/(?:zh|ja|ko)(?:-[a-z]+)?\//i.test(url.pathname)) continue;
     const last = url.pathname.replace(/\/$/, "").split("/").at(-1) ?? "";
     if (
       (pattern ? pattern.test(last) && !url.search : MODEL_PAGE.test(last) && !STORY_WORDS.test(last)) ||
@@ -55,6 +61,7 @@ export const SITEMAP_SOURCES = {
   "xiaomi-sitemap": "Xiaomi",
   "zai-sitemap": "Z.ai",
   "meta-blog": "Meta",
+  "deepseek-sitemap": "DeepSeek",
 } as const;
 
 export async function collectLabSitemap(
@@ -66,7 +73,7 @@ export async function collectLabSitemap(
   const records = new Map<string, { id: string; name: string; maker: string; url: string }>();
   for (const sitemap of sitemaps) {
     const xml = await fetchText(sitemap.url, { "user-agent": "Mozilla/5.0" }, request);
-    if (!xml.includes(sitemap.pages ? "href=" : "<loc>")) throw new Error(`${sitemap.url} is not a sitemap`);
+    if (!xml.includes("href=") && !xml.includes("<loc>")) throw new Error(`${sitemap.url} is not a sitemap`);
     for (const url of modelPages(xml, sitemap.pages))
       records.set(url, { id: url, name: url.split("/").at(-1) ?? url, maker, url });
   }

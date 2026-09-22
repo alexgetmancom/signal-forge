@@ -11,6 +11,7 @@ import { fetchText } from "./http.js";
  *   2026-09-22; the list is not in date order, so a post is new when its id is.
  * - MiniMax's docs, on Mintlify, serve every page as markdown: the model release notes are one
  *   6 KB file of dated cards.
+ * - Z.ai's release notes, Mintlify too, give each model an `<Update>` with its date and name.
  * - Kimi's docs, also Mintlify, list every page in `llms.txt`, and each model gets a quickstart
  *   (`guide/kimi-k3-quickstart`) when it launches.
  */
@@ -20,6 +21,7 @@ export const LAB_PAGE_SOURCES = {
   "qwen-blog": "Qwen",
   "minimax-release-notes": "MiniMax",
   "kimi-docs": "Moonshot",
+  "zai-release-notes": "Z.ai",
 } as const;
 
 type LabPageSource = keyof typeof LAB_PAGE_SOURCES;
@@ -28,6 +30,7 @@ const URLS: Record<LabPageSource, string> = {
   "qwen-blog": "https://qwen.ai/api/v2/article/retrieval?type=qwen_ai&language=en-US",
   "minimax-release-notes": "https://platform.minimax.io/docs/release-notes/models.md",
   "kimi-docs": "https://platform.kimi.ai/docs/llms.txt",
+  "zai-release-notes": "https://docs.z.ai/release-notes/new-released.md",
 };
 
 export function qwenPosts(json: string): LabPage[] {
@@ -50,6 +53,14 @@ export function minimaxReleases(markdown: string): LabPage[] {
   }));
 }
 
+export function zaiReleases(markdown: string): LabPage[] {
+  const pages = new Map<string, LabPage>();
+  for (const [, date = "", name = ""] of markdown.matchAll(/<Update\s+label="([^"]+)"\s+description="\s*([^"]+?)\s*"/g))
+    if (!pages.has(name))
+      pages.set(name, { id: name, name, maker: "Z.ai", url: `https://docs.z.ai/release-notes/new-released#${date}` });
+  return [...pages.values()];
+}
+
 /** The index names a page once per section it sits in, so a quickstart can appear twice. */
 export function kimiQuickstarts(index: string): LabPage[] {
   const pages = new Map<string, LabPage>();
@@ -64,6 +75,7 @@ const PARSERS: Record<LabPageSource, (body: string) => LabPage[]> = {
   "qwen-blog": qwenPosts,
   "minimax-release-notes": minimaxReleases,
   "kimi-docs": kimiQuickstarts,
+  "zai-release-notes": zaiReleases,
 };
 
 export async function collectLabPages(source: LabPageSource, request: Fetch = fetch): Promise<Collection> {
