@@ -11,7 +11,7 @@ import { sourceLabel } from "../sources/labels.js";
  *
  * The question was asked by hand after MiMo V2.6 on 2026-09-21, and the answer lives in three
  * tables no one reads together. A card leaves seconds after our first sighting, so the lag worth
- * measuring is against the model's own timestamp: the `created` an API or Hugging Face gives it.
+ * measuring is against the model's own timestamp: the `created` the maker's own API gives it.
  *
  * One model is listed under several names — `mimo-v2.6-pro` by Xiaomi, `xiaomi/mimo-v2.6-pro` by
  * OpenRouter — so the maker's prefix is dropped before names are compared. A name counts as a
@@ -47,13 +47,15 @@ function slugModel(event: Event): string | null {
 
 /**
  * Only the maker dates its own model: OpenRouter's `created` is when OpenRouter set the model up,
- * which put nex-n2.5-mini thirteen days before anyone could call it.
+ * which put nex-n2.5-mini thirteen days before anyone could call it. A Hugging Face repository is
+ * dated when it was made, often private for weeks: Qwen-Image-2.1 by six days, GLM-4.7-FP8 by nine
+ * months. Only the maker's own API says when a model became callable.
  *
  * A `created` that falls on a whole hour is a date written as a time — xAI's midnight, Z.ai's
  * midnight in Beijing — and would put the release hours before it happened.
  */
 function upstreamTime(event: Event & { authority?: string | null }): string | null {
-  if (event.authority !== "first_party" && event.authority !== "vendor_owned") return null;
+  if (event.authority !== "first_party") return null;
   const created = (JSON.parse(event.after_json ?? "{}") as { created?: unknown }).created;
   if (typeof created !== "string" || !Number.isFinite(Date.parse(created))) return null;
   return /:00:00(?:\.000)?Z$/.test(created) ? null : new Date(created).toISOString();
