@@ -39,6 +39,15 @@ function npmChannels(db: Database, source: string): NpmChannels {
   return channels;
 }
 
+/**
+ * A maker's own model list is where a release shows first, and the request is one small JSON: MiMo
+ * V2.6 appeared between two polls ten minutes apart on 2026-09-21, nine minutes after a rival's post.
+ * The few seconds between makers keep their polls from landing together.
+ */
+const MAKER_API_SECONDS = 120;
+/** Hosts serving other makers' open weights: rarely first, so the old pace. */
+const HOSTS = new Set(["groq", "cerebras", "deepinfra"]);
+
 /** Model catalogues: vendor APIs, routers, resellers, package registries and open-weight hubs. */
 export function cataloguesSources({ db, config, cache }: SourceContext): SourceEntry[] {
   return [
@@ -87,7 +96,7 @@ export function cataloguesSources({ db, config, cache }: SourceContext): SourceE
       vendor: "DeepSeek",
       group: "Catalogues",
       stream: "api-models",
-      intervalSeconds: config.pollSeconds,
+      intervalSeconds: MAKER_API_SECONDS,
       capabilityId: "deepseek",
       requiredCapabilities: ["DEEPSEEK_API_KEY"],
       collector: () => collectDeepSeekModels(config),
@@ -129,7 +138,7 @@ export function cataloguesSources({ db, config, cache }: SourceContext): SourceE
         vendor: provider.vendor,
         group: "Catalogues",
         stream: "api-models",
-        intervalSeconds: config.pollSeconds + index * 30,
+        intervalSeconds: HOSTS.has(provider.id) ? config.pollSeconds + index * 30 : MAKER_API_SECONDS + index * 3,
         capabilityId: provider.id,
         requiredCapabilities: [provider.key],
         collector: () => collectProviderCatalogue(provider, config),
@@ -163,7 +172,7 @@ export function cataloguesSources({ db, config, cache }: SourceContext): SourceE
       vendor: "OpenAI",
       group: "Catalogues",
       stream: "api-models",
-      intervalSeconds: config.pollSeconds,
+      intervalSeconds: MAKER_API_SECONDS,
       capabilityId: "openai",
       requiredCapabilities: ["OPENAI_API_KEY"],
       collector: () => collectOpenAI(config),
@@ -174,7 +183,7 @@ export function cataloguesSources({ db, config, cache }: SourceContext): SourceE
       vendor: "Anthropic",
       group: "Catalogues",
       stream: "api-models",
-      intervalSeconds: config.pollSeconds,
+      intervalSeconds: MAKER_API_SECONDS,
       capabilityId: "anthropic",
       requiredCapabilities: ["ANTHROPIC_API_KEY"],
       collector: () => collectAnthropic(config),
@@ -185,7 +194,7 @@ export function cataloguesSources({ db, config, cache }: SourceContext): SourceE
       vendor: "Google",
       group: "Catalogues",
       stream: "api-models",
-      intervalSeconds: config.pollSeconds,
+      intervalSeconds: MAKER_API_SECONDS,
       capabilityId: "gemini",
       requiredCapabilities: ["GEMINI_API_KEY"],
       collector: () => collectGemini(config),
