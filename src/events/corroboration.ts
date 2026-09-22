@@ -140,14 +140,35 @@ function evidenceInWindow(db: Database, since: string): StoryEvidence[] {
  * A story any of whose events reached a reader is not silent: the reader has the model, and a
  * second card counting the sources that agree about it is a card about our own bookkeeping.
  */
+/**
+ * A subject some source recorded before the window. A story restarts after a quiet spell, so its own
+ * first sighting says nothing about the model's age: gpt-5.4-mini, long on sale, began a new story
+ * on 2026-09-22 when OpenCode and Command Code were first read, and was carded as a discovery.
+ */
+function knownBefore(db: Database, evidence: readonly StoryEvidence[], since: string): boolean {
+  const ids = [...new Set(evidence.map((event) => event.entity_id.toLowerCase()))];
+  if (!ids.length) return false;
+  return Boolean(
+    db
+      .query<{ one: number }, string[]>(
+        `SELECT 1 AS one FROM events WHERE lower(entity_id) IN (${ids.map(() => "?").join(",")}) AND detected_at<? LIMIT 1`,
+      )
+      .get(...ids, since),
+  );
+}
+
 function silentAndCorroborated(db: Database, now: number): { row: CorroboratedRow; evidence: StoryEvidence[] }[] {
   const since = now - WATCH_MS;
   const grouped = new Map<number, StoryEvidence[]>();
+  // Only arrivals are sources agreeing that a model exists. A catalogue rewriting its rows is one
+  // voice repeating itself: a field added to every OpenCode and Command Code record on 2026-09-22
+  // turned their old rows into five cards about models nobody had news of.
   for (const event of evidenceInWindow(db, new Date(since).toISOString()))
     grouped.set(event.story_id, [...(grouped.get(event.story_id) ?? []), event]);
   const ready: { row: CorroboratedRow; evidence: StoryEvidence[] }[] = [];
-  for (const [storyId, evidence] of grouped) {
-    if (evidence.some((event) => event.delivered)) continue;
+  for (const [storyId, everything] of grouped) {
+    if (everything.some((event) => event.delivered)) continue;
+    const evidence = everything.filter((event) => event.kind === "new");
     const families = new Set(evidence.map((event) => sourceIndependenceFamily(event)));
     if (families.size < INDEPENDENT_SOURCES) continue;
     const first = evidence[0];
@@ -160,6 +181,7 @@ function silentAndCorroborated(db: Database, now: number): { row: CorroboratedRo
       first_seen_at: first.first_seen_at,
     };
     if (!gatheredQuickly(row, evidence, since)) continue;
+    if (knownBefore(db, evidence, new Date(since).toISOString())) continue;
     ready.push({ row, evidence });
   }
   return ready;

@@ -169,3 +169,24 @@ test("a model the catalogue itself dates to August is not a discovery of this we
   );
   expect(detectCorroborated(db, [scouts], now)).toEqual([]);
 });
+
+test("a catalogue rewriting its rows is no third source, and a model seen before the window is no discovery", () => {
+  const { db, add } = setup();
+  // OpenCode re-keying every row on 2026-09-22 arrived as changes, not as a model appearing.
+  const rewrite = add(
+    "opencode-zen",
+    "api-models",
+    "third_party",
+    { name: "step-5-preview" },
+    "2026-09-20T05:40:00.000Z",
+  );
+  db.query("UPDATE events SET kind='changed' WHERE id=?").run(rewrite);
+  expect(detectCorroborated(db, [scouts], now)).toEqual([]);
+
+  // A third arrival, but some source had it on 2026-09-10: gpt-5.4-mini's story restarted, the model did not.
+  add("models-dev", "api-models", "third_party", { name: "Step 5 Preview" }, "2026-09-20T05:31:00.165Z");
+  db.exec(
+    "INSERT INTO events(source,stream,entity_id,kind,after_json,detected_at,snapshot_id,authority) VALUES('openrouter','openrouter','step-5-preview','new','{}','2026-09-10T00:00:00.000Z',1,'third_party')",
+  );
+  expect(detectCorroborated(db, [scouts], now)).toEqual([]);
+});
