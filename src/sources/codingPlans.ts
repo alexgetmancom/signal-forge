@@ -16,6 +16,14 @@ export function isFreeModel(id: string): boolean {
 }
 
 /** Small variants are not worth a headline even when free. */
+/**
+ * The model a free serving is of: `grok-4.7-free` is Grok 4.7, so its card joins the story the other
+ * catalogues' `grok-4.7` already has rather than starting a second one.
+ */
+export function servedModel(id: string): string {
+  return id.replace(/[-:]free$/i, "");
+}
+
 export function isSmallModel(id: string): boolean {
   return /-(?:nano|mini|lite|small|lightning|tiny)\b|\b\d{1,2}b\b/i.test(id);
 }
@@ -40,6 +48,7 @@ async function openCodeList(
     records: ids.map((id) => ({
       id,
       name: id,
+      model: servedModel(id),
       maker: "OpenCode",
       free: isFreeModel(id),
       headline: isFreeModel(id) && !isSmallModel(id),
@@ -92,6 +101,7 @@ export async function collectCommandCodeModels(request: Fetch = fetch): Promise<
     records: ids.map((id) => ({
       id,
       name: id,
+      model: servedModel(id.replace(/^[^/]+\//, "")),
       maker: "Command Code",
       free: isFreeModel(id),
       headline: isFreeModel(id) && !isSmallModel(id),

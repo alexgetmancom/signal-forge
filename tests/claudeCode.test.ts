@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { signalClass } from "../src/events/signals.js";
 import type { Event } from "../src/events/types.js";
 import { claudeModelIds } from "../src/sources/claudeCode.js";
-import { commandCodeModelIds, isFreeModel, isSmallModel } from "../src/sources/codingPlans.js";
+import { commandCodeModelIds, isFreeModel, isSmallModel, servedModel } from "../src/sources/codingPlans.js";
 import { skuModels } from "../src/sources/googleSkus.js";
 import { parseAnthropicRoutes } from "../src/sources/news.js";
 import { modelPages } from "../src/sources/sitemaps.js";
@@ -83,4 +83,10 @@ test("a lab's sitemap gives the pages of its models, not the stories about them"
     "https://openai.com/index/gpt-6-astra",
     "https://openai.com/models/model-cards/gemini-3-8-flash",
   ]);
+});
+
+test("a free serving is of the model it serves, so the two join one story", () => {
+  expect(servedModel("grok-4.7-free")).toBe("grok-4.7");
+  expect(servedModel("tencent/hy3:free")).toBe("tencent/hy3");
+  expect(servedModel("big-pickle")).toBe("big-pickle");
 });
