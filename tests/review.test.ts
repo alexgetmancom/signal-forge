@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { loadConfig } from "../src/config.js";
 import { renderRecapEmbed } from "../src/events/render/lifecycle.js";
 import { recapContextSchema } from "../src/recap.js";
-import { publishMonthlyAudit } from "../src/review.js";
+import { publishMonthlyAudit, publishWeeklyVotes } from "../src/review.js";
 import { readState } from "../src/storage/appState.js";
 import { openDatabase } from "../src/storage/database.js";
 
@@ -73,4 +73,20 @@ test("nothing a model wrote reaches the weekly recap", () => {
   expect(String(embed?.description)).not.toContain("most significant development");
   expect(String(embed?.description)).toStartWith("🚀 **1 model arrived**");
   expect(String(embed?.title)).toContain("13–20 September");
+});
+
+test("the readers' votes go to the status channel once, on Monday", async () => {
+  const db = openDatabase(":memory:");
+  seedDelivery(db, "2026-09-25T10:00:00.000Z", "event", "GPT-6 Astra is out");
+  db.query(
+    "INSERT INTO scout_reactions(delivery_id,votes,against,read_at) VALUES(1,4,1,'2026-09-26T10:00:00.000Z')",
+  ).run();
+  const seen = { urls: [] as string[], bodies: [] as string[] };
+  const request = deepseek("", seen) as unknown as typeof fetch;
+  expect(await publishWeeklyVotes(db, config, request, Date.parse("2026-09-27T12:00:00Z"))).toBe(false);
+  expect(await publishWeeklyVotes(db, config, request, Date.parse("2026-09-28T08:00:00Z"))).toBe(true);
+  expect(await publishWeeklyVotes(db, config, request, Date.parse("2026-09-28T09:00:00Z"))).toBe(false);
+  expect(seen.urls).toEqual(["https://discord.com/api/v10/channels/123/messages"]);
+  expect(seen.bodies[0]).toContain("👍 4 · GPT-6 Astra is out");
+  expect(seen.bodies[0]).toContain("👎 1");
 });

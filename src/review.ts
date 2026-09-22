@@ -195,3 +195,79 @@ async function audit(db: Database, config: AppConfig, request: Fetch, now: numbe
     request,
   );
 }
+
+const VOTES_PREFIX = "votes:";
+
+/**
+ * The readers' week in 👍 and 👎, for the owner alone: which cards they liked, which they did not,
+ * per room. Counted, not written: nothing here is a model's opinion. Monday morning, once.
+ */
+export async function publishWeeklyVotes(
+  db: Database,
+  config: AppConfig,
+  request: Fetch = fetch,
+  now = Date.now(),
+): Promise<boolean> {
+  const date = new Date(now);
+  if (date.getUTCDay() !== 1 || date.getUTCHours() < 7) return false;
+  const channel = config.statusChannelId;
+  if (!channel || !config.DISCORD_BOT_TOKEN) return false;
+  const key = `${VOTES_PREFIX}${date.toISOString().slice(0, 10)}`;
+  if (readState(db, key) !== null) return false;
+  writeState(db, key, "claimed");
+  const from = new Date(now - 7 * 24 * 3_600_000).toISOString();
+  const rows = db
+    .query<{ room: string; body: string; votes: number; against: number }, [string]>(
+      `SELECT d.destination_id room, d.body, r.votes, r.against FROM scout_reactions r
+         JOIN deliveries d ON d.id=r.delivery_id WHERE d.status='sent' AND d.updated_at>=?`,
+    )
+    .all(from);
+  const title = (body: string) => {
+    try {
+      const parsed = JSON.parse(body) as { embeds?: { title?: string }[]; content?: string };
+      return (parsed.embeds?.[0]?.title ?? parsed.content ?? "").split("\n")[0]?.slice(0, 90) || "(untitled)";
+    } catch {
+      return "(untitled)";
+    }
+  };
+  const lines: string[] = [];
+  for (const room of [...new Set(rows.map((row) => row.room))].sort()) {
+    const mine = rows.filter((row) => row.room === room);
+    const up = mine.reduce((sum, row) => sum + row.votes, 0);
+    const down = mine.reduce((sum, row) => sum + row.against, 0);
+    lines.push(`**${room}** · ${mine.length} cards · 👍 ${up} · 👎 ${down}`);
+    for (const row of [...mine]
+      .sort((a, b) => b.votes - a.votes)
+      .slice(0, 3)
+      .filter((row) => row.votes > 0))
+      lines.push(`　👍 ${row.votes} · ${title(row.body)}`);
+    for (const row of [...mine]
+      .sort((a, b) => b.against - a.against)
+      .slice(0, 3)
+      .filter((row) => row.against > 0))
+      lines.push(`　👎 ${row.against} · ${title(row.body)}`);
+    lines.push("");
+  }
+  const response = await request(`https://discord.com/api/v10/channels/${channel}/messages`, {
+    method: "POST",
+    headers: { "content-type": "application/json", Authorization: `Bot ${config.DISCORD_BOT_TOKEN}` },
+    signal: AbortSignal.timeout(15_000),
+    body: JSON.stringify({
+      embeds: [
+        {
+          title: "Readers' votes · last 7 days",
+          description: (lines.join("\n").trim() || "No votes this week.").slice(0, 4000),
+          color: 0x95a5a6,
+        },
+      ],
+      allowed_mentions: { parse: [] },
+    }),
+  }).catch(() => null);
+  await response?.body?.cancel();
+  if (!response?.ok) {
+    log("warn", "Votes report post failed", { status: response?.status ?? 0 });
+    return false;
+  }
+  writeState(db, key, "sent");
+  return true;
+}

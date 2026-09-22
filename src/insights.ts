@@ -4,7 +4,7 @@ import { signalOf } from "./events/classify.js";
 import type { Event } from "./events/types.js";
 import type { Fetch } from "./http-client.js";
 import { type Judgement, judgeEvents, judgementOf, worthCutoff } from "./jev.js";
-import { publishMonthlyAudit } from "./review.js";
+import { publishMonthlyAudit, publishWeeklyVotes } from "./review.js";
 import { olderThanKnown } from "./sources/mentionStage.js";
 import { summarizeForRecap } from "./summary.js";
 
@@ -125,5 +125,6 @@ export async function prepareInsights(db: Database, config: AppConfig, request: 
   const commits = await noteCommits(db, config, request, now);
   const findings = await noteFindings(db, config, request, now);
   const audited = await publishMonthlyAudit(db, config, request, now.getTime());
+  await publishWeeklyVotes(db, config, request, now.getTime());
   return { judged, commits, findings, audited };
 }
