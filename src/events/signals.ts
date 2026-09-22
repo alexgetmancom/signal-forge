@@ -549,6 +549,9 @@ export function signalClass(event: Event): SignalClass {
       "xiaomi-sitemap",
       "zai-sitemap",
       "meta-blog",
+      "qwen-blog",
+      "minimax-release-notes",
+      "kimi-docs",
     ].includes(event.source)
   )
     return event.kind === "new" ? "codename" : "evidence";

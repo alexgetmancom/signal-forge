@@ -13,6 +13,7 @@ import {
   collectOpenAIAlignment,
   collectOpenAICodexChangelog,
 } from "../feeds.js";
+import { collectLabPages, LAB_PAGE_SOURCES } from "../labPages.js";
 import {
   collectAnthropicNews,
   collectAnthropicRoutes,
@@ -159,6 +160,18 @@ export function newsSources({ db, config, cache }: SourceContext): SourceEntry[]
       intervalSeconds: 600,
       collector: () => collectLabSitemap("meta-blog"),
     },
+    ...Object.entries(LAB_PAGE_SOURCES).map(
+      ([id, vendor], index): SourceEntry => ({
+        id,
+        authority: "first_party",
+        vendor,
+        group: "Official news",
+        stream: "github",
+        // Each a few kilobytes, from labs that post nowhere else read here.
+        intervalSeconds: 600 + index * 20,
+        collector: () => collectLabPages(id as keyof typeof LAB_PAGE_SOURCES),
+      }),
+    ),
     {
       id: "claude-blog",
       authority: "first_party",

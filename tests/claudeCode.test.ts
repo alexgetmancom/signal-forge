@@ -4,6 +4,7 @@ import type { Event } from "../src/events/types.js";
 import { claudeModelIds } from "../src/sources/claudeCode.js";
 import { commandCodeModelIds, isFreeModel, isSmallModel, servedModel } from "../src/sources/codingPlans.js";
 import { skuModels } from "../src/sources/googleSkus.js";
+import { kimiQuickstarts, minimaxReleases, qwenPosts } from "../src/sources/labPages.js";
 import { parseAnthropicRoutes } from "../src/sources/news.js";
 import { modelPages } from "../src/sources/sitemaps.js";
 
@@ -111,4 +112,22 @@ test("a free serving is of the model it serves, so the two join one story", () =
   expect(servedModel("grok-4.7-free")).toBe("grok-4.7");
   expect(servedModel("tencent/hy3:free")).toBe("tencent/hy3");
   expect(servedModel("big-pickle")).toBe("big-pickle");
+});
+
+test("Qwen's posts, MiniMax's release cards and Kimi's quickstarts are read from the pages behind their sites", () => {
+  expect(
+    qwenPosts(JSON.stringify({ data: { articles: [{ id: "a1", title: "Qwen3.6-Plus" }, { title: "no id" }] } })),
+  ).toEqual([{ id: "a1", name: "Qwen3.6-Plus", maker: "Qwen", url: "https://qwen.ai/blog?id=a1" }]);
+  expect(
+    minimaxReleases(
+      `#### Jul. 31, 2026\n<Card title="MiniMax H3" icon="video" href="https://www.minimax.io/blog/minimax-h3" cta="Learn More">`,
+    ),
+  ).toEqual([
+    { id: "MiniMax H3", name: "MiniMax H3", maker: "MiniMax", url: "https://www.minimax.io/blog/minimax-h3" },
+  ]);
+  expect(
+    kimiQuickstarts(
+      "- [Kimi K3](https://platform.kimi.ai/docs/guide/kimi-k3-quickstart.md): x\n- [Chat](https://platform.kimi.ai/docs/api/chat.md): y",
+    ).map((page) => page.name),
+  ).toEqual(["Kimi K3"]);
 });
