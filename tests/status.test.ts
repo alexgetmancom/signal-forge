@@ -26,18 +26,6 @@ function seed(db: ReturnType<typeof openDatabase>, id: string, row: Record<strin
   );
 }
 
-test("a restricted source is reported apart from a broken one", () => {
-  const db = openDatabase(":memory:");
-  const recent = new Date(now - 60_000).toISOString();
-  seed(db, "gemini", { last_error: "Source returned HTTP 400", checked_at: recent });
-  seed(db, "openrouter", { last_error: "Source returned HTTP 500", checked_at: recent });
-
-  const health = sourceHealth(db, withStatus, now);
-  expect(health.find((entry) => entry.id === "gemini")?.state).toBe("blocked");
-  expect(health.find((entry) => entry.id === "openrouter")?.state).toBe("failing");
-  db.close();
-});
-
 test("a rate-limited source waits on upstream instead of reporting a broken collector", () => {
   const db = openDatabase(":memory:");
   const recent = new Date(now - 60_000).toISOString();

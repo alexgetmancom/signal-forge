@@ -200,7 +200,6 @@ export function cataloguesSources({ db, config, cache }: SourceContext): SourceE
       capabilityId: "gemini",
       requiredCapabilities: ["GEMINI_API_KEY"],
       collector: () => collectGemini(config),
-      restrictedReason: "upstream is not serving this feed to us — no data reaching the collector",
     },
     {
       id: "vertex-quotas",
