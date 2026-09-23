@@ -434,7 +434,13 @@ export function isAlreadyOutAtItsMaker(event: Event, elsewhere: readonly string[
  * OpenRouter had them a quarter of an hour later. Waiting for the richer venue spent the lead this
  * tracker exists to have; reading what is already stored spends nothing.
  */
-const BORROWED_FIELDS = ["context", "input", "output", "reasoning"];
+const BORROWED_FIELDS = ["context", "input", "output", "reasoning", "pricing"];
+/**
+ * A price is only borrowed from OpenRouter. Every catalogue writes its rates in its own unit, and a
+ * sheet read in the wrong one is off by a million on a card people quote; one catalogue whose unit
+ * is known is worth more than five whose units have to be guessed.
+ */
+const PRICED_BY = "openrouter";
 
 export function borrowedFacts(db: Database, event: Event, subject: string): Record<string, unknown> {
   const have: Record<string, unknown> = record(event) ?? {};
@@ -442,8 +448,8 @@ export function borrowedFacts(db: Database, event: Event, subject: string): Reco
   if (!wanted.length || subject.length < 4) return {};
   const borrowed: Record<string, unknown> = {};
   for (const row of db
-    .query<{ body: string }, [string]>(
-      `SELECT body FROM records WHERE stream IN ('api-models','openrouter','weights')
+    .query<{ body: string; source: string }, [string]>(
+      `SELECT body, source FROM records WHERE stream IN ('api-models','openrouter','weights')
        AND lower(id) LIKE '%' || ? || '%' LIMIT 20`,
     )
     .all(subject)) {
@@ -453,9 +459,11 @@ export function borrowedFacts(db: Database, event: Event, subject: string): Reco
     } catch {
       continue;
     }
-    for (const field of wanted)
+    for (const field of wanted) {
+      if (field === "pricing" && row.source !== PRICED_BY) continue;
       if (borrowed[field] === undefined && fields[field] !== undefined && fields[field] !== null)
         borrowed[field] = fields[field];
+    }
   }
   return borrowed;
 }

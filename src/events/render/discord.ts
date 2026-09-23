@@ -13,9 +13,10 @@ import {
 import type { Event, RecordData } from "../types.js";
 import type { Banner } from "./banner.js";
 import { DESCRIPTION_CHARACTERS } from "./budget.js";
-import { describe, type Fact, factText, pricePair, withoutMakerPrefix } from "./common.js";
+import { describe, type Fact, factText, pricePair, prices, withoutMakerPrefix } from "./common.js";
 import { type CardContext, eventFactParts } from "./facts.js";
 import { sourceLogo, vendorColor, vendorLogo } from "./logos.js";
+import { cardColor } from "./palette.js";
 
 const EYEBROWS: Record<string, string> = {
   "api-models": "MODEL CATALOGUE",
@@ -34,8 +35,6 @@ const EYEBROWS: Record<string, string> = {
   resets: "USAGE LIMITS",
   training: "TRAINING RUN",
 };
-
-const KIND_COLORS: Record<Event["kind"], number> = { new: 0x2ecc71, changed: 0xf1c40f, removed: 0xe74c3c };
 
 /** Streams where a new row is a model someone can use or download, told in its maker's colour. */
 const MODEL_STREAMS = new Set(["api-models", "openrouter", "weights"]);
@@ -507,6 +506,26 @@ function stealthChips(event: Event & CardContext, found: readonly string[]): str
   return ["free", ...(context ? [context] : []), ...(accepts ? [accepts.join(", ")] : [])].slice(0, 3);
 }
 
+/**
+ * The two numbers a launch is weighed by, filled in from another catalogue when the maker's own row
+ * carries neither. Claude Opus 5.5 went out with an empty bottom half while OpenRouter held both.
+ */
+function launchChips(event: Event & CardContext, found: readonly string[]): string[] {
+  const borrowed = event.borrowed ?? {};
+  const chips = [...found];
+  if (!chips.some((chip) => chip.endsWith("context"))) {
+    const context = contextChip(borrowed.context);
+    if (context) chips.push(context);
+  }
+  if (!chips.some((chip) => chip.includes("$"))) {
+    const price = prices(null, borrowed.pricing, "openrouter").find(
+      (fact): fact is Exclude<Fact, string> => typeof fact !== "string" && fact.label === "Price",
+    );
+    if (price) chips.push(price.value.replace(/\s*\/\s*1M tokens$/, ""));
+  }
+  return chips.slice(0, 3);
+}
+
 /** A borrowed context length as the picture says it: 1048576 tokens is "1M context". */
 function contextChip(value: unknown): string | null {
   const tokens = Number(value);
@@ -515,14 +534,13 @@ function contextChip(value: unknown): string | null {
 }
 
 /** The light on a card with no maker on it. */
-const STEALTH_GLOW = 0x8b5cf6;
 
 /** "OpenCode Go and OpenRouter", the way a sentence lists places. */
 function listed(names: readonly string[]): string {
   return names.length < 2 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
 }
 
-function stealthVenues(event: Event & CardContext): { headline: string; others: string[] } {
+function stealthVenues(event: Event & CardContext): { headline: string; others: string[]; source: string } {
   const sources = [...new Set([event.source, ...(event.elsewhere ?? [])])].sort((one, two) => {
     const rank = (source: string) => {
       const at = VENUE_ORDER.indexOf(source);
@@ -530,7 +548,8 @@ function stealthVenues(event: Event & CardContext): { headline: string; others: 
     };
     return rank(one) - rank(two);
   });
-  return { headline: place(sources[0] ?? event.source), others: sources.slice(1).map(place) };
+  const first = sources[0] ?? event.source;
+  return { headline: place(first), others: sources.slice(1).map(place), source: first };
 }
 
 /** Context and price, the two numbers a reader weighs a new model by, lifted out of the fields. */
@@ -735,6 +754,7 @@ export function eventEmbed(
       )
     : { line: null, chips: [], rest: facts };
   const venues = stealthVenues(event);
+  if (launch && !stealth) spec.chips = launchChips(event, spec.chips);
   if (stealth) {
     // The picture carries what the model is; the text carries only what the picture cannot, which
     // is where to call it and what to type. The first card said "free" three times over.
@@ -772,6 +792,17 @@ export function eventEmbed(
     .join("\n")
     .slice(0, DESCRIPTION_CHARACTERS);
   const incident = incidentLook(event, record);
+  const color = cardColor({
+    incident: incident?.color,
+    stream: event.stream,
+    kind: event.kind,
+    stealth,
+    vendor,
+    branded:
+      (event.kind === "new" && (MODEL_STREAMS.has(event.stream) || SIGHTINGS.has(event.stream))) ||
+      (event.kind === "changed" && SIGHTINGS.has(event.stream)),
+    applied: record?.stage === "Applied",
+  });
   const sourceIcon = sourceLogo(event.source);
   const embed: Record<string, unknown> = {
     // A new model's title and banner name the maker and the moment; an eyebrow would say it a third time.
@@ -793,16 +824,7 @@ export function eventEmbed(
           ? `🆕 ${name} on ${place(event.source)}`
           : eventHeadline(event, name, incident)
     ).slice(0, 250),
-    color:
-      incident?.color ??
-      (event.stream === "resets" && record?.stage === "Applied" ? 0x3ddc84 : null) ??
-      (event.stream === "deprecations"
-        ? 0xe67e22
-        : ((event.kind === "new" && (MODEL_STREAMS.has(event.stream) || SIGHTINGS.has(event.stream))
-            ? vendorColor(vendor)
-            : SIGHTINGS.has(event.stream) && event.kind === "changed"
-              ? vendorColor(vendor)
-              : null) ?? KIND_COLORS[event.kind])),
+    color,
     ...(description ? { description } : {}),
     ...(fields.length ? { fields } : {}),
     // Discord renders its own timestamp in the reader's timezone, which is one line of card spent
@@ -810,7 +832,7 @@ export function eventEmbed(
     timestamp: new Date(event.detected_at).toISOString(),
     footer: {
       text: footerText(
-        event.source,
+        stealth ? venues.source : event.source,
         event.confidence ?? "observed",
         // A maker's own status page is not a rumour; "unconfirmed" under it read as doubt about the outage.
         // A sighting's emoji and sentence already say nobody has announced it.
@@ -832,11 +854,10 @@ export function eventEmbed(
         title: name,
         chips: spec.chips,
         vendor,
-        // Nobody's brand colour, because nobody has claimed it yet.
-        glow: STEALTH_GLOW,
+        glow: color,
       }
     : launch
-      ? { eyebrow: bannerEyebrow(vendor, event.detected_at), title: name, chips: spec.chips, vendor }
+      ? { eyebrow: bannerEyebrow(vendor, event.detected_at), title: name, chips: spec.chips, vendor, glow: color }
       : numberBanner(event, before, after, vendor, name);
   const post = announcer ? resetPost(after) : "";
   if (announcer && after && post) {
@@ -902,6 +923,8 @@ function trimToBanner(embed: Record<string, unknown>, banner: Banner, handle: st
   }
   embed.color =
     hero.color === 0xffffff || hero.color === 0xf5c451 ? (vendorColor(banner.vendor) ?? embed.color) : hero.color;
+  // The number decides the colour, so the picture is lit by it rather than by the maker's brand.
+  banner.glow = embed.color as number;
 }
 
 /** The words two names share at the start: "MiMo V2.6" of "MiMo V2.6 Flash" and "MiMo V2.6 Pro". */
@@ -954,7 +977,7 @@ export function rosterEmbed(
   });
   const embed: Record<string, unknown> = {
     title: `🚀 ${events.length} new ${maker ? `${maker} ` : ""}models`,
-    color: vendorColor(vendor) ?? KIND_COLORS.new,
+    color: cardColor({ stream: first.stream, kind: "new", vendor, branded: true }),
     description: clipLines(lines, DESCRIPTION_CHARACTERS),
     timestamp: new Date(first.detected_at).toISOString(),
     footer: { text: footerText(first.source, first.confidence ?? "observed", detail) },

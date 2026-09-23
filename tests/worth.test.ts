@@ -3,7 +3,7 @@ import type { Destination } from "../src/config.js";
 import { prepareDeliveries } from "../src/events/batching.js";
 import { displayTitle } from "../src/events/naming.js";
 import { saveCollection } from "../src/events/pipeline.js";
-import type { Collection, Event } from "../src/events/types.js";
+import type { Collection, Event, RecordData } from "../src/events/types.js";
 import { borrowedFacts } from "../src/events/worth.js";
 import { openDatabase } from "../src/storage/database.js";
 
@@ -1058,5 +1058,56 @@ test("a venue that carries no facts borrows them from a catalogue that does", ()
   } as unknown as Event;
 
   expect(borrowedFacts(db, event, "space-bunny")).toEqual({ context: 1_048_576, input: ["image", "text", "video"] });
+  db.close();
+});
+
+test("a launch borrows the numbers its maker's own row leaves out, and a price only from OpenRouter", () => {
+  const db = openDatabase(":memory:");
+  const listing = (source: string, record: RecordData): Collection => ({
+    source,
+    stream: "api-models",
+    url: `https://${source}`,
+    raw: [],
+    records: [record],
+  });
+  // A catalogue whose price unit is unknown may lend a context length but never a price.
+  saveCollection(
+    db,
+    listing("models-dev", {
+      id: "claude-opus-5-5",
+      name: "Claude Opus 5.5",
+      context: 200_000,
+      pricing: { prompt: 15, completion: 75 },
+    }),
+    [wire],
+    "2026-09-23T13:00:00.000Z",
+  );
+  const launch = {
+    id: 1,
+    source: "anthropic",
+    stream: "api-models",
+    entity_id: "claude-opus-5-5",
+    kind: "new",
+    after_json: JSON.stringify({ id: "claude-opus-5-5", name: "Claude Opus 5.5" }),
+    detected_at: "2026-09-23T14:00:00.000Z",
+  } as unknown as Event;
+  const first = borrowedFacts(db, launch, "claude-opus-5-5");
+  expect(first.context).toBe(200_000);
+  expect(first.pricing).toBeUndefined();
+
+  saveCollection(
+    db,
+    listing("openrouter", {
+      id: "anthropic/claude-opus-5-5",
+      name: "Claude Opus 5.5",
+      pricing: { prompt: "0.000015", completion: "0.000075" },
+    }),
+    [wire],
+    "2026-09-23T13:30:00.000Z",
+  );
+  expect(borrowedFacts(db, launch, "claude-opus-5-5").pricing).toEqual({
+    prompt: "0.000015",
+    completion: "0.000075",
+  });
   db.close();
 });

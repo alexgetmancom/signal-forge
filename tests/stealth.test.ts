@@ -72,3 +72,20 @@ test("the card names the model and the venues, and leaves the rest to the pictur
   expect(banner.eyebrow).toBe("Stealth launch · Sep 23, 2026");
   expect(banner.chips).toEqual(["free", "1M context", "image, text, video"]);
 });
+
+test("the stripe, the picture's glow and the footer tell one story", () => {
+  const embed = eventEmbed(
+    {
+      ...venue("opencode-go", zen),
+      elsewhere: ["opencode-zen", "openrouter"],
+    } as never,
+    "u",
+  );
+  const banner = embed.banner as { glow: number };
+  // Violet, because nobody has put their name on it, and the same violet in both places.
+  expect(embed.color).toBe(0x8b5cf6);
+  expect(banner.glow).toBe(embed.color as number);
+  // The card leads with Zen, so the footer credits Zen rather than whichever venue tripped it.
+  expect((embed.footer as { text: string }).text).toContain("OpenCode Zen");
+  expect((embed.footer as { text: string }).text).not.toContain("OpenCode Go");
+});
