@@ -934,6 +934,18 @@ test("the maker's own post is news beside the card, and an interface catching up
     "UPDATE deliveries SET status='sent',external_id='2' WHERE status='pending' AND body LIKE '%Introducing%'",
   ).run();
 
+  const page: Collection = {
+    source: "pages:anthropic",
+    stream: "pages",
+    url: "https://www.anthropic.com",
+    raw: [],
+    records: [{ id: "/news", name: "news", maker: "Anthropic" }],
+  };
+  saveCollection(db, page, [news], "2026-09-22T16:45:00.000Z");
+  page.records = [...page.records, { id: "/claude-opus-5-5", name: "claude-opus-5-5", maker: "Anthropic" }];
+  saveCollection(db, page, [news], "2026-09-22T16:50:00.000Z");
+  prepareDeliveries(db, Date.parse("2026-09-22T16:55:00.000Z"));
+
   // An interface catching up with a model these readers were sent an hour ago is not news again.
   const notes: Collection = {
     source: "openai-chatgpt-release-notes",
@@ -965,6 +977,9 @@ test("the maker's own post is news beside the card, and an interface catching up
     .join(" ");
   expect(bodies).toContain("Introducing Claude Opus 5.5");
   expect(reasons["2026-09-22:opus-in-work"]).toBe("names_only_known_models");
+  // And the maker's own page about the same model, an hour later and in a batch of its own, is the
+  // same link a second time.
+  expect(reasons["/claude-opus-5-5"]).toBe("same_release_on_another_page");
   db.close();
 });
 

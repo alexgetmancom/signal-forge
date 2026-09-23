@@ -181,7 +181,8 @@ function announcementModel(event: Event & { signal: string }): string | null {
   const record = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
   const slug = isPage
     ? (event.entity_id.split("?")[0]?.replace(/\/+$/, "").split("/").at(-1) ?? "")
-    : String(record?.name ?? event.entity_id);
+    : // A post is titled the way a post is: the model is what is left once the verb is taken off.
+      String(record?.name ?? event.entity_id).replace(/^(?:introducing|announcing|meet|now available:?)\s+/i, "");
   const key = subjectKey(displayName(slug));
   return key || null;
 }
@@ -215,6 +216,37 @@ function releaseTold(
       )
       .get(...[batchId, destinationId, since, ...(asOf ? [asOf] : []), key, `%#github-release-${key}`]),
   );
+}
+
+/** How long one model's announcement stays the same link for one destination. */
+const ANNOUNCEMENT_WINDOW_MS = 3 * 24 * 3_600_000;
+
+/**
+ * Whether this destination already carries a maker's announcement of the same model.
+ *
+ * The GitHub release guard next to this one matches on a release id, which an announcement has no
+ * equivalent of: xAI's release notes, its docs page and its model page each call Grok 4.7 something
+ * different. The model the announcement is about is what they share, so that is what is compared.
+ */
+function announcementTold(
+  db: Database,
+  model: string,
+  destinationId: string,
+  batchId: number,
+  now: number,
+  asOf: AsOf = undefined,
+): boolean {
+  const since = new Date(now - ANNOUNCEMENT_WINDOW_MS).toISOString();
+  return db
+    .query<Event & { signal: string }, (string | number)[]>(
+      `SELECT e.* FROM batch_events be
+       JOIN events e ON e.id=be.event_id
+       JOIN deliveries d ON d.batch_id=be.batch_id
+       WHERE be.batch_id<>? AND d.destination_id=? AND e.detected_at>=? ${asOf ? "AND e.detected_at<?" : ""}
+         AND d.status IN ('pending','sending','sent','ambiguous','verification_required')`,
+    )
+    .all(...[batchId, destinationId, since, ...(asOf ? [asOf] : [])])
+    .some((row) => announcementModel(row) === model);
 }
 
 /**
@@ -654,6 +686,9 @@ export function replayDestinationVerdicts(
     const reason = ((): SuppressionReason | null => {
       const standing = standingReason(db, event, view);
       if (standing) return standing;
+      const announcement = announcementModel(event);
+      if (announcement && announcementTold(db, announcement, destinationId, batchId, at, asOf))
+        return "same_release_on_another_page";
       const release = releaseKey(event);
       if (release && (releases.has(release) || releaseTold(db, release, destinationId, batchId, at, asOf)))
         return "same_release_on_another_page";
@@ -795,6 +830,9 @@ export function prepareDeliveries(
             );
           const standing = standingReason(db, event, batchView);
           if (standing) return quiet(event, standing);
+          const announcement = announcementModel(event);
+          if (announcement && announcementTold(db, announcement, target.destination_id, batch.id, now))
+            return quiet(event, "same_release_on_another_page");
           const release = releaseKey(event);
           if (release && (releases.has(release) || releaseTold(db, release, target.destination_id, batch.id, now)))
             return quiet(event, "same_release_on_another_page");
