@@ -67,3 +67,43 @@ test("an interface string quotes the line that was added", () => {
   expect(banner?.change?.mark).toBe("+");
   expect(banner?.title).toContain("Opus 5.5 is available on the Max plan");
 });
+
+test("a post is quoted by what it says, not by its version number", () => {
+  const event = {
+    id: 4,
+    source: "kimi-code-changelog",
+    stream: "news",
+    entity_id: "v2.1.0",
+    kind: "new",
+    after_json: JSON.stringify({
+      name: "Kimi Code CLI v2.1.0",
+      summary: "A new experimental fullscreen interface: the transcript scrolls independently. Text can be selected.",
+    }),
+    detected_at: "2026-09-23T19:01:00.000Z",
+  } as unknown as Event;
+  const banner = eventEmbed(event, "u").banner as Banner;
+  expect(banner.title).toBe("A new experimental fullscreen interface: the transcript scrolls independently.");
+  expect(banner.change?.where).toBe("Kimi Code CLI v2.1.0");
+});
+
+test("a venue's shop-window flags are not facts about the model it lists", () => {
+  const event = {
+    id: 5,
+    source: "opencode-zen",
+    stream: "api-models",
+    entity_id: "claude-opus-5-5",
+    kind: "new",
+    after_json: JSON.stringify({
+      id: "claude-opus-5-5",
+      name: "Claude Opus 5 5",
+      model: "claude-opus-5-5",
+      maker: "Anthropic",
+      free: false,
+      headline: false,
+    }),
+    detected_at: "2026-09-22T22:04:00.000Z",
+  } as unknown as Event;
+  const body = JSON.stringify(eventEmbed(event, "u"));
+  expect(body).not.toContain("headline");
+  expect(body).not.toContain("free");
+});

@@ -1111,3 +1111,21 @@ test("a launch borrows the numbers its maker's own row leaves out, and a price o
   });
   db.close();
 });
+
+test("a gateway filling in a rate it had left at zero is not a price change", () => {
+  const db = openDatabase(":memory:");
+  const gateway = (pricing: object): Collection => ({
+    source: "vercel-gateway",
+    stream: "api-models",
+    url: "https://vercel.com",
+    raw: [],
+    records: [{ id: "inclusionai/ling-3.0-flash-vl", name: "Ling 3.0 Flash VL", pricing }],
+  });
+  saveCollection(db, gateway({ input: "0", output: "0" }), [wire], "2026-09-23T10:00:00.000Z");
+  saveCollection(db, gateway({ input: "0.000000075", output: "0.000000015" }), [wire], "2026-09-23T19:42:00.000Z");
+  const signal = db
+    .query<{ signal: string }, []>("SELECT signal FROM events WHERE kind='changed' ORDER BY id DESC LIMIT 1")
+    .get();
+  expect(signal?.signal).toBe("evidence");
+  db.close();
+});

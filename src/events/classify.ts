@@ -31,6 +31,7 @@ export function classify(db: Database, event: Event): SignalClass {
   if (signal === "codename" && servingModeOfKnownModel(db, event)) return "evidence";
   if (signal === "change" && supersededModel(db, event) && !movesWhatAReaderActsOn(event)) return "evidence";
   if (signal === "change" && sideRepricingAtReseller(event)) return "evidence";
+  if (signal === "change" && learnedARateItDidNotKnow(event)) return "evidence";
   return signal;
 }
 
@@ -101,6 +102,27 @@ function movesWhatAReaderActsOn(event: Event): boolean {
   const before = event.before_json ? (JSON.parse(event.before_json) as Record<string, unknown>) : {};
   const after: Record<string, unknown> = recordFor(event) ?? {};
   return ACTED_ON.some((field) => JSON.stringify(before[field]) !== JSON.stringify(after[field]));
+}
+
+/**
+ * A gateway filling in a rate it had written as zero is not a price change. The Vercel AI Gateway
+ * carded Ling 3.0 Flash VL on 2026-09-23 as "Input price $0 → $0.075": nobody was paying zero and
+ * nothing got dearer, the sheet was simply blank before. A rate that moves between two real numbers
+ * is still news.
+ */
+function learnedARateItDidNotKnow(event: Event): boolean {
+  if (event.kind !== "changed") return false;
+  const before = event.before_json ? (JSON.parse(event.before_json) as Record<string, unknown>) : {};
+  const after: Record<string, unknown> = recordFor(event) ?? {};
+  const rates = (value: unknown) => (value && typeof value === "object" ? (value as Record<string, unknown>) : {});
+  const old = rates(before.pricing);
+  const next = rates(after.pricing);
+  const moved = [...new Set([...Object.keys(old), ...Object.keys(next)])].filter(
+    (key) => JSON.stringify(old[key]) !== JSON.stringify(next[key]),
+  );
+  if (!moved.length) return false;
+  const blank = (value: unknown) => value === undefined || value === null || value === "" || Number(value) === 0;
+  return moved.every((key) => blank(old[key]));
 }
 
 /**

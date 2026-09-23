@@ -494,6 +494,15 @@ function stealthName(event: Event): string {
 const STEALTH_NOISE = new Set(["model", "maker", "free", "headline", "name", "id"]);
 
 /**
+ * A venue's own bookkeeping, on any card it produced. OpenCode Zen listing Claude Opus 5.5 carried
+ * "free: no", "headline: no" and "Model: claude-opus-5-5": a shop-window flag, its opposite, and
+ * the ID already printed under the title. Only a stealth card was cleaned of these, and every other
+ * card from the same shelf carried them.
+ */
+const VENUE_NOISE = new Set(["model", "headline", "free"]);
+const VENUES = new Set(["opencode-zen", "opencode-go", "command-code-models"]);
+
+/**
  * Where a stealth model can be called, best venue first.
  *
  * Space Bunny reached OpenCode Go two seconds before Zen and the card named Go, which is the paid
@@ -612,6 +621,27 @@ function shutdownCaption(day: string, from: string): string {
 }
 
 /**
+ * The board a debut happened on, said once. Artificial Analysis names its own categories after
+ * itself, and "ARTIFICIAL ANALYSIS · ARTIFICIAL ANALYSIS TEXT TO SPEECH" ran across the chips
+ * beside it. The caption has the width of the number above it and no more.
+ */
+const CAPTION_CHARACTERS = 34;
+
+/** The opening sentence of a post, which is what a maker leads with. */
+function firstSentence(text: string): string | null {
+  const clean = text.replace(/\s+/g, " ").trim();
+  if (clean.length < 20) return null;
+  const end = clean.search(/[.!?](?:\s|$)/);
+  return end > 20 ? clean.slice(0, end + 1) : clean;
+}
+function boardCaption(board: string, category: string | null): string {
+  const plain = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  const said = category && !plain(category).includes(plain(board)) ? [board, category] : [category ?? board];
+  const caption = said.filter(Boolean).join(" · ");
+  return caption.length > CAPTION_CHARACTERS ? (said[0] ?? board) : caption;
+}
+
+/**
  * The picture for a change: the line that changed, quoted the size of a headline. Documentation, a
  * maker's changelog and a string in an interface are each read for one sentence, and all three went
  * out as a title over a table of our own bookkeeping.
@@ -631,8 +661,17 @@ function changeBanner(
     return { ...base, eyebrow, title: name, change: { mark: "+", where: "On the maker's own site" } };
   // A post the maker actually wrote: a feed row carrying a headline and nothing else has nothing
   // for the picture to quote, and a picture of a name is not worth the weight of a picture.
-  if (event.stream === "news" && event.kind === "new" && present(record?.summary))
-    return { ...base, eyebrow, title: name, change: { mark: "+", where: "The maker's own words" } };
+  if (event.stream === "news" && event.kind === "new" && present(record?.summary)) {
+    // "Kimi Code CLI v2.1.0" on the picture is the post's number; what it says is the news, and it
+    // was left in the text under a picture of its own title.
+    const said = firstSentence(String(record?.summary));
+    return {
+      ...base,
+      eyebrow,
+      title: said ? excerpt(said, 140) : name,
+      change: { mark: "+", where: said ? name : "The maker's own words" },
+    };
+  }
   if (event.stream === "web" && event.kind === "changed") {
     // The strings a maker ships in its own interface: the first added line is the news, and a card
     // that only loses lines says so with the mark rather than quoting what is gone.
@@ -681,7 +720,7 @@ function numberBanner(
         .map((value) => `Score ${Math.round(value)}`),
       hero: {
         text: `#${rank}`,
-        caption: [board, category].filter(Boolean).join(" · "),
+        caption: boardCaption(board, category),
         color: rank === 1 ? 0xf5c451 : 0xffffff,
       },
     };
@@ -805,7 +844,9 @@ export function eventEmbed(
     ? specLine(
         stealth
           ? facts.filter((fact) => typeof fact === "string" || !STEALTH_NOISE.has(fact.label.toLowerCase()))
-          : facts,
+          : VENUES.has(event.source)
+            ? facts.filter((fact) => typeof fact === "string" || !VENUE_NOISE.has(fact.label.toLowerCase()))
+            : facts,
       )
     : { line: null, chips: [], rest: facts };
   const venues = stealthVenues(event);
@@ -952,6 +993,13 @@ export function eventEmbed(
     embed.banner = banner;
     // A change keeps its words: the picture quotes the line, and the text says what it means.
     if (!launch && !banner.change) trimToBanner(embed, banner, handle, event.source);
+    // The line is on the picture now, and it was in the text cut off mid-word: "See AWS Regional
+    // availa". What stays is the count, which the picture does not carry.
+    else if (banner.change && typeof embed.description === "string")
+      embed.description = embed.description
+        .split("\n")
+        .filter((line) => !/^> [+−] /.test(line))
+        .join("\n");
   } else if (thumbnail && (description || fields.length)) embed.thumbnail = { url: thumbnail };
   // A title alone beside a logo left a logo-high empty card above; the stripe says whose it is.
   if (link) embed.url = link;
