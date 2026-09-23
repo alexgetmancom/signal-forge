@@ -139,7 +139,8 @@ test("a picture quotes the rates a model is chosen by and keeps the cache sheet 
   } as unknown as Event;
   const embed = eventEmbed(event, "u");
   const banner = embed.banner as Banner;
-  expect(banner.chips).toEqual(["1M context", "$2 in · $10 out"]);
+  // Two short pills rather than one wide one: the row reads evenly at a glance.
+  expect(banner.chips).toEqual(["1M context", "$2 in", "$10 out"]);
   // White is no glow at all on a dark backdrop, so OpenAI's near-white is lit neutrally.
   expect(banner.glow).toBe(0xe6e6e6);
   // The card is read for the two rates a model is chosen by. A scout row for MiMo V2.6 Pro ran

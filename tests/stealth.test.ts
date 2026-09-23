@@ -68,9 +68,12 @@ test("the card names the model and the venues, and leaves the rest to the pictur
   expect(body).not.toContain("headline");
   expect(body).not.toContain('"yes"');
   expect(body).not.toContain("Already out");
-  const banner = embed.banner as { eyebrow: string; chips: string[] };
-  expect(banner.eyebrow).toBe("Stealth launch · Sep 23, 2026");
+  const banner = embed.banner as { eyebrow: string; chips: string[]; stealth?: true };
+  // The word its readers use, short enough to clear the light thrown into that corner.
+  expect(banner.eyebrow).toBe("Stealth · Sep 23");
   expect(banner.chips).toEqual(["free", "1M context", "image, text, video"]);
+  // A model nobody claims gets a picture of its own rather than a violet copy of a launch.
+  expect(banner.stealth).toBe(true);
 });
 
 test("the stripe, the picture's glow and the footer tell one story", () => {

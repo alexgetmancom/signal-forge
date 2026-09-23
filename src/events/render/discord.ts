@@ -558,7 +558,7 @@ function launchChips(event: Event & CardContext, found: readonly string[]): stri
     const price = prices(null, borrowed.pricing, "openrouter").find(
       (fact): fact is Exclude<Fact, string> => typeof fact !== "string" && fact.label === "Price",
     );
-    if (price) chips.push(priceChip(price.value));
+    if (price) chips.push(...priceChips(price.value));
   }
   return chips.slice(0, 3);
 }
@@ -589,12 +589,20 @@ function stealthVenues(event: Event & CardContext): { headline: string; others: 
   return { headline: place(first), others: sources.slice(1).map(place), source: first };
 }
 
-/** A price as a pill: the two rates a model is chosen by, without the unit the eyebrow implies. */
-function priceChip(value: string): string {
+/**
+ * The rates a model is chosen by, as pills. One pill holding "$0.1 in · $0.5 out" ran three times
+ * the width of the "1M context" beside it and left the row lopsided; two short pills sit evenly.
+ */
+function priceChips(value: string): string[] {
   const trimmed = value.replace(/\s*\/\s*1M tokens$/, "");
   const rates = trimmed.split(" · ").filter((rate) => /\b(in|out)$/.test(rate));
   // A sheet with no in or out rate at all is quoted as it came rather than quoted as nothing.
-  return rates.length ? rates.join(" · ") : trimmed;
+  return rates.length ? rates : [trimmed];
+}
+
+/** The same rates on one line, for the text under the title. */
+function priceChip(value: string): string {
+  return priceChips(value).join(" · ");
 }
 
 /** Context and price, the two numbers a reader weighs a new model by, lifted out of the fields. */
@@ -612,7 +620,7 @@ function specLine(facts: Fact[]): { line: string | null; chips: string[]; rest: 
     ...(out ? [`${out} out`] : []),
     // The picture holds three short pills. GPT-6 Sol's four rates ran off the edge of one; what a
     // reader weighs a model by is what it costs in and out, and the cache rates stay in the text.
-    ...(price ? [priceChip(price.value)] : []),
+    ...(price ? priceChips(price.value) : []),
   ].slice(0, 3);
   const line = [
     ...(context ? [`**${context.value}** context`] : []),
@@ -642,8 +650,8 @@ function tokenCount(value: string): string | null {
  * screenshot posted elsewhere loses Discord's timestamp, and the date on the picture is what shows
  * the news was early. "3 new models · Xiaomi" repeated the title word for word.
  */
-function bannerEyebrow(vendor: string, detectedAt: string, where = "In the API"): string {
-  return [vendor === "Unknown" ? null : vendor, where, shortDate(detectedAt, true)].filter(Boolean).join(" · ");
+function bannerEyebrow(vendor: string, detectedAt: string, where = "API"): string {
+  return [vendor === "Unknown" ? null : vendor, where, shortDate(detectedAt)].filter(Boolean).join(" · ");
 }
 
 function shortDate(value: string, year = false): string {
@@ -994,11 +1002,12 @@ export function eventEmbed(
         // No maker to name, so the picture says what it is instead: unclaimed, free, and where.
         // The title says where it is free; the picture says what the title cannot, which is that
         // nobody has put their name on it and what day it appeared.
-        eyebrow: ["Stealth launch", shortDate(event.detected_at, true)].join(" · "),
+        eyebrow: ["Stealth", shortDate(event.detected_at)].join(" · "),
         title: name,
         chips: spec.chips,
         vendor,
         glow: color,
+        stealth: true,
       }
     : launch
       ? { eyebrow: bannerEyebrow(vendor, event.detected_at), title: name, chips: spec.chips, vendor, glow: color }

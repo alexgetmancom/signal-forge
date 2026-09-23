@@ -46,10 +46,24 @@ export type Banner = {
    * is worse than none, so it is a field rather than something every banner gets.
    */
   watermark?: { opacity: number; size: number };
+  /**
+   * A model nobody has claimed, which is the one card with no maker to take a colour or a tile
+   * from. It gets a picture of its own instead of a violet copy of a launch: black, lit from one
+   * point off the frame, with the question thrown onto it by that light.
+   */
+  stealth?: true;
 };
 
 const WIDTH = 1200;
 const HEIGHT = 480;
+/**
+ * The maker's colour down the left edge rather than across the top. Discord draws its own stripe at
+ * the left of an embed, and the two line up into one unbroken column from the title to the foot of
+ * the picture: the card reads as one object instead of text with a picture stuck under it.
+ */
+const STRIPE = 14;
+/** Everything the card says starts clear of the stripe. */
+const LEFT = 110;
 
 const xml = (text: string) =>
   text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -101,7 +115,7 @@ function backdrop(width: number, height: number, glow: string): string {
   </defs>
   <rect width="${width}" height="${height}" fill="url(#fade)"/>
   <rect width="${width}" height="${height}" fill="url(#glow)"/>
-  <rect x="0" y="0" width="${width}" height="6" fill="${glow}"/>`;
+  <rect x="0" y="0" width="${STRIPE}" height="${height}" fill="${glow}"/>`;
 }
 
 /**
@@ -110,9 +124,32 @@ function backdrop(width: number, height: number, glow: string): string {
  * poster for the maker, and this is a publication's card about the maker.
  */
 function watermarkLayer(logo: string | null, watermark: Banner["watermark"]): string {
-  if (!logo || !watermark) return "";
-  const { opacity, size } = watermark;
-  return `<image x="${WIDTH - size * 0.62}" y="${HEIGHT - size * 0.58}" width="${size}" height="${size}" href="${logo}" opacity="${opacity}"/>`;
+  if (!logo) return "";
+  const { opacity, size } = watermark ?? { opacity: 0.05, size: 640 };
+  if (opacity <= 0) return "";
+  return `<defs>
+    <radialGradient id="feather" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="1"/>
+      <stop offset="0.6" stop-color="#ffffff" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </radialGradient>
+    <mask id="feathered"><rect width="${WIDTH}" height="${HEIGHT}" fill="url(#feather)"/></mask>
+  </defs>
+  <g mask="url(#feathered)"><image x="${WIDTH - size * 0.62}" y="${HEIGHT - size * 0.58}" width="${size}" height="${size}" href="${logo}" opacity="${opacity}"/></g>`;
+}
+
+/**
+ * The last word of a name in the maker's own colour: "Claude Opus 5.5" is read for the 5.5, and a
+ * card that says which one this is in one glance is a card somebody screenshots. A maker whose
+ * colour is black or white lends none, so the tail takes a cool grey that reads against the title.
+ */
+const COOL = "#8ea3bd";
+function titleText(title: string, size: number, glow: string, vendor: string): string {
+  const tail = ACHROMATIC.has(hex(vendorColor(vendor) ?? 0)) ? COOL : glow;
+  const cut = title.lastIndexOf(" ");
+  const body =
+    cut < 1 ? xml(title) : `${xml(title.slice(0, cut + 1))}<tspan fill="${tail}">${xml(title.slice(cut + 1))}</tspan>`;
+  return `<text x="${LEFT}" y="${200 + size * 0.55}" font-family="Inter Display" font-weight="700" font-size="${size}" letter-spacing="-1.5" fill="#ffffff">${body}</text>`;
 }
 
 function signatureText(signature: string | undefined, taken: boolean): string {
@@ -139,22 +176,67 @@ function changeSvg(banner: Banner, change: NonNullable<Banner["change"]>, signat
   const text = lines
     .map(
       (line, index) =>
-        `<text x="${112 + size * 0.8}" y="${top + index * step}" font-family="Inter Display" font-weight="700" font-size="${size}" letter-spacing="-1" fill="#ffffff">${xml(line)}</text>`,
+        `<text x="${LEFT + 40 + size * 0.8}" y="${top + index * step}" font-family="Inter Display" font-weight="700" font-size="${size}" letter-spacing="-1" fill="#ffffff">${xml(line)}</text>`,
     )
     .join("\n  ");
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}">
   ${backdrop(WIDTH, HEIGHT, glow)}
   ${logo ? `<image x="${WIDTH - 72 - tile}" y="64" width="${tile}" height="${tile}" href="${logo}"/>` : ""}
-  <text x="72" y="118" font-family="Inter" font-weight="600" font-size="28" letter-spacing="4" fill="#ffffff" fill-opacity="0.6">${xml(banner.eyebrow.toUpperCase())}</text>
-  <rect x="72" y="${top - size - 6}" width="6" height="${rule}" rx="3" fill="${mark}" fill-opacity="0.9"/>
-  <text x="112" y="${top - size * 0.22}" font-family="Inter Display" font-weight="700" font-size="${size}" fill="${mark}">${change.mark}</text>
+  <text x="${LEFT}" y="118" font-family="Inter" font-weight="600" font-size="28" letter-spacing="4" fill="#ffffff" fill-opacity="0.6">${xml(banner.eyebrow.toUpperCase())}</text>
+  <rect x="${LEFT}" y="${top - size - 6}" width="6" height="${rule}" rx="3" fill="${mark}" fill-opacity="0.9"/>
+  <text x="${LEFT + 40}" y="${top - size * 0.22}" font-family="Inter Display" font-weight="700" font-size="${size}" fill="${mark}">${change.mark}</text>
   ${text}
-  ${change.where ? `<text x="72" y="${HEIGHT - 52}" font-family="Inter" font-weight="600" font-size="26" fill="#ffffff" fill-opacity="0.55">${xml(change.where)}</text>` : ""}
+  ${change.where ? `<text x="${LEFT}" y="${HEIGHT - 52}" font-family="Inter" font-weight="600" font-size="26" fill="#ffffff" fill-opacity="0.55">${xml(change.where)}</text>` : ""}
   ${signature ? `<text x="${WIDTH - 72}" y="${HEIGHT - 52}" text-anchor="end" font-family="Inter" font-weight="600" font-size="30" letter-spacing="0.5" fill="#ffffff" fill-opacity="0.5">${xml(signature)}</text>` : ""}
 </svg>`;
 }
 
+const VIOLET = "#8b5cf6";
+
+/**
+ * The question as a shape rather than a stroke: thick where a pen would press, thin where it would
+ * lift, terminals cut. An even-width, round-capped stroke is an interface icon, and an interface
+ * icon thrown up twelve times reads as exactly that.
+ */
+const QUESTION = `<path d="M18 78 C18 26, 60 -2, 104 -2 C152 -2, 188 26, 188 76 C188 118, 156 136, 134 154
+ C120 166, 116 176, 116 196 L72 196 C72 164, 80 148, 100 130 C124 108, 142 98, 142 72
+ C142 46, 126 34, 102 34 C76 34, 62 50, 62 78 Z"/>
+ <circle cx="94" cy="238" r="25"/>`;
+
+/** Black, one lamp off the frame, and the question lying in the light it throws. */
+function stealthSvg(banner: Banner, signature?: string): string {
+  const size = titleSize(banner.title, WIDTH - 200 - 260);
+  let x = LEFT;
+  const chips = banner.chips
+    .slice(0, 3)
+    .map((chip) => {
+      const width = chip.length * 30 * 0.5 + 56;
+      const pill = `<rect x="${x}" y="368" width="${width}" height="60" rx="30" fill="#ffffff" fill-opacity="0.06" stroke="#ffffff" stroke-opacity="0.14"/><text x="${x + 28}" y="408" font-family="Inter" font-weight="600" font-size="30" fill="#ffffff" fill-opacity="0.88">${xml(chip)}</text>`;
+      x += width + 16;
+      return pill;
+    })
+    .join("\n  ");
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}">
+  <defs>
+    <radialGradient id="lamp" cx="0.94" cy="0.1" r="0.72"><stop offset="0" stop-color="${VIOLET}" stop-opacity="0.32"/><stop offset="1" stop-color="${VIOLET}" stop-opacity="0"/></radialGradient>
+    <linearGradient id="beam" x1="1" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${VIOLET}" stop-opacity="0.30"/><stop offset="1" stop-color="${VIOLET}" stop-opacity="0"/></linearGradient>
+    <linearGradient id="throw" x1="0" y1="0" x2="0.35" y2="1"><stop offset="0" stop-color="#d9c7ff" stop-opacity="0.95"/><stop offset="0.5" stop-color="${VIOLET}" stop-opacity="0.75"/><stop offset="1" stop-color="${VIOLET}" stop-opacity="0.12"/></linearGradient>
+    <filter id="crisp" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="0.8"/></filter>
+  </defs>
+  <rect width="${WIDTH}" height="${HEIGHT}" fill="#000000"/>
+  <rect width="${WIDTH}" height="${HEIGHT}" fill="url(#lamp)"/>
+  <path d="M ${WIDTH} 0 L ${WIDTH} 210 L 560 ${HEIGHT} L 900 0 Z" fill="url(#beam)"/>
+  <g transform="translate(940,96) matrix(0.62,0,-0.2108,0.6448,0,0)"><g fill="url(#throw)" filter="url(#crisp)" opacity="0.95">${QUESTION}</g></g>
+  <rect width="${STRIPE}" height="${HEIGHT}" fill="${VIOLET}"/>
+  <text x="${LEFT}" y="118" font-family="Inter" font-weight="600" font-size="28" letter-spacing="5" fill="#ffffff" fill-opacity="0.42">${xml(banner.eyebrow.toUpperCase())}</text>
+  <text x="${LEFT}" y="${214 + size * 0.55}" font-family="Inter Display" font-weight="700" font-size="${size}" letter-spacing="-1.5" fill="#ffffff">${xml(banner.title)}</text>
+  ${chips}
+  ${signature ? `<text x="${WIDTH - 72}" y="408" text-anchor="end" font-family="Inter" font-weight="600" font-size="30" fill="#ffffff" fill-opacity="0.38">${xml(signature)}</text>` : ""}
+</svg>`;
+}
+
 function bannerSvg(banner: Banner, signature?: string): string {
+  if (banner.stealth) return stealthSvg(banner, signature);
   if (banner.rows) return posterSvg(banner);
   if (banner.quote) return quoteSvg(banner, banner.quote);
   if (banner.change) return changeSvg(banner, banner.change, signature);
@@ -164,7 +246,7 @@ function bannerSvg(banner: Banner, signature?: string): string {
   const heroSize = hero ? Math.min(200, Math.floor(440 / (hero.text.length * 0.6))) : 0;
   const heroWidth = hero ? textWidth(hero.text, heroSize) * 1.08 : 0;
   const size = titleSize(banner.title, WIDTH - 144 - (hero ? heroWidth + 40 : 0));
-  let x = 72;
+  let x = LEFT;
   const chips = banner.chips.slice(0, 3).map((chip) => {
     const width = chip.length * 30 * 0.5 + 56;
     const pill = `<rect x="${x}" y="368" width="${width}" height="60" rx="30" fill="#ffffff" fill-opacity="0.08" stroke="#ffffff" stroke-opacity="0.16"/><text x="${x + 28}" y="408" font-family="Inter" font-weight="600" font-size="30" fill="#ffffff" fill-opacity="0.92">${xml(chip)}</text>`;
@@ -182,8 +264,8 @@ function bannerSvg(banner: Banner, signature?: string): string {
   ${watermarkLayer(logo, banner.watermark)}
   ${logo ? `<image x="${WIDTH - 72 - tile}" y="${hero ? 52 : 64}" width="${tile}" height="${tile}" href="${logo}"/>` : ""}
   ${heroText}
-  <text x="72" y="118" font-family="Inter" font-weight="600" font-size="28" letter-spacing="4" fill="#ffffff" fill-opacity="0.6">${xml(banner.eyebrow.toUpperCase())}</text>
-  <text x="72" y="${200 + size * 0.55}" font-family="Inter Display" font-weight="700" font-size="${size}" letter-spacing="-1.5" fill="#ffffff">${xml(banner.title)}</text>
+  <text x="${LEFT}" y="118" font-family="Inter" font-weight="600" font-size="28" letter-spacing="4" fill="#ffffff" fill-opacity="0.6">${xml(banner.eyebrow.toUpperCase())}</text>
+  ${titleText(banner.title, size, glow, banner.vendor)}
   ${chips.join("\n  ")}
   ${signatureText(signature, Boolean(hero))}
 </svg>`;
@@ -225,7 +307,7 @@ function quoteSvg(banner: Banner, quote: NonNullable<Banner["quote"]>): string {
   const text = lines
     .map(
       (line, index) =>
-        `<text x="72" y="${top + index * step}" font-family="Inter Display" font-weight="700" font-size="${size}" letter-spacing="-1" fill="#ffffff">${xml(line)}</text>`,
+        `<text x="${LEFT}" y="${top + index * step}" font-family="Inter Display" font-weight="700" font-size="${size}" letter-spacing="-1" fill="#ffffff">${xml(line)}</text>`,
     )
     .join("\n  ");
   let hero = "";
@@ -241,9 +323,9 @@ function quoteSvg(banner: Banner, quote: NonNullable<Banner["quote"]>): string {
   <defs><clipPath id="portrait"><circle cx="${px + tile / 2}" cy="${64 + tile / 2}" r="${tile / 2}"/></clipPath></defs>
   ${photo ? `<image x="${px}" y="64" width="${tile}" height="${tile}" href="${photo}" clip-path="url(#portrait)" preserveAspectRatio="xMidYMid slice"/>` : ""}
   <circle cx="${px + tile / 2}" cy="${64 + tile / 2}" r="${tile / 2 + 3}" fill="none" stroke="${glow}" stroke-width="5"/>
-  <text x="72" y="118" font-family="Inter" font-weight="600" font-size="28" letter-spacing="4" fill="#ffffff" fill-opacity="0.6">${xml(banner.eyebrow.toUpperCase())}</text>
+  <text x="${LEFT}" y="118" font-family="Inter" font-weight="600" font-size="28" letter-spacing="4" fill="#ffffff" fill-opacity="0.6">${xml(banner.eyebrow.toUpperCase())}</text>
   ${text}
-  <text x="72" y="${HEIGHT - 56}" font-family="Inter" font-weight="600" font-size="32" fill="#ffffff" fill-opacity="0.8">— ${xml(quote.by)}</text>
+  <text x="${LEFT}" y="${HEIGHT - 56}" font-family="Inter" font-weight="600" font-size="32" fill="#ffffff" fill-opacity="0.8">— ${xml(quote.by)}</text>
   ${hero}
 </svg>`;
 }

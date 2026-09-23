@@ -143,7 +143,7 @@ test("a maker's changelog is its sentence once, on the picture", () => {
   expect(embed.title).toContain("Kimi Code CLI v2.1.0");
 });
 
-test("a banner can carry the maker's mark behind its words", async () => {
+test("a banner carries the maker's mark behind its words, and can be asked not to", async () => {
   const banner: Banner = {
     filename: "b.png",
     eyebrow: "OpenAI · In the API · Sep 22, 2026",
@@ -151,12 +151,12 @@ test("a banner can carry the maker's mark behind its words", async () => {
     chips: ["1M context"],
     vendor: "OpenAI",
     logo: "openai.png",
-    watermark: { opacity: 0.05, size: 640 },
+    watermark: { opacity: 0, size: 640 },
   };
-  const marked = await bannerPng(banner, "alexgetman.com");
-  const { watermark: _unmarked, ...bare } = banner;
-  const plain = await bannerPng(bare, "alexgetman.com");
-  expect(marked.length).toBeGreaterThan(0);
-  // Off unless a card asks for it, so the picture every other banner draws is unchanged.
-  expect(Buffer.from(marked).equals(Buffer.from(plain))).toBe(false);
+  // Every launch carries the mark; a banner turns it off by asking for none of it.
+  const bare = await bannerPng(banner, "alexgetman.com");
+  const { watermark: _off, ...marked } = banner;
+  const withMark = await bannerPng(marked, "alexgetman.com");
+  expect(withMark.length).toBeGreaterThan(0);
+  expect(Buffer.from(withMark).equals(Buffer.from(bare))).toBe(false);
 });
