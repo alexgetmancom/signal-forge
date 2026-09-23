@@ -3,9 +3,10 @@ import { canonical } from "./canonical.js";
 import { normalizeIdentity } from "./identity.js";
 import { CATALOGUE_MAKER } from "./signals.js";
 import type { Event, RecordData } from "./types.js";
-import { isBesideTheRelease } from "./variants.js";
+import { isBesideTheRelease, releasedModelSubject } from "./variants.js";
 import { vendorOfName } from "./vendors.js";
 import { meaningfulWebString, normalizeWebString, tellingWebString } from "./web.js";
+import { subjectKey } from "./witness.js";
 
 /**
  * Observations that are true, cheap to make, and not worth a message.
@@ -472,6 +473,24 @@ export function borrowedFacts(db: Database, event: Event, subject: string): Reco
     }
   }
   return borrowed;
+}
+
+/**
+ * A sighting of a route to a model that is already out.
+ *
+ * LiteLLM's model map named `grok-4.20-beta-latest-non-reasoning` and seven more spellings of the
+ * same model on 2026-09-23, and each one reached the radar as a name in no catalogue. Grok 4.20 had
+ * been answering since March: the strings are routing, not news. A radar exists for models nobody
+ * can call yet, and this is the opposite of one.
+ */
+export function isARouteToAReleasedModel(event: Event, released: ReadonlySet<string>): boolean {
+  if (event.kind !== "new") return false;
+  const name = String(record(event)?.name ?? "");
+  const keys = new Set([releasedModelSubject(event.entity_id), releasedModelSubject(name || event.entity_id)]);
+  // The name as written is the sighting itself; only a shorter reading of it can be the model.
+  return [...keys].some(
+    (key) => key.length > 3 && released.has(key) && !released.has(subjectKey(name || event.entity_id)),
+  );
 }
 
 /** Past this, a catalogue adding a model is catching up with a release, not carrying one. */

@@ -160,3 +160,22 @@ test("a banner carries the maker's mark behind its words, and can be asked not t
   expect(withMark.length).toBeGreaterThan(0);
   expect(Buffer.from(withMark).equals(Buffer.from(bare))).toBe(false);
 });
+
+test("an entry with nothing but its own maker in it says its title and stops", () => {
+  const event = {
+    id: 9,
+    source: "cursor-changelog",
+    stream: "news",
+    entity_id: "rollouts-and-security-reviewer",
+    kind: "new",
+    after_json: JSON.stringify({
+      id: "rollouts-and-security-reviewer",
+      name: "Rollouts and Security Review",
+      maker: "Cursor",
+    }),
+    detected_at: "2026-09-23T20:34:00.000Z",
+  } as unknown as Event;
+  // The card went out with "Maker / Cursor" as the only thing under its title: the maker is in the
+  // line above it and on the logo beside it, and it was never a fact about what shipped.
+  expect(eventEmbed(event, "u").fields).toBeUndefined();
+});

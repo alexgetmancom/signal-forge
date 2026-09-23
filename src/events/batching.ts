@@ -41,7 +41,7 @@ import { sourceFamily } from "./sourceFamily.js";
 import { clearSuppression, recordSuppression, type SuppressionReason } from "./suppression.js";
 import type { Event, RecordData } from "./types.js";
 import { displayName } from "./variants.js";
-import { firstSightingBySubject, listingsBySubject, rosterSiblings, subjectKey } from "./witness.js";
+import { firstSightingBySubject, listingsBySubject, releasedSubjects, rosterSiblings, subjectKey } from "./witness.js";
 import {
   addedFieldSignature,
   borrowedFacts,
@@ -52,6 +52,7 @@ import {
   isAnotherServing,
   isAnotherTierOfAListedModel,
   isAResellerFillingInAPrice,
+  isARouteToAReleasedModel,
   isFixesOnlyRelease,
   isLabelOnlyChange,
   isLeftToTheDailyRecap,
@@ -173,9 +174,12 @@ function releaseKey(event: Event & { signal: string }): string | null {
   // its own pages within seventy minutes of the catalogue card; a reader needs the first of them.
   const announcement = announcementModel(event);
   if (announcement) return announcement;
-  if (event.signal !== "release") return null;
+  // A changelog entry that links a GitHub release is that release, whatever class the entry was
+  // given. The link is identity, not judgement: once a build named for the command line stopped
+  // being a release, the same build started reaching the wire twice.
   const linked = /#github-release-(\d+)$/.exec(event.entity_id);
   if (linked) return linked[1] as string;
+  if (event.signal !== "release") return null;
   if (/^github:[^:]+:releases$/.test(event.source) && /^\d+$/.test(event.entity_id)) return event.entity_id;
   return null;
 }
@@ -530,6 +534,7 @@ type BatchView = {
   longKnown: Set<number>;
   known: ReturnType<typeof knownModelNames>;
   listings: ReturnType<typeof listingsBySubject> | null;
+  released: ReadonlySet<string>;
   sighted: (event: Event) => boolean;
   elsewhereOf: (event: Event) => string[];
 };
@@ -571,6 +576,7 @@ function standingReason(
     isAlreadyOutAtItsMaker(event, view.elsewhereOf(event))
   )
     return "already_out_at_its_maker";
+  if (event.signal === "codename" && isARouteToAReleasedModel(event, view.released)) return "already_out_at_its_maker";
   if (event.signal === "codename" && wasReleasedLongBefore(db, event)) return "released_long_before_this_listing";
   if (event.signal === "codename" && namesOnlyKnownModels(event, view.known)) return "names_only_known_models";
   if (event.signal === "release" && isFixesOnlyRelease(event)) return "fixes_only_release";
@@ -646,7 +652,12 @@ function batchViewOf(db: Database, events: readonly (Event & { signal: SignalCla
   )
     ? knownModelNames(db)
     : [];
-  return { renamed, schema, herd, longKnown, known, listings, sighted, elsewhereOf };
+  // Only a sighting can be a route to something already out, and only a batch that holds one pays
+  // for the reading.
+  const released = events.some((event) => event.signal === "codename" && event.kind === "new")
+    ? releasedSubjects(db)
+    : new Set<string>();
+  return { renamed, schema, herd, longKnown, known, listings, released, sighted, elsewhereOf };
 }
 
 /**

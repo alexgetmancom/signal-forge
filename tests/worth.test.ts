@@ -769,9 +769,17 @@ test("a Codex release told from its GitHub page stays quiet when the changelog c
   saveCollection(db, changelog, [wire], "2026-09-18T21:30:00.000Z");
   prepareDeliveries(db, Date.parse("2026-09-18T22:00:00.000Z"));
 
-  expect(suppressed(db)).toMatchObject({
-    "https://developers.openai.com/codex/changelog/#github-release-391752266": "same_release_on_another_page",
-  });
+  // The reader hears about 0.155.0 once. The GitHub release carries it; the changelog entry that
+  // repeats it is named for the command line, which this feed's readers do not use, and a build
+  // that ships nothing they can act on stays out whether or not it was already told.
+  const told = db
+    .query<{ entity_id: string }, []>(
+      `SELECT e.entity_id FROM delivery_events de JOIN events e ON e.id=de.event_id
+       WHERE e.entity_id LIKE '%391752266%'`,
+    )
+    .all()
+    .map((row) => row.entity_id);
+  expect(told).toEqual(["391752266"]);
   db.close();
 });
 
@@ -1127,5 +1135,76 @@ test("a gateway filling in a rate it had left at zero is not a price change", ()
     .query<{ signal: string }, []>("SELECT signal FROM events WHERE kind='changed' ORDER BY id DESC LIMIT 1")
     .get();
   expect(signal?.signal).toBe("evidence");
+  db.close();
+});
+
+test("a sighting of a route to a model that is already out says nothing", () => {
+  const db = openDatabase(":memory:");
+  const catalogue: Collection = {
+    source: "openrouter",
+    stream: "openrouter",
+    url: "https://openrouter.ai",
+    raw: [],
+    records: [{ id: "x-ai/grok-4.20", name: "xAI: Grok 4.20" }],
+  };
+  saveCollection(db, catalogue, [wire], "2026-09-20T00:00:00.000Z");
+  const mentions = (ids: string[]): Collection => ({
+    source: "github:BerriAI/litellm:models",
+    stream: "github",
+    url: "https://github.com/BerriAI/litellm",
+    raw: [],
+    appendOnly: true,
+    records: ids.map((id) => ({ id, name: id })),
+  });
+  saveCollection(db, mentions(["gpt-6-luna"]), [wire], "2026-09-23T19:00:00.000Z");
+  saveCollection(
+    db,
+    mentions(["gpt-6-luna", "grok-4.20-beta-latest-non-reasoning", "grok-4.20-experimental-beta-0304"]),
+    [wire],
+    "2026-09-23T19:46:00.000Z",
+  );
+  prepareDeliveries(db, Date.parse("2026-09-23T20:00:00.000Z"));
+  // Thirteen spellings of one released model reached the radar on 2026-09-23, each saying it was in
+  // no catalogue. A name nobody can call yet still speaks: Luna is not in the catalogue above.
+  expect(suppressed(db)).toEqual({
+    "grok-4.20-beta-latest-non-reasoning": "already_out_at_its_maker",
+    "grok-4.20-experimental-beta-0304": "already_out_at_its_maker",
+  });
+  db.close();
+});
+
+test("a build named for the command line is not news for a reader who runs the desktop client", () => {
+  const db = openDatabase(":memory:");
+  const changelog = (records: RecordData[]): Collection => ({
+    source: "kimi-code-changelog",
+    stream: "news",
+    url: "https://moonshot.ai/changelog",
+    raw: [],
+    appendOnly: true,
+    records,
+  });
+  const terminal = {
+    id: "v2.1.0",
+    name: "Kimi Code CLI v2.1.0",
+    version: "v2.1.0",
+    summary: "A new experimental fullscreen interface: the transcript scrolls independently.",
+  };
+  const shipping = {
+    id: "v2.2.0",
+    name: "Kimi Code CLI v2.2.0",
+    version: "v2.2.0",
+    summary: "Kimi K2.7 is now the default model on every plan.",
+  };
+  const older = { id: "v2.0.0", name: "Kimi Code CLI v2.0.0", version: "v2.0.0", summary: "The first release." };
+  saveCollection(db, changelog([older]), [wire], "2026-09-23T15:01:00.000Z");
+  saveCollection(db, changelog([older, terminal]), [wire], "2026-09-23T16:01:00.000Z");
+  saveCollection(db, changelog([older, terminal, shipping]), [wire], "2026-09-23T17:01:00.000Z");
+  const signals = db
+    .query<{ entity_id: string; signal: string }, []>("SELECT entity_id,signal FROM events ORDER BY id")
+    .all();
+  expect(Object.fromEntries(signals.map((row) => [row.entity_id, row.signal]))).toEqual({
+    "v2.1.0": "evidence",
+    "v2.2.0": "release",
+  });
   db.close();
 });

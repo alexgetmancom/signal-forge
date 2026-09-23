@@ -101,6 +101,24 @@ export function modelSubject(name: string): string {
 }
 
 /**
+ * A model name with its release channel taken off, for asking whether the model itself is out.
+ *
+ * LiteLLM named thirteen strings on 2026-09-23 -- `grok-4.20-beta-latest-non-reasoning`,
+ * `-experimental-beta-0304`, `-reasoning-gv2` and so on -- and every one reached the radar saying
+ * it was in no catalogue. Grok 4.20 had been answering on the API since March. These are routes to
+ * one released model, not thirteen sightings. Only the routing words come off: `flash`, `fast`,
+ * `mini` and `pro` are what a maker sells as separate models, and stripping those would silence a
+ * real launch.
+ */
+const ROUTING_WORD = /^(beta|latest|preview|experimental|stable|ga|rc|gv\d+|non|reasoning|thinking|\d{4})$/;
+
+export function releasedModelSubject(name: string): string {
+  const words = normalizeIdentity(name.replace(/^[^:/]+[:/]/, "")).split(" ");
+  while (words.length > 1 && ROUTING_WORD.test(words.at(-1) ?? "")) words.pop();
+  return words.join("");
+}
+
+/**
  * True when this record is somebody else republishing another maker's model.
  *
  * `nvidia/Qwen3.8-27B-NVFP4` is a quantisation of Alibaba's model, not a launch by NVIDIA, and six

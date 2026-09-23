@@ -408,7 +408,11 @@ export function eventFactParts(event: Event & CardContext, summary?: string): Fa
       // Whether a listing can be used is stated as a sentence, not as "Selectable: yes". A maker
       // that repeats the provider is one line spent on nothing.
       if (key === "selectable") continue;
-      if (key === "maker" && canonical(raw) === canonical(record?.provider)) continue;
+      // The maker is on the card twice already -- in the line above the title and on the logo -- so
+      // it is never a fact. Cursor's "Rollouts and Security Review" reached #signals on 2026-09-23
+      // with "Maker: Cursor" as the only thing under its title, because the entry carried no other
+      // field; a card with nothing to say says the title and stops.
+      if (key === "maker") continue;
       if (key === "pricing") lines.push(...prices(null, raw, event.source));
       else if (["description", "summary", "message"].includes(key)) {
         // A feed that carries no summary for a post said nothing; "not set" is a line spent saying

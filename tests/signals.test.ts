@@ -281,11 +281,22 @@ test("a patch build stays out of the release class; a minor, major or named rele
   expect(signalClass(changelog("claude-code-changelog", { name: "Claude Code 2.2.0", version: "2.2.0" }))).toBe(
     "release",
   );
-  expect(signalClass(changelog("openai-codex-changelog", { name: "Codex CLI Release: 0.155.0" }))).toBe("release");
+  // The readers of this feed run the desktop clients. A build named for the command line is about
+  // a program they never open, unless it ships something -- a model, a price, a limit -- and then
+  // it is about that.
+  expect(signalClass(changelog("openai-codex-changelog", { name: "Codex CLI Release: 0.155.0" }))).toBe("evidence");
   expect(signalClass(release("0.155.0"))).toBe("release");
   expect(signalClass(changelog("kimi-code-changelog", { name: "Kimi Code CLI v2.0.0", version: "v2.0.0" }))).toBe(
-    "release",
+    "evidence",
   );
+  expect(
+    signalClass(
+      changelog("openai-codex-changelog", {
+        name: "Codex CLI Release: 0.156.0",
+        summary: "GPT-6 Sol is now the default model.",
+      } as { name: string; version?: string }),
+    ),
+  ).toBe("release");
   expect(signalClass(changelog("kimi-code-changelog", { name: "Kimi K2.7 Code", version: "Kimi K2.7 Code" }))).toBe(
     "release",
   );
@@ -418,4 +429,25 @@ test("a consumer app's release notes are evidence at Mistral as they are at Chat
   expect(entry("mistral-release-notes", "Le Chat: memories you can edit", "consumers")).toBe("evidence");
   expect(entry("mistral-release-notes", "New voices in Le Chat")).toBe("evidence");
   expect(entry("mistral-release-notes", "Mistral Large 3 is available in the API", "developers")).not.toBe("evidence");
+});
+
+test("a page about making pictures or speech is a trail, not news", () => {
+  const page = (path: string) =>
+    ({
+      id: 1,
+      source: "pages:google",
+      stream: "pages",
+      entity_id: path,
+      kind: "new",
+      after_json: JSON.stringify({ id: path, name: `Google AI for Developers: ${path.split("/").at(-1)}`, path }),
+      detected_at: "2026-09-23T15:48:00.000Z",
+    }) as unknown as Event;
+  // Google published its TTS models as eight pages on 2026-09-23 and the survivor reached the news
+  // channel: a reader who came for coding models was told about a voice.
+  // A page naming a versioned model is a sighting whatever the model does, and the radar is where
+  // a sighting belongs; the manual beside it is not even that.
+  expect(signalClass(page("/gemini-api/docs/models/gemini-3.8-flash-tts"))).toBe("codename");
+  expect(signalClass(page("/gemini-api/docs/generate-content/voice-design"))).toBe("evidence");
+  expect(signalClass(page("/gemini-api/docs/voices"))).toBe("evidence");
+  expect(signalClass(page("/gemini-api/docs/quickstart"))).not.toBe("codename");
 });

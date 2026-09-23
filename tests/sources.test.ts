@@ -947,6 +947,17 @@ test("Cursor changelog takes the slug as identity and refuses a page it cannot r
     published: "2026-08-19T00:00:00.000Z",
     url: "https://cursor.com/changelog/08-19-26",
   });
+  // An entry with no body leaves the card with a title and nothing else, so the opening paragraph
+  // is read: "Rollouts and Security Review" went out on 2026-09-23 saying only who made it.
+  const withBody =
+    `<a href="/changelog/rollouts"><time dateTime="2026-09-23T00:00:00.000Z">Sep 23, 2026</time></a>` +
+    `<h1><a href="/changelog/rollouts">Rollouts and Security Review</a></h1></header>` +
+    `<div class="prose"><p>Today we&#x27;re launching two Cursor bots for the last mile of shipping code.</p>` +
+    `<h2 id="rollouts">Rollouts</h2><p>The manual starts here.</p></div>`;
+  expect(parseCursorChangelog(withBody).records[0]).toMatchObject({
+    summary: "Today we're launching two Cursor bots for the last mile of shipping code.",
+  });
+  expect(parsed.records[0]).not.toHaveProperty("summary");
   expect(() => parseCursorChangelog("<html>Nothing here</html>")).toThrow("no longer exposes");
   // The page ships the same heading twice for its responsive layout; that is one entry, not two.
   expect(parseCursorChangelog(html + html).records).toHaveLength(1);

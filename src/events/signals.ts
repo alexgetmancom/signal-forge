@@ -464,9 +464,33 @@ export function sellsAnotherMakersModel(event: Event): boolean {
   return named !== "Unknown" && named !== owner;
 }
 
-/** The jobs a subscription feed's reader did not come for, named in the model's own id. */
+/**
+ * The jobs a subscription feed's reader did not come for, named in the model's own id.
+ *
+ * Making pictures, video and sound belongs here for the same reason speech does: Recraft V4.1 Flash
+ * reached the radar on 2026-09-23 priced per image, and a reader who writes code for a living picks
+ * none of it. The sighting still belongs on the radar; the news channel is not for it.
+ */
 const MODALITY_VARIANT =
-  /(?:^|[\s-])(?:tts|stt|asr|embed|embedding|embeddings|rerank|reranker|moderation|ocr|guard|realtime|live|livetranslate)(?:[\s-]|$)/;
+  /(?:^|[\s-])(?:tts|stt|asr|embed|embedding|embeddings|rerank|reranker|moderation|ocr|guard|realtime|live|livetranslate|image|images|video|audio|speech|voice|voices|music|imagen|veo|lyria|diffusion|dall[\s-]?e|recraft)(?:[\s-]|$)/;
+
+/**
+ * A post about a command-line program, or about how one behaves in a terminal.
+ *
+ * The readers of this feed run Codex Desktop and Claude Code Desktop, which are windows, not
+ * terminals. Kimi Code CLI v2.1.0 reached the news channel on 2026-09-23 to say its transcript now
+ * scrolls on its own and text can be selected with the mouse -- true, and about a program none of
+ * them open. A build that carries a model, a price or a limit is not this: those words are read
+ * before the terminal is, so a release that ships something stays a release.
+ */
+const TERMINAL_TOOL = /\b(cli|tui|terminal|command[\s-]line|shell|keybinds?|keybindings?|ncurses)\b/i;
+const SHIPS_SOMETHING = /\b(model|models|pricing|price|limits?|quota|context|agent|agents|subscription|plan|plans)\b/i;
+
+function isAboutTheTerminal(event: Event, record: RecordData | null): boolean {
+  if (event.kind !== "new") return false;
+  const words = `${text(record?.name) ?? ""} ${text(record?.summary) ?? ""} ${text(record?.description) ?? ""}`;
+  return TERMINAL_TOOL.test(words) && !SHIPS_SOMETHING.test(words);
+}
 
 export function signalClass(event: Event): SignalClass {
   const record = recordFor(event);
@@ -530,6 +554,7 @@ export function signalClass(event: Event): SignalClass {
    */
   if (event.stream === "news") {
     if (publishedLongAgo(event, record?.published)) return "evidence";
+    if (isAboutTheTerminal(event, record)) return "evidence";
     if (PRODUCT_BLOGS.has(event.source)) {
       if (event.kind === "new" && SHIPS.test(text(record?.name) ?? "")) return "release";
       return event.kind === "new" ? articleTopic(event) : "article";
@@ -568,7 +593,15 @@ export function signalClass(event: Event): SignalClass {
     if (HELP_CENTRES.has(event.source)) return "evidence";
     if (PAGE_BLOGS.has(event.source)) return event.kind === "new" ? articleTopic(event) : "article";
     if (event.kind !== "new") return "evidence";
-    return pageNamesAProduct(recordFor(event)) ? "codename" : articleTopic(event);
+    // A page that names a versioned product is a sighting whatever the product does, because the
+    // name appearing is the tell. Everything else on a site about making pictures, video or sound
+    // is the manual for one, and a manual is not news: Google published the Gemini 3.8 TTS models
+    // on 2026-09-23 as eight pages, and the one that survived the collapse reached the news
+    // channel, where a reader who came for coding models was told about a voice.
+    if (pageNamesAProduct(recordFor(event))) return "codename";
+    if (MODALITY_VARIANT.test(decodeURIComponent(event.entity_id).toLowerCase().replaceAll(/[/_.]/g, "-")))
+      return "evidence";
+    return articleTopic(event);
   }
 
   // An interface that starts naming a versioned model or a preview is a sighting; the rest of its

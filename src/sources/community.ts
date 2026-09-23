@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Collection } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
+import { htmlText } from "./html.js";
 import { fetchText } from "./http.js";
 
 /**
@@ -72,6 +73,22 @@ export async function collectDesignArena(category: string, request: Fetch = fetc
 }
 
 /**
+ * The opening paragraph of a changelog entry, which is where Cursor says what it shipped.
+ *
+ * Without it a card has a title and nothing else, and "Rollouts and Security Review" went out on
+ * 2026-09-23 printing its own maker as the only fact it had. The entry's body follows its heading
+ * as prose; the first paragraph of that prose is the sentence a reader needs, and anything past
+ * the first subheading is the manual.
+ */
+function ledeAfter(html: string, from: number): string | null {
+  const body = html.slice(from, from + 4000);
+  const stop = body.search(/<h[23][\s>]/);
+  const paragraph = /<p[^>]*>([\s\S]*?)<\/p>/.exec(stop < 0 ? body : body.slice(0, stop));
+  const text = paragraph?.[1] ? htmlText(paragraph[1]).trim() : "";
+  return text.length > 20 ? text : null;
+}
+
+/**
  * Cursor publishes its changelog as a rendered page with no feed. Entries are addressed by slug,
  * so the slug is the identity and the surrounding text supplies a title and a date.
  */
@@ -82,12 +99,17 @@ export function parseCursorChangelog(html: string): Collection {
   const heading = /<h1[^>]*>\s*<a[^>]*href="\/changelog\/([a-z0-9.-]+)"[^>]*>([^<]{3,200})<\/a>/g;
   // The page renders an entry's heading more than once (a responsive layout ships both variants),
   // so the slug is a key rather than a list item: the same entry twice is one entry.
-  const seen = new Map<string, { slug: string; title: string; published: string | null }>();
+  const seen = new Map<string, { slug: string; title: string; published: string | null; summary: string | null }>();
   for (const match of html.matchAll(heading)) {
     const [, slug, title] = match;
     if (!slug || !title || seen.has(slug)) continue;
     const dates = [...html.slice(0, match.index).matchAll(/dateTime="([^"]+)"/g)];
-    seen.set(slug, { slug, title: title.trim(), published: dates.at(-1)?.[1] ?? null });
+    seen.set(slug, {
+      slug,
+      title: title.trim(),
+      published: dates.at(-1)?.[1] ?? null,
+      summary: ledeAfter(html, match.index + match[0].length),
+    });
   }
   const records = [...seen.values()];
   if (!records.length) throw new Error("Public page no longer exposes changelog entries");
@@ -104,6 +126,7 @@ export function parseCursorChangelog(html: string): Collection {
       url: `https://cursor.com/changelog/${entry.slug}`,
       maker: "Cursor",
       published: entry.published,
+      ...(entry.summary ? { summary: entry.summary } : {}),
     })),
   };
 }

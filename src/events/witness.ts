@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { modelSubject } from "./variants.js";
+import { modelSubject, releasedModelSubject } from "./variants.js";
 
 /**
  * Models something other than a price list knows about.
@@ -72,6 +72,33 @@ export function listingsBySubject(db: Database): Map<string, Set<string>> {
     }
   }
   return listings;
+}
+
+/**
+ * Every model any catalogue already carries, keyed with its release channel stripped off.
+ *
+ * This answers one question and no other: is the model behind this name already out? A mirror
+ * counts here, unlike in `listingsBySubject`, because a card built on this never names the venue --
+ * it only stays quiet.
+ */
+export function releasedSubjects(db: Database): Set<string> {
+  const released = new Set<string>();
+  const rows = db
+    .query<{ id: string; body: string }, []>(
+      "SELECT id,body FROM records WHERE stream IN ('api-models','openrouter','weights') AND source NOT LIKE 'discovery:%'",
+    )
+    .all();
+  for (const row of rows) {
+    let name: unknown;
+    try {
+      name = (JSON.parse(row.body) as Record<string, unknown>).name;
+    } catch {
+      name = null;
+    }
+    for (const value of new Set([row.id, typeof name === "string" ? name : row.id]))
+      released.add(releasedModelSubject(value));
+  }
+  return released;
 }
 
 /**
