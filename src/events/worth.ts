@@ -463,8 +463,12 @@ export function borrowedFacts(db: Database, event: Event, subject: string): Reco
     }
     for (const field of wanted) {
       if (field === "pricing" && !PRICED_BY.has(row.source)) continue;
-      if (borrowed[field] === undefined && fields[field] !== undefined && fields[field] !== null)
+      if (borrowed[field] === undefined && fields[field] !== undefined && fields[field] !== null) {
         borrowed[field] = fields[field];
+        // A rate is only readable next to the catalogue it came from: one sheet writes dollars per
+        // token and another per million, and a card that forgets which is off by a million.
+        if (field === "pricing") borrowed.pricingSource = row.source;
+      }
     }
   }
   return borrowed;

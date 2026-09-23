@@ -555,7 +555,7 @@ function launchChips(event: Event & CardContext, found: readonly string[]): stri
     if (context) chips.push(context);
   }
   if (!chips.some((chip) => chip.includes("$"))) {
-    const price = prices(null, borrowed.pricing, "openrouter").find(
+    const price = prices(null, borrowed.pricing, String(borrowed.pricingSource ?? "openrouter")).find(
       (fact): fact is Exclude<Fact, string> => typeof fact !== "string" && fact.label === "Price",
     );
     if (price) chips.push(...priceChips(price.value));

@@ -203,7 +203,11 @@ const QUESTION = `<path d="M18 78 C18 26, 60 -2, 104 -2 C152 -2, 188 26, 188 76 
  C142 46, 126 34, 102 34 C76 34, 62 50, 62 78 Z"/>
  <circle cx="94" cy="238" r="25"/>`;
 
-/** Black, one lamp off the frame, and the question lying in the light it throws. */
+/**
+ * The ordinary card with one substitution: where every other banner carries its maker's tile, this
+ * one carries a question. A stealth launch has no maker, and that absence is the news, so it is
+ * said in the place a reader already looks for who made the thing -- not as a separate scene.
+ */
 function stealthSvg(banner: Banner, signature?: string): string {
   const size = titleSize(banner.title, WIDTH - 200 - 260);
   let x = LEFT;
@@ -218,17 +222,15 @@ function stealthSvg(banner: Banner, signature?: string): string {
     .join("\n  ");
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}">
   <defs>
-    <radialGradient id="lamp" cx="0.94" cy="0.1" r="0.72"><stop offset="0" stop-color="${VIOLET}" stop-opacity="0.32"/><stop offset="1" stop-color="${VIOLET}" stop-opacity="0"/></radialGradient>
-    <linearGradient id="beam" x1="1" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${VIOLET}" stop-opacity="0.30"/><stop offset="1" stop-color="${VIOLET}" stop-opacity="0"/></linearGradient>
-    <linearGradient id="throw" x1="0" y1="0" x2="0.35" y2="1"><stop offset="0" stop-color="#d9c7ff" stop-opacity="0.95"/><stop offset="0.5" stop-color="${VIOLET}" stop-opacity="0.75"/><stop offset="1" stop-color="${VIOLET}" stop-opacity="0.12"/></linearGradient>
-    <filter id="crisp" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="0.8"/></filter>
+    <linearGradient id="fade" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#121018"/><stop offset="1" stop-color="#08070c"/></linearGradient>
+    <radialGradient id="lamp" cx="0.92" cy="0.05" r="0.95"><stop offset="0" stop-color="${VIOLET}" stop-opacity="0.55"/><stop offset="0.55" stop-color="${VIOLET}" stop-opacity="0.10"/><stop offset="1" stop-color="${VIOLET}" stop-opacity="0"/></radialGradient>
+    <mask id="asked"><rect width="132" height="132" fill="#ffffff"/><g fill="#000000" transform="translate(25,14) scale(0.4)">${QUESTION}</g></mask>
   </defs>
-  <rect width="${WIDTH}" height="${HEIGHT}" fill="#000000"/>
+  <rect width="${WIDTH}" height="${HEIGHT}" fill="url(#fade)"/>
   <rect width="${WIDTH}" height="${HEIGHT}" fill="url(#lamp)"/>
-  <path d="M ${WIDTH} 0 L ${WIDTH} 210 L 560 ${HEIGHT} L 900 0 Z" fill="url(#beam)"/>
-  <g transform="translate(940,96) matrix(0.62,0,-0.2108,0.6448,0,0)"><g fill="url(#throw)" filter="url(#crisp)" opacity="0.95">${QUESTION}</g></g>
+  <g transform="translate(${WIDTH - 204},64)"><rect width="132" height="132" rx="30" fill="${VIOLET}" mask="url(#asked)"/></g>
   <rect width="${STRIPE}" height="${HEIGHT}" fill="${VIOLET}"/>
-  <text x="${LEFT}" y="118" font-family="Inter" font-weight="600" font-size="28" letter-spacing="5" fill="#ffffff" fill-opacity="0.42">${xml(banner.eyebrow.toUpperCase())}</text>
+  <text x="${LEFT}" y="118" font-family="Inter" font-weight="600" font-size="28" letter-spacing="4" fill="#ffffff" fill-opacity="0.6">${xml(banner.eyebrow.toUpperCase())}</text>
   <text x="${LEFT}" y="${214 + size * 0.55}" font-family="Inter Display" font-weight="700" font-size="${size}" letter-spacing="-1.5" fill="#ffffff">${xml(banner.title)}</text>
   ${chips}
   ${signature ? `<text x="${WIDTH - 72}" y="408" text-anchor="end" font-family="Inter" font-weight="600" font-size="30" fill="#ffffff" fill-opacity="0.38">${xml(signature)}</text>` : ""}
