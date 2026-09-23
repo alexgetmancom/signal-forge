@@ -5,10 +5,9 @@ import { prepareDeliveries } from "../src/events/batching.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import {
   DESCRIPTION_CHARACTERS,
-  EMBEDS_PER_MESSAGE,
   embedCharacters,
   MESSAGE_CHARACTERS,
-  pageEmbeds,
+  oneMessage,
 } from "../src/events/render/budget.js";
 import { logoFiles, sourceLogo, vendorLogo } from "../src/events/render/logos.js";
 import { telegramMessage } from "../src/events/render/telegramCard.js";
@@ -417,34 +416,40 @@ test("a message built from embeds is not sent with the embed-suppressing flag", 
   expect(sent[1]?.flags).toBe(4);
 });
 
-test("a digest larger than one Discord message is paged instead of being rejected whole", () => {
+test("a bundle shows one card and leaves the rest for the line of links", () => {
   const long = (index: number) => ({
     author: { name: "AVAILABILITY · VENDOR" },
     title: `Model ${index}`,
     description: "x".repeat(DESCRIPTION_CHARACTERS),
     footer: { text: "Evidence: availability catalogue" },
   });
-  const pages = pageEmbeds(Array.from({ length: 7 }, (_, index) => long(index)));
-  expect(pages.length).toBeGreaterThan(1);
-  for (const page of pages) {
-    expect(page.length).toBeLessThanOrEqual(EMBEDS_PER_MESSAGE);
-    expect(page.reduce((total, embed) => total + embedCharacters(embed), 0)).toBeLessThanOrEqual(MESSAGE_CHARACTERS);
-  }
-  expect(pages.flat()).toHaveLength(7);
+  const { page, extra } = oneMessage(Array.from({ length: 7 }, (_, index) => long(index)));
+  expect(page).toHaveLength(1);
+  expect(extra).toHaveLength(6);
+  expect(page.reduce((total, embed) => total + embedCharacters(embed), 0)).toBeLessThanOrEqual(MESSAGE_CHARACTERS);
 });
 
-test("ten small embeds still travel as one message", () => {
-  const pages = pageEmbeds(
+test("a digest shows a few stories and stops at the character budget", () => {
+  const small = oneMessage(
     Array.from({ length: 10 }, (_, index) => ({ title: `Model ${index}`, description: "short" })),
+    undefined,
+    3,
   );
-  expect(pages).toHaveLength(1);
+  expect(small.page).toHaveLength(3);
+  expect(small.extra).toHaveLength(7);
+  const big = oneMessage(
+    Array.from({ length: 3 }, (_, index) => ({ title: `Model ${index}`, description: "x".repeat(4000) })),
+    undefined,
+    3,
+  );
+  expect(big.page).toHaveLength(1);
 });
 
 test("an embed too large to share a message is trimmed to fit and never dropped", () => {
-  const [page] = pageEmbeds([{ title: "Huge", description: "y".repeat(MESSAGE_CHARACTERS + 500) }]);
+  const { page } = oneMessage([{ title: "Huge", description: "y".repeat(MESSAGE_CHARACTERS + 500) }]);
   expect(page).toHaveLength(1);
-  expect(embedCharacters(page?.[0] ?? {})).toBeLessThanOrEqual(MESSAGE_CHARACTERS);
-  expect(String(page?.[0]?.description ?? "")).toEndWith("…");
+  expect(embedCharacters(page[0] ?? {})).toBeLessThanOrEqual(MESSAGE_CHARACTERS);
+  expect(String(page[0]?.description ?? "")).toEndWith("…");
 });
 
 test("a long evidence list travels as a file instead of ending at a truncation notice", async () => {

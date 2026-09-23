@@ -16,7 +16,7 @@ import { departedAs, isOscillating, isReappearance, isScheduledPricingRotation }
 import { renamedEvents } from "./rename.js";
 import { type Attachment, eventAttachment } from "./render/attachment.js";
 import type { Banner } from "./render/banner.js";
-import { pageEmbeds } from "./render/budget.js";
+import { oneMessage } from "./render/budget.js";
 import { eventEmbed, isRoster, rosterEmbed } from "./render/discord.js";
 import type { LeadTime } from "./render/facts.js";
 import {
@@ -59,6 +59,8 @@ import {
 const DUPLICATE_STORY_WINDOW_MS = 6 * 3_600_000;
 /** How many stories an hourly digest shows before it stops being read at all. */
 const DIGEST_STORIES = 5;
+/** A digest tells separate stories, so it may show a few cards; anything else shows one. */
+const DIGEST_EMBEDS = 3;
 const SEPARATOR = "\n\n────────\n\n";
 
 /**
@@ -881,34 +883,47 @@ export function prepareDeliveries(
             behind.set(embed, group);
           });
         // Telegram counts a message's characters to 4096; the markup and the footer lines take the rest.
-        const pages = pageEmbeds(embeds, destination.platform === "telegram" ? 3200 : undefined);
-        pages.forEach((page, index) => {
-          // A roster card names its own count and catalogue; the "3 updates" line above it would repeat it.
-          const content =
-            index === 0 ? [roster ? "" : header.trim(), ...tookOff, pingLine].filter(Boolean).join("\n") : "";
-          const files = page.map((embed) => attachments.get(embed)).filter((file): file is Attachment => Boolean(file));
-          const carried = page.flatMap((embed) => behind.get(embed) ?? []);
-          // A page that continues one story hangs off the message that told it first, so the
-          // reveal of a codename carries a jump back to the sighting rather than repeating it.
-          const replyTo = index === 0 ? firstTelling(db, carried, storyIds, target.destination_id) : null;
-          // A banner's words travel beside the embeds, and its picture is drawn when the message is sent.
-          const banners = page.flatMap((embed) => (embed.banner ? [embed.banner] : []));
-          store(
-            JSON.stringify({
-              content,
-              embeds: page.map(({ banner: _banner, ...embed }) => embed),
-              ...(banners.length ? { banners } : {}),
-              ...(files.length ? { files } : {}),
-              ...(replyTo ? { message_reference: { message_id: replyTo, fail_if_not_exists: false } } : {}),
-              ...(index === 0 && roles.length ? { allowed_mentions: { parse: [], roles } } : {}),
-            }),
-            index,
-            carried,
-          );
-        });
+        const { page, extra } = oneMessage(
+          embeds,
+          destination.platform === "telegram" ? 3200 : undefined,
+          batch.digest ? DIGEST_EMBEDS : 1,
+        );
+        // What did not fit is told on one line of links rather than in a second message: the
+        // events behind it are carried by this message, so none of them is sent again later.
+        const alsoLine = extra.length
+          ? `-# Also: ${extra
+              .map((embed) => {
+                const name = String(embed.title ?? "").replace(/^[^\p{L}\p{N}]+/u, "");
+                const link = typeof embed.url === "string" ? embed.url.split("#")[0] : null;
+                return link ? `[${name}](${link})` : name;
+              })
+              .filter(Boolean)
+              .join(" · ")}`
+          : "";
+        // A roster card names its own count and catalogue; the "3 updates" line above it would repeat it.
+        const content = [roster ? "" : header.trim(), ...tookOff, pingLine, alsoLine].filter(Boolean).join("\n");
+        const files = page.map((embed) => attachments.get(embed)).filter((file): file is Attachment => Boolean(file));
+        const carried = [...page, ...extra].flatMap((embed) => behind.get(embed) ?? []);
+        // A message that continues one story hangs off the one that told it first, so the reveal of
+        // a codename carries a jump back to the sighting rather than repeating it.
+        const replyTo = firstTelling(db, carried, storyIds, target.destination_id);
+        // A banner's words travel beside the embeds, and its picture is drawn when the message is sent.
+        const banners = page.flatMap((embed) => (embed.banner ? [embed.banner] : []));
+        store(
+          JSON.stringify({
+            content,
+            embeds: page.map(({ banner: _banner, ...embed }) => embed),
+            ...(banners.length ? { banners } : {}),
+            ...(files.length ? { files } : {}),
+            ...(replyTo ? { message_reference: { message_id: replyTo, fail_if_not_exists: false } } : {}),
+            ...(roles.length ? { allowed_mentions: { parse: [], roles } } : {}),
+          }),
+          0,
+          carried,
+        );
         db.query(
-          "DELETE FROM deliveries WHERE batch_id=? AND destination_id=? AND status='pending' AND attempts=0 AND part>=?",
-        ).run(batch.id, target.destination_id, pages.length);
+          "DELETE FROM deliveries WHERE batch_id=? AND destination_id=? AND status='pending' AND attempts=0 AND part>=1",
+        ).run(batch.id, target.destination_id);
         continue;
       }
       const parts = splitMessage(text, 3900 - header.length);

@@ -480,7 +480,7 @@ test("a cross-stream digest stays scoped to each destination", () => {
   local.close();
 });
 
-test("each platform is paged by its own limit", () => {
+test("a bundle of twelve updates is one message on each platform", () => {
   saveCollection(db, collection(["a"]), targets);
   const c = collection(["a", ...Array.from({ length: 12 }, (_, i) => `model-${i}`)]);
   c.records = c.records.map((r) => ({ ...r, description: "Details ".repeat(150) }));
@@ -490,23 +490,19 @@ test("each platform is paged by its own limit", () => {
     .all();
 
   const telegram = rows.filter((row) => row.destination_id === "tg");
-  expect(telegram.length).toBeGreaterThan(1);
-  telegram.forEach((row, index) => {
-    const html = telegramMessage(row.body).html;
-    if (index === 0) expect(html).toStartWith("📡 OpenRouter · 12 updates");
-    expect(visibleLength(html)).toBeLessThanOrEqual(TEXT_LIMIT);
-  });
+  expect(telegram).toHaveLength(1);
+  const html = telegramMessage(telegram[0]?.body ?? "").html;
+  expect(html).toStartWith("📡 OpenRouter · 12 updates");
+  expect(visibleLength(html)).toBeLessThanOrEqual(TEXT_LIMIT);
 
   const discord = rows.filter((row) => row.destination_id !== "tg");
-  expect(discord.length).toBeGreaterThan(1);
-  discord.forEach((row, index) => {
-    const payload = JSON.parse(row.body) as { content: string; embeds: unknown[] };
-    // Ten embeds is Discord's own ceiling; the heading belongs on the first page only, because
-    // the embeds below it already carry their own headings.
-    expect(payload.embeds.length).toBeLessThanOrEqual(10);
-    // Only the first page carries a heading, and only because this batch holds twelve events.
-    if (index === 0) expect(payload.content).toStartWith("📡 OpenRouter · 12 updates");
-  });
+  expect(discord).toHaveLength(1);
+  const payload = JSON.parse(discord[0]?.body ?? "") as { content: string; embeds: unknown[] };
+  // One card is shown and the other eleven are named on the line of links below it.
+  expect(payload.embeds).toHaveLength(1);
+  expect(payload.content).toStartWith("📡 OpenRouter · 12 updates");
+  expect(payload.content).toContain("-# Also:");
+  expect(payload.content.match(/\]\(https/g)).toHaveLength(11);
 
   expect(db.query("SELECT DISTINCT source,stream FROM events").all()).toEqual([
     { source: "openrouter", stream: "openrouter" },

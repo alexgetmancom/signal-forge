@@ -3,7 +3,6 @@
  * embeds that each carry a long description is a valid request by every per-embed limit and is
  * still rejected as a whole, which used to mean an hourly digest was quietly never delivered.
  */
-export const EMBEDS_PER_MESSAGE = 10;
 export const MESSAGE_CHARACTERS = 6000;
 export const DESCRIPTION_CHARACTERS = 4000;
 
@@ -42,25 +41,25 @@ function fitAlone(embed: Embed): Embed {
 }
 
 /**
- * Splits embeds into messages that respect both the count and the character budget. Order is
- * preserved, and no embed is dropped: one that cannot share a message gets one of its own.
+ * The embeds one message carries, and the ones left over for its footer.
+ *
+ * A message carries one card. Fifteen documentation pages that changed because Codex started
+ * naming gpt-6-sol are one thing that happened, and on 2026-09-22 they arrived as fifteen embeds
+ * across two messages in the scouts room: a wall is skipped whole, which loses the card in it that
+ * mattered. A digest of separate stories may show a few, and the rest of either travel as links on
+ * one line rather than as another message nobody asked for.
  */
 /** `budget` is the platform's budget: Telegram fits a message of cards in 4096 where Discord fits 6000. */
-export function pageEmbeds(embeds: Embed[], budget = MESSAGE_CHARACTERS): Embed[][] {
-  const pages: Embed[][] = [];
-  let page: Embed[] = [];
+export function oneMessage(embeds: Embed[], budget = MESSAGE_CHARACTERS, cap = 1): { page: Embed[]; extra: Embed[] } {
+  const page: Embed[] = [];
   let characters = 0;
   for (const embed of embeds) {
+    if (page.length >= cap) break;
     const fitted = fitAlone(embed);
     const size = embedCharacters(fitted);
-    if (page.length > 0 && (page.length >= EMBEDS_PER_MESSAGE || characters + size > budget)) {
-      pages.push(page);
-      page = [];
-      characters = 0;
-    }
+    if (page.length > 0 && characters + size > budget) break;
     page.push(fitted);
     characters += size;
   }
-  if (page.length) pages.push(page);
-  return pages;
+  return { page, extra: embeds.slice(page.length) };
 }
