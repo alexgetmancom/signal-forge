@@ -1010,3 +1010,26 @@ test("a model from a maker this reader will never call stays out of the sighting
   expect(classes["moonshotai/kimi-k3"]).toBe("codename");
   db.close();
 });
+
+test("a catalogue listing a model released four months ago is not a sighting", () => {
+  const db = openDatabase(":memory:");
+  const catalogue: Collection = {
+    source: "openrouter",
+    stream: "openrouter",
+    url: "https://openrouter.ai/api/v1/models",
+    raw: [],
+    records: [{ id: "mistralai/anchor-1", name: "Mistral: Anchor 1", created: "2026-09-19T00:00:00.000Z" }],
+  };
+  saveCollection(db, catalogue, [wire], "2026-09-19T00:00:00.000Z");
+  // The row dates the model itself: a back catalogue arriving, not a release.
+  catalogue.records.push({
+    id: "mistralai/mistral-medium-3.2",
+    name: "Mistral: Medium 3.2",
+    created: "2026-05-01T00:00:00.000Z",
+  });
+  saveCollection(db, catalogue, [wire], "2026-09-21T18:21:28.890Z");
+  prepareDeliveries(db, Date.parse("2026-09-21T18:30:00.000Z"));
+
+  expect(suppressed(db)["mistralai/mistral-medium-3.2"]).toBe("released_long_before_this_listing");
+  db.close();
+});

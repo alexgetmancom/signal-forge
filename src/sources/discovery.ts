@@ -6,11 +6,22 @@ import type { Fetch } from "../http-client.js";
 import type { HttpCache } from "../storage/httpCache.js";
 import { fetchText } from "./http.js";
 
+/**
+ * What GitHub is building, at a floor where somebody other than the author noticed.
+ *
+ * These four searches collected 239 repositories in the three days to 2026-09-23 and delivered none
+ * of them: nothing here is a card, and their whole job is to say that a model is being built on,
+ * which `breakouts.ts` counts. 128 of the 208 distinct repositories sat in the 15-to-19 star band --
+ * a week-old project with a first page of stars, of which `zhangcy122/OpenJev` and `andududu/jeview`
+ * are typical. Twenty stars is where a repository stops being its author's and becomes the field's,
+ * and a model that is actually taking off crosses it in the same days: the threshold a breakout
+ * needs is three such repositories, not thirty hobby forks.
+ */
 export const GITHUB_DISCOVERY_QUERIES = [
   { id: "ai", topic: "topic:artificial-intelligence", minimumStars: 20 },
-  { id: "llm", topic: "llm", minimumStars: 15 },
-  { id: "agent", topic: "agent", minimumStars: 15 },
-  { id: "mcp", topic: "mcp", minimumStars: 10 },
+  { id: "llm", topic: "llm", minimumStars: 20 },
+  { id: "agent", topic: "agent", minimumStars: 20 },
+  { id: "mcp", topic: "mcp", minimumStars: 20 },
 ] as const;
 
 type GithubDiscoveryQuery = (typeof GITHUB_DISCOVERY_QUERIES)[number];

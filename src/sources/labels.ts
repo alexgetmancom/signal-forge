@@ -27,6 +27,7 @@ const STATIC_LABELS: Record<string, string> = {
   "minimax-release-notes": "MiniMax · release notes",
   "kimi-docs": "Kimi · API docs",
   "zai-release-notes": "Z.ai · release notes",
+  "xiaomi-news": "Xiaomi MiMo · news",
   "deepseek-sitemap": "DeepSeek · API docs sitemap",
   "claude-blog": "Claude · blog",
   "mimo-training": "Xiaomi MiMo · training runs",

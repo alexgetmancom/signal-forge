@@ -83,3 +83,18 @@ test("a Hacker News story counts", () => {
   add("hackernews", "stories", "hn-1", { name: "Zorblax 1 beats everything" }, "2026-09-17T12:00:00.000Z");
   expect(detectBreakouts(db, [scouts], now)).toEqual([arrival]);
 });
+
+test("a model that was already out is not taking off when one more catalogue imports it", () => {
+  const { db, add, arrival } = setup();
+  // Another catalogue has held the model since August and its record says so; Azure's row, which
+  // names no maker and carries no date, is an import.
+  db.query("INSERT INTO records(source,id,body,stream) VALUES(?,?,?,?)").run(
+    "huggingface-router",
+    "acme-labs/zorblax-1",
+    JSON.stringify({ id: "acme-labs/zorblax-1", created: "2026-08-01T00:00:00.000Z" }),
+    "weights",
+  );
+  add("hackernews", "news", "story-1", { name: "Zorblax 1 is remarkably good" }, "2026-09-17T19:00:00.000Z");
+  expect(detectBreakouts(db, [scouts], now)).toEqual([]);
+  expect(breakoutOf(db, arrival)).toBeNull();
+});

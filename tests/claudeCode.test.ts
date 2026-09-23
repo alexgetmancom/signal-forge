@@ -4,7 +4,7 @@ import type { Event } from "../src/events/types.js";
 import { claudeModelIds } from "../src/sources/claudeCode.js";
 import { commandCodeModelIds, isFreeModel, isSmallModel, servedModel } from "../src/sources/codingPlans.js";
 import { skuModels } from "../src/sources/googleSkus.js";
-import { kimiQuickstarts, minimaxReleases, qwenPosts, zaiReleases } from "../src/sources/labPages.js";
+import { kimiQuickstarts, minimaxReleases, qwenPosts, xiaomiNews, zaiReleases } from "../src/sources/labPages.js";
 import { parseAnthropicRoutes } from "../src/sources/news.js";
 import { modelPages } from "../src/sources/sitemaps.js";
 
@@ -142,4 +142,33 @@ test("Z.ai's release notes and DeepSeek's dated news pages name a release each",
     .map((path) => `<loc>https://api-docs.deepseek.com${path}</loc>`)
     .join("");
   expect(modelPages(xml, /^news\d{6}$/)).toEqual(["https://api-docs.deepseek.com/news/news260910"]);
+});
+
+test("Xiaomi's news section is its announcements, and the archive beside it is not", () => {
+  const index = [
+    "### Latest News",
+    "",
+    "- [MiMo-V2.6: Scaling Up Reinforcement Learning](https://mimo.mi.com/static/docs/news/latest/v2-6.md)",
+    "- [MiMo Code Released and Open-Sourced](https://mimo.mi.com/static/docs/news/latest/mimocode.md)",
+    "",
+    "### Previous News",
+    "",
+    "- [Xiaomi MiMo-V2-Pro: Flagship Foundation Model](https://mimo.mi.com/static/docs/news/previous-news/v2-pro-release.md)",
+    "",
+    "- [Models](https://mimo.mi.com/static/docs/quick-start/summary/model.md)",
+  ].join("\n");
+  expect(xiaomiNews(index)).toEqual([
+    {
+      id: "https://mimo.mi.com/docs/en-US/news/latest/v2-6",
+      name: "MiMo-V2.6: Scaling Up Reinforcement Learning",
+      maker: "Xiaomi",
+      url: "https://mimo.mi.com/docs/en-US/news/latest/v2-6",
+    },
+    {
+      id: "https://mimo.mi.com/docs/en-US/news/latest/mimocode",
+      name: "MiMo Code Released and Open-Sourced",
+      maker: "Xiaomi",
+      url: "https://mimo.mi.com/docs/en-US/news/latest/mimocode",
+    },
+  ]);
 });

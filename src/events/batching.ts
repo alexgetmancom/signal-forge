@@ -57,6 +57,7 @@ import {
   namesOnlyKnownModels,
   pageModel,
   retellsToldModels,
+  wasReleasedLongBefore,
 } from "./worth.js";
 
 const DUPLICATE_STORY_WINDOW_MS = 6 * 3_600_000;
@@ -559,6 +560,7 @@ function standingReason(
     isAlreadyOutAtItsMaker(event, view.elsewhereOf(event))
   )
     return "already_out_at_its_maker";
+  if (event.signal === "codename" && wasReleasedLongBefore(db, event)) return "released_long_before_this_listing";
   if (event.signal === "codename" && namesOnlyKnownModels(event, view.known)) return "names_only_known_models";
   if (event.signal === "release" && isFixesOnlyRelease(event)) return "fixes_only_release";
   return null;

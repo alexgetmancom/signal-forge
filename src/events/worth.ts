@@ -426,6 +426,69 @@ export function isAlreadyOutAtItsMaker(event: Event, elsewhere: readonly string[
   return maker !== "Unknown" && elsewhere.some((source) => makerOfListing(source) === maker);
 }
 
+/** Past this, a catalogue adding a model is catching up with a release, not carrying one. */
+const ALREADY_OUT_MS = 30 * 24 * 3_600_000;
+
+const CREATED_FIELDS = ["created", "createdAt", "created_at", "releaseDate", "release_date"];
+
+/**
+ * A model that was already out when this catalogue listed it, on a row that names no maker.
+ *
+ * `isAlreadyOutAtItsMaker` asks who published the model and finds the maker's own listing beside
+ * this one. An importer defeats that by naming nobody: Azure's row for Meta's Muse Glimmer 30B is
+ * `azure-ai-foundry/Muse-Glimmer-30B` and says "microsoft-foundry", so the model read as new on
+ * 2026-09-21, six weeks after Meta uploaded it and while five catalogues were already selling it.
+ *
+ * What the row does not say, another catalogue's record does: OpenRouter and Hugging Face both carry
+ * the date a model was created. Reading it there dates the release without a lookup, and a month is
+ * long enough that no reader is still waiting for the news.
+ */
+export function wasReleasedLongBefore(db: Database, event: Event): boolean {
+  if (event.kind !== "new" || (event.stream !== "api-models" && event.stream !== "openrouter")) return false;
+  const cutoff = Date.parse(event.detected_at) - ALREADY_OUT_MS;
+  if (createdBefore(record(event), cutoff)) return true;
+  const id = (record(event)?.id ?? event.entity_id) as string;
+  const name = String(id).split("/").at(-1)?.toLowerCase() ?? "";
+  // A name without a digit and a separator is a word, and a word matches half the catalogue.
+  if (name.length < 6 || !/\d/.test(name) || !/[-_.]/.test(name)) return false;
+  return db
+    .query<{ body: string }, [string]>(
+      `SELECT body FROM records WHERE stream IN ('api-models','openrouter','weights')
+       AND lower(id) LIKE '%' || ? || '%' LIMIT 20`,
+    )
+    .all(name)
+    .some((row) => {
+      try {
+        return createdBefore(JSON.parse(row.body) as Record<string, unknown>, cutoff);
+      } catch {
+        return false;
+      }
+    });
+}
+
+/** Before this, a date is a placeholder rather than a release: catalogues write `created: 1`. */
+const EARLIEST_RELEASE = Date.parse("2015-01-01T00:00:00.000Z");
+
+/** The date a record puts on the model itself, in the two shapes catalogues write it. */
+function releaseDate(value: unknown): number | null {
+  const at =
+    typeof value === "number"
+      ? // A catalogue writes an epoch, in seconds on OpenRouter and in milliseconds elsewhere.
+        value * (value > 1e11 ? 1 : 1000)
+      : typeof value === "string"
+        ? Date.parse(value)
+        : Number.NaN;
+  return Number.isFinite(at) && at >= EARLIEST_RELEASE ? at : null;
+}
+
+/** True when a record dates the model itself, and that date is older than the cutoff. */
+function createdBefore(fields: Record<string, unknown> | null | undefined, cutoff: number): boolean {
+  return CREATED_FIELDS.some((field) => {
+    const at = releaseDate(fields?.[field]);
+    return at !== null && at < cutoff;
+  });
+}
+
 /**
  * The maker a listing belongs to, when the listing is the maker's own. Weights under the maker's own
  * Hugging Face organisation are that maker releasing the model: GLM-4.7 Flash reached the scouts

@@ -33,6 +33,7 @@ const SUPPRESSION_REASONS = [
   "past_the_digest_limit",
   "left_to_the_daily_recap",
   "already_out_at_its_maker",
+  "released_long_before_this_listing",
   "names_only_known_models",
   "fixes_only_release",
   "a_reseller_filled_in_a_price",
@@ -94,6 +95,8 @@ function suppressionDetail(event: Event, reason: SuppressionReason): string {
       return "An OpenRouter price, which the daily recap reports as the day's net move";
     case "already_out_at_its_maker":
       return "A sighting of a model its maker's own catalogue already lists";
+    case "released_long_before_this_listing":
+      return "A catalogue importing a model that was released more than a month ago";
     case "names_only_known_models":
       return "A documentation change whose only tell is a model already known here";
     case "fixes_only_release":

@@ -3,6 +3,7 @@ import type { Destination } from "../config.js";
 import { readState, writeState } from "../storage/appState.js";
 import { isUnfollowedMakerAtAReseller, resellerMaker } from "./signals.js";
 import type { Event } from "./types.js";
+import { wasReleasedLongBefore } from "./worth.js";
 
 /**
  * A small company's model taking off, told the moment it does.
@@ -153,6 +154,10 @@ export function detectBreakouts(db: Database, destinations: readonly Destination
     )
     .all(new Date(now - WATCH_MS).toISOString(), new Date(now).toISOString())
     .filter((event) => isUnfollowedMakerAtAReseller(event) && !breakoutOf(db, event.id))
+    // A model that was already out is not taking off. Meta's Muse Glimmer 30B, six weeks old and
+    // sold by five catalogues, reached Azure on 2026-09-21 and was carded because its Hacker News
+    // thread was on the front page; the thread was about the model, not about Azure listing it.
+    .filter((event) => !wasReleasedLongBefore(db, event))
     // A model that already reached a reader as a card is not news again when it takes off.
     .filter(
       (event) =>
