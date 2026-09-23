@@ -81,7 +81,15 @@ function backdrop(width: number, height: number, glow: string): string {
   <rect x="0" y="0" width="${width}" height="6" fill="${glow}"/>`;
 }
 
-function bannerSvg(banner: Banner): string {
+function signatureText(signature: string | undefined, taken: boolean): string {
+  // A number in the corner has that corner; the picture keeps its subject and loses the signature.
+  if (!signature || taken) return "";
+  // On the chips' own baseline, at their size: a fourth item in that row rather than a watermark
+  // dropped under it. Discord shows a banner about 470px wide, where anything smaller is lost.
+  return `<text x="${WIDTH - 72}" y="408" text-anchor="end" font-family="Inter" font-weight="600" font-size="30" letter-spacing="0.5" fill="#ffffff" fill-opacity="0.5">${xml(signature)}</text>`;
+}
+
+function bannerSvg(banner: Banner, signature?: string): string {
   if (banner.rows) return posterSvg(banner);
   if (banner.quote) return quoteSvg(banner, banner.quote);
   const glow = banner.glow === undefined ? glowOf(banner.vendor) : hex(banner.glow);
@@ -110,6 +118,7 @@ function bannerSvg(banner: Banner): string {
   <text x="72" y="118" font-family="Inter" font-weight="600" font-size="28" letter-spacing="4" fill="#ffffff" fill-opacity="0.6">${xml(banner.eyebrow.toUpperCase())}</text>
   <text x="72" y="${200 + size * 0.55}" font-family="Inter Display" font-weight="700" font-size="${size}" letter-spacing="-1.5" fill="#ffffff">${xml(banner.title)}</text>
   ${chips.join("\n  ")}
+  ${signatureText(signature, Boolean(hero))}
 </svg>`;
 }
 
@@ -234,9 +243,9 @@ function start(): Promise<void> {
   return ready;
 }
 
-export async function bannerPng(banner: Banner): Promise<Uint8Array> {
+export async function bannerPng(banner: Banner, signature?: string): Promise<Uint8Array> {
   await start();
-  const image = new Resvg(bannerSvg(banner), {
+  const image = new Resvg(bannerSvg(banner, signature), {
     font: { fontBuffers: fonts, loadSystemFonts: false, defaultFontFamily: "Inter" },
     fitTo: { mode: "width", value: banner.rows ? POSTER_WIDTH : WIDTH },
   });

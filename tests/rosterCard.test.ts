@@ -54,6 +54,23 @@ test("a launch banner draws as a PNG", async () => {
   expect([...png.slice(1, 4)].map((byte) => String.fromCharCode(byte)).join("")).toBe("PNG");
 });
 
+test("a signature is drawn on a launch banner and left off a number's corner", async () => {
+  const banner: Banner = {
+    filename: "banner-x.png",
+    eyebrow: "Stealth launch",
+    title: "Space Bunny",
+    chips: ["free"],
+    vendor: "Unknown",
+    logo: null,
+  };
+  const plain = await bannerPng(banner);
+  const signed = await bannerPng(banner, "alexgetman.com");
+  expect(signed.length).not.toBe(plain.length);
+  // The corner belongs to the number, so a reset banner is drawn the same either way.
+  const hero = { ...banner, hero: { text: "12h", caption: "until reset" } };
+  expect((await bannerPng(hero, "alexgetman.com")).length).toBe((await bannerPng(hero)).length);
+});
+
 test("a banner in a payload is not looked for among the logos", () => {
   const payload = {
     embeds: [{ image: { url: "attachment://banner-x.png" }, thumbnail: { url: "attachment://xai.png" } }],

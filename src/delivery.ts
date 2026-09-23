@@ -192,7 +192,10 @@ export async function deliverPending(db: Database, config: AppConfig, request: F
               try {
                 photo =
                   "banner" in message.photo
-                    ? { filename: message.photo.banner.filename, content: await bannerPng(message.photo.banner) }
+                    ? {
+                        filename: message.photo.banner.filename,
+                        content: await bannerPng(message.photo.banner, config.signature),
+                      }
                     : (logoFiles(`attachment://${message.photo.filename}`)[0] ?? null);
               } catch (failure) {
                 log("warn", "Banner not drawn", {
@@ -233,7 +236,7 @@ export async function deliverPending(db: Database, config: AppConfig, request: F
             // A banner that fails to draw costs the card its picture, never the message.
             for (const banner of banners.slice(0, MAX_FILES - evidence.length)) {
               try {
-                evidence.push({ filename: banner.filename, content: await bannerPng(banner) });
+                evidence.push({ filename: banner.filename, content: await bannerPng(banner, config.signature) });
               } catch (failure) {
                 log("warn", "Banner not drawn", {
                   error: failure instanceof Error ? failure.message : String(failure),

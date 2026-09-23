@@ -63,7 +63,8 @@ const STATIC_LABELS: Record<string, string> = {
   simplebench: "SimpleBench · leaderboard",
   "claude-web": "Claude · interface",
   "codex-docs": "Codex · docs",
-  "codex-resets": "codex-resets.com",
+  // Named for what it tracks, not by its domain: a card does not advertise somebody else's site.
+  "codex-resets": "Codex · weekly resets",
   "vercel-gateway": "Vercel AI Gateway",
   "cursor-changelog": "Cursor · changelog",
   "app:ios:chatgpt": "App Store · ChatGPT",

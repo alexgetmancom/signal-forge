@@ -119,6 +119,12 @@ export const settingsSchema = z
      * mentioned beside the vendor role, never instead of it, and never on routine movement.
      */
     allSignalsRole: z.string().regex(/^\d+$/).optional(),
+    /**
+     * The publication's own name, drawn small in the corner of every banner it sends. Cards are
+     * screenshotted and passed on, and the signature is what carries a reader back to the site.
+     * Left out, banners are unsigned: somebody else's install signs with their name or with nothing.
+     */
+    signature: z.string().min(1).max(40).optional(),
     /** One Discord channel holding a status board that is edited in place, not a stream of posts. */
     statusChannelId: z.string().regex(/^\d+$/).optional(),
     /**
