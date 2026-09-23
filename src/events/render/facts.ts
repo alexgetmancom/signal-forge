@@ -73,6 +73,24 @@ function modalities(input: unknown, output: unknown): string | null {
 }
 
 /** An observation with no value is not worth a line of its own when nothing preceded it. */
+/**
+ * A leaderboard's category in the reader's words. The record keeps it as the key the board is
+ * fetched by -- "artificial-analysis/quality", "designarena/uicomponent" -- and that key names our
+ * own storage, not the thing measured.
+ */
+function boardWords(category: unknown, source: string): string {
+  const key = typeof category === "string" ? category : "";
+  const board = sourceLabel(source).split(" · ")[0] ?? source;
+  const tail = (key.split("/").at(-1) ?? "").replace(/[-_]+/g, " ").trim();
+  const plain = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  if (!tail || tail === "overall") return board;
+  return plain(tail).includes(plain(board)) ? capitalWords(tail) : `${board} ${tail}`;
+}
+
+function capitalWords(text: string): string {
+  return text.replace(/\b[a-z]/g, (letter) => letter.toUpperCase());
+}
+
 function present(raw: unknown): boolean {
   return !(raw === null || raw === undefined || raw === "" || (Array.isArray(raw) && raw.length === 0));
 }
@@ -282,12 +300,14 @@ export function eventFactParts(event: Event & CardContext, summary?: string): Fa
     if (present(after.model) && canonical(after.model) !== canonical(after.name))
       lines.push(field("model", after.model));
   } else if (event.stream === "leaderboards" && !before && after) {
-    lines.push(
-      after.rank
-        ? `Enters ${describe(after.category)} at rank ${describe(after.rank)}`
-        : `Enters ${describe(after.category)}, outside the leading places`,
-    );
-    for (const key of ["score", "modelKey", "votes"]) if (present(after[key])) lines.push(field(key, after[key]));
+    // The board is named in words, not as the key we store it under: a debut card read "Enters
+    // artificial-analysis/quality at rank 18", which is our own path printed at the reader.
+    const board = boardWords(after.category, event.source);
+    lines.push(after.rank ? `Enters ${board} at rank ${describe(after.rank)}` : `Enters ${board}, outside the top`);
+    // The scores are an object of a dozen benchmarks, most of them unset. Spelled out they filled
+    // eight lines with "aime: not set" and repeated, inside the mess, the one index already in the
+    // title. The whole table lives in the evidence file instead.
+    if (present(after.votes)) lines.push(field("votes", after.votes));
   } else if (event.stream === "leaderboards" && before && after) {
     if (canonical(before.category) !== canonical(after.category))
       lines.push({ label: "Benchmark", value: `${describe(before.category)} → ${describe(after.category)}` });

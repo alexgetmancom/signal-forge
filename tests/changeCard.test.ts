@@ -107,3 +107,56 @@ test("a venue's shop-window flags are not facts about the model it lists", () =>
   expect(body).not.toContain("headline");
   expect(body).not.toContain("free");
 });
+
+test("a model's page is spelled as the maker spells it, and a sentence is left alone", () => {
+  const model = {
+    ...page,
+    entity_id: "https://docs.claude.com/en/docs/about-claude/models/claude-opus-5-5",
+    after_json: JSON.stringify({ name: "Claude opus 5 5" }),
+  } as unknown as Event;
+  const embed = eventEmbed(model, "u");
+  // The slug loses the dot in the version and the capital on the model's name, and the card printed
+  // both losses twice: once in the title and once, the size of a headline, on the picture.
+  expect(embed.title).toBe("📄 New page: Claude Opus 5.5");
+  expect((embed.banner as Banner).title).toBe("Claude Opus 5.5");
+  expect(eventEmbed(page, "u").title).toBe("📄 New page: Claude discovers novel enzyme system");
+});
+
+test("a maker's changelog is its sentence once, on the picture", () => {
+  const news = {
+    id: 3,
+    source: "moonshot-news",
+    stream: "news",
+    entity_id: "https://moonshot.ai/changelog/kimi-code-cli-v2-1-0",
+    kind: "new",
+    after_json: JSON.stringify({
+      name: "Kimi Code CLI v2.1.0",
+      summary: "A new experimental fullscreen interface. It scrolls independently.",
+    }),
+    detected_at: "2026-09-23T18:39:00.000Z",
+  } as unknown as Event;
+  const embed = eventEmbed(news, "u");
+  const banner = embed.banner as Banner;
+  expect(banner.title).toBe("A new experimental fullscreen interface.");
+  // The same sentence stood above the picture as well, the smaller of the two copies.
+  expect(embed.description).toBeUndefined();
+  expect(embed.title).toContain("Kimi Code CLI v2.1.0");
+});
+
+test("a banner can carry the maker's mark behind its words", async () => {
+  const banner: Banner = {
+    filename: "b.png",
+    eyebrow: "OpenAI · In the API · Sep 22, 2026",
+    title: "GPT-6 Luna",
+    chips: ["1M context"],
+    vendor: "OpenAI",
+    logo: "openai.png",
+    watermark: { opacity: 0.05, size: 640 },
+  };
+  const marked = await bannerPng(banner, "alexgetman.com");
+  const { watermark: _unmarked, ...bare } = banner;
+  const plain = await bannerPng(bare, "alexgetman.com");
+  expect(marked.length).toBeGreaterThan(0);
+  // Off unless a card asks for it, so the picture every other banner draws is unchanged.
+  expect(Buffer.from(marked).equals(Buffer.from(plain))).toBe(false);
+});

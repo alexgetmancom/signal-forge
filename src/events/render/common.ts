@@ -287,6 +287,7 @@ export function prices(before: unknown, after: unknown, source?: string): Fact[]
   // Tier tables and service tiers are whole price sheets: dumped raw, one Vercel card on 2026-09-19
   // printed four walls of `cost: 0.000004, max: 272000` beside the three rates a reader needed.
   const alsoMoved: string[] = [];
+  const moved: { fact: { label: string; value: string }; by: number }[] = [];
   for (const key of new Set([...Object.keys(old), ...Object.keys(next)])) {
     if (canonical(old[key]) === canonical(next[key])) continue;
     if (!labels[key] && (nested(old[key]) || nested(next[key]))) {
@@ -298,9 +299,21 @@ export function prices(before: unknown, after: unknown, source?: string): Fact[]
       const from = money(old[key]);
       const to = money(next[key]);
       if (before && from === to) continue;
-      result.push({ label: labels[key], value: `${from} → ${to} / 1M tokens` });
+      const was = pricePerMillion(old[key], priceUnitForSource(source, old[key])) ?? 0;
+      const now = pricePerMillion(next[key], priceUnitForSource(source, next[key])) ?? 0;
+      moved.push({
+        fact: { label: labels[key], value: `${from} → ${to} / 1M tokens` },
+        by: was > 0 ? Math.abs(now - was) / was : Number.POSITIVE_INFINITY,
+      });
     } else result.push({ label: `Pricing ${key}`, value: `${describe(old[key])} → ${describe(next[key])}` });
   }
+  // A repricing moves the input rate, the output rate and both cache rates at once, and four rows of
+  // "$0 → $0.075 / 1M tokens" is a table. What a reader is told is the sharpest of them; the rest is
+  // a count, and the whole sheet is in the evidence file.
+  moved.sort((one, two) => two.by - one.by);
+  const [sharpest, ...rest] = moved;
+  if (sharpest) result.unshift(sharpest.fact);
+  if (rest.length) result.push({ label: "Also moved", value: rest.map((one) => one.fact.label).join(", ") });
   if (alsoMoved.length) result.push({ label: "Also repriced", value: alsoMoved.join(", ") });
   return result;
 }

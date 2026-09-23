@@ -100,6 +100,19 @@ export function versioned(title: string): string {
   return title.replace(/(?<=[A-Za-z] )(\d) (\d)(?![\d ]*\d)(?=$| [A-Za-z])/g, "$1.$2");
 }
 
+/**
+ * A page's name as its maker writes it. The name is recovered from the URL slug, so a page about a
+ * model arrived as "Claude opus 5 5": the version lost its dot and the model's name lost its
+ * capital. Only a name is capitalised -- few words and a number in it -- because the same slugs
+ * carry sentences, and "Claude Discovers Novel Enzyme System" is a headline in a newspaper, not a
+ * maker's page.
+ */
+function pageName(name: string): string {
+  const looksLikeAModel = /\d/.test(name) && name.trim().split(/\s+/).length <= 4;
+  const spelled = looksLikeAModel ? name.replace(/(?<=\s)[a-z]/g, (letter) => letter.toUpperCase()) : name;
+  return versioned(spelled);
+}
+
 function eventHeadline(event: Event, name: string, incident: Incident | null): string {
   if (event.stream === "deprecations" && event.kind === "new") return `⚠️ ${name} is being retired`;
   if (incident) return `${incident.icon} ${incident.icon === "🟢" ? "Resolved · " : ""}${name}`;
@@ -110,8 +123,15 @@ function eventHeadline(event: Event, name: string, incident: Incident | null): s
     if (event.kind === "new") return `🔎 ${model} named in code`;
   }
   if (event.stream === "arena" && event.kind === "new") return `🆕 ${name} appears on Arena`;
+  // A page names itself "Pricing" or "Overview", which is a heading, not a headline: whose pricing
+  // is the news, and it was left to the footer four lines down.
+  if (event.stream === "web" && event.kind === "changed") {
+    const site = place(event.source);
+    const plain = (text: string) => text.toLowerCase().replace(/[^a-z0-9]+/g, "");
+    if (!plain(name).includes(plain(site))) return `${KIND_ICONS[event.kind]} ${site} · ${name}`;
+  }
   // A docs page for a model nobody sells yet: the page is the sighting, not a new model.
-  if (event.stream === "pages" && event.kind === "new") return `📄 New page: ${versioned(name)}`;
+  if (event.stream === "pages" && event.kind === "new") return `📄 New page: ${pageName(name)}`;
   if (event.stream === "training") {
     const record = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
     const maker = typeof record?.maker === "string" ? `${record.maker} ` : "";
@@ -583,17 +603,38 @@ function specLine(facts: Fact[]): { line: string | null; chips: string[]; rest: 
     facts.find((fact): fact is Exclude<Fact, string> => typeof fact !== "string" && fact.label === label);
   const context = pick("Context");
   const price = pick("Price");
+  // How much a model can write back is part of its shape, and it went out as a field of its own
+  // reading "Returns 131072": a raw token count, in a row by itself, under a line about the shape.
+  const returns = pick("Returns");
+  const out = returns ? tokenCount(returns.value) : null;
   const chips = [
     ...(context ? [`${context.value} context`] : []),
+    ...(out ? [`${out} out`] : []),
     // The picture holds three short pills. GPT-6 Sol's four rates ran off the edge of one; what a
     // reader weighs a model by is what it costs in and out, and the cache rates stay in the text.
     ...(price ? [priceChip(price.value)] : []),
-  ];
+  ].slice(0, 3);
   const line = [
     ...(context ? [`**${context.value}** context`] : []),
-    ...(price ? [`**${price.value.replace(/\s*\/\s*1M tokens$/, "")}** per 1M tokens`] : []),
+    ...(out ? [`**${out}** out`] : []),
+    // The same two rates the pill carries. Four of them in a row -- in, out, cache read, cache
+    // write -- is a table laid end to end, and nobody picks a model by its cache write price.
+    ...(price ? [`**${priceChip(price.value)}** per 1M tokens`] : []),
   ].join(" · ");
-  return { line: line || null, chips, rest: facts.filter((fact) => fact !== context && fact !== price) };
+  return {
+    line: line || null,
+    chips,
+    rest: facts.filter((fact) => fact !== context && fact !== price && !(out && fact === returns)),
+  };
+}
+
+/** A token count as a reader says it: 131072 is "128K", 1050000 is "1.05M". */
+function tokenCount(value: string): string | null {
+  const amount = Number(String(value).replace(/[,_\s]/g, ""));
+  if (!Number.isFinite(amount) || amount <= 0) return null;
+  if (amount >= 1_000_000) return `${Number((amount / 1_000_000).toFixed(2))}M`;
+  if (amount >= 1000) return `${amount % 1024 === 0 ? amount / 1024 : Math.round(amount / 1000)}K`;
+  return String(amount);
 }
 
 /**
@@ -658,7 +699,7 @@ function changeBanner(
   const where = sourceLabel(event.source);
   const eyebrow = [where, shortDate(event.detected_at, true)].join(" · ");
   if (event.stream === "pages" && event.kind === "new")
-    return { ...base, eyebrow, title: name, change: { mark: "+", where: "On the maker's own site" } };
+    return { ...base, eyebrow, title: pageName(name), change: { mark: "+", where: "On the maker's own site" } };
   // A post the maker actually wrote: a feed row carrying a headline and nothing else has nothing
   // for the picture to quote, and a picture of a name is not worth the weight of a picture.
   if (event.stream === "news" && event.kind === "new" && present(record?.summary)) {
@@ -681,8 +722,15 @@ function changeBanner(
     const line = quotes.map((fact) => (typeof fact === "string" ? fact : fact.value)).find((text) => added.test(text));
     const text = line?.replace(added, "").trim();
     if (!text) return null;
-    const section = typeof record?.title === "string" ? record.title : where;
-    return { ...base, eyebrow, title: excerpt(text, 140), change: { mark: "+", where: `Added to ${section}` } };
+    // Where the line landed, when the page knows its own name. Without one it fell back to the
+    // source, and the footing read "Added to Codex · docs" under a top line saying "CODEX · DOCS".
+    const section = typeof record?.title === "string" ? record.title : null;
+    return {
+      ...base,
+      eyebrow,
+      title: excerpt(text, 140),
+      change: { mark: "+", ...(section ? { where: `Added to ${section}` } : { where: "" }) },
+    };
   }
   return null;
 }
@@ -995,11 +1043,16 @@ export function eventEmbed(
     if (!launch && !banner.change) trimToBanner(embed, banner, handle, event.source);
     // The line is on the picture now, and it was in the text cut off mid-word: "See AWS Regional
     // availa". What stays is the count, which the picture does not carry.
-    else if (banner.change && typeof embed.description === "string")
-      embed.description = embed.description
-        .split("\n")
-        .filter((line) => !/^> [+−] /.test(line))
-        .join("\n");
+    else if (banner.change && typeof embed.description === "string") {
+      const kept = embed.description.split("\n").filter((line) => !/^> [+−] /.test(line));
+      // A maker's changelog is one sentence, and the picture is that sentence. Printed above the
+      // picture as well, the card said the same thing twice, the second time larger. The card keeps
+      // the version in its title, the link under it, and nothing else.
+      const said = banner.change.mark === "+" && event.stream === "news";
+      if (said) delete embed.description;
+      else embed.description = kept.join("\n");
+      if (!said && !kept.length) delete embed.description;
+    }
   } else if (thumbnail && (description || fields.length)) embed.thumbnail = { url: thumbnail };
   // A title alone beside a logo left a logo-high empty card above; the stripe says whose it is.
   if (link) embed.url = link;

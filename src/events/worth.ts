@@ -436,11 +436,13 @@ export function isAlreadyOutAtItsMaker(event: Event, elsewhere: readonly string[
  */
 const BORROWED_FIELDS = ["context", "input", "output", "reasoning", "pricing"];
 /**
- * A price is only borrowed from OpenRouter. Every catalogue writes its rates in its own unit, and a
- * sheet read in the wrong one is off by a million on a card people quote; one catalogue whose unit
- * is known is worth more than five whose units have to be guessed.
+ * A price is borrowed only from the catalogues whose unit is known, both of which write dollars per
+ * token. Every other one writes its rates in its own unit, and a sheet read in the wrong one is off
+ * by a million on a card people quote. Two whose units are known beat five that have to be guessed:
+ * with OpenRouter alone, a Claude launch card carried the context and no price, because Anthropic
+ * reaches the gateway first and OpenRouter an hour later.
  */
-const PRICED_BY = "openrouter";
+const PRICED_BY = new Set(["openrouter", "vercel-gateway"]);
 
 export function borrowedFacts(db: Database, event: Event, subject: string): Record<string, unknown> {
   const have: Record<string, unknown> = record(event) ?? {};
@@ -460,7 +462,7 @@ export function borrowedFacts(db: Database, event: Event, subject: string): Reco
       continue;
     }
     for (const field of wanted) {
-      if (field === "pricing" && row.source !== PRICED_BY) continue;
+      if (field === "pricing" && !PRICED_BY.has(row.source)) continue;
       if (borrowed[field] === undefined && fields[field] !== undefined && fields[field] !== null)
         borrowed[field] = fields[field];
     }

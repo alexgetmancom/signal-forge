@@ -1279,7 +1279,7 @@ test("an arena entry whose sibling carries its own name is not said to stand bes
   expect(facts[0]).toBe("Another Arena entry under the same name.");
 });
 
-test("a gateway's tier tables are named as repriced, not dumped", () => {
+test("a repricing is read as its sharpest rate, with the rest counted", () => {
   const sheet = (rate: number) => ({
     input: String(rate),
     output: String(rate * 5),
@@ -1290,8 +1290,9 @@ test("a gateway's tier tables are named as repriced, not dumped", () => {
     fast: { input: String(rate * 2) },
   });
   expect(prices(sheet(0.000002), sheet(0.000004), "vercel-ai-gateway")).toEqual([
+    // Both rates doubled, so the first one read stands and the other is a name, not a second row.
     { label: "Input price", value: "$2 → $4 / 1M tokens" },
-    { label: "Output price", value: "$10 → $20 / 1M tokens" },
+    { label: "Also moved", value: "Output price" },
     { label: "Also repriced", value: "input tiers, fast" },
   ]);
 });

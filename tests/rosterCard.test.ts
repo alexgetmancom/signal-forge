@@ -142,5 +142,8 @@ test("a picture quotes the rates a model is chosen by and keeps the cache sheet 
   expect(banner.chips).toEqual(["1M context", "$2 in · $10 out"]);
   // White is no glow at all on a dark backdrop, so OpenAI's near-white is lit neutrally.
   expect(banner.glow).toBe(0xe6e6e6);
-  expect(String(embed.description)).toContain("cache read");
+  // The card is read for the two rates a model is chosen by. A scout row for MiMo V2.6 Pro ran
+  // "$0.43 in · $0.87 out · $0.0036 cache read per 1M tokens": a sheet laid end to end. The cache
+  // rate is in the evidence file, where the reader who prices a cache hit is looking anyway.
+  expect(String(embed.description)).not.toContain("cache read");
 });

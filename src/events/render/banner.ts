@@ -40,6 +40,12 @@ export type Banner = {
    * says whether the line arrived or moved, and the footing says where it is.
    */
   change?: { mark: "+" | "±"; where: string };
+  /**
+   * The maker's mark, drawn huge and nearly invisible behind the words, bleeding off the lower right
+   * so its tile has no edge inside the frame. Off unless a card asks for it: a watermark that misses
+   * is worse than none, so it is a field rather than something every banner gets.
+   */
+  watermark?: { opacity: number; size: number };
 };
 
 const WIDTH = 1200;
@@ -98,6 +104,17 @@ function backdrop(width: number, height: number, glow: string): string {
   <rect x="0" y="0" width="${width}" height="6" fill="${glow}"/>`;
 }
 
+/**
+ * The mark behind the words. It is the same tile the corner carries, scaled past the frame and
+ * faded until it is texture rather than a logo: a picture with a second, readable logo in it is a
+ * poster for the maker, and this is a publication's card about the maker.
+ */
+function watermarkLayer(logo: string | null, watermark: Banner["watermark"]): string {
+  if (!logo || !watermark) return "";
+  const { opacity, size } = watermark;
+  return `<image x="${WIDTH - size * 0.62}" y="${HEIGHT - size * 0.58}" width="${size}" height="${size}" href="${logo}" opacity="${opacity}"/>`;
+}
+
 function signatureText(signature: string | undefined, taken: boolean): string {
   // A number in the corner has that corner; the picture keeps its subject and loses the signature.
   if (!signature || taken) return "";
@@ -132,7 +149,7 @@ function changeSvg(banner: Banner, change: NonNullable<Banner["change"]>, signat
   <rect x="72" y="${top - size - 6}" width="6" height="${rule}" rx="3" fill="${mark}" fill-opacity="0.9"/>
   <text x="112" y="${top - size * 0.22}" font-family="Inter Display" font-weight="700" font-size="${size}" fill="${mark}">${change.mark}</text>
   ${text}
-  <text x="72" y="${HEIGHT - 52}" font-family="Inter" font-weight="600" font-size="26" fill="#ffffff" fill-opacity="0.55">${xml(change.where)}</text>
+  ${change.where ? `<text x="72" y="${HEIGHT - 52}" font-family="Inter" font-weight="600" font-size="26" fill="#ffffff" fill-opacity="0.55">${xml(change.where)}</text>` : ""}
   ${signature ? `<text x="${WIDTH - 72}" y="${HEIGHT - 52}" text-anchor="end" font-family="Inter" font-weight="600" font-size="30" letter-spacing="0.5" fill="#ffffff" fill-opacity="0.5">${xml(signature)}</text>` : ""}
 </svg>`;
 }
@@ -162,6 +179,7 @@ function bannerSvg(banner: Banner, signature?: string): string {
     : "";
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}">
   ${backdrop(WIDTH, HEIGHT, glow)}
+  ${watermarkLayer(logo, banner.watermark)}
   ${logo ? `<image x="${WIDTH - 72 - tile}" y="${hero ? 52 : 64}" width="${tile}" height="${tile}" href="${logo}"/>` : ""}
   ${heroText}
   <text x="72" y="118" font-family="Inter" font-weight="600" font-size="28" letter-spacing="4" fill="#ffffff" fill-opacity="0.6">${xml(banner.eyebrow.toUpperCase())}</text>
