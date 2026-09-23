@@ -871,3 +871,127 @@ test("a model followed here for weeks reaching one more venue is not a launch", 
   expect(suppressed(db)["cohere/command-a-plus"]).toBe("known_here_for_weeks");
   db.close();
 });
+
+test("one change that reached the whole list is told once, and a reset time redrawn by a minute is not told", () => {
+  const db = openDatabase(":memory:");
+  const plans = ["plus", "pro", "team"];
+  const models = ["gpt-6-astra", "gpt-5.6-sol", "gpt-5.6-luna", "gpt-5.5"];
+  const list: Collection = {
+    source: "codex-models",
+    stream: "api-models",
+    url: "https://chatgpt.com/backend-api/models",
+    raw: [],
+    records: models.map((id) => ({ id, name: id, maker: "OpenAI", plans: [...plans] })),
+  };
+  saveCollection(db, list, [wire], "2026-09-23T00:00:00.000Z");
+  list.records = models.map((id) => ({ id, name: id, maker: "OpenAI", plans: [...plans, "promax"] }));
+  saveCollection(db, list, [wire], "2026-09-23T00:24:00.000Z");
+  prepareDeliveries(db, Date.parse("2026-09-23T01:00:00.000Z"));
+
+  const reasons = suppressed(db);
+  // The first of the herd carries the card; the other three are the same sentence.
+  expect(Object.values(reasons).filter((reason) => reason === "one_change_across_the_whole_list").length).toBe(3);
+  expect(reasons["gpt-6-astra"]).toBeUndefined();
+  db.close();
+});
+
+test("the maker's own post is news beside the card, and an interface catching up is not", () => {
+  const db = openDatabase(":memory:");
+  const news: Destination = { ...wire, id: "news" };
+  const catalogue: Collection = {
+    source: "anthropic",
+    stream: "api-models",
+    url: "https://api.anthropic.com/v1/models",
+    raw: [],
+    records: [{ id: "claude-sonnet-5", name: "Claude Sonnet 5", maker: "Anthropic" }],
+  };
+  saveCollection(db, catalogue, [news], "2026-09-22T16:00:00.000Z");
+  catalogue.records = [
+    { id: "claude-sonnet-5", name: "Claude Sonnet 5", maker: "Anthropic" },
+    { id: "claude-opus-5-5", name: "Claude Opus 5.5", maker: "Anthropic" },
+  ];
+  saveCollection(db, catalogue, [news], "2026-09-22T16:20:00.000Z");
+  prepareDeliveries(db, Date.parse("2026-09-22T16:25:00.000Z"));
+  db.query("UPDATE deliveries SET status='sent',external_id='1'").run();
+
+  const post: Collection = {
+    source: "anthropic-news",
+    stream: "news",
+    url: "https://www.anthropic.com/news",
+    raw: [],
+    records: [
+      { id: "https://www.anthropic.com/economic-index", name: "The Anthropic Economic Index", maker: "Anthropic" },
+    ],
+  };
+  saveCollection(db, post, [news], "2026-09-22T16:30:00.000Z");
+  post.records = [
+    ...post.records,
+    { id: "https://www.anthropic.com/claude-opus-5-5", name: "Introducing Claude Opus 5.5", maker: "Anthropic" },
+  ];
+  saveCollection(db, post, [news], "2026-09-22T16:36:00.000Z");
+  prepareDeliveries(db, Date.parse("2026-09-22T16:40:00.000Z"));
+  db.query(
+    "UPDATE deliveries SET status='sent',external_id='2' WHERE status='pending' AND body LIKE '%Introducing%'",
+  ).run();
+
+  // An interface catching up with a model these readers were sent an hour ago is not news again.
+  const notes: Collection = {
+    source: "openai-chatgpt-release-notes",
+    stream: "news",
+    url: "https://help.openai.com/release-notes",
+    raw: [],
+    records: [{ id: "2026-09-22:first", name: "Projects in ChatGPT", audience: "developers", summary: "API updates" }],
+  };
+  saveCollection(db, notes, [news], "2026-09-22T17:00:00.000Z");
+  notes.records = [
+    ...notes.records,
+    {
+      id: "2026-09-22:opus-in-work",
+      name: "Claude Opus 5.5 in Work and Codex",
+      audience: "developers",
+      summary: "Claude Opus 5.5 is now selectable in Work and Codex.",
+    },
+  ];
+  saveCollection(db, notes, [news], "2026-09-23T06:05:00.000Z");
+  prepareDeliveries(db, Date.parse("2026-09-23T06:10:00.000Z"));
+
+  const reasons = suppressed(db);
+  // The maker's own announcement is the link the card could not carry.
+  expect(reasons["https://www.anthropic.com/claude-opus-5-5"]).toBeUndefined();
+  const bodies = db
+    .query<{ body: string }, []>("SELECT body FROM deliveries")
+    .all()
+    .map((row) => row.body)
+    .join(" ");
+  expect(bodies).toContain("Introducing Claude Opus 5.5");
+  expect(reasons["2026-09-22:opus-in-work"]).toBe("names_only_known_models");
+  db.close();
+});
+
+test("a model from a maker this reader will never call stays out of the sightings", () => {
+  const db = openDatabase(":memory:");
+  const reseller: Collection = {
+    source: "openrouter",
+    stream: "openrouter",
+    url: "https://openrouter.ai",
+    raw: [],
+    records: [{ id: "x-ai/grok-4", name: "xAI: Grok 4", maker: "xAI" }],
+  };
+  saveCollection(db, reseller, [wire], "2026-09-23T10:00:00.000Z");
+  reseller.records = [
+    { id: "x-ai/grok-4", name: "xAI: Grok 4", maker: "xAI" },
+    { id: "upstage/solar-mini4", name: "Upstage: Solar Mini 4", maker: "Upstage" },
+    { id: "moonshotai/kimi-k3", name: "MoonshotAI: Kimi K3", maker: "Moonshot" },
+  ];
+  saveCollection(db, reseller, [wire], "2026-09-23T11:00:00.000Z");
+
+  const classes = Object.fromEntries(
+    db
+      .query<{ entity_id: string; signal: string }, []>("SELECT entity_id,signal FROM events WHERE kind='new'")
+      .all()
+      .map((row) => [row.entity_id, row.signal]),
+  );
+  expect(classes["upstage/solar-mini4"]).toBe("evidence");
+  expect(classes["moonshotai/kimi-k3"]).toBe("codename");
+  db.close();
+});

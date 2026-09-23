@@ -29,7 +29,7 @@ import {
 import { vendorLogo } from "./render/logos.js";
 import { renderStoryText, type StoryRenderEvent, storyEmbed } from "./render/story.js";
 import { renderEvent } from "./render/telegram.js";
-import { listsAnotherMakersModel, pingWorthy, type SignalClass } from "./signals.js";
+import { isMakersAnnouncement, listsAnotherMakersModel, pingWorthy, type SignalClass } from "./signals.js";
 import { sourceFamily } from "./sourceFamily.js";
 import { clearSuppression, recordSuppression, type SuppressionReason } from "./suppression.js";
 import type { Event, RecordData } from "./types.js";
@@ -37,6 +37,7 @@ import { displayName } from "./variants.js";
 import { firstSightingBySubject, listingsBySubject, rosterSiblings, subjectKey } from "./witness.js";
 import {
   addedFieldSignature,
+  changeSignature,
   isAboutTheCompanyNotAModel,
   isAliasRow,
   isAlreadyOutAtItsMaker,
@@ -55,6 +56,7 @@ import {
   knownModelNames,
   namesOnlyKnownModels,
   pageModel,
+  retellsToldModels,
 } from "./worth.js";
 
 const DUPLICATE_STORY_WINDOW_MS = 6 * 3_600_000;
@@ -461,6 +463,7 @@ function prepareLifecycleReminder(
 type BatchView = {
   renamed: Set<number>;
   schema: Set<number>;
+  herd: Set<number>;
   longKnown: Set<number>;
   known: ReturnType<typeof knownModelNames>;
   listings: ReturnType<typeof listingsBySubject> | null;
@@ -486,6 +489,7 @@ function standingReason(
     return "a_post_about_the_company_not_a_model";
   if (isLabelOnlyChange(event)) return "display_label_only";
   if (view.schema.has(event.id)) return "a_field_the_source_started_sending";
+  if (view.herd.has(event.id)) return "one_change_across_the_whole_list";
   if (view.longKnown.has(event.id)) return "known_here_for_weeks";
   if (isAliasRow(event)) return "alias_of_another_row";
   if (isAnotherTierOfAListedModel(db, event)) return "another_tier_of_a_listed_model";
@@ -522,6 +526,18 @@ function batchViewOf(db: Database, events: readonly (Event & { signal: SignalCla
     if (signature) bySignature.set(signature, [...(bySignature.get(signature) ?? []), event.id]);
   }
   const schema = new Set([...bySignature.values()].filter((ids) => ids.length > 1).flat());
+  // And a change that reached several records of one source in the same read is one thing the
+  // source did: the first record carries the card, the rest of the herd is the same sentence.
+  const byChange = new Map<string, number[]>();
+  for (const event of events) {
+    const signature = changeSignature(event);
+    if (signature)
+      byChange.set(`${event.source}\u0000${signature}`, [
+        ...(byChange.get(`${event.source}\u0000${signature}`) ?? []),
+        event.id,
+      ]);
+  }
+  const herd = new Set([...byChange.values()].filter((ids) => ids.length >= 3).flatMap((ids) => ids.slice(1)));
   // A platform listing a model this deployment has been following for weeks is a venue catching
   // up, not a release. Command A+ reached the public channel on 2026-09-22 as a launch; Cohere had
   // shipped it in May. Read from the story, which is where every source's word on a model meets.
@@ -566,7 +582,7 @@ function batchViewOf(db: Database, events: readonly (Event & { signal: SignalCla
   )
     ? knownModelNames(db)
     : [];
-  return { renamed, schema, longKnown, known, listings, sighted, elsewhereOf };
+  return { renamed, schema, herd, longKnown, known, listings, sighted, elsewhereOf };
 }
 
 /**
@@ -622,8 +638,13 @@ export function replayDestinationVerdicts(
       const release = releaseKey(event);
       if (release && (releases.has(release) || releaseTold(db, release, destinationId, batchId, at, asOf)))
         return "same_release_on_another_page";
-      if (repeatsDeliveredStory(db, event, destinationId, storyOf(event.id), batchId, asOf))
+      if (
+        !isMakersAnnouncement(event) &&
+        repeatsDeliveredStory(db, event, destinationId, storyOf(event.id), batchId, asOf)
+      )
         return "already_told_by_another_source";
+      if (!isMakersAnnouncement(event) && retellsToldModels(db, event, destinationId, asOf))
+        return "names_only_known_models";
       if (event.signal === "codename" && announcedBeforeSighted(db, event, storyOf(event.id), batchId))
         return "announced_before_it_was_sighted";
       const model = pageModel(event);
@@ -760,8 +781,16 @@ export function prepareDeliveries(
             return quiet(event, "same_release_on_another_page");
           if (isOscillating(db, event, now)) return quiet(event, "oscillating");
           if (isReappearance(db, event, now)) return quiet(event, "flapping_in_and_out");
-          if (repeatsDeliveredStory(db, event, target.destination_id, storyIds.get(event.id), batch.id))
+          // A maker's own post about its own model is never a repeat: it is the link the card
+          // could not carry, and a reader who just heard the model exists wants it in the next
+          // minute rather than folded into a message they have already read.
+          if (
+            !isMakersAnnouncement(event) &&
+            repeatsDeliveredStory(db, event, target.destination_id, storyIds.get(event.id), batch.id)
+          )
             return quiet(event, "already_told_by_another_source");
+          if (!isMakersAnnouncement(event) && retellsToldModels(db, event, target.destination_id))
+            return quiet(event, "names_only_known_models");
           if (event.signal === "codename" && announcedBeforeSighted(db, event, storyIds.get(event.id), batch.id))
             return quiet(event, "announced_before_it_was_sighted");
           // A number that keeps moving waits, then speaks once about the whole move it missed.

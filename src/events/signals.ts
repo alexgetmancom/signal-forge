@@ -374,13 +374,36 @@ export function resellerMaker(event: Event): string | null {
   return text(record?.maker) || (id.includes("/") ? id.split("/")[0] || null : null);
 }
 
+/**
+ * The makers whose models this reader will never call.
+ *
+ * Not a ranking, and not a judgement of the model: it is who this feed is for. A reader on a $20
+ * coding subscription runs frontier and open coding models. Upstage's Solar Mini 4 -- 3B active,
+ * Korean-first -- and Cohere's Command A+ -- an enterprise model whose own launch note puts it
+ * below Claude Haiku on coding -- both reached the scouts in the week to 2026-09-23, and so did
+ * Microsoft's image models and NVIDIA's Nemotron checkpoints. A small unknown lab is still watched:
+ * that is what the scouts are for, and what `breakouts.ts` promotes. These are known quantities
+ * aimed somewhere else.
+ */
+const NOT_FOR_THIS_READER = new Set([
+  "Cohere",
+  "Upstage",
+  "NVIDIA",
+  "Microsoft",
+  "Amazon",
+  "Perplexity",
+  "Groq",
+  "Baidu",
+]);
+
 export function isUnfollowedMakerAtAReseller(event: Event): boolean {
   if (event.kind !== "new" || (event.stream !== "api-models" && event.stream !== "openrouter")) return false;
   if (!listsAnotherMakersModel(event)) return false;
   const maker = resellerMaker(event);
   if (!maker) return false;
   const record = recordFor(event);
-  return vendorOfName(`${maker} ${text(record?.id) || event.entity_id} ${text(record?.name) ?? ""}`) === "Unknown";
+  const named = vendorOfName(`${maker} ${text(record?.id) || event.entity_id} ${text(record?.name) ?? ""}`);
+  return named === "Unknown" || NOT_FOR_THIS_READER.has(named);
 }
 
 /** True when a catalogue arrival is a platform listing somebody else's model, not its maker shipping it. */
@@ -400,7 +423,7 @@ export function sellsAnotherMakersModel(event: Event): boolean {
 
 /** The jobs a subscription feed's reader did not come for, named in the model's own id. */
 const MODALITY_VARIANT =
-  /(?:^|[\s-])(?:tts|stt|asr|embed|embedding|embeddings|rerank|reranker|moderation|ocr|guard)(?:[\s-]|$)/;
+  /(?:^|[\s-])(?:tts|stt|asr|embed|embedding|embeddings|rerank|reranker|moderation|ocr|guard|realtime|live|livetranslate)(?:[\s-]|$)/;
 
 export function signalClass(event: Event): SignalClass {
   const record = recordFor(event);
@@ -649,3 +672,26 @@ export function pingWorthy(event: Event): boolean {
  * catching up on an August release as news.
  */
 export const ANNOUNCEMENT_STREAMS = new Set(["news", "pages", "changelog"]);
+
+/**
+ * A post the model's own maker wrote about it.
+ *
+ * The catalogue says a model is callable; the post is the page a reader opens to find out what it
+ * is. Anthropic's Claude Opus 5.5 post and OpenAI's GPT-6 Sol and Luna post both arrived within
+ * half an hour of the catalogue card on 2026-09-22 and both were dropped as a story already told,
+ * so the link nobody could do without never reached anyone.
+ */
+export function isMakersAnnouncement(event: Event): boolean {
+  if (event.kind !== "new" || event.stream !== "news") return false;
+  if (!NEWSROOMS.has(event.source) && !PRODUCT_BLOGS.has(event.source) && !RELEASE_NOTE_PAGES.has(event.source))
+    return false;
+  return ["launch", "release", "feature"].includes(signalClass(event));
+}
+
+/** A maker's own dated release-notes page, as distinct from a newsroom's posts. */
+const RELEASE_NOTE_PAGES = new Set([
+  "xai-release-notes",
+  "mistral-release-notes",
+  "openai-api-changelog",
+  "gemini-api-changelog",
+]);

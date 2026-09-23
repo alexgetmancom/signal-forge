@@ -24,7 +24,11 @@ export function classify(db: Database, event: Event): SignalClass {
   // reseller is a sighting on arrival, not a line in tomorrow's recap.
   if (isUnfollowedMakerAtAReseller(event) && isLearnedMaker(db, resellerMaker(event))) return "codename";
   const signal = signalClass(event);
-  if (signal === "codename" && (launchedAlready(db, event) || servingModeOfKnownModel(db, event))) return "evidence";
+  // The maker's own page about a model that has just been listed is the announcement link, and the
+  // reader wants it beside the card rather than instead of it. An old model's page appearing is
+  // still only a trail.
+  if (signal === "codename" && launchedAlready(db, event)) return justListed(db, event) ? "release" : "evidence";
+  if (signal === "codename" && servingModeOfKnownModel(db, event)) return "evidence";
   if (signal === "change" && supersededModel(db, event) && !movesWhatAReaderActsOn(event)) return "evidence";
   if (signal === "change" && sideRepricingAtReseller(event)) return "evidence";
   return signal;
@@ -36,9 +40,33 @@ export function classify(db: Database, event: Event): SignalClass {
  * the scouts' channel is for what is coming, and this had come.
  */
 function launchedAlready(db: Database, event: Event): boolean {
-  if (event.stream !== "pages" || event.kind !== "new") return false;
+  // A lab's sitemap is read as a page source too: Xiaomi publishes no changelog this tracker can
+  // read, so the model page its sitemap lists is the only announcement MiMo ever gets here.
+  if ((event.stream !== "pages" && !event.source.endsWith("-sitemap")) || event.kind !== "new") return false;
   const slug = event.entity_id.split("?")[0]?.replace(/\/+$/, "").split("/").at(-1) ?? "";
   return /\d/.test(slug) && listedInCatalogue(db, slug);
+}
+
+/** How long a maker's own page about a model it has just listed still counts as the announcement. */
+const ANNOUNCEMENT_WINDOW_MS = 48 * 3_600_000;
+
+/** True when a catalogue listed this page's model within the last two days. */
+function justListed(db: Database, event: Event): boolean {
+  const slug = event.entity_id.split("?")[0]?.replace(/\/+$/, "").split("/").at(-1) ?? "";
+  if (!slug) return false;
+  const since = new Date(Date.parse(event.detected_at) - ANNOUNCEMENT_WINDOW_MS).toISOString();
+  const subject = slug.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  return db
+    .query<{ entity_id: string }, [string]>(
+      `SELECT entity_id FROM events WHERE kind='new' AND stream IN ('api-models','openrouter') AND detected_at>=?`,
+    )
+    .all(since)
+    .some((row) =>
+      row.entity_id
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "")
+        .includes(subject),
+    );
 }
 
 /**

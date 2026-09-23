@@ -169,6 +169,35 @@ export function addedFieldSignature(event: Event): string | null {
 }
 
 /**
+ * The whole of what a change did, as a string two records can be compared by.
+ *
+ * One read of the Codex model list on 2026-09-23 gave six cards, and all six said the same thing:
+ * OpenAI had added the plan tiers `ent26` and `promax` to every model it lists. The first card is
+ * the news; the other five are the same news with another model's name on it.
+ */
+export function changeSignature(event: Event): string | null {
+  if (event.kind !== "changed" || !event.before_json || !event.after_json) return null;
+  const before = JSON.parse(event.before_json) as Record<string, unknown>;
+  const after = JSON.parse(event.after_json) as Record<string, unknown>;
+  const moves = [...new Set([...Object.keys(before), ...Object.keys(after)])]
+    .filter((key) => canonical(before[key]) !== canonical(after[key]))
+    .sort()
+    .map((key) => {
+      const was = new Set(Array.isArray(before[key]) ? (before[key] as unknown[]).map((one) => String(one)) : []);
+      const now = new Set(Array.isArray(after[key]) ? (after[key] as unknown[]).map((one) => String(one)) : []);
+      // A list is compared by what entered and left it, so two records holding different lists that
+      // gained the same entry are recognised as one change.
+      if (was.size || now.size) {
+        const added = [...now].filter((one) => !was.has(one)).sort();
+        const gone = [...was].filter((one) => !now.has(one)).sort();
+        return `${key}:+${added.join(",")}:-${gone.join(",")}`;
+      }
+      return `${key}:${canonical(before[key])}>${canonical(after[key])}`;
+    });
+  return moves.length ? moves.join("|") : null;
+}
+
+/**
  * A row that exists to point at whatever is newest.
  *
  * `~deepseek/deepseek-v4-flash-latest` is not a model: it is a promise to route to one. Its every
@@ -412,7 +441,41 @@ function makerOfListing(source: string): string | undefined {
 const MODEL_NAME =
   /\b(?:claude|opus|sonnet|haiku|gpt|o\d|gemini|grok|codex|llama|qwen|deepseek|kimi|glm|mistral)[\s-]?\d[\w.-]*/gi;
 
+/** How long a model stays told, for a release note that names nothing else. */
+const TOLD_WINDOW_MS = 7 * 24 * 3_600_000;
+
 /**
+ * A release note whose every named model this destination has already been sent.
+ *
+ * ChatGPT's release notes said "GPT-6 Sol and Luna in Work and Codex" on 2026-09-23, nine hours
+ * after both models reached the same readers as launches. An interface catching up with a model is
+ * not a second piece of news about it. A note that names a model nobody here has heard of still
+ * speaks, and so does one that names none at all, which is most of them.
+ */
+export function retellsToldModels(db: Database, event: Event, destinationId: string, asOf?: string): boolean {
+  if (event.stream !== "news" || event.kind !== "new") return false;
+  const body = record(event);
+  const named = `${String(body?.name ?? "")} ${String(body?.summary ?? "")}`.match(MODEL_NAME) ?? [];
+  if (!named.length) return false;
+  const at = asOf ?? new Date().toISOString();
+  const since = new Date(Date.parse(at) - TOLD_WINDOW_MS).toISOString();
+  const told = db
+    .query<{ name: string }, [string, string, string]>(
+      `SELECT COALESCE(json_extract(e.after_json,'$.name'),e.entity_id) AS name
+       FROM delivery_events de JOIN deliveries d ON d.id=de.delivery_id JOIN events e ON e.id=de.event_id
+       WHERE d.destination_id=? AND d.status='sent' AND e.detected_at>=? AND e.detected_at<=?`,
+    )
+    .all(destinationId, since, at)
+    .map((row) => normalizeIdentity(String(row.name)));
+  if (!told.length) return false;
+  return named.every((model) => {
+    const name = normalizeIdentity(model);
+    return told.some((one) => one === name || one.startsWith(`${name} `) || one.includes(name));
+  });
+}
+
+/**
+ * A documentation diff whose only tell is a model this deployment already knows./**
  * A documentation diff whose only tell is a model this deployment already knows.
  *
  * Codex's subagent page swapped `gpt-5.3-codex-spark` for `gpt-5.6-luna` in two TOML examples on
