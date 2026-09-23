@@ -636,8 +636,11 @@ function changeBanner(
   if (event.stream === "web" && event.kind === "changed") {
     // The strings a maker ships in its own interface: the first added line is the news, and a card
     // that only loses lines says so with the mark rather than quoting what is gone.
-    const line = quotes.find((fact): fact is string => typeof fact === "string" && /^\+ /.test(fact));
-    const text = line?.replace(/^\+ /, "").trim();
+    // An added line reaches here either quoted for Discord, as `> + the line`, or as the value of
+    // the field that lists what a page gained.
+    const added = /^(?:> )?\+ /;
+    const line = quotes.map((fact) => (typeof fact === "string" ? fact : fact.value)).find((text) => added.test(text));
+    const text = line?.replace(added, "").trim();
     if (!text) return null;
     const section = typeof record?.title === "string" ? record.title : where;
     return { ...base, eyebrow, title: excerpt(text, 140), change: { mark: "+", where: `Added to ${section}` } };

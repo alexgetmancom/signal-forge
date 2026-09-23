@@ -47,3 +47,23 @@ test("a feed row with no post behind it gets no picture", () => {
   const bare = { ...page, source: "kimi-docs", stream: "news", after_json: JSON.stringify({ name: "Kimi Code CLI" }) };
   expect(eventEmbed(bare as Event, "u").banner).toBeUndefined();
 });
+
+test("an interface string quotes the line that was added", () => {
+  const event = {
+    id: 3,
+    source: "claude-web",
+    stream: "web",
+    entity_id: "strings",
+    kind: "changed",
+    before_json: JSON.stringify({ id: "s", name: "Public interface strings", strings: ["Ask Claude anything"] }),
+    after_json: JSON.stringify({
+      id: "s",
+      name: "Public interface strings",
+      strings: ["Ask Claude anything", "Opus 5.5 is available on the Max plan"],
+    }),
+    detected_at: "2026-09-23T18:00:00.000Z",
+  } as unknown as Event;
+  const banner = eventEmbed(event, "u").banner as Banner | undefined;
+  expect(banner?.change?.mark).toBe("+");
+  expect(banner?.title).toContain("Opus 5.5 is available on the Max plan");
+});
