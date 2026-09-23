@@ -3,6 +3,7 @@ import { canonical } from "../canonical.js";
 import { identityFor, normalizeIdentity } from "../identity.js";
 import { readableName } from "../naming.js";
 import { SUBSTANTIVE_FIELDS } from "../oscillation.js";
+import { isStealthLaunch } from "../signals.js";
 import type { Event, RecordData } from "../types.js";
 import { vendorOfName } from "../vendors.js";
 import { tellingWebString } from "../web.js";
@@ -208,7 +209,10 @@ export function eventFactParts(event: Event & CardContext, summary?: string): Fa
   if (event.lead && event.kind !== "changed") lines.push(leadLine(event.lead, title));
   // A roster entry beside its own siblings says "already out" in its own sentence.
   const sibling = event.stream === "arena" && !before && Boolean(event.siblings?.length);
-  if (event.elsewhere && !(sibling && event.elsewhere.length)) lines.push(elsewhereLine(event.elsewhere));
+  // A stealth model is listed by several venues within the hour by design; the card names them in
+  // one line of its own, and "no other tracked catalogue lists it yet" is never the story there.
+  if (event.elsewhere && !(sibling && event.elsewhere.length) && !isStealthLaunch(event))
+    lines.push(elsewhereLine(event.elsewhere));
 
   if (event.returned && after && event.kind === "new") {
     const terms = (row: Record<string, unknown>) =>

@@ -6,7 +6,7 @@ import { canonical } from "./canonical.js";
 import { classify } from "./classify.js";
 import { confidenceFor, evidenceTypeFor } from "./confidence.js";
 import { isRoutine } from "./interpretation.js";
-import type { SignalClass } from "./signals.js";
+import { isStealthLaunch, type SignalClass } from "./signals.js";
 import type { Collection, Event } from "./types.js";
 
 export const COLLECTION_DEGRADED_PREFIX = "Collection degraded:";
@@ -367,13 +367,30 @@ export function persistCollection(
         db.query("DELETE FROM records WHERE source=? AND id=?").run(c.source, row.id);
       } else db.query("UPDATE records SET missing_count=missing_count+1 WHERE source=? AND id=?").run(c.source, row.id);
     }
+  /**
+   * How long a stealth launch waits for its other venues.
+   *
+   * Space Bunny reached OpenCode Go and Zen two seconds apart on 2026-09-23 and OpenRouter fifteen
+   * minutes later, with the context, the modalities and the zero price only on the last of the three.
+   * Sending the first one instantly bought a quarter of an hour and spent it on a card that named the
+   * wrong venue and knew nothing about the model; one card that names all of them is worth the wait.
+   */
+  const STEALTH_HOLD_MS = 20 * 60_000;
+
+  /** When an event is told: at once, after the stealth hold, or in the next hour's digest. */
+  function paceOf(event: Event): "now" | "held" | "hourly" {
+    if (isRoutine(event)) return "hourly";
+    return isStealthLaunch(event) ? "held" : "now";
+  }
+
   // Every record is saved by now, so a rule asking what the catalogues list sees this collection too.
   for (const event of emitted) {
     event.signal = classify(db, event);
     db.query("UPDATE events SET signal=? WHERE id=?").run(event.signal, event.id);
   }
-  for (const digest of [false, true]) {
-    const events = emitted.filter((event) => isRoutine(event) === digest && !onANewBoard(event));
+  for (const pace of ["now", "held", "hourly"] as const) {
+    const digest = pace === "hourly";
+    const events = emitted.filter((event) => paceOf(event) === pace && !onANewBoard(event));
     // A small company whose model took off here is followed from then on: its next arrival at a
     // reseller is a sighting on arrival, not a line in tomorrow's recap.
     const routed = (event: Event): SignalClass =>
@@ -381,7 +398,12 @@ export function persistCollection(
     const present = new Set(events.map(routed));
     const targets = destinations.filter((destination) => destination.signals.some((signal) => present.has(signal)));
     if (!events.length || !targets.length) continue;
-    const readyAt = digest ? new Date((Math.floor(Date.parse(now) / 3_600_000) + 1) * 3_600_000).toISOString() : now;
+    const readyAt =
+      pace === "hourly"
+        ? new Date((Math.floor(Date.parse(now) / 3_600_000) + 1) * 3_600_000).toISOString()
+        : pace === "held"
+          ? new Date(Date.parse(now) + STEALTH_HOLD_MS).toISOString()
+          : now;
     const batchSource = digest ? "story-digest" : c.source;
     const existing = digest
       ? db

@@ -2,7 +2,14 @@ import { sourceLabel } from "../../sources/labels.js";
 import { readerStanding } from "../confidence.js";
 import { vendorOf } from "../interpretation.js";
 import { displayTitle } from "../naming.js";
-import { boardPlace, DEBUT_PLACES, listsAnotherMakersModel, scoredDebutIndex } from "../signals.js";
+import {
+  boardPlace,
+  DEBUT_PLACES,
+  isStealthLaunch,
+  listsAnotherMakersModel,
+  scoredDebutIndex,
+  stealthSubject,
+} from "../signals.js";
 import type { Event, RecordData } from "../types.js";
 import type { Banner } from "./banner.js";
 import { DESCRIPTION_CHARACTERS } from "./budget.js";
@@ -455,9 +462,56 @@ export function footerText(source: string, confidence: string, detail: Detail, c
  * that gets screenshotted. A reseller listing the same model is availability, not the launch.
  */
 function isLaunch(event: Event, vendor: string): boolean {
+  // A stealth model has no maker to put it in its own catalogue: whoever lists it first is the
+  // launch, and the reader can call it that hour.
+  if (isStealthLaunch(event)) return true;
   return (
     event.kind === "new" && event.stream === "api-models" && vendor !== "Unknown" && !listsAnotherMakersModel(event)
   );
+}
+
+/** The venue's name for a stealth model, capitalised as a model: `space-bunny-free` is Space Bunny. */
+function stealthName(event: Event): string {
+  return stealthSubject(event)
+    .split(/[-_]/)
+    .filter(Boolean)
+    .map((word) => (/^\d/.test(word) ? word : `${word.charAt(0).toUpperCase()}${word.slice(1)}`))
+    .join(" ");
+}
+
+/**
+ * What a stealth card is read for: that it is free, how much context it takes and what it accepts.
+ * The venue's own bookkeeping -- a `headline` flag for its shop window, the family name already in
+ * the title -- is not a fact about the model.
+ */
+const STEALTH_NOISE = new Set(["model", "maker", "free", "headline", "name", "id"]);
+
+/**
+ * Where a stealth model can be called, best venue first.
+ *
+ * Space Bunny reached OpenCode Go two seconds before Zen and the card named Go, which is the paid
+ * client; Zen is the free endpoint, and free is the whole reason this is news. A reseller giving it
+ * away comes next, and the rest of the venues go in the line underneath.
+ */
+const VENUE_ORDER = ["opencode-zen", "openrouter", "opencode-go"];
+
+/** The light on a card with no maker on it. */
+const STEALTH_GLOW = 0x8b5cf6;
+
+/** "OpenCode Go and OpenRouter", the way a sentence lists places. */
+function listed(names: readonly string[]): string {
+  return names.length < 2 ? (names[0] ?? "") : `${names.slice(0, -1).join(", ")} and ${names.at(-1)}`;
+}
+
+function stealthVenues(event: Event & CardContext): { headline: string; others: string[] } {
+  const sources = [...new Set([event.source, ...(event.elsewhere ?? [])])].sort((one, two) => {
+    const rank = (source: string) => {
+      const at = VENUE_ORDER.indexOf(source);
+      return at === -1 ? VENUE_ORDER.length : at;
+    };
+    return rank(one) - rank(two);
+  });
+  return { headline: place(sources[0] ?? event.source), others: sources.slice(1).map(place) };
 }
 
 /** Context and price, the two numbers a reader weighs a new model by, lifted out of the fields. */
@@ -641,7 +695,7 @@ export function eventEmbed(
   const shown = displayTitle(rawName, event.stream, event.source);
   const stripped = withoutMakerPrefix(shown);
   const named = stripped === shown ? shown : capital(stripped);
-  const name = withUntrackedMaker(named, vendor, record);
+  const untouchedName = withUntrackedMaker(named, vendor, record);
   const all = eventFactParts(event).filter((fact) => factText(fact).toLowerCase() !== `maker: ${vendor.toLowerCase()}`);
   const shaped = shape(event, before, after, vendor, all);
   const facts = shaped.facts.filter(
@@ -649,8 +703,23 @@ export function eventEmbed(
       detail === "evidence" || (typeof fact === "string" ? !/^> [+−] /.test(fact) : !EVIDENCE_ONLY.has(fact.label)),
   );
   const launch = isLaunch(event, vendor);
+  const stealth = isStealthLaunch(event);
+  // The venue spells a stealth model `space-bunny-free` and `stealth/space-bunny-alpha`; the model
+  // is Space Bunny, and the spelling stays in the handle underneath for copying.
+  const name = stealth ? stealthName(event) : untouchedName;
   const newModel = event.kind === "new" && MODEL_STREAMS.has(event.stream);
-  const spec = newModel ? specLine(facts) : { line: null, chips: [], rest: facts };
+  const spec = newModel
+    ? specLine(
+        stealth
+          ? facts.filter((fact) => typeof fact === "string" || !STEALTH_NOISE.has(fact.label.toLowerCase()))
+          : facts,
+      )
+    : { line: null, chips: [], rest: facts };
+  const venues = stealthVenues(event);
+  if (stealth) {
+    spec.chips.unshift("free");
+    spec.line = ["**free**", spec.line].filter(Boolean).join(" · ");
+  }
   const { lines, fields } = factLayout(spec.rest);
   // The name a developer copies into an API call: on every new model, and for a scout whenever the
   // headline prettified it.
@@ -669,8 +738,10 @@ export function eventEmbed(
           : null;
   // A new model's title already says where it appeared, and the footer says it again.
   const sentence = newModel && /^Added to /.test(shaped.sentence ?? "") ? null : shaped.sentence;
+  const alsoOn = stealth && venues.others.length ? `Also on ${listed(venues.others)}` : null;
   const description = [
     ...(summary ? [`*${summary}*`] : []),
+    ...(alsoOn ? [alsoOn] : []),
     ...(sentence ? [sentence] : []),
     ...(spec.line ? [spec.line] : []),
     ...lines,
@@ -692,11 +763,13 @@ export function eventEmbed(
             ...(sourceIcon ? { icon_url: sourceIcon } : {}),
           },
         }),
-    title: (launch
-      ? `🚀 ${name} is out`
-      : newModel && event.stream !== "weights"
-        ? `🆕 ${name} on ${place(event.source)}`
-        : eventHeadline(event, name, incident)
+    title: (stealth
+      ? `🚀 ${name} is out — free on ${venues.headline}`
+      : launch
+        ? `🚀 ${name} is out`
+        : newModel && event.stream !== "weights"
+          ? `🆕 ${name} on ${place(event.source)}`
+          : eventHeadline(event, name, incident)
     ).slice(0, 250),
     color:
       incident?.color ??
@@ -728,9 +801,19 @@ export function eventEmbed(
   // A reset, promised or confirmed, shows the person who announced it rather than the maker's tile.
   const announcer = event.stream === "resets" ? ANNOUNCERS[resetAuthor(after) ?? ""] : undefined;
   const thumbnail = announcer ? `attachment://${announcer.photo}` : logo ? `attachment://${logo}` : null;
-  const words: Omit<Banner, "filename" | "logo"> | null = launch
-    ? { eyebrow: bannerEyebrow(vendor, event.detected_at), title: name, chips: spec.chips, vendor }
-    : numberBanner(event, before, after, vendor, name);
+  const words: Omit<Banner, "filename" | "logo"> | null = stealth
+    ? {
+        // No maker to name, so the picture says what it is instead: unclaimed, free, and where.
+        eyebrow: ["Stealth", `free on ${venues.headline}`, shortDate(event.detected_at, true)].join(" · "),
+        title: name,
+        chips: spec.chips,
+        vendor,
+        // Nobody's brand colour, because nobody has claimed it yet.
+        glow: STEALTH_GLOW,
+      }
+    : launch
+      ? { eyebrow: bannerEyebrow(vendor, event.detected_at), title: name, chips: spec.chips, vendor }
+      : numberBanner(event, before, after, vendor, name);
   const post = announcer ? resetPost(after) : "";
   if (announcer && after && post) {
     // A reset is a person's word: the post is the picture, and the card under it keeps what a picture

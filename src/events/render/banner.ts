@@ -25,6 +25,8 @@ export type Banner = {
    * moved, the day a model is switched off. A launch has none; its name is the news.
    */
   hero?: { text: string; caption: string; color?: number };
+  /** A light of its own, for a card with no maker to take one from: a stealth launch. */
+  glow?: number;
   /** A week told as one picture: the makers that shipped and what, instead of a title and chips. */
   rows?: { vendor: string; logo: string | null; names: string[] }[];
   /**
@@ -82,7 +84,7 @@ function backdrop(width: number, height: number, glow: string): string {
 function bannerSvg(banner: Banner): string {
   if (banner.rows) return posterSvg(banner);
   if (banner.quote) return quoteSvg(banner, banner.quote);
-  const glow = glowOf(banner.vendor);
+  const glow = banner.glow === undefined ? glowOf(banner.vendor) : hex(banner.glow);
   const logo = logoData(banner.logo);
   const hero = banner.hero;
   const heroSize = hero ? Math.min(200, Math.floor(440 / (hero.text.length * 0.6))) : 0;

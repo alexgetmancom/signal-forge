@@ -1,7 +1,7 @@
 import { text } from "../text.js";
 import { incidentIsSevere, incidentTouchesSubscribers } from "./incidents.js";
 import { recordFor } from "./record.js";
-import type { Event } from "./types.js";
+import type { Event, RecordData } from "./types.js";
 import { vendorOfName } from "./vendors.js";
 import { meaningfulWebString, tellingWebString } from "./web.js";
 
@@ -365,6 +365,49 @@ function becameSelectable(event: Event): boolean {
  */
 const STEALTH = /^(?:stealth|openrouter|cloaked|anonymous)\/|\b(?:stealth|cloaked)\b/i;
 
+/**
+ * A model launched without a maker's name on it, and free to call from the hour it appears.
+ *
+ * OpenCode put `space-bunny-free` on Zen and Go at 14:29 on 2026-09-23 and OpenRouter listed
+ * `stealth/space-bunny-alpha` at zero a quarter of an hour later; the same model reached the public
+ * channel as "🆕 OpenCode Space Bunny Free on OpenCode Go" with two internal booleans printed as
+ * fields, and the OpenRouter row went to the scouts as a separate sighting. For a reader on a $20
+ * coding subscription a free frontier model that can be called today is the most actionable thing
+ * this tracker sees all week, so it is a launch wherever it shows up.
+ *
+ * What makes one: a stealth namespace at a reseller, or a venue's free headline slot holding a name
+ * no vendor claims. `deepseek-v4-flash-free` sits in the same slot and is not one -- its maker is
+ * on the tin -- and neither is a paid row.
+ */
+const STEALTH_VENUES = new Set(["opencode-zen", "opencode-go"]);
+
+export function isStealthLaunch(event: Event): boolean {
+  if (event.kind !== "new" || (event.stream !== "api-models" && event.stream !== "openrouter")) return false;
+  const record = recordFor(event);
+  const id = text(record?.id) || event.entity_id;
+  const name = text(record?.name) ?? "";
+  if (vendorOfName(`${id} ${name}`) !== "Unknown") return false;
+  if (STEALTH.test(id) || STEALTH.test(name)) return isFree(record);
+  return STEALTH_VENUES.has(event.source) && record?.free === true;
+}
+
+/** A reseller gives a stealth model away while it is being watched: zero on both sides of the meter. */
+function isFree(record: RecordData | null): boolean {
+  const pricing = record?.pricing;
+  if (!pricing || typeof pricing !== "object") return false;
+  const rates = pricing as Record<string, unknown>;
+  return ["prompt", "completion"].every((key) => Number(rates[key]) === 0);
+}
+
+/** What the venues are all listing: `space-bunny-free` and `stealth/space-bunny-alpha` are one model. */
+const STEALTH_QUALIFIER = /-(?:free|alpha|beta|preview|exp|experimental)$/i;
+
+export function stealthSubject(event: Event): string {
+  const record = recordFor(event);
+  const id = text(record?.model) || text(record?.id) || event.entity_id;
+  return (id.split("/").at(-1) ?? id).toLowerCase().replace(STEALTH_QUALIFIER, "");
+}
+
 /** The maker a reseller's row names: its own attribution, or the namespace of the id. */
 export function resellerMaker(event: Event): string | null {
   const record = recordFor(event);
@@ -428,6 +471,9 @@ const MODALITY_VARIANT =
 export function signalClass(event: Event): SignalClass {
   const record = recordFor(event);
   const listedButUnusable = record?.selectable === false;
+
+  // A free model with no maker's name on it can be called the hour it appears, wherever it appears.
+  if (isStealthLaunch(event)) return "launch";
 
   // A name leaving an arena ends nothing a reader was told had started, and it is the same shape as
   // a page that disappears, so it takes the same class. On 2026-09-15 193 of them reached the
