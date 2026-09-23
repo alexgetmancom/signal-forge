@@ -159,12 +159,31 @@ const RELEASE_WINDOW_MS = 7 * 24 * 3_600_000;
  * each entry as `#github-release-<id>` while the repository's releases feed keys the same release by
  * `<id>`, so 0.155.1 reached #signals twice on 2026-09-18.
  */
-function releaseKey(event: Pick<Event, "source" | "entity_id"> & { signal: string }): string | null {
+function releaseKey(event: Event & { signal: string }): string | null {
+  // One link per model. Grok 4.7 was announced on 2026-09-21 by xAI's release notes and by two of
+  // its own pages within seventy minutes of the catalogue card; a reader needs the first of them.
+  const announcement = announcementModel(event);
+  if (announcement) return `announce:${announcement}`;
   if (event.signal !== "release") return null;
   const linked = /#github-release-(\d+)$/.exec(event.entity_id);
   if (linked) return linked[1] as string;
   if (/^github:[^:]+:releases$/.test(event.source) && /^\d+$/.test(event.entity_id)) return event.entity_id;
   return null;
+}
+
+/**
+ * The model a maker's own announcement is about, for an event that is one: its post's title, or the
+ * slug of the page it published. Null when the event is not an announcement of the maker's own.
+ */
+function announcementModel(event: Event & { signal: string }): string | null {
+  const isPage = event.signal === "release" && (event.stream === "pages" || event.source.endsWith("-sitemap"));
+  if (!isPage && !isMakersAnnouncement(event)) return null;
+  const record = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
+  const slug = isPage
+    ? (event.entity_id.split("?")[0]?.replace(/\/+$/, "").split("/").at(-1) ?? "")
+    : String(record?.name ?? event.entity_id);
+  const key = subjectKey(displayName(slug));
+  return key || null;
 }
 
 /**
