@@ -521,7 +521,7 @@ function launchChips(event: Event & CardContext, found: readonly string[]): stri
     const price = prices(null, borrowed.pricing, "openrouter").find(
       (fact): fact is Exclude<Fact, string> => typeof fact !== "string" && fact.label === "Price",
     );
-    if (price) chips.push(price.value.replace(/\s*\/\s*1M tokens$/, ""));
+    if (price) chips.push(priceChip(price.value));
   }
   return chips.slice(0, 3);
 }
@@ -552,6 +552,14 @@ function stealthVenues(event: Event & CardContext): { headline: string; others: 
   return { headline: place(first), others: sources.slice(1).map(place), source: first };
 }
 
+/** A price as a pill: the two rates a model is chosen by, without the unit the eyebrow implies. */
+function priceChip(value: string): string {
+  const trimmed = value.replace(/\s*\/\s*1M tokens$/, "");
+  const rates = trimmed.split(" · ").filter((rate) => /\b(in|out)$/.test(rate));
+  // A sheet with no in or out rate at all is quoted as it came rather than quoted as nothing.
+  return rates.length ? rates.join(" · ") : trimmed;
+}
+
 /** Context and price, the two numbers a reader weighs a new model by, lifted out of the fields. */
 function specLine(facts: Fact[]): { line: string | null; chips: string[]; rest: Fact[] } {
   const pick = (label: string) =>
@@ -560,7 +568,9 @@ function specLine(facts: Fact[]): { line: string | null; chips: string[]; rest: 
   const price = pick("Price");
   const chips = [
     ...(context ? [`${context.value} context`] : []),
-    ...(price ? [price.value.replace(/\s*\/\s*1M tokens$/, "")] : []),
+    // The picture holds three short pills. GPT-6 Sol's four rates ran off the edge of one; what a
+    // reader weighs a model by is what it costs in and out, and the cache rates stay in the text.
+    ...(price ? [priceChip(price.value)] : []),
   ];
   const line = [
     ...(context ? [`**${context.value}** context`] : []),

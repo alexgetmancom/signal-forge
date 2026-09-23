@@ -60,8 +60,12 @@ function logoData(logo: string | null): string | null {
 
 /** Black and white makers glow in a neutral light rather than vanishing into the background. */
 function glowOf(vendor: string, fallback = 0x5865f2): string {
-  const brand = hex(vendorColor(vendor) ?? fallback);
-  return brand === "#e6e6e6" || brand === "#000000" || brand === "#ffffff" ? "#9aa4b8" : brand;
+  return lit(hex(vendorColor(vendor) ?? fallback));
+}
+
+/** A colour the backdrop cannot show: near-white and near-black both read as no glow at all. */
+function lit(colour: string): string {
+  return colour === "#e6e6e6" || colour === "#000000" || colour === "#ffffff" ? "#9aa4b8" : colour;
 }
 
 function backdrop(width: number, height: number, glow: string): string {
@@ -92,7 +96,7 @@ function signatureText(signature: string | undefined, taken: boolean): string {
 function bannerSvg(banner: Banner, signature?: string): string {
   if (banner.rows) return posterSvg(banner);
   if (banner.quote) return quoteSvg(banner, banner.quote);
-  const glow = banner.glow === undefined ? glowOf(banner.vendor) : hex(banner.glow);
+  const glow = banner.glow === undefined ? glowOf(banner.vendor) : lit(hex(banner.glow));
   const logo = logoData(banner.logo);
   const hero = banner.hero;
   const heroSize = hero ? Math.min(200, Math.floor(440 / (hero.text.length * 0.6))) : 0;

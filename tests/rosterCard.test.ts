@@ -121,3 +121,26 @@ test("a week's arrivals are drawn as one 16:9 poster", async () => {
   // PNG height lives in the IHDR chunk at bytes 20..23.
   expect(new DataView(png.buffer, png.byteOffset).getUint32(20)).toBe(675);
 });
+
+test("a picture quotes the rates a model is chosen by and keeps the cache sheet in the text", () => {
+  const event = {
+    id: 1,
+    source: "openai",
+    stream: "api-models",
+    entity_id: "gpt-6-sol",
+    kind: "new",
+    after_json: JSON.stringify({
+      id: "gpt-6-sol",
+      name: "GPT-6 Sol",
+      context: 1_000_000,
+      pricing: { input: "0.000002", output: "0.00001", input_cache_read: "0.0000002" },
+    }),
+    detected_at: "2026-09-22T17:59:00.000Z",
+  } as unknown as Event;
+  const embed = eventEmbed(event, "u");
+  const banner = embed.banner as Banner;
+  expect(banner.chips).toEqual(["1M context", "$2 in · $10 out"]);
+  // White is no glow at all on a dark backdrop, so OpenAI's near-white is lit neutrally.
+  expect(banner.glow).toBe(0xe6e6e6);
+  expect(String(embed.description)).toContain("cache read");
+});
