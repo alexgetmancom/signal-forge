@@ -121,23 +121,28 @@ export function isTestFile(path: string): boolean {
   );
 }
 
+/** A model ID reduced to its family and suffix: `gemini-3.9-flash` and `gemini-3.6-flash` share one. */
+function familyShape(id: string): string | null {
+  const shape = /^([a-z][a-z-]*?)-?\d[\d.]*(.*)$/.exec(id);
+  return shape ? `${shape[1]}|${shape[2]}` : null;
+}
+
 /**
- * One line naming three versions of the same model, or more, is a parametrized test's list, not
- * anyone serving them: gemini-cli's `models.test.ts` ran `it.each(['gemini-3.6-flash',
- * 'gemini-3.7-flash', 'gemini-3.9-flash', 'gemini-9.9-flash'])` on 2026-09-22, and the scouts were
+ * The families a test file made up, by naming three versions of one model or more.
+ *
+ * gemini-cli's `models.test.ts` ran `it.each(['gemini-3.6-flash', 'gemini-3.7-flash',
+ * 'gemini-3.9-flash', 'gemini-9.9-flash'])` on 2026-09-22, one id per line, and the scouts were
  * told a Gemini 3.9 Flash exists. A vendor's test naming one model is still a sighting --
- * `gpt-6-astra-wm` first appeared in a Codex test, alone on its line.
+ * `gpt-6-astra-wm` first appeared in a Codex test -- so only the invented family is dropped, and
+ * only where a test wrote it.
  */
-export function inventedList(line: string): boolean {
-  const families = new Map<string, number>();
-  for (const match of line.toLowerCase().matchAll(MODEL_ID)) {
-    const id = match[0].replace(/[.-]+$/, "");
-    const shape = /^([a-z][a-z-]*?)-?\d[\d.]*(.*)$/.exec(id);
-    if (!shape) continue;
-    const key = `${shape[1]}|${shape[2]}`;
-    families.set(key, (families.get(key) ?? 0) + 1);
+export function inventedFamilies(patch: string): Set<string> {
+  const counts = new Map<string, Set<string>>();
+  for (const [id] of modelIdsInPatch(patch)) {
+    const shape = familyShape(id);
+    if (shape) counts.set(shape, (counts.get(shape) ?? new Set()).add(id));
   }
-  return [...families.values()].some((count) => count >= 3);
+  return new Set([...counts].filter(([, ids]) => ids.size >= 3).map(([shape]) => shape));
 }
 
 /** Model IDs on the added lines of one file's patch, each with the first line that carried it. */
@@ -243,11 +248,11 @@ export async function collectModelMentions(
     for (const file of detail.files) {
       if (!file.patch || IGNORED_FILE.test(file.filename)) continue;
       if (watch.authority === "third_party" && isTestFile(file.filename)) continue;
-      const test = isTestFile(file.filename);
+      const invented = isTestFile(file.filename) ? inventedFamilies(file.patch) : null;
       if (watch.paths && !watch.paths.includes(file.filename)) continue;
       for (const [id, line] of modelIdsInPatch(file.patch)) {
         if (seen.has(id) || found.has(id)) continue;
-        if (test && inventedList(line)) continue;
+        if (invented?.has(familyShape(id) ?? "")) continue;
         // Told at both stages already, or listed by a catalogue: nothing this commit says is news,
         // and there is nothing to ask the judge.
         if (stored(source, id) && stored(source, stageRecordId(id, "served"))) continue;

@@ -5,7 +5,7 @@ import { pingWorthy, signalClass } from "../src/events/signals.js";
 import { familyVersion, guessStage, judgeMentions, olderThanKnown, stageKnown } from "../src/sources/mentionStage.js";
 import {
   collectModelMentions,
-  inventedList,
+  inventedFamilies,
   isTestFile,
   modelIdsInPatch,
   undated,
@@ -395,10 +395,18 @@ test("a family stem or a hyphen spelling of a listed model is known", () => {
   db.close();
 });
 
-test("a parametrized list of versions in a test is invented, one model in a test is not", () => {
-  expect(
-    inventedList("it.each(['gemini-3.6-flash', 'gemini-3.7-flash', 'gemini-3.9-flash', 'gemini-9.9-flash'])"),
-  ).toBe(true);
-  expect(inventedList('const model = "gpt-6-astra-wm";')).toBe(false);
-  expect(inventedList('expect(pick("gpt-6-sol")).toBe("gpt-6-luna");')).toBe(false);
+test("a test that lists three versions of one model invented them, and a test naming one did not", () => {
+  const invented = inventedFamilies(
+    [
+      "+it.each([",
+      "+  'gemini-3.6-flash',",
+      "+  'gemini-3.7-flash',",
+      "+  'gemini-3.9-flash',",
+      "+])('resolves %s', ...)",
+      '+const real = "gpt-6-astra-wm";',
+    ].join("\n"),
+  );
+  expect(invented.has("gemini|-flash")).toBe(true);
+  expect(invented.has("gpt|-astra-wm")).toBe(false);
+  expect(inventedFamilies('+const model = "gpt-6-astra-wm";').size).toBe(0);
 });

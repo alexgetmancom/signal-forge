@@ -482,7 +482,10 @@ export function signalClass(event: Event): SignalClass {
     if (CONSUMER_APP_NOTES.has(event.source)) {
       // The judge's answer when it gave one, the word list when it could not be asked.
       const audience = text(record?.audience);
-      if (audience ? audience === "consumers" : !FOR_BUILDERS.test(words)) return "evidence";
+      // The fallback reads the heading only: an app feature described at length says "agent" or
+      // "model" somewhere in its copy, and all three of Mistral's Vibe entries on 2026-09-22
+      // passed a word list pointed at their summaries.
+      if (audience ? audience === "consumers" : !FOR_BUILDERS.test(text(record?.name) ?? "")) return "evidence";
     }
     return TOOL_CHANGELOGS.has(event.source) && !patchBuild(record) ? "release" : "evidence";
   }
