@@ -236,9 +236,17 @@ function priceMove(
 
 /** "−30%", "+40%", "2×": how far a price moved, in the size a reader compares. */
 function priceStep(from: number, to: number): string {
-  if (to < from) return `−${Math.round((1 - to / from) * 100)}%`;
+  if (to < from) return `−${percent((1 - to / from) * 100)}`;
   const ratio = to / from;
-  return ratio >= 1.95 ? `${Number(ratio.toFixed(1))}×` : `+${Math.round((ratio - 1) * 100)}%`;
+  return ratio >= 1.95 ? `${Number(ratio.toFixed(1))}×` : `+${percent((ratio - 1) * 100)}`;
+}
+
+/**
+ * A move rounded to nothing is not a move a reader can read. "DeepSeek Pro Latest is 0% cheaper"
+ * went out on 2026-09-22: the card announced that a price had changed by nothing at all.
+ */
+function percent(value: number): string {
+  return `${value < 1 ? Number(value.toFixed(1)) : Math.round(value)}%`;
 }
 
 /** "2× more expensive on OpenRouter", "30% cheaper on OpenRouter", from the rate a reader pays most. */
@@ -604,6 +612,40 @@ function shutdownCaption(day: string, from: string): string {
 }
 
 /**
+ * The picture for a change: the line that changed, quoted the size of a headline. Documentation, a
+ * maker's changelog and a string in an interface are each read for one sentence, and all three went
+ * out as a title over a table of our own bookkeeping.
+ */
+function changeBanner(
+  event: Event,
+  record: RecordData | null,
+  vendor: string,
+  name: string,
+  quotes: readonly Fact[],
+): Omit<Banner, "filename" | "logo"> | null {
+  const base = { vendor, chips: [] as string[] };
+  // "Anthropic · Anthropic · news" said the maker twice: the source already carries whose site it is.
+  const where = sourceLabel(event.source);
+  const eyebrow = [where, shortDate(event.detected_at, true)].join(" · ");
+  if (event.stream === "pages" && event.kind === "new")
+    return { ...base, eyebrow, title: name, change: { mark: "+", where: "On the maker's own site" } };
+  // A post the maker actually wrote: a feed row carrying a headline and nothing else has nothing
+  // for the picture to quote, and a picture of a name is not worth the weight of a picture.
+  if (event.stream === "news" && event.kind === "new" && present(record?.summary))
+    return { ...base, eyebrow, title: name, change: { mark: "+", where: "The maker's own words" } };
+  if (event.stream === "web" && event.kind === "changed") {
+    // The strings a maker ships in its own interface: the first added line is the news, and a card
+    // that only loses lines says so with the mark rather than quoting what is gone.
+    const line = quotes.find((fact): fact is string => typeof fact === "string" && /^\+ /.test(fact));
+    const text = line?.replace(/^\+ /, "").trim();
+    if (!text) return null;
+    const section = typeof record?.title === "string" ? record.title : where;
+    return { ...base, eyebrow, title: excerpt(text, 140), change: { mark: "+", where: `Added to ${section}` } };
+  }
+  return null;
+}
+
+/**
  * The picture for a card read for one number -- a debut's place, a price's move, a shutdown date --
  * so the number is what a screenshot shows first. Everything else keeps the plain card.
  */
@@ -868,7 +910,7 @@ export function eventEmbed(
       }
     : launch
       ? { eyebrow: bannerEyebrow(vendor, event.detected_at), title: name, chips: spec.chips, vendor, glow: color }
-      : numberBanner(event, before, after, vendor, name);
+      : (numberBanner(event, before, after, vendor, name) ?? changeBanner(event, after, vendor, name, shaped.facts));
   const post = announcer ? resetPost(after) : "";
   if (announcer && after && post) {
     // A reset is a person's word: the post is the picture, and the card under it keeps what a picture
@@ -905,7 +947,8 @@ export function eventEmbed(
     // The banner carries the maker's tile, so the corner stays empty rather than showing it twice.
     embed.image = { url: `attachment://${banner.filename}` };
     embed.banner = banner;
-    if (!launch) trimToBanner(embed, banner, handle, event.source);
+    // A change keeps its words: the picture quotes the line, and the text says what it means.
+    if (!launch && !banner.change) trimToBanner(embed, banner, handle, event.source);
   } else if (thumbnail && (description || fields.length)) embed.thumbnail = { url: thumbnail };
   // A title alone beside a logo left a logo-high empty card above; the stripe says whose it is.
   if (link) embed.url = link;
@@ -927,10 +970,10 @@ function trimToBanner(embed: Record<string, unknown>, banner: Banner, handle: st
   else delete embed.description;
   const hero = banner.hero;
   if (!hero) return;
-  if (hero.caption === "cheaper" || hero.caption === "dearer") {
-    const step = hero.text.replace(/^[−+]/, "");
-    embed.title = `${hero.caption === "cheaper" ? "💸" : "📈"} ${banner.title} is ${step} ${hero.caption === "cheaper" ? "cheaper" : "dearer"}`;
-  }
+  // The picture is read for the number, so the title says only which way it went: "27% cheaper"
+  // above a −27% the size of the card was the same fact twice.
+  if (hero.caption === "cheaper" || hero.caption === "dearer")
+    embed.title = `${hero.caption === "cheaper" ? "💸" : "📈"} ${banner.title} is ${hero.caption}`;
   embed.color =
     hero.color === 0xffffff || hero.color === 0xf5c451 ? (vendorColor(banner.vendor) ?? embed.color) : hero.color;
   // The number decides the colour, so the picture is lit by it rather than by the maker's brand.

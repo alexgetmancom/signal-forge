@@ -19,7 +19,33 @@ export const NOISE = new Set([
   "notableReasons",
   "attentionScore",
   "attentionReasons",
+  // A page's own address and the part of the site it sits in. The title is the news and the link is
+  // under it: a card for a new Anthropic page carried "path: /news/claude-discovers-novel-enzyme-
+  // system" and "section: news", which is the URL a reader can already click, spelled out twice.
+  "path",
+  "section",
 ]);
+
+/**
+ * A rate a catalogue keeps beside the token prices, in the reader's words. A scout card for Recraft
+ * V4.1 Flash read "Pricing image: 0.007", which names our own field and a number with no currency
+ * and no unit: nobody can tell dollars per image from dollars per million tokens.
+ */
+const RATE_LABELS: Record<string, string> = {
+  image: "Per image",
+  request: "Per request",
+  audio: "Per minute of audio",
+  video: "Per second of video",
+  web_search: "Per web search",
+  internal_reasoning: "Per reasoning token",
+};
+function rateLabel(key: string): string {
+  return RATE_LABELS[key] ?? `Pricing ${key}`;
+}
+function rateValue(value: unknown): string {
+  const amount = Number(value);
+  return Number.isFinite(amount) && amount > 0 ? `$${Number(amount.toPrecision(3))}` : describe(value);
+}
 
 export const fieldLabels: Record<string, string> = {
   name: "Name",
@@ -255,7 +281,7 @@ export function prices(before: unknown, after: unknown, source?: string): Fact[]
     );
     return [
       ...(parts.length ? [{ label: "Price", value: `${parts.join(" · ")} / 1M tokens` }] : []),
-      ...extras.map((key) => ({ label: `Pricing ${key}`, value: describe(next[key]) })),
+      ...extras.map((key) => ({ label: rateLabel(key), value: rateValue(next[key]) })),
     ];
   }
   // Tier tables and service tiers are whole price sheets: dumped raw, one Vercel card on 2026-09-19

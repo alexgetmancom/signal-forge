@@ -459,6 +459,7 @@ test("a cross-stream digest stays scoped to each destination", () => {
   saveCollection(local, router, destinations, "2026-09-08T09:00:00.000Z");
   saveCollection(local, leaderboard, destinations, "2026-09-08T09:05:00.000Z");
   router.records = [{ id: "router-model", name: "Router model", pricing: { prompt: "2" } }];
+  // The picture carries how far the price moved, so the title says only which way it went.
   // A board key appearing is a codename signal; the price move is a change signal. One digest
   // batch holds both, and each destination renders only the class it asked for.
   leaderboard.records.push({ id: "newcomer", name: "Newcomer model", rank: 3, score: 1 });
@@ -475,7 +476,7 @@ test("a cross-stream digest stays scoped to each destination", () => {
   const bodies = new Map(
     rows.map((row) => [row.destination_id, JSON.parse(row.body) as { embeds: { title: string }[] }]),
   );
-  expect(bodies.get("models")?.embeds.map((embed) => embed.title)).toEqual(["📈 Router model is 2× dearer"]);
+  expect(bodies.get("models")?.embeds.map((embed) => embed.title)).toEqual(["📈 Router model is dearer"]);
   expect(bodies.get("benchmarks")?.embeds.map((embed) => embed.title)).toEqual(["🏆 Newcomer model debuts at #3"]);
   local.close();
 });

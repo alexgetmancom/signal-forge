@@ -34,6 +34,12 @@ export type Banner = {
    * when it is due, and the hours left are counted when the picture is drawn, not when it was queued.
    */
   quote?: { by: string; portrait: string; due?: number; accent?: number };
+  /**
+   * A change as the line that changed: documentation, a changelog and an interface string are read
+   * for one sentence, and until now they went out as a title over our own bookkeeping. The mark
+   * says whether the line arrived or moved, and the footing says where it is.
+   */
+  change?: { mark: "+" | "±"; where: string };
 };
 
 const WIDTH = 1200;
@@ -63,9 +69,16 @@ function glowOf(vendor: string, fallback = 0x5865f2): string {
   return lit(hex(vendorColor(vendor) ?? fallback));
 }
 
-/** A colour the backdrop cannot show: near-white and near-black both read as no glow at all. */
+/**
+ * A colour the backdrop cannot show. Near-white and near-black are honest about OpenAI, xAI and
+ * Moonshot, who have no colour, and both read as no glow at all on a dark card: beside Anthropic's
+ * orange they looked like a card that had failed to draw. Platinum keeps the brand black and white
+ * and lights it like brushed metal, which is what half the channel's launches are lit by.
+ */
+const PLATINUM = "#c8d2e0";
+const ACHROMATIC = new Set(["#e6e6e6", "#000000", "#ffffff"]);
 function lit(colour: string): string {
-  return colour === "#e6e6e6" || colour === "#000000" || colour === "#ffffff" ? "#9aa4b8" : colour;
+  return ACHROMATIC.has(colour) ? PLATINUM : colour;
 }
 
 function backdrop(width: number, height: number, glow: string): string {
@@ -93,9 +106,41 @@ function signatureText(signature: string | undefined, taken: boolean): string {
   return `<text x="${WIDTH - 72}" y="408" text-anchor="end" font-family="Inter" font-weight="600" font-size="30" letter-spacing="0.5" fill="#ffffff" fill-opacity="0.5">${xml(signature)}</text>`;
 }
 
+/** Green for a line that arrived, amber for one that moved: the colours a diff is read in. */
+const MARK_COLORS = { "+": "#3ddc84", "±": "#f1c40f" } as const;
+
+/** The line that changed, quoted big, with the maker's tile and where the line lives underneath. */
+function changeSvg(banner: Banner, change: NonNullable<Banner["change"]>, signature?: string): string {
+  const glow = banner.glow === undefined ? glowOf(banner.vendor) : lit(hex(banner.glow));
+  const logo = logoData(banner.logo);
+  const tile = 132;
+  const mark = MARK_COLORS[change.mark];
+  const { size, lines } = wrap(banner.title, WIDTH - 144 - tile - 80);
+  const step = size * 1.14;
+  const top = 176 + size;
+  const rule = size + (lines.length - 1) * step + 18;
+  const text = lines
+    .map(
+      (line, index) =>
+        `<text x="${112 + size * 0.8}" y="${top + index * step}" font-family="Inter Display" font-weight="700" font-size="${size}" letter-spacing="-1" fill="#ffffff">${xml(line)}</text>`,
+    )
+    .join("\n  ");
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}">
+  ${backdrop(WIDTH, HEIGHT, glow)}
+  ${logo ? `<image x="${WIDTH - 72 - tile}" y="64" width="${tile}" height="${tile}" href="${logo}"/>` : ""}
+  <text x="72" y="118" font-family="Inter" font-weight="600" font-size="28" letter-spacing="4" fill="#ffffff" fill-opacity="0.6">${xml(banner.eyebrow.toUpperCase())}</text>
+  <rect x="72" y="${top - size - 6}" width="6" height="${rule}" rx="3" fill="${mark}" fill-opacity="0.9"/>
+  <text x="112" y="${top - size * 0.22}" font-family="Inter Display" font-weight="700" font-size="${size}" fill="${mark}">${change.mark}</text>
+  ${text}
+  <text x="72" y="${HEIGHT - 52}" font-family="Inter" font-weight="600" font-size="26" fill="#ffffff" fill-opacity="0.55">${xml(change.where)}</text>
+  ${signature ? `<text x="${WIDTH - 72}" y="${HEIGHT - 52}" text-anchor="end" font-family="Inter" font-weight="600" font-size="30" letter-spacing="0.5" fill="#ffffff" fill-opacity="0.5">${xml(signature)}</text>` : ""}
+</svg>`;
+}
+
 function bannerSvg(banner: Banner, signature?: string): string {
   if (banner.rows) return posterSvg(banner);
   if (banner.quote) return quoteSvg(banner, banner.quote);
+  if (banner.change) return changeSvg(banner, banner.change, signature);
   const glow = banner.glow === undefined ? glowOf(banner.vendor) : lit(hex(banner.glow));
   const logo = logoData(banner.logo);
   const hero = banner.hero;
