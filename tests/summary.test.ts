@@ -3,7 +3,7 @@ import { loadConfig } from "../src/config.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import type { RecordData } from "../src/events/types.js";
 import { openDatabase } from "../src/storage/database.js";
-import { completeSentences, fillSummaries, sanitize, summarize } from "../src/summary.js";
+import { completeSentences, fillSummaries, rolloutGroups, sanitize, summarize } from "../src/summary.js";
 
 const fixture = new URL("./fixtures/config.json", import.meta.url).pathname;
 const config = { ...loadConfig({ CONFIG_PATH: fixture }), DEEPSEEK_API_KEY: "key" };
@@ -195,4 +195,51 @@ test("a short event whose title an English reader cannot read is summarised in E
   );
   expect(written).toBeGreaterThan(0);
   expect(seen.body).toContain("Always write in English");
+});
+
+test("pages that changed together are summarised once, for the rollout rather than the page", async () => {
+  const db = openDatabase(":memory:");
+  const destination = {
+    id: "d",
+    platform: "discord" as const,
+    channelId: "1",
+    signals: ["launch", "codename", "evidence", "change"] as ("launch" | "codename" | "evidence" | "change")[],
+  };
+  const page = (id: string, model: string): RecordData => {
+    const record: RecordData = { id, name: id, url: `https://docs.test/${id}` };
+    for (let index = 0; index < 20; index++) record[`block${index}`] = `${model} paragraph ${index}`;
+    return record;
+  };
+  const ids = ["overview", "model-selection", "limits"];
+  const collection = {
+    source: "codex-docs",
+    stream: "pages",
+    url: "https://docs.test",
+    raw: [],
+    records: ids.map((id) => page(id, "gpt-5.6-terra")),
+  };
+  saveCollection(db, collection, [destination], "2026-09-22T10:00:00.000Z");
+  collection.records = ids.map((id) => page(id, "gpt-6-sol"));
+  saveCollection(db, collection, [destination], "2026-09-22T10:05:00.000Z");
+
+  let calls = 0;
+  const written = await fillSummaries(
+    db,
+    config,
+    async (_url: string, init?: RequestInit) => {
+      calls++;
+      expect(String(init?.body ?? "")).toContain("three short factual sentences");
+      return Response.json({
+        choices: [{ message: { content: "Codex now defaults to GPT-6 Sol. GPT-5.5 retires on 14 October." } }],
+      });
+    },
+    new Date("2026-09-22T10:06:00.000Z"),
+  );
+  expect(calls).toBe(1);
+  expect(written).toBe(3);
+  expect(rolloutGroups([]).size).toBe(0);
+  const texts = db.query<{ text: string }, []>("SELECT text FROM summaries").all();
+  expect(texts.length).toBe(3);
+  expect(texts.every((row) => row.text.startsWith("Codex now defaults"))).toBe(true);
+  expect(db.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM deepseek_usage").get()?.count).toBe(1);
 });

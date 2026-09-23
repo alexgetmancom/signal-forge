@@ -121,6 +121,25 @@ export function isTestFile(path: string): boolean {
   );
 }
 
+/**
+ * One line naming three versions of the same model, or more, is a parametrized test's list, not
+ * anyone serving them: gemini-cli's `models.test.ts` ran `it.each(['gemini-3.6-flash',
+ * 'gemini-3.7-flash', 'gemini-3.9-flash', 'gemini-9.9-flash'])` on 2026-09-22, and the scouts were
+ * told a Gemini 3.9 Flash exists. A vendor's test naming one model is still a sighting --
+ * `gpt-6-astra-wm` first appeared in a Codex test, alone on its line.
+ */
+export function inventedList(line: string): boolean {
+  const families = new Map<string, number>();
+  for (const match of line.toLowerCase().matchAll(MODEL_ID)) {
+    const id = match[0].replace(/[.-]+$/, "");
+    const shape = /^([a-z][a-z-]*?)-?\d[\d.]*(.*)$/.exec(id);
+    if (!shape) continue;
+    const key = `${shape[1]}|${shape[2]}`;
+    families.set(key, (families.get(key) ?? 0) + 1);
+  }
+  return [...families.values()].some((count) => count >= 3);
+}
+
 /** Model IDs on the added lines of one file's patch, each with the first line that carried it. */
 export function modelIdsInPatch(patch: string): Map<string, string> {
   const added = patch
@@ -224,9 +243,11 @@ export async function collectModelMentions(
     for (const file of detail.files) {
       if (!file.patch || IGNORED_FILE.test(file.filename)) continue;
       if (watch.authority === "third_party" && isTestFile(file.filename)) continue;
+      const test = isTestFile(file.filename);
       if (watch.paths && !watch.paths.includes(file.filename)) continue;
       for (const [id, line] of modelIdsInPatch(file.patch)) {
         if (seen.has(id) || found.has(id)) continue;
+        if (test && inventedList(line)) continue;
         // Told at both stages already, or listed by a catalogue: nothing this commit says is news,
         // and there is nothing to ask the judge.
         if (stored(source, id) && stored(source, stageRecordId(id, "served"))) continue;

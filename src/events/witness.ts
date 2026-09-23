@@ -75,6 +75,33 @@ export function listingsBySubject(db: Database): Map<string, Set<string>> {
 }
 
 /**
+ * When each model subject was first seen here, and by which source.
+ *
+ * A story would answer this, but a story is keyed on the name as written, and a reseller writes
+ * the maker into it: "Cohere: Command A+" and "Command A+" are two stories about one model. The
+ * subject key is what already survives that difference everywhere else in this file.
+ */
+export function firstSightingBySubject(db: Database): Map<string, { at: number; source: string }> {
+  const first = new Map<string, { at: number; source: string }>();
+  const rows = db
+    .query<{ source: string; entity_id: string; name: string | null; at: string }, []>(
+      `SELECT source,entity_id,COALESCE(json_extract(after_json,'$.name'),entity_id) AS name,MIN(detected_at) AS at
+       FROM events WHERE kind='new' GROUP BY source,entity_id`,
+    )
+    .all();
+  for (const row of rows) {
+    const at = Date.parse(row.at);
+    if (!Number.isFinite(at)) continue;
+    for (const value of new Set([row.entity_id, row.name ?? row.entity_id])) {
+      const key = subjectKey(value);
+      const seen = first.get(key);
+      if (!seen || at < seen.at) first.set(key, { at, source: row.source });
+    }
+  }
+  return first;
+}
+
+/**
  * How heavily a model is used, as a place in the ranking, for the models that appear on one.
  *
  * Three price lines a week is a budget, and spending one on a model nobody runs is how DeepSeek V4

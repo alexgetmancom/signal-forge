@@ -127,12 +127,21 @@ const TOOL_CHANGELOGS = new Set([
 ]);
 
 /**
+ * Release notes written for the people using the chat app, not the people building on the API.
+ *
+ * Mistral's page reads like ChatGPT's: "Le Chat: memories you can edit" on 2026-09-22 reached the
+ * public channel beside a Codex reset. A Mistral *model* release still speaks -- it is the same
+ * page, and the same question answers both.
+ */
+const CONSUMER_APP_NOTES = new Set(["openai-chatgpt-release-notes", "mistral-release-notes"]);
+
+/**
  * ChatGPT's release notes are mostly consumer features. "Credit scores in Finances" reached the
  * public channel on 2026-09-21 and the owner called it noise: a reader here came for models and the
  * tools they build with. The collector asks a judge who each entry is for (`audience`); this word list
  * decides only when the judge could not be asked.
  */
-const CHATGPT_FOR_BUILDERS =
+const FOR_BUILDERS =
   /\b(?:claude|opus|sonnet|haiku|gpt|o\d|gemini|grok|codex|model|models|api|developers?|agents?|apps sdk|mcp|connectors?|reasoning|context window)\b[\s-]?\d?/i;
 
 /**
@@ -389,6 +398,10 @@ export function sellsAnotherMakersModel(event: Event): boolean {
   return named !== "Unknown" && named !== owner;
 }
 
+/** The jobs a subscription feed's reader did not come for, named in the model's own id. */
+const MODALITY_VARIANT =
+  /(?:^|[\s-])(?:tts|stt|asr|embed|embedding|embeddings|rerank|reranker|moderation|ocr|guard)(?:[\s-]|$)/;
+
 export function signalClass(event: Event): SignalClass {
   const record = recordFor(event);
   const listedButUnusable = record?.selectable === false;
@@ -466,10 +479,10 @@ export function signalClass(event: Event): SignalClass {
      */
     const words = `${text(record?.name)} ${text(record?.summary)} ${text(record?.description)}`;
     if (!text(record?.version) && RETIREMENT_WORDS.test(words) && !PREVIEW_SUCCESSION.test(words)) return "retirement";
-    if (event.source === "openai-chatgpt-release-notes") {
+    if (CONSUMER_APP_NOTES.has(event.source)) {
       // The judge's answer when it gave one, the word list when it could not be asked.
       const audience = text(record?.audience);
-      if (audience ? audience === "consumers" : !CHATGPT_FOR_BUILDERS.test(words)) return "evidence";
+      if (audience ? audience === "consumers" : !FOR_BUILDERS.test(words)) return "evidence";
     }
     return TOOL_CHANGELOGS.has(event.source) && !patchBuild(record) ? "release" : "evidence";
   }
@@ -575,6 +588,13 @@ export function signalClass(event: Event): SignalClass {
        * can call, which is a row in an API catalogue.
        */
       if (event.stream === "weights" || listedButUnusable) return "codename";
+      /**
+       * A model that speaks, listens, embeds or scores is not the model a reader of this feed
+       * chose a subscription for. Two Gemini TTS rows reached the public channel on 2026-09-22 as
+       * launches; nobody there is picking a voice. The sighting still belongs on the radar.
+       */
+      if (MODALITY_VARIANT.test(`${text(record?.id) || event.entity_id} ${text(record?.name)}`.toLowerCase()))
+        return "codename";
       /**
        * And only in the catalogue of the company that made it. A platform listing somebody else's
        * model is a sighting, whoever owns the platform: `glm-5.3` appearing on Alibaba's DashScope

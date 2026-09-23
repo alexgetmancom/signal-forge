@@ -20,6 +20,8 @@ const SUPPRESSION_REASONS = [
   "below_the_top_of_the_board",
   "another_serving_of_a_known_model",
   "display_label_only",
+  "a_field_the_source_started_sending",
+  "known_here_for_weeks",
   "alias_of_another_row",
   "a_post_about_the_company_not_a_model",
   "another_tier_of_a_listed_model",
@@ -67,6 +69,10 @@ function suppressionDetail(event: Event, reason: SuppressionReason): string {
       return "A model already identified here, listed again under the way it is served";
     case "display_label_only":
       return "Nothing changed but the title the source displays";
+    case "a_field_the_source_started_sending":
+      return "The record gained a field it never carried, as did its neighbours: the schema moved, not the model";
+    case "known_here_for_weeks":
+      return "A model this deployment has followed for weeks, listed at one more venue";
     case "a_post_about_the_company_not_a_model":
       return "A newsroom post naming no model this deployment knows, and announcing none";
     case "another_tier_of_a_listed_model":

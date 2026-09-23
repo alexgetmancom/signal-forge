@@ -34,8 +34,9 @@ import { sourceFamily } from "./sourceFamily.js";
 import { clearSuppression, recordSuppression, type SuppressionReason } from "./suppression.js";
 import type { Event, RecordData } from "./types.js";
 import { displayName } from "./variants.js";
-import { listingsBySubject, rosterSiblings, subjectKey } from "./witness.js";
+import { firstSightingBySubject, listingsBySubject, rosterSiblings, subjectKey } from "./witness.js";
 import {
+  addedFieldSignature,
   isAboutTheCompanyNotAModel,
   isAliasRow,
   isAlreadyOutAtItsMaker,
@@ -57,6 +58,8 @@ import {
 } from "./worth.js";
 
 const DUPLICATE_STORY_WINDOW_MS = 6 * 3_600_000;
+/** How long a model has to have been followed here before one more venue listing it is only a line. */
+const LONG_KNOWN_MS = 30 * 24 * 3_600_000;
 /** How many stories an hourly digest shows before it stops being read at all. */
 const DIGEST_STORIES = 5;
 /** A digest tells separate stories, so it may show a few cards; anything else shows one. */
@@ -457,6 +460,8 @@ function prepareLifecycleReminder(
 /** What a batch knows about its events that every destination's judgement reads. */
 type BatchView = {
   renamed: Set<number>;
+  schema: Set<number>;
+  longKnown: Set<number>;
   known: ReturnType<typeof knownModelNames>;
   listings: ReturnType<typeof listingsBySubject> | null;
   sighted: (event: Event) => boolean;
@@ -480,6 +485,8 @@ function standingReason(
   if ((event.signal === "article" || event.signal === "business") && isAboutTheCompanyNotAModel(event, view.known))
     return "a_post_about_the_company_not_a_model";
   if (isLabelOnlyChange(event)) return "display_label_only";
+  if (view.schema.has(event.id)) return "a_field_the_source_started_sending";
+  if (view.longKnown.has(event.id)) return "known_here_for_weeks";
   if (isAliasRow(event)) return "alias_of_another_row";
   if (isAnotherTierOfAListedModel(db, event)) return "another_tier_of_a_listed_model";
   if (isPublishedByAFollowedLab(db, event)) return "published_by_a_followed_lab";
@@ -507,6 +514,37 @@ function batchViewOf(db: Database, events: readonly (Event & { signal: SignalCla
   // A re-keyed catalogue speaks once per row, twice: the row that left and the identical row that
   // arrived. Found once per batch, because the answer does not depend on the destination.
   const renamed = renamedEvents(db, events);
+  // A field appearing on one record is the source saying something about that record; the same
+  // field appearing on several at once is the shape of the data changing underneath us.
+  const bySignature = new Map<string, number[]>();
+  for (const event of events) {
+    const signature = addedFieldSignature(event);
+    if (signature) bySignature.set(signature, [...(bySignature.get(signature) ?? []), event.id]);
+  }
+  const schema = new Set([...bySignature.values()].filter((ids) => ids.length > 1).flat());
+  // A platform listing a model this deployment has been following for weeks is a venue catching
+  // up, not a release. Command A+ reached the public channel on 2026-09-22 as a launch; Cohere had
+  // shipped it in May. Read from the story, which is where every source's word on a model meets.
+  const catchingUp = events.filter(
+    (event) =>
+      event.kind === "new" && ["api-models", "openrouter"].includes(event.stream) && listsAnotherMakersModel(event),
+  );
+  const longKnown = new Set<number>();
+  if (catchingUp.length) {
+    const first = firstSightingBySubject(db);
+    for (const event of catchingUp) {
+      const record = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
+      const keys = [
+        ...new Set([subjectKey(event.entity_id), subjectKey(displayName(String(record?.name ?? event.entity_id)))]),
+      ];
+      const seen = keys
+        .map((key) => first.get(key))
+        .filter((row): row is { at: number; source: string } => row !== undefined && row.source !== event.source)
+        .sort((one, other) => one.at - other.at)[0];
+      if (seen && Date.parse(event.detected_at) - seen.at > LONG_KNOWN_MS) longKnown.add(event.id);
+    }
+  }
+
   // A sighting from a platform or a registry says where else the model already is; read once
   // per batch, and only when a card will need it.
   const sighted = (event: Event) =>
@@ -528,7 +566,7 @@ function batchViewOf(db: Database, events: readonly (Event & { signal: SignalCla
   )
     ? knownModelNames(db)
     : [];
-  return { renamed, known, listings, sighted, elsewhereOf };
+  return { renamed, schema, longKnown, known, listings, sighted, elsewhereOf };
 }
 
 /**

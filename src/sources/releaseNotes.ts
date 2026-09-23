@@ -361,8 +361,17 @@ export function parseMistralReleaseNotes(html: string): Collection {
   return releaseCollection("mistral-release-notes", MISTRAL_RELEASE_NOTES_URL, records);
 }
 
-export async function collectMistralReleaseNotes(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
-  return parseMistralReleaseNotes(await fetchText(MISTRAL_RELEASE_NOTES_URL, {}, request, undefined, cache));
+export async function collectMistralReleaseNotes(
+  request: Fetch = fetch,
+  cache?: HttpCache,
+  judge?: { db: Database; config: AppConfig },
+): Promise<Collection> {
+  const collection = parseMistralReleaseNotes(
+    await fetchText(MISTRAL_RELEASE_NOTES_URL, {}, request, undefined, cache),
+  );
+  if (!judge) return collection;
+  const records = await withAudience(judge.db, judge.config, request, collection.source, collection.records);
+  return { ...collection, records };
 }
 
 /** Parse Groq's dated changelog cards while ignoring its navigation headings. */

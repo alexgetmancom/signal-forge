@@ -814,3 +814,60 @@ test("a reseller filling in a blank context is quiet, a context that moves still
   expect(reasons["openai/gpt-6"]).toBeUndefined();
   db.close();
 });
+
+test("a field the source started sending on every record is the schema moving, not the models", () => {
+  const db = openDatabase(":memory:");
+  const catalogue: Collection = {
+    source: "command-code-models",
+    stream: "api-models",
+    url: "https://commandcode.example/models",
+    raw: [],
+    records: [
+      { id: "gpt-5.4-mini", name: "gpt-5.4-mini", maker: "Command Code" },
+      { id: "glm-5.2", name: "glm-5.2", maker: "Command Code" },
+    ],
+  };
+  saveCollection(db, catalogue, [wire], "2026-09-22T10:00:00.000Z");
+  catalogue.records = catalogue.records.map((record) => ({ ...record, capabilities: ["chat"] }));
+  saveCollection(db, catalogue, [wire], "2026-09-22T11:00:00.000Z");
+  prepareDeliveries(db, Date.parse("2026-09-22T12:00:00.000Z"));
+
+  const reasons = suppressed(db);
+  expect(reasons["gpt-5.4-mini"]).toBe("a_field_the_source_started_sending");
+  expect(reasons["glm-5.2"]).toBe("a_field_the_source_started_sending");
+  db.close();
+});
+
+test("a model followed here for weeks reaching one more venue is not a launch", () => {
+  const db = openDatabase(":memory:");
+  const maker: Collection = {
+    source: "cohere-models",
+    stream: "api-models",
+    url: "https://cohere.example/models",
+    raw: [],
+    records: [{ id: "command-r", name: "Command R", maker: "Cohere" }],
+  };
+  saveCollection(db, maker, [wire], "2026-05-19T10:00:00.000Z");
+  maker.records = [
+    { id: "command-r", name: "Command R", maker: "Cohere" },
+    { id: "command-a-plus", name: "Command A+", maker: "Cohere" },
+  ];
+  saveCollection(db, maker, [wire], "2026-05-20T10:00:00.000Z");
+  const reseller: Collection = {
+    source: "openrouter",
+    stream: "openrouter",
+    url: "https://openrouter.ai",
+    raw: [],
+    records: [{ id: "x-ai/grok-4", name: "xAI: Grok 4", maker: "xAI" }],
+  };
+  saveCollection(db, reseller, [wire], "2026-05-20T10:05:00.000Z");
+  reseller.records = [
+    { id: "x-ai/grok-4", name: "xAI: Grok 4", maker: "xAI" },
+    { id: "cohere/command-a-plus", name: "Cohere: Command A+", maker: "Cohere" },
+  ];
+  saveCollection(db, reseller, [wire], "2026-09-22T10:00:00.000Z");
+  prepareDeliveries(db, Date.parse("2026-09-22T12:00:00.000Z"));
+
+  expect(suppressed(db)["cohere/command-a-plus"]).toBe("known_here_for_weeks");
+  db.close();
+});

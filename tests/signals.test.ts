@@ -381,3 +381,41 @@ test("a reseller listing a small company's model is a trail, a followed lab's or
   // A row that names nobody cannot be judged small.
   expect(listed("union", "Union")).toBe("codename");
 });
+
+test("a voice or an embedding in a maker's own catalogue is a sighting, not a launch", () => {
+  const google = { stream: "api-models" as const, kind: "new" as const, source: "gemini" };
+  expect(
+    signalClass(
+      event(
+        { ...google, entity_id: "gemini-3.8-flash-tts" },
+        { id: "gemini-3.8-flash-tts", name: "gemini-3.8-flash-tts" },
+      ),
+    ),
+  ).toBe("codename");
+  expect(
+    signalClass(
+      event(
+        { ...google, entity_id: "gemini-embedding-002" },
+        { id: "gemini-embedding-002", name: "gemini-embedding-002" },
+      ),
+    ),
+  ).toBe("codename");
+  expect(
+    signalClass(
+      event({ ...google, entity_id: "gemini-3.8-flash" }, { id: "gemini-3.8-flash", name: "gemini-3.8-flash" }),
+    ),
+  ).toBe("launch");
+});
+
+test("a consumer app's release notes are evidence at Mistral as they are at ChatGPT", () => {
+  const entry = (source: string, name: string, audience?: string) =>
+    signalClass(
+      event(
+        { stream: "news", kind: "new", source, entity_id: name },
+        { id: name, name, ...(audience ? { audience } : {}) },
+      ),
+    );
+  expect(entry("mistral-release-notes", "Le Chat: memories you can edit", "consumers")).toBe("evidence");
+  expect(entry("mistral-release-notes", "New voices in Le Chat")).toBe("evidence");
+  expect(entry("mistral-release-notes", "Mistral Large 3 is available in the API", "developers")).not.toBe("evidence");
+});

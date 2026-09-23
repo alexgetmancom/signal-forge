@@ -147,6 +147,28 @@ export function isLabelOnlyChange(event: Event): boolean {
 }
 
 /**
+ * The keys a change only added, or null when it changed or removed anything.
+ *
+ * Our own parser is the most frequent author of these. On 2026-09-22 five cards went out because
+ * the Command Code and opencode collectors started emitting a `model` field: every record read that
+ * day differed from the one stored, and each difference was `{"id":"gpt-5.4-mini"}` gaining
+ * `"model":"gpt-5.4-mini"`. The signature is what the batch compares, so one field appearing across
+ * a source's records at once is recognised as the schema moving, not the models.
+ */
+export function addedFieldSignature(event: Event): string | null {
+  if (event.kind !== "changed" || !event.before_json || !event.after_json) return null;
+  const before = JSON.parse(event.before_json) as Record<string, unknown>;
+  const after = JSON.parse(event.after_json) as Record<string, unknown>;
+  const added: string[] = [];
+  for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
+    if (canonical(before[key]) === canonical(after[key])) continue;
+    if (before[key] !== undefined) return null;
+    added.push(key);
+  }
+  return added.length ? added.sort().join(",") : null;
+}
+
+/**
  * A row that exists to point at whatever is newest.
  *
  * `~deepseek/deepseek-v4-flash-latest` is not a model: it is a promise to route to one. Its every

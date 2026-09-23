@@ -219,7 +219,7 @@ export function newsSources({ db, config, cache }: SourceContext): SourceEntry[]
       group: "Official news",
       stream: "news",
       intervalSeconds: 3600,
-      collector: () => collectMistralReleaseNotes(fetch, cache),
+      collector: () => collectMistralReleaseNotes(fetch, cache, { db, config }),
     },
     {
       id: "groq-changelog",

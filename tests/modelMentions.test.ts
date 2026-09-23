@@ -3,7 +3,13 @@ import { loadConfig } from "../src/config.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import { pingWorthy, signalClass } from "../src/events/signals.js";
 import { familyVersion, guessStage, judgeMentions, olderThanKnown, stageKnown } from "../src/sources/mentionStage.js";
-import { collectModelMentions, isTestFile, modelIdsInPatch, undated } from "../src/sources/modelMentions.js";
+import {
+  collectModelMentions,
+  inventedList,
+  isTestFile,
+  modelIdsInPatch,
+  undated,
+} from "../src/sources/modelMentions.js";
 import { collectRepoTalk } from "../src/sources/repoTalk.js";
 import { openDatabase } from "../src/storage/database.js";
 
@@ -387,4 +393,12 @@ test("a family stem or a hyphen spelling of a listed model is known", () => {
   for (const id of ["kimi-k2.8", "qwen3.9", "qwen3.8-max", "kimi-k2.7-codex"])
     expect(stageKnown(db, id, "named")).toBe(false);
   db.close();
+});
+
+test("a parametrized list of versions in a test is invented, one model in a test is not", () => {
+  expect(
+    inventedList("it.each(['gemini-3.6-flash', 'gemini-3.7-flash', 'gemini-3.9-flash', 'gemini-9.9-flash'])"),
+  ).toBe(true);
+  expect(inventedList('const model = "gpt-6-astra-wm";')).toBe(false);
+  expect(inventedList('expect(pick("gpt-6-sol")).toBe("gpt-6-luna");')).toBe(false);
 });
