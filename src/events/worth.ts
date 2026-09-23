@@ -426,6 +426,40 @@ export function isAlreadyOutAtItsMaker(event: Event, elsewhere: readonly string[
   return maker !== "Unknown" && elsewhere.some((source) => makerOfListing(source) === maker);
 }
 
+/**
+ * What another catalogue already knows about a stealth model, for the venue that carries none.
+ *
+ * OpenCode's row for Space Bunny was `{free, headline, id, maker, model, name}` and nothing else,
+ * while models.dev had its million-token context and its modalities six minutes earlier and
+ * OpenRouter had them a quarter of an hour later. Waiting for the richer venue spent the lead this
+ * tracker exists to have; reading what is already stored spends nothing.
+ */
+const BORROWED_FIELDS = ["context", "input", "output", "reasoning"];
+
+export function borrowedFacts(db: Database, event: Event, subject: string): Record<string, unknown> {
+  const have: Record<string, unknown> = record(event) ?? {};
+  const wanted = BORROWED_FIELDS.filter((field) => have[field] === undefined || have[field] === null);
+  if (!wanted.length || subject.length < 4) return {};
+  const borrowed: Record<string, unknown> = {};
+  for (const row of db
+    .query<{ body: string }, [string]>(
+      `SELECT body FROM records WHERE stream IN ('api-models','openrouter','weights')
+       AND lower(id) LIKE '%' || ? || '%' LIMIT 20`,
+    )
+    .all(subject)) {
+    let fields: Record<string, unknown>;
+    try {
+      fields = JSON.parse(row.body) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    for (const field of wanted)
+      if (borrowed[field] === undefined && fields[field] !== undefined && fields[field] !== null)
+        borrowed[field] = fields[field];
+  }
+  return borrowed;
+}
+
 /** Past this, a catalogue adding a model is catching up with a release, not carrying one. */
 const ALREADY_OUT_MS = 30 * 24 * 3_600_000;
 

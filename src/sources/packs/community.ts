@@ -77,13 +77,21 @@ export function communitySources({ db, config, cache }: SourceContext): SourceEn
       intervalSeconds: 3600,
       collector: () => collectClaudeCodeModels(fetch),
     },
-    // The coding subscriptions' model lists: small JSON answers, read every quarter hour.
+    /**
+     * The coding subscriptions' model lists: small JSON answers, read every two minutes.
+     *
+     * This is where a stealth model appears first and free, and it is the fastest hand this tracker
+     * has: Space Bunny was on Zen and Go on 2026-09-23 a quarter of an hour before OpenRouter listed
+     * it. A quarter-hour poll spent most of that lead waiting. The cost is nothing a database sees --
+     * a snapshot is stored only when the body changes, and Zen wrote three rows in the day to
+     * 2026-09-23 -- so the only thing spent is a small request against a small file.
+     */
     {
       id: "opencode-zen",
       authority: "third_party",
       group: "Catalogues",
       stream: "api-models",
-      intervalSeconds: 900,
+      intervalSeconds: 120,
       collector: () => collectOpenCodeZen(fetch),
     },
     {
@@ -91,7 +99,7 @@ export function communitySources({ db, config, cache }: SourceContext): SourceEn
       authority: "third_party",
       group: "Catalogues",
       stream: "api-models",
-      intervalSeconds: 900,
+      intervalSeconds: 120,
       collector: () => collectOpenCodeGo(fetch),
     },
     {

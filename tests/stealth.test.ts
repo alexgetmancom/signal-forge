@@ -50,15 +50,25 @@ test("every venue's spelling is one model", () => {
   expect(stealthSubject(venue("openrouter", openRouter, "openrouter"))).toBe("space-bunny");
 });
 
-test("the card names the model, the free venue and the rest, and drops the venue's bookkeeping", () => {
-  const embed = eventEmbed({ ...venue("opencode-go", zen), elsewhere: ["opencode-zen", "openrouter"] } as never, "u");
+test("the card names the model and the venues, and leaves the rest to the picture", () => {
+  const embed = eventEmbed(
+    {
+      ...venue("opencode-go", zen),
+      elsewhere: ["opencode-zen", "openrouter"],
+      // OpenCode's own row carries no context and no modalities; models.dev held both.
+      borrowed: { context: 1_048_576, input: ["image", "text", "video"] },
+    } as never,
+    "u",
+  );
   expect(embed.title).toBe("🚀 Space Bunny is out — free on OpenCode Zen");
-  expect(embed.description).toContain("Also on OpenRouter and OpenCode Go");
+  expect(embed.description).toBe("Also on OpenRouter and OpenCode Go\n`space-bunny-free`");
+  // Nothing the picture says is said again in the text, and no field at all.
+  expect(embed.fields).toBeUndefined();
   const body = JSON.stringify(embed);
   expect(body).not.toContain("headline");
   expect(body).not.toContain('"yes"');
   expect(body).not.toContain("Already out");
-  // The picture carries it, with nobody's brand on it.
-  expect((embed.banner as { eyebrow: string }).eyebrow).toBe("Stealth · free on OpenCode Zen · Sep 23, 2026");
-  expect((embed.banner as { chips: string[] }).chips).toContain("free");
+  const banner = embed.banner as { eyebrow: string; chips: string[] };
+  expect(banner.eyebrow).toBe("Stealth launch · Sep 23, 2026");
+  expect(banner.chips).toEqual(["free", "1M context", "image, text, video"]);
 });

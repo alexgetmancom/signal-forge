@@ -370,12 +370,13 @@ export function persistCollection(
   /**
    * How long a stealth launch waits for its other venues.
    *
-   * Space Bunny reached OpenCode Go and Zen two seconds apart on 2026-09-23 and OpenRouter fifteen
-   * minutes later, with the context, the modalities and the zero price only on the last of the three.
-   * Sending the first one instantly bought a quarter of an hour and spent it on a card that named the
-   * wrong venue and knew nothing about the model; one card that names all of them is worth the wait.
+   * Space Bunny reached OpenCode Go and Zen two seconds apart on 2026-09-23, so a couple of minutes
+   * is all the venues that matter need to agree, and being early is the whole point of watching
+   * them. What a longer wait was really buying -- the context and the modalities, which OpenCode's
+   * own row does not carry -- the card now borrows from the catalogues that already hold the model,
+   * so there is nothing left to wait for.
    */
-  const STEALTH_HOLD_MS = 20 * 60_000;
+  const STEALTH_HOLD_MS = 2 * 60_000;
 
   /** When an event is told: at once, after the stealth hold, or in the next hour's digest. */
   function paceOf(event: Event): "now" | "held" | "hourly" {

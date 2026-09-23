@@ -44,6 +44,7 @@ import { displayName } from "./variants.js";
 import { firstSightingBySubject, listingsBySubject, rosterSiblings, subjectKey } from "./witness.js";
 import {
   addedFieldSignature,
+  borrowedFacts,
   changeSignature,
   isAboutTheCompanyNotAModel,
   isAliasRow,
@@ -874,6 +875,10 @@ export function prepareDeliveries(
       for (const event of speaking) {
         const returned = departedAs(db, event, now);
         if (returned) Object.assign(event, { returned });
+        if (isStealthLaunch(event)) {
+          const borrowed = borrowedFacts(db, event, stealthSubject(event));
+          if (Object.keys(borrowed).length) Object.assign(event, { borrowed });
+        }
         if (listings && sighted(event)) {
           const record = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
           const elsewhere = elsewhereOf(event);

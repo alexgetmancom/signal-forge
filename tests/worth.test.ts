@@ -3,7 +3,8 @@ import type { Destination } from "../src/config.js";
 import { prepareDeliveries } from "../src/events/batching.js";
 import { displayTitle } from "../src/events/naming.js";
 import { saveCollection } from "../src/events/pipeline.js";
-import type { Collection } from "../src/events/types.js";
+import type { Collection, Event } from "../src/events/types.js";
+import { borrowedFacts } from "../src/events/worth.js";
 import { openDatabase } from "../src/storage/database.js";
 
 const wire: Destination = {
@@ -1031,5 +1032,31 @@ test("a catalogue listing a model released four months ago is not a sighting", (
   prepareDeliveries(db, Date.parse("2026-09-21T18:30:00.000Z"));
 
   expect(suppressed(db)["mistralai/mistral-medium-3.2"]).toBe("released_long_before_this_listing");
+  db.close();
+});
+
+test("a venue that carries no facts borrows them from a catalogue that does", () => {
+  const db = openDatabase(":memory:");
+  const catalogue: Collection = {
+    source: "models-dev",
+    stream: "api-models",
+    url: "https://models.dev",
+    raw: [],
+    records: [
+      { id: "space-bunny-free", name: "Space Bunny Free", context: 1_048_576, input: ["image", "text", "video"] },
+    ],
+  };
+  saveCollection(db, catalogue, [wire], "2026-09-23T14:23:48.883Z");
+  const event = {
+    id: 1,
+    source: "opencode-go",
+    stream: "api-models",
+    entity_id: "space-bunny-free",
+    kind: "new",
+    after_json: JSON.stringify({ free: true, id: "space-bunny-free", maker: "OpenCode", model: "space-bunny" }),
+    detected_at: "2026-09-23T14:29:00.939Z",
+  } as unknown as Event;
+
+  expect(borrowedFacts(db, event, "space-bunny")).toEqual({ context: 1_048_576, input: ["image", "text", "video"] });
   db.close();
 });

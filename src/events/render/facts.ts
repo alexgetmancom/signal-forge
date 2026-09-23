@@ -125,6 +125,8 @@ export type CardContext = {
   lead?: LeadTime;
   returned?: Record<string, unknown>;
   elsewhere?: string[];
+  /** Facts about the model the venue itself does not carry, read from a catalogue that does. */
+  borrowed?: Record<string, unknown>;
   siblings?: Record<string, unknown>[];
 };
 

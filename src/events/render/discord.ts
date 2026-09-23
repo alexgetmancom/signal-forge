@@ -495,6 +495,25 @@ const STEALTH_NOISE = new Set(["model", "maker", "free", "headline", "name", "id
  */
 const VENUE_ORDER = ["opencode-zen", "openrouter", "opencode-go"];
 
+/**
+ * What a stealth card is read for, in the order a reader weighs it: that it costs nothing, how much
+ * it holds, and what it takes. Three pills is what the picture has room for.
+ */
+function stealthChips(event: Event & CardContext, found: readonly string[]): string[] {
+  const borrowed = event.borrowed ?? {};
+  const record = (event.after_json ? JSON.parse(event.after_json) : {}) as Record<string, unknown>;
+  const context = found.find((chip) => chip.endsWith("context")) ?? contextChip(borrowed.context);
+  const accepts = [record.input, borrowed.input].find(Array.isArray);
+  return ["free", ...(context ? [context] : []), ...(accepts ? [accepts.join(", ")] : [])].slice(0, 3);
+}
+
+/** A borrowed context length as the picture says it: 1048576 tokens is "1M context". */
+function contextChip(value: unknown): string | null {
+  const tokens = Number(value);
+  if (!Number.isFinite(tokens) || tokens < 1000) return null;
+  return `${tokens >= 1_000_000 ? `${Math.round(tokens / 1_000_000)}M` : `${Math.round(tokens / 1000)}K`} context`;
+}
+
 /** The light on a card with no maker on it. */
 const STEALTH_GLOW = 0x8b5cf6;
 
@@ -717,8 +736,11 @@ export function eventEmbed(
     : { line: null, chips: [], rest: facts };
   const venues = stealthVenues(event);
   if (stealth) {
-    spec.chips.unshift("free");
-    spec.line = ["**free**", spec.line].filter(Boolean).join(" · ");
+    // The picture carries what the model is; the text carries only what the picture cannot, which
+    // is where to call it and what to type. The first card said "free" three times over.
+    spec.chips = stealthChips(event, spec.chips);
+    spec.line = null;
+    spec.rest = [];
   }
   const { lines, fields } = factLayout(spec.rest);
   // The name a developer copies into an API call: on every new model, and for a scout whenever the
@@ -804,7 +826,9 @@ export function eventEmbed(
   const words: Omit<Banner, "filename" | "logo"> | null = stealth
     ? {
         // No maker to name, so the picture says what it is instead: unclaimed, free, and where.
-        eyebrow: ["Stealth", `free on ${venues.headline}`, shortDate(event.detected_at, true)].join(" · "),
+        // The title says where it is free; the picture says what the title cannot, which is that
+        // nobody has put their name on it and what day it appeared.
+        eyebrow: ["Stealth launch", shortDate(event.detected_at, true)].join(" · "),
         title: name,
         chips: spec.chips,
         vendor,
