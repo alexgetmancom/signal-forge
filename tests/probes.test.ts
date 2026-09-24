@@ -205,3 +205,13 @@ test("a version no maker could be at is a spelling, not a version", () => {
     { family: "gpt", version: [6, 0], observed: "gpt-6-sol" },
   ]);
 });
+
+test("a released model written another way is still released", () => {
+  const anthropicProbe = PROBE_SITES.find((site) => site.id === "discovery:docs-anthropic");
+  if (!anthropicProbe) throw new Error("the Anthropic probe is gone");
+  const db = catalogue(["claude-opus-5-5"]);
+  db.query(
+    "INSERT INTO events(source,stream,entity_id,kind,after_json,detected_at,signal,snapshot_id) VALUES('models-dev','api-models',?,'new','{}','2026-09-23T10:00:00.000Z','codename',1)",
+  ).run(["claude-opus", "5.5"].join("-"));
+  expect(heardNames(db, anthropicProbe, Date.parse("2026-09-24T00:00:00.000Z"))).toEqual([]);
+});

@@ -181,11 +181,16 @@ const HEARD_LIMIT = 6;
 export function heardNames(db: Database, site: Site, now = Date.now()): string[] {
   if (!site.codename) return [];
   const since = new Date(now - HEARD_DAYS * 24 * 3_600_000).toISOString();
+  /**
+   * Released under any spelling. A catalogue writes `claude-opus-5-5` and a third party writes
+   * `claude-opus-5.5`; both are the same model, and asking the documentation about a model that is
+   * out wastes the one question this probe is for.
+   */
   const released = new Set(
     db
       .query<{ canonical_id: string }, []>("SELECT canonical_id FROM model_facts")
       .all()
-      .map((row) => row.canonical_id.toLowerCase()),
+      .map((row) => site.spell(row.canonical_id.toLowerCase())),
   );
   const heard: string[] = [];
   for (const row of db
@@ -196,8 +201,9 @@ export function heardNames(db: Database, site: Site, now = Date.now()): string[]
     )
     .all(since)) {
     const name = (row.entity_id.split("/").pop() ?? "").split(":")[0]?.toLowerCase() ?? "";
-    if (!site.codename.test(name) || released.has(name)) continue;
+    if (!site.codename.test(name)) continue;
     const slug = site.spell(name);
+    if (released.has(slug)) continue;
     if (!heard.includes(slug)) heard.push(slug);
     if (heard.length >= HEARD_LIMIT) break;
   }
