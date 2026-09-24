@@ -48,7 +48,7 @@ export type SourceVerdict = {
   corroborationRate: number | null;
   /** Corroborated events that never reached a reader: value the routing is not carrying. */
   heldBack: number;
-  verdict: "earning" | "voted_down" | "held_back" | "no_measurable_value";
+  verdict: "earning" | "voted_down" | "held_back" | "no_measurable_value" | "quiet_sentinel";
 };
 
 const MIN_OBSERVED_DAYS = 14;
@@ -180,16 +180,28 @@ export function sourceVerdicts(
     // what it managed to send; the Gemini models blog delivered one card and drew three thumbs down.
     const votedDown = row.scoutVotesAgainst >= 2 && row.scoutVotesAgainst > row.scoutVotes;
     const earning = row.ledOthers > 0 || row.delivered > 0 || row.scoutVotes > 0 || row.recapLines > 0;
-    return {
-      ...row,
-      verdict: votedDown ? "voted_down" : earning ? "earning" : row.heldBack > 0 ? "held_back" : "no_measurable_value",
-    };
+    // Recording nothing and recording plenty that reached nobody were one verdict, and they are
+    // opposite things. A deprecation feed is silent until a model is killed, which is the whole
+    // reason it is watched: its silence is the good outcome. A source that logged 187 events none
+    // of which reached anybody is spending something for nothing. Reading both as "no measurable
+    // value" is what made the list look like a kill list every time it was opened.
+    const verdict = votedDown
+      ? "voted_down"
+      : earning
+        ? "earning"
+        : row.heldBack > 0
+          ? "held_back"
+          : events === 0
+            ? "quiet_sentinel"
+            : "no_measurable_value";
+    return { ...row, verdict };
   };
   const rank: Record<SourceVerdict["verdict"], number> = {
     voted_down: 0,
     no_measurable_value: 1,
-    held_back: 2,
-    earning: 3,
+    quiet_sentinel: 2,
+    held_back: 3,
+    earning: 4,
   };
   const ordered = (rows: SourceVerdict[]) =>
     rows.sort((left, right) => rank[left.verdict] - rank[right.verdict] || left.source.localeCompare(right.source));

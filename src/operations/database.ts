@@ -16,6 +16,46 @@ import { count, type OperationMap } from "./definition.js";
  * the guarantee, not the parsing of the text: a check that reads the query and decides it is a
  * SELECT is a check that can be fooled, and this one cannot.
  */
+/**
+ * A failed query, answered with the names it should have used.
+ *
+ * "no such column: summary" is true and useless: it says the guess was wrong and leaves the next
+ * guess to be made blind. Five queries in a row missed on 2026-09-24 -- `events.summary`,
+ * `deliveries.event_id`, `suppressions.destination`, `schema_migrations`, `event_summaries` -- and
+ * each cost a round trip to production to be told nothing. SQLite knows what is actually there, so
+ * the error carries it: the columns of the tables the query named, or the tables that exist.
+ */
+function teach(connection: Database, query: string, error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  const tableNames = (): string[] =>
+    connection
+      .query<{ name: string }, []>(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+      )
+      .all()
+      .map((row) => row.name);
+
+  const missingTable = /no such table: (\S+)/.exec(message);
+  if (missingTable) {
+    const asked = missingTable[1] ?? "";
+    const near = tableNames().filter((name) => name.includes(asked) || asked.includes(name));
+    return `${message}. Tables here: ${(near.length ? near : tableNames()).join(", ")}`;
+  }
+
+  const missingColumn = /no such column: (\S+)/.exec(message);
+  if (!missingColumn) return message;
+  // The query names its tables in FROM and JOIN; those are the ones whose columns are worth listing.
+  const named = tableNames().filter((name) => new RegExp(`\\b(from|join)\\s+"?${name}"?\\b`, "i").test(query));
+  if (!named.length) return `${message}. Ask \`schema <table>\` for the columns a table has`;
+  const columnsOf = (table: string): string =>
+    `${table}(${connection
+      .query<{ name: string }, []>(`PRAGMA table_info("${table}")`)
+      .all()
+      .map((row) => row.name)
+      .join(", ")})`;
+  return `${message}. Columns here: ${named.map(columnsOf).join("; ")}`;
+}
+
 export function databaseOperations(db: Database, config: AppConfig, _all: () => OperationMap): OperationMap {
   const readOnly = () => new Database(config.DATABASE_URL, { readonly: true });
   return {
@@ -43,6 +83,8 @@ export function databaseOperations(db: Database, config: AppConfig, _all: () => 
             if (rows.length >= input.limit) break;
           }
           return { rows, count: rows.length, truncated: rows.length >= input.limit };
+        } catch (error) {
+          throw new Error(teach(connection, input.query, error));
         } finally {
           connection.close();
         }

@@ -22,3 +22,25 @@ export function clip(value: string, limit: number): string {
   const end = /[\uD800-\uDBFF]/.test(value[limit - 1] ?? "") ? limit - 1 : limit;
   return value.slice(0, end);
 }
+
+/**
+ * How a result is printed, which is the surface's business and not the registry's.
+ *
+ * Indented JSON is right for a person reading one record and wrong for forty rows of five columns:
+ * an agent answering a question from it pipes it through `grep` and `paste` to get back the table
+ * it started with, every time, and pays for the punctuation in between. `--tsv` prints rows as a
+ * header and tab-separated lines. Anything that is not a list of rows is still JSON, because for
+ * a nested answer the punctuation is the meaning.
+ */
+export function asTsv(value: unknown): string | null {
+  const rows = (value as { rows?: unknown })?.rows;
+  if (!Array.isArray(rows) || rows.length === 0) return null;
+  const columns = [...new Set(rows.flatMap((row) => Object.keys(row as Record<string, unknown>)))];
+  const cell = (row: unknown, column: string): string => {
+    const raw = (row as Record<string, unknown>)[column];
+    if (raw === null || raw === undefined) return "";
+    const text = typeof raw === "object" ? JSON.stringify(raw) : String(raw);
+    return text.replaceAll("\t", " ").replaceAll("\n", " ");
+  };
+  return [columns.join("\t"), ...rows.map((row) => columns.map((column) => cell(row, column)).join("\t"))].join("\n");
+}

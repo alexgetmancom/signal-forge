@@ -3,14 +3,16 @@ import { recordOperatorAction } from "./journal.js";
 import { cliCommand, type OperationMap, operationCatalog, operations } from "./operations.js";
 import { measure } from "./runtime/metrics.js";
 import { openDatabase } from "./storage/database.js";
+import { asTsv } from "./text.js";
 
 /**
  * The dispatch is generic: every command, its arguments, its usage line and whether it is a
  * mutation come from the registry. The previous chain of branches and its hand-written usage
  * string had already drifted apart, which is the failure this shape cannot have.
  */
-function write(value: unknown): void {
-  process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
+function write(value: unknown, tsv: boolean): void {
+  const table = tsv ? asTsv(value) : null;
+  process.stdout.write(table === null ? `${JSON.stringify(value, null, 2)}\n` : `${table}\n`);
 }
 
 function usage(defs: OperationMap): string {
@@ -36,6 +38,8 @@ function cliInput(defs: OperationMap, name: string, argv: readonly string[]): Re
   return input;
 }
 
+const tsv = Bun.argv.includes("--tsv");
+const argvWithoutFlags = Bun.argv.filter((value) => value !== "--tsv");
 const config = loadConfig();
 // Outside the container this is a local copy, and a question about what the service saw is almost
 // never a question about it. stderr, so stdout stays parseable.
@@ -47,14 +51,14 @@ const db = openDatabase(config.DATABASE_URL);
 try {
   const defs = operations(db, config);
   const byCommand = new Map(Object.keys(defs).map((name) => [cliCommand(name), name]));
-  const command = Bun.argv[2] ?? "status";
+  const command = argvWithoutFlags[2] ?? "status";
   const name = byCommand.get(command);
   if (!name || !defs[name]?.cli) {
     process.stderr.write(`${usage(defs)}\n`);
     process.exitCode = command === "help" || command === "--help" ? 0 : 1;
   } else {
     const definition = defs[name];
-    const input = definition.schema.safeParse(cliInput(defs, name, Bun.argv.slice(3)));
+    const input = definition.schema.safeParse(cliInput(defs, name, argvWithoutFlags.slice(3)));
     if (!input.success) {
       process.stderr.write(
         `${input.error.issues.map((issue) => `${issue.path.join(".") || "input"}: ${issue.message}`).join("\n")}\n`,
@@ -70,7 +74,7 @@ try {
           const result = await (definition.handler as (value: unknown) => unknown)(input.data);
           if (definition.mutates)
             recordOperatorAction(db, { surface: "cli", operation: name, input: input.data, outcome: "ok" });
-          write(result ?? null);
+          write(result ?? null, tsv);
         } catch (error) {
           const detail = error instanceof Error ? error.message : "Operation failed";
           if (definition.mutates)

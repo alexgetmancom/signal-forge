@@ -137,6 +137,15 @@ test("the database is readable by hand, and only readable", () => {
     (callOperation(defs, "sql", { query: "SELECT 1 UNION SELECT 2", limit: 1 }) as { truncated: boolean }).truncated,
   ).toBe(true);
 
+  // A wrong guess is answered with the names that would have been right, because "no such column"
+  // on its own sends the next guess to production to be told nothing again.
+  expect(() => callOperation(defs, "sql", { query: "SELECT summary FROM snapshots" })).toThrow(
+    /no such column: summary\. Columns here: snapshots\(.*collected_at.*\)/,
+  );
+  expect(() => callOperation(defs, "sql", { query: "SELECT 1 FROM event_summaries" })).toThrow(
+    /no such table: event_summaries\. Tables here: .*summaries/,
+  );
+
   // The guarantee is the connection, not a reading of the text: a write fails rather than lands.
   expect(() => callOperation(defs, "sql", { query: "DELETE FROM snapshots" })).toThrow(/readonly/);
   expect(db.query("SELECT COUNT(*) AS n FROM snapshots").get()).toEqual({ n: 1 });

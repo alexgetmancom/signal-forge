@@ -73,6 +73,14 @@ test("a source whose events nobody else saw and nobody received has no measurabl
     heldBack: 0,
     verdict: "no_measurable_value",
   });
+  // Recording nothing is the opposite verdict from recording plenty that reached nobody: the first
+  // is a deprecation feed with nothing to report, and reading it as waste is what made this list
+  // look like a kill list.
+  expect(report.sources.find((row) => row.source === "openai")).toMatchObject({
+    events: 0,
+    verdict: "quiet_sentinel",
+  });
+
   // A source too young to judge still shows its numbers while the trial runs.
   expect(report.preliminary.every((row) => report.notYetJudged.some((young) => young.source === row.source))).toBe(
     true,
@@ -118,7 +126,9 @@ test("a number that moved on a model others carry is not corroboration", () => {
   const row = sourceVerdicts(db, config, 30, Date.parse("2026-09-16T00:00:00.000Z")).sources.find(
     (verdict) => verdict.source === "moonshot",
   );
-  expect(row).toMatchObject({ arrivals: 0, corroborated: 0, heldBack: 0, verdict: "no_measurable_value" });
+  // The moved number never even becomes an event, so the source recorded nothing in the period:
+  // quiet, which is a different thing from producing output nobody wanted.
+  expect(row).toMatchObject({ events: 0, arrivals: 0, corroborated: 0, heldBack: 0, verdict: "quiet_sentinel" });
   db.close();
 });
 
