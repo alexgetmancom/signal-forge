@@ -334,8 +334,18 @@ export async function collectNvidiaDeveloperBlog(request: Fetch = fetch, cache?:
 const OPENAI_ALIGNMENT_FEED_URL = "https://alignment.openai.com/rss.xml";
 const OPENAI_ALIGNMENT_URL = "https://alignment.openai.com/";
 const OPENAI_MISALIGNMENT_REPORTS_URL = "https://alignment.openai.com/misalignment-reports/";
-const misalignmentReport =
-  /<a class="ap-report-link" href="(\/misalignment-reports\/[^"]+)"><div><h2 class="ap-report-title">([^<]+)<\/h2>(?:<p class="ap-report-summary">([^<]*)<\/p>)?/g;
+/**
+ * One report on the page, which is an expander rather than a link now.
+ *
+ * The page was a list of `ap-report-link` anchors until OpenAI rebuilt it as `cb-entry` details
+ * elements, at which point the collector threw "misalignment reports not found" every half hour
+ * from 2026-09-22 and said only "unexpected error" anywhere an operator could see. The title and
+ * the date are attributes on the element, so they are read from there rather than from the heading
+ * the layout may move again.
+ */
+const misalignmentReport = /<details class="cb-entry"[^>]*?data-title="([^"]+)"[\s\S]*?<\/details>/g;
+const reportLink = /class="cb-link" href="(\/misalignment-reports\/[^"]+)"/;
+const reportCopy = /<p class="cb-copy">([^<]*)<\/p>/;
 
 /**
  * The reports on the misalignment-reports page, which the blog's feed does not carry. "Self-generated
@@ -343,15 +353,20 @@ const misalignmentReport =
  * nothing here had it; it also named an unreleased Astra-family model.
  */
 export function parseMisalignmentReports(html: string): RecordData[] {
-  return [...html.matchAll(misalignmentReport)].map((match) => {
-    const url = new URL(match[1] ?? "", OPENAI_ALIGNMENT_URL).toString();
-    return {
-      id: url,
-      name: decodeHtml(match[2] ?? "").trim(),
-      url,
-      maker: "OpenAI",
-      description: decodeHtml(match[3] ?? "").trim(),
-    } satisfies RecordData;
+  return [...html.matchAll(misalignmentReport)].flatMap((match) => {
+    const body = match[0];
+    const href = reportLink.exec(body)?.[1];
+    if (!href) return [];
+    const url = new URL(href, OPENAI_ALIGNMENT_URL).toString();
+    return [
+      {
+        id: url,
+        name: decodeHtml(match[1] ?? "").trim(),
+        url,
+        maker: "OpenAI",
+        description: decodeHtml(reportCopy.exec(body)?.[1] ?? "").trim(),
+      } satisfies RecordData,
+    ];
   });
 }
 

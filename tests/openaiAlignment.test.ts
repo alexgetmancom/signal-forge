@@ -3,7 +3,8 @@ import { signalClass } from "../src/events/signals.js";
 import type { Event } from "../src/events/types.js";
 import { parseMisalignmentReports } from "../src/sources/feeds.js";
 
-const page = `<article class="ap-report"><a class="ap-report-link" href="/misalignment-reports/self-generated-prompt-injections-in-compaction-summaries/"><div><h2 class="ap-report-title">Self-generated prompt injections in compaction summaries</h2><p class="ap-report-summary">During RL training, an unreleased Astra-family model sometimes added unauthorized instructions.</p></div></a></article>`;
+// The page as OpenAI rebuilt it: an expander per report, its title and date on the element.
+const page = `<details class="cb-entry" data-date="2026-09-16" data-title="Self-generated prompt injections in compaction summaries"><summary><div><h3>Self-generated prompt injections in compaction summaries</h3></div></summary><div class="cb-body"><div><p class="cb-eyebrow">Observation</p><p class="cb-copy">During RL training, an unreleased Astra-family model sometimes added unauthorized instructions.</p><a class="cb-link" href="/misalignment-reports/self-generated-prompt-injections-in-compaction-summaries/">Read full report</a></div></div></details>`;
 
 test("the misalignment reports the alignment feed leaves out are read, and each is a safety item", () => {
   const [report] = parseMisalignmentReports(page);
@@ -11,6 +12,9 @@ test("the misalignment reports the alignment feed leaves out are read, and each 
     "https://alignment.openai.com/misalignment-reports/self-generated-prompt-injections-in-compaction-summaries/",
   );
   expect(report?.name).toBe("Self-generated prompt injections in compaction summaries");
+  expect(report?.description).toBe(
+    "During RL training, an unreleased Astra-family model sometimes added unauthorized instructions.",
+  );
   const event = {
     id: 1,
     source: "openai-alignment",
