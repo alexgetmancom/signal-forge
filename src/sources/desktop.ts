@@ -1,69 +1,111 @@
-import { z } from "zod";
 import type { Collection, RecordData } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
-import { claudeModelIds } from "./claudeCode.js";
 
 /**
- * The desktop clients, which this tracker had never opened.
+ * The desktop clients, read from the package repositories their vendors actually publish.
  *
- * Everything here is read from the address the vendor's own download page links, with no login and
- * nothing bypassed. The two pages that do ask a question -- `claude.ai/api/desktop/...` and
- * `chatgpt.com/download` -- answer 403 to a robot, and are left alone; what follows are the files
- * they eventually hand a browser, served openly from a CDN.
- */
-
-/**
- * Anthropic ships a second desktop app, and says so in a 700-byte file.
+ * Both download pages refuse a robot -- `claude.ai/api/desktop/...` and `chatgpt.com/download`
+ * answer 403 -- and neither is touched. Neither has to be: each vendor ships the same application
+ * to Linux through an ordinary Debian repository, open and unauthenticated, whose index is a few
+ * kilobytes and names every version ever published.
  *
- * `downloads.claude.ai/claude-science/latest/manifest.json` carries the version, the commit and the
- * build date of Claude Science, and was written on 2026-09-22 at 23:17 UTC for 0.1.52. Nothing this
- * tracker reads mentions the product at all. The manifest is the cheapest release signal available
- * anywhere here: a version bump is a shipped build of an Anthropic client, known within minutes.
+ * `downloads.claude.ai/claude-desktop/apt/stable` carried 46 versions of `claude-desktop` on
+ * 2026-09-24, at 2.7032.0. `persistent.oaistatic.com/codex-app-prod/linux/deb` carried `chatgpt`
+ * at 26.917.71314 -- the application the Codex desktop users run. The index is the release: a
+ * version appearing in it is a build the vendor has shipped, seen within minutes of the repository
+ * being rebuilt, for one small request.
+ *
+ * The packages themselves are not downloaded, and both were unpacked by hand on 2026-09-24 to find
+ * out whether they should be. Claude Desktop 2.7032.0 stopped at `claude-opus-5` while
+ * `claude-opus-5-5` had been out two days. The ChatGPT package does carry a catalogue -- 420 MB of
+ * it, naming `gpt-5.6-terra`, `gpt-5.6-luna`, `gpt-5.6-sol`, `gpt-6-astra` and `gpt-5.3-codex` --
+ * and every one of those names was already in this database, the oldest of them since 2026-09-11.
+ * So the clients are behind the API rather than ahead of it, and 600 MB per version bump buys a
+ * worse answer than the catalogues give for nothing. What is worth having is the build, and the
+ * build is in the index.
  */
-const SCIENCE_MANIFEST = "https://downloads.claude.ai/claude-science/latest/manifest.json";
+type AptRepository = {
+  source: string;
+  vendor: string;
+  /** The Debian package name, which is also the application. */
+  package: string;
+  name: string;
+  base: string;
+  page: string;
+};
+
+export const APT_REPOSITORIES: readonly AptRepository[] = [
+  {
+    source: "claude-desktop-apt",
+    vendor: "Anthropic",
+    package: "claude-desktop",
+    name: "Claude Desktop",
+    base: "https://downloads.claude.ai/claude-desktop/apt/stable",
+    page: "https://claude.com/download",
+  },
+  {
+    source: "chatgpt-desktop-apt",
+    vendor: "OpenAI",
+    package: "chatgpt",
+    name: "ChatGPT Desktop",
+    base: "https://persistent.oaistatic.com/codex-app-prod/linux/deb",
+    page: "https://chatgpt.com/download",
+  },
+];
+
+/** A Debian index is stanzas of `Field: value`, one stanza per package version. */
+function stanzas(index: string): Record<string, string>[] {
+  return index
+    .split(/\n\s*\n/)
+    .map((block) => {
+      const fields: Record<string, string> = {};
+      for (const [, key, value] of block.matchAll(/^([A-Za-z-]+):[ \t]*(.*)$/gm)) if (key) fields[key] = value ?? "";
+      return fields;
+    })
+    .filter((fields) => fields.Package && fields.Version);
+}
 
 /**
- * The same build as one runnable file, so the models it knows about can be read the way Claude
- * Code's are. Its list lags the API -- on 2026-09-24 it stopped at `claude-opus-5` while
- * `claude-opus-5-5` had been out two days -- so the binary is read for the record, not for the
- * lead, and only when the version has actually moved.
+ * Debian orders versions by its own rules, and these two publish plain dotted numbers
+ * (`2.7032.0`, `26.917.71314`), so the newest is the one whose numbers are highest.
  */
-const SCIENCE_BINARY = "https://downloads.claude.ai/claude-science/latest/linux-x64";
+function newest(versions: readonly string[]): string | undefined {
+  return [...versions]
+    .sort((left, right) => {
+      const a = left.split(".").map(Number);
+      const b = right.split(".").map(Number);
+      for (let index = 0; index < Math.max(a.length, b.length); index++) {
+        const difference = (a[index] ?? 0) - (b[index] ?? 0);
+        if (difference) return difference;
+      }
+      return 0;
+    })
+    .at(-1);
+}
 
-const manifestSchema = z.object({
-  version: z.string().min(1),
-  sha8: z.string().min(1).nullish(),
-  buildDate: z.string().min(1).nullish(),
-});
-
-let readScience: { version: string; models: string[] } | null = null;
-
-export async function collectClaudeScience(request: Fetch = fetch): Promise<Collection> {
-  const response = await request(SCIENCE_MANIFEST);
-  if (!response.ok) throw new Error(`Claude Science manifest: HTTP ${response.status}`);
-  const manifest = manifestSchema.parse(await response.json());
-  if (readScience?.version !== manifest.version) {
-    const binary = await request(SCIENCE_BINARY);
-    if (!binary.ok) throw new Error(`Claude Science ${manifest.version} binary: HTTP ${binary.status}`);
-    const models = claudeModelIds(Buffer.from(await binary.arrayBuffer()).toString("latin1"));
-    if (!models.length) throw new Error(`Claude Science ${manifest.version} names no model`);
-    readScience = { version: manifest.version, models };
-  }
+export async function collectAptRepository(repository: AptRepository, request: Fetch = fetch): Promise<Collection> {
+  const url = `${repository.base}/dists/stable/main/binary-amd64/Packages`;
+  const response = await request(url);
+  if (!response.ok) throw new Error(`${repository.source}: HTTP ${response.status}`);
+  const index = await response.text();
+  const published = stanzas(index).filter((fields) => fields.Package === repository.package);
+  if (!published.length) throw new Error(`${repository.source}: the index names no ${repository.package}`);
+  const version = newest(published.map((fields) => fields.Version ?? ""));
+  const current = published.find((fields) => fields.Version === version);
   const record: RecordData = {
-    id: "claude-science",
-    name: "Claude Science",
-    maker: "Anthropic",
-    version: manifest.version,
-    built: manifest.buildDate ?? null,
-    commit: manifest.sha8 ?? null,
-    models: readScience.models,
-    url: "https://claude.com/download",
+    id: repository.package,
+    name: repository.name,
+    maker: repository.vendor,
+    version: version ?? "",
+    versions: published.length,
+    bytes: Number(current?.Size ?? "0") || null,
+    url: repository.page,
   };
   return {
-    source: "claude-science-desktop",
+    source: repository.source,
     stream: "apps",
-    url: SCIENCE_MANIFEST,
-    raw: manifest,
+    url: repository.page,
+    raw: { version, versions: published.length },
     records: [record],
   };
 }
@@ -71,10 +113,11 @@ export async function collectClaudeScience(request: Fetch = fetch): Promise<Coll
 /**
  * The products Anthropic has a download for.
  *
- * `claude-science` sits under `downloads.claude.ai/<product>/latest/manifest.json`, and a product
- * that does not exist answers 404 there. A second slug appearing is a desktop application Anthropic
- * has built and not yet announced, which is the same bet the documentation probes make and costs
- * the same: a handful of 404s a poll.
+ * Claude Science was found this way: `downloads.claude.ai/claude-science/latest/manifest.json`
+ * answers with a version and a build date, and a product that does not exist answers 404 at the
+ * same address. Science itself turned out to be worth nothing to a reader here -- a niche client
+ * whose model list trails the API -- but the address is worth asking, because the next slug to
+ * answer is a desktop application Anthropic has built and not announced.
  */
 const CLAUDE_PRODUCTS = [
   "claude-science",
@@ -88,6 +131,8 @@ const CLAUDE_PRODUCTS = [
   "claude-notebook",
 ] as const;
 
+const manifestVersion = /"version"\s*:\s*"([^"]{1,64})"/;
+
 export async function collectClaudeDownloads(request: Fetch = fetch): Promise<Collection> {
   const records: RecordData[] = [];
   const tried: Record<string, number> = {};
@@ -100,16 +145,9 @@ export async function collectClaudeDownloads(request: Fetch = fetch): Promise<Co
       await response.body?.cancel();
       continue;
     }
-    const manifest = manifestSchema.safeParse(await response.json());
-    if (!manifest.success) continue;
-    records.push({
-      id: product,
-      name: product,
-      maker: "Anthropic",
-      version: manifest.data.version,
-      built: manifest.data.buildDate ?? null,
-      url: "https://claude.com/download",
-    });
+    const version = manifestVersion.exec(await response.text())?.[1];
+    if (!version) continue;
+    records.push({ id: product, name: product, maker: "Anthropic", version, url: "https://claude.com/download" });
   }
   if (!records.length) throw new Error("no Anthropic download manifest answered, not even Claude Science");
   return {
@@ -119,39 +157,5 @@ export async function collectClaudeDownloads(request: Fetch = fetch): Promise<Co
     raw: tried,
     appendOnly: true,
     records,
-  };
-}
-
-/**
- * OpenAI's Mac client, which says when it was built and nothing else.
- *
- * The app's own binary names no model -- checked on the 2026-07-09 build, `1.2026.183`, which
- * carries not one model id, because it asks the API at runtime. So only the build is observable,
- * and it is observable without downloading 78 MB: the CDN's own headers date the file. This is a
- * "they shipped" signal, not a model sighting.
- */
-const CHATGPT_DMG = "https://persistent.oaistatic.com/sidekick/public/ChatGPT.dmg";
-
-export async function collectChatGptDesktop(request: Fetch = fetch): Promise<Collection> {
-  const response = await request(CHATGPT_DMG, { method: "HEAD" });
-  if (!response.ok) throw new Error(`ChatGPT desktop: HTTP ${response.status}`);
-  const built = response.headers.get("last-modified");
-  const bytes = Number(response.headers.get("content-length") ?? "0");
-  if (!built || !bytes) throw new Error("ChatGPT desktop: the CDN gave no build date");
-  return {
-    source: "chatgpt-desktop",
-    stream: "apps",
-    url: "https://chatgpt.com/download",
-    raw: { built, bytes },
-    records: [
-      {
-        id: "chatgpt-macos",
-        name: "ChatGPT for macOS",
-        maker: "OpenAI",
-        built: new Date(built).toISOString(),
-        bytes,
-        url: "https://chatgpt.com/download",
-      },
-    ],
   };
 }
