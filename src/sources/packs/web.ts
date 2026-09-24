@@ -4,6 +4,7 @@ import { APP_STORE_APPS, collectAppStore } from "../apps.js";
 import { collectClaude } from "../claude.js";
 import { collectCodexDocs } from "../codex.js";
 import type { SourceContext, SourceEntry } from "../definition.js";
+import { collectChatGptDesktop, collectClaudeDownloads, collectClaudeScience } from "../desktop.js";
 import { collectCohereChangelog } from "../modelDocs.js";
 import { collectSitePages, WATCHED_SITES } from "../pages.js";
 
@@ -59,6 +60,39 @@ export function webSources({ db, cache }: SourceContext): SourceEntry[] {
         collector: () => collectSitePages(site, fetch, cache, childSitemapsRead(db, `pages:${site.id}`)),
       }),
     ),
+    {
+      id: "claude-science-desktop",
+      authority: "vendor_owned",
+      vendor: "Anthropic",
+      group: "Apps",
+      stream: "apps",
+      // A 700-byte manifest, read every five minutes; the 142 MB binary behind it only when the
+      // version in that manifest has moved.
+      intervalSeconds: 300,
+      heavy: true,
+      pace: { group: "downloads.claude.ai", seconds: 5 },
+      collector: () => collectClaudeScience(fetch),
+    },
+    {
+      id: "discovery:claude-downloads",
+      authority: "vendor_owned",
+      vendor: "Anthropic",
+      group: "Discovery",
+      stream: "apps",
+      intervalSeconds: 900,
+      pace: { group: "downloads.claude.ai", seconds: 5 },
+      collector: () => collectClaudeDownloads(fetch),
+    },
+    {
+      id: "chatgpt-desktop",
+      authority: "vendor_owned",
+      vendor: "OpenAI",
+      group: "Apps",
+      stream: "apps",
+      // One HEAD request; the file itself is never downloaded.
+      intervalSeconds: 900,
+      collector: () => collectChatGptDesktop(fetch),
+    },
     ...APP_STORE_APPS.map(
       (app, index): SourceEntry => ({
         id: `app:ios:${app.id}`,

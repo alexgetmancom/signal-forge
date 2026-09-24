@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { bundleModelIds, CLI_BUNDLES } from "../src/sources/cliBundles.js";
+import { collectClaudeDownloads } from "../src/sources/desktop.js";
 import { collectDocsProbe, collectOpenCodeData, PROBE_SITES } from "../src/sources/probes.js";
 
 function answering(pages: Record<string, string>): typeof fetch {
@@ -55,4 +56,22 @@ test("a dated alias is the model it dates, not a second one", () => {
   expect(bundleModelIds('"qwen3.8-max" "qwen3.8-max-0902" "qwen3-max-2026-01-23"', qwen.pattern)).toEqual([
     "qwen3.8-max",
   ]);
+});
+
+test("an Anthropic download manifest that answers is a product, and the rest are 404s", async () => {
+  const collection = await collectClaudeDownloads(
+    answering({
+      "https://downloads.claude.ai/claude-science/latest/manifest.json": JSON.stringify({
+        version: "0.1.52",
+        buildDate: "2026-09-22T23:17:30Z",
+      }),
+      "https://downloads.claude.ai/claude-cowork/latest/manifest.json": JSON.stringify({ version: "0.0.1" }),
+    }),
+  );
+  expect(collection.records.map((record) => record.id)).toEqual(["claude-science", "claude-cowork"]);
+  expect(collection.records[0]).toMatchObject({ version: "0.1.52", maker: "Anthropic" });
+});
+
+test("a download page that answers nothing at all is a failure, not an empty catalogue", async () => {
+  await expect(collectClaudeDownloads(answering({}))).rejects.toThrow("not even Claude Science");
 });
