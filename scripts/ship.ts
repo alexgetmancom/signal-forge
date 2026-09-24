@@ -36,16 +36,35 @@ function fail(message: string): never {
   process.exit(1);
 }
 
-/** Names this push added, most distinctive first: a long identifier is a better probe than `id`. */
-async function addedSymbols(range: string): Promise<string[]> {
+/**
+ * Names this push added, most distinctive first: a long identifier is a better probe than `id`.
+ *
+ * A name on an added line is not a name the push added. `accepted` and `misalignmentReport` were
+ * both declared on new lines beside code that already contained them, and `CURRENT_SCHEMA_VERSION`
+ * only changed its value; each was grepped for in the container, found, and reported as proof of a
+ * deployment that had not been checked at all. A candidate must be absent from the revision that
+ * was there before, so what the grep finds can only be this push.
+ *
+ * String literals count too, since a push can be entirely new wording -- a label, a message, a
+ * regex -- with no new identifier anywhere in it.
+ */
+async function addedSymbols(before: string, range: string): Promise<string[]> {
   const diff = await run(["git", "diff", "-U0", range, "--", "src/", "scripts/"]);
   const names = new Set<string>();
   for (const line of diff.out.split("\n")) {
     if (!line.startsWith("+") || line.startsWith("+++")) continue;
     for (const [, name] of line.matchAll(/(?:const|let|function|class|type|interface)\s+([A-Za-z_][\w]{5,})/g))
       if (name) names.add(name);
+    for (const [, literal] of line.matchAll(/"([^"\\]{12,80})"/g)) if (literal) names.add(literal);
   }
-  return [...names].sort((a, b) => b.length - a.length);
+  const candidates = [...names].sort((a, b) => b.length - a.length);
+  const novel: string[] = [];
+  for (const candidate of candidates) {
+    const seen = await run(["git", "grep", "-l", "-F", candidate, before, "--", "src/", "scripts/"]);
+    if (!seen.out.trim()) novel.push(candidate);
+    if (novel.length >= 3) break;
+  }
+  return novel;
 }
 
 const argument = Bun.argv[2];
@@ -86,9 +105,9 @@ if (!watched.ok && conclusion !== "success")
   );
 say("CI green");
 
-const symbols = argument ? [argument] : await addedSymbols(`${before}..${sha}`);
+const symbols = argument ? [argument] : await addedSymbols(before, `${before}..${sha}`);
 if (symbols.length === 0) {
-  say("This push added no name to grep for, so the container was not checked. Deployment is unverified.");
+  say("This push added no name the old revision lacked, so the container was not checked. Deployment is unverified.");
   process.exit(0);
 }
 const symbol = symbols[0] ?? "";

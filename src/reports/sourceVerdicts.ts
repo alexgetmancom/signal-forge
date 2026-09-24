@@ -28,6 +28,8 @@ import { leadTime } from "./leadTime.js";
 export type SourceVerdict = {
   source: string;
   mode: string;
+  /** Days this source has been collecting, which is what its verdict stands on. */
+  observedDays: number | null;
   ledOthers: number;
   firstSightings: number;
   delivered: number;
@@ -44,6 +46,8 @@ export type SourceVerdict = {
   heldBack: number;
   verdict: "earning" | "held_back" | "no_measurable_value";
 };
+
+const MIN_OBSERVED_DAYS = 14;
 
 export function sourceVerdicts(
   db: Database,
@@ -110,7 +114,21 @@ export function sourceVerdicts(
       .map((row) => [row.source, row.first]),
   );
   const enabled = buildSourceRegistry(db, config).filter((definition) => definition.enabled);
-  const judged = (id: string) => (collectingSince.get(id) ?? "9999") <= since;
+  const observedDays = (id: string): number | null => {
+    const first = collectingSince.get(id);
+    return first ? Math.floor((now - Date.parse(first)) / 86_400_000) : null;
+  };
+  /**
+   * Long enough to answer for itself, rather than as long as the window.
+   *
+   * The bar was "collecting since before the window began", and the metrics table began on
+   * 2026-09-09: every one of the 115 enabled sources was too young for a thirty-day question, the
+   * verdict list was empty every single time it was asked, and it would have stayed empty until
+   * October. A fortnight of collection is enough evidence to say whether anything a source saw
+   * ever reached a reader, and `observedDays` on every row says how much evidence that verdict
+   * stands on.
+   */
+  const judged = (id: string) => (observedDays(id) ?? -1) >= MIN_OBSERVED_DAYS;
   // Named rather than dropped: on production the metrics began on 2026-09-09, so for its first
   // month every source was too young and the report answered an empty list with no reason.
   const notYetJudged = enabled
@@ -118,6 +136,7 @@ export function sourceVerdicts(
     .map((definition) => ({ source: definition.id, collectingSince: collectingSince.get(definition.id) ?? null }))
     .sort((left, right) => left.source.localeCompare(right.source));
   const verdictFor = (definition: (typeof enabled)[number]): SourceVerdict => {
+    const observed = observedDays(definition.id);
     const lead = leads.get(definition.id);
     const seen = witnessed.get(definition.id);
     const events = seen?.events ?? 0;
@@ -126,6 +145,7 @@ export function sourceVerdicts(
     const row = {
       source: definition.id,
       mode: definition.mode,
+      observedDays: observed,
       ledOthers: lead?.ledOthers ?? 0,
       firstSightings: lead?.firstSightings ?? 0,
       delivered: delivered.get(definition.id) ?? 0,
