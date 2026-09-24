@@ -272,6 +272,44 @@ test("an outage is announced once, and so is the recovery", async () => {
   expect(posts).toHaveLength(2);
   expect((posts[1] as { embeds: { title: string }[] }).embeds[0]?.title).toBe("Signal Forge recovered");
 });
+test("a source that keeps flapping pays one more confirmation for each interruption", async () => {
+  const db = openDatabase(":memory:");
+  const config = {
+    ...loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname }),
+    DISCORD_BOT_TOKEN: "token",
+    alertChannelId: "999",
+  };
+  const posts: Record<string, unknown>[] = [];
+  const request = async (_url: string, init?: RequestInit) => {
+    posts.push(JSON.parse(String(init?.body)) as Record<string, unknown>);
+    return Response.json({ id: "1" });
+  };
+  const now = Date.parse("2026-09-08T12:00:00.000Z");
+  const mark = (error: string | null, success: string | null) =>
+    db
+      .query(
+        "INSERT INTO sources(id,last_error,last_success,checked_at) VALUES('openrouter',?,?,?) ON CONFLICT(id) DO UPDATE SET last_error=excluded.last_error,last_success=excluded.last_success,checked_at=excluded.checked_at",
+      )
+      .run(error, success, new Date(now).toISOString());
+  const readings = async (times: number) => {
+    for (let reading = 0; reading < times; reading++) await publishAlerts(db, config, request, now);
+  };
+
+  // Down, announced after two readings; up, announced after two more.
+  mark("Source returned HTTP 500", null);
+  await readings(2);
+  mark(null, new Date(now).toISOString());
+  await readings(2);
+  expect(posts).toHaveLength(2);
+
+  // The same source breaking again is a flapper: two readings no longer buy an interruption.
+  mark("Source returned HTTP 500", null);
+  await readings(2);
+  expect(posts).toHaveLength(2);
+  await readings(1);
+  expect(posts).toHaveLength(3);
+});
+
 test("an alert that cannot be delivered is retried, not forgotten", async () => {
   const db = openDatabase(":memory:");
   const config = {

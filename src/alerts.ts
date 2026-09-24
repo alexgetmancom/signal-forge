@@ -30,6 +30,19 @@ const ALERT_STRIKES_KEY = "alert_strikes";
  * confirmations from the start; leaving needed none, which is where the noise came from.
  */
 const ALERT_CLEAR_KEY = "alert_clear_strikes";
+/**
+ * How many times a problem has come back after being announced as gone.
+ *
+ * Two confirmations each way stop one blip; they do nothing about a source that is genuinely up and
+ * down all day, because it clears the same low bar every time. Hugging Face was announced broken 46
+ * times and recovered 45, artificial-analysis 15 and 15, Anthropic 15: of 345 alerts ever sent, most
+ * are four sources saying the same two things at each other. The first failure still speaks after
+ * two readings -- what a flapper has to buy is the right to interrupt again, one more confirmation
+ * per flap, so a chronic one announces itself about once an hour instead of every five minutes.
+ */
+const ALERT_FLAPS_KEY = "alert_flaps";
+/** However badly something flaps, an hour of one state is enough to be believed. */
+const MAX_CONFIRMATIONS = 12;
 
 function readCounters(db: Database, key: string): Record<string, number> {
   const stored = readState(db, key);
@@ -249,14 +262,26 @@ export async function publishAlerts(
   for (const id of previous) if (!present.has(id)) nextClear[id] = (clearStrikes[id] ?? 0) + 1;
   writeCounters(db, ALERT_STRIKES_KEY, nextStrikes);
   writeCounters(db, ALERT_CLEAR_KEY, nextClear);
+  const flaps = readCounters(db, ALERT_FLAPS_KEY);
+  const confirmations = (id: string) => Math.min(CONFIRMATIONS + (flaps[id] ?? 0), MAX_CONFIRMATIONS);
   const current = new Set([
-    ...issues.filter((issue) => (nextStrikes[issue.id] ?? 0) >= CONFIRMATIONS).map((issue) => issue.id),
+    ...issues.filter((issue) => (nextStrikes[issue.id] ?? 0) >= confirmations(issue.id)).map((issue) => issue.id),
     // A problem that was announced stays announced while it is still there, and for one more
     // reading after it disappears, so that a source flapping in and out speaks once.
+    // Recovery is not charged: what a flapper buys is the right to interrupt, and a problem that
+    // has genuinely gone should stop being shown as soon as it is believed.
     ...[...previous].filter((id) => present.has(id) || (nextClear[id] ?? 0) < CONFIRMATIONS),
   ]);
   outcome.down = [...current].filter((id) => !previous.has(id));
   outcome.recovered = [...previous].filter((id) => !current.has(id));
+  // Every announcement is counted, so the next one from the same problem costs one more reading.
+  // Counted on the way down, where the interruption is; the count is what a flapper is charged and
+  // what a source that broke once and was fixed never pays again.
+  if (outcome.down.length) {
+    const nextFlaps = { ...flaps };
+    for (const id of outcome.down) nextFlaps[id] = Math.min((flaps[id] ?? 0) + 1, MAX_CONFIRMATIONS);
+    writeCounters(db, ALERT_FLAPS_KEY, nextFlaps);
+  }
 
   if (!outcome.down.length && !outcome.recovered.length) return outcome;
 
