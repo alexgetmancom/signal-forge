@@ -5,9 +5,11 @@ import { pingWorthy, signalClass } from "../src/events/signals.js";
 import { familyVersion, guessStage, judgeMentions, olderThanKnown, stageKnown } from "../src/sources/mentionStage.js";
 import {
   collectModelMentions,
+  crossesMakers,
   inventedFamilies,
   isTestFile,
   modelIdsInPatch,
+  modelIdsInText,
   undated,
 } from "../src/sources/modelMentions.js";
 import { collectRepoTalk } from "../src/sources/repoTalk.js";
@@ -409,4 +411,19 @@ test("a test that lists three versions of one model invented them, and a test na
   expect(invented.has("gemini|-flash")).toBe(true);
   expect(invented.has("gpt|-astra-wm")).toBe(false);
   expect(inventedFamilies('+const model = "gpt-6-astra-wm";').size).toBe(0);
+});
+
+test("a proxy's name for the client that asks is not a model", () => {
+  // clankermux prefixes a routed model with the client's own name, so Claude Code's request for
+  // `gpt-6-astra` is logged as `claude-gpt-6-astra`. That went out as a codename on 2026-09-24.
+  expect(crossesMakers("claude-gpt-6-astra")).toBe(true);
+  expect(crossesMakers("claude-gpt-6")).toBe(true);
+  // A maker's own model names one maker, however many parts it has.
+  expect(crossesMakers("gpt-6-astra")).toBe(false);
+  expect(crossesMakers("claude-opus-5-5")).toBe(false);
+  expect(crossesMakers("qwen3.8-coder")).toBe(false);
+  expect(crossesMakers("deepseek-v4.1-flash-beta")).toBe(false);
+  expect(modelIdsInText("Claude Code's `claude-gpt-6-astra` routes as `gpt-6-astra`.")).toEqual(
+    new Map([["gpt-6-astra", "Claude Code's `claude-gpt-6-astra` routes as `gpt-6-astra`."]]),
+  );
 });

@@ -113,6 +113,41 @@ const JOINED = /-(?:and|or|vs|versus|to|than|through|in|now|with|for|on|quicksta
 const CHECKPOINT =
   /-(?:a?\d+(?:p\d+)?[bm]|fp\d+|nvfp\d+|bf16|int\d+|w\d+a\d+|gguf|awq|gptq|mlx|tput|throughput|draft|maas|us|eu|global)(?:-|$)/;
 
+/**
+ * The words that name a maker's line. Two of them in one ID is a proxy's own alias, not a model:
+ * on 2026-09-23 clankermux taught itself to prefix a model with the client that asks for it, and
+ * `claude-gpt-6-astra` -- Claude Code's name for the `gpt-6-astra` it routes to -- went out as a
+ * codename nobody had catalogued. Nobody had: OpenAI does not ship a Claude GPT, and the half of
+ * the name that is real was already known.
+ */
+const MAKER_WORDS = new Set([
+  "gpt",
+  "claude",
+  "gemini",
+  "grok",
+  "glm",
+  "kimi",
+  "deepseek",
+  "qwen",
+  "minimax",
+  "mistral",
+  "magistral",
+  "devstral",
+  "codestral",
+]);
+
+/** Whether an ID carries two makers' words, which no maker's own model does. */
+export function crossesMakers(id: string): boolean {
+  const makers = new Set(
+    id
+      .split("-")
+      // `qwen3.8` and `deepseek-v4` write the version onto the word; the word is what counts.
+      .map((part) => part.replace(/[\d.]+$/, ""))
+      .filter((part) => MAKER_WORDS.has(part)),
+  );
+  return makers.size > 1;
+}
+
 /** A file whose contents are recorded output, not anyone writing a model's name. */
 const IGNORED_FILE = /(^|\/)(package-lock\.json|bun\.lock|pnpm-lock\.yaml|yarn\.lock|Cargo\.lock|uv\.lock)$|\.snap$/;
 
@@ -171,7 +206,7 @@ function modelIdsInLines(lines: readonly string[]): Map<string, string> {
     for (const match of line.toLowerCase().matchAll(MODEL_ID)) {
       // A trailing dot is the end of a sentence, not a version.
       const id = match[0].replace(/[.-]+$/, "");
-      if (PROSE_SUFFIX.test(id) || JOINED.test(id) || CHECKPOINT.test(id)) continue;
+      if (PROSE_SUFFIX.test(id) || JOINED.test(id) || CHECKPOINT.test(id) || crossesMakers(id)) continue;
       if (!found.has(id)) found.set(id, line.trim().slice(0, 240));
     }
   }
