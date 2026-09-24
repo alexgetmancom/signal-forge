@@ -247,78 +247,125 @@ function recordLookup(db: Database): (source: string, id: string) => boolean {
 }
 
 /**
- * Files worth opening on a first read. A repository holds thousands, and a model is named in the
- * few that list, price, configure or test one; opening the rest would spend the hour's requests on
- * licences and lockfiles.
+ * Files worth reading on a first read. A repository holds thousands, and a model is named in the
+ * few that list, price, configure or test one.
  */
 const NAMES_MODELS = /model|catalog|pricing|price|config|constant|registry|provider|client|agent|spec/i;
 const READABLE = /\.(ts|tsx|js|jsx|py|go|rs|java|kt|json|ya?ml|toml|md|txt)$/i;
-/** How many files one first read opens. Above this the repository is sampled, not read. */
-const FIRST_READ_FILES = 200;
+/**
+ * Somebody else's code, copied in. minimax-code carries `third_party/pi-mono`, whose model list
+ * names every model of every maker: it made 131 of the 142 names a first read found, and not one
+ * of them is anything MiniMax is doing.
+ */
+const VENDORED = /(^|\/)(third_party|third-party|vendor|vendored|node_modules|site-packages|\.venv|external|deps)\//i;
+/**
+ * A family and a version, and nothing after them. In a first read that is the whole of the signal:
+ * the file being read is code, and a name with a suffix on it is far more often an identifier the
+ * code made up than a model somebody shipped. minimax-code's first read offered `minimax-m3.1`
+ * beside `minimax-m3-provider` and `minimax-m3-thinking`, which are a test's provider name and a
+ * dedup key. Live sources still report a suffixed codename; only the sweep through old code does not.
+ */
+const BARE_NAME =
+  /^(?:gpt-\d+(?:\.\d+)?|claude-[a-z]+-\d+(?:[.-]\d+)*|gemini-\d+(?:\.\d+)?|grok-\d+(?:\.\d+)?|glm-\d+(?:\.\d+)?|kimi-k\d+(?:\.\d+)?|deepseek-[vr]\d+(?:\.\d+)?|qwen\d+(?:\.\d+)?|minimax-m\d+(?:\.\d+)?|(?:mistral|magistral|devstral|codestral)-(?:large-|medium-|small-)?\d+(?:\.\d+)?)$/;
+/** A repository larger than this is read from its commits alone; nothing watched here comes close. */
+const ARCHIVE_LIMIT = 64 * 1024 * 1024;
 
-const treeSchema = z.object({
-  tree: z.array(z.object({ path: z.string(), type: z.string(), size: z.number().optional() })),
-});
+/**
+ * The files of one gzipped tar, as paths and contents.
+ *
+ * The archive is one request where opening the files is thousands: minimax-code has 3,988 readable
+ * files, and the first version of this read two hundred of them and missed the name it was written
+ * for. A tar entry is a 512-byte header -- the path at its start, the size in octal at 124 -- and
+ * then its content padded to the next 512.
+ */
+function tarEntries(archive: Uint8Array): { path: string; text: string }[] {
+  const bytes = Buffer.from(archive);
+  const entries: { path: string; text: string }[] = [];
+  const field = (header: Buffer, from: number, to: number) =>
+    header.subarray(from, to).toString("utf8").replace(/\0.*$/, "");
+  for (let offset = 0; offset + 512 <= bytes.length; ) {
+    const header = bytes.subarray(offset, offset + 512);
+    const name = field(header, 0, 100);
+    if (!name) break;
+    // A path over a hundred bytes is split: the directories go in `prefix` and only the last part
+    // in `name`. Reading `name` alone left `list-models.test.ts` with no directory at all, and
+    // dropping the archive's own root then emptied it -- which is how the first read of
+    // minimax-code found 220 models and not the one it was written for.
+    const prefix = field(header, 345, 500);
+    const path = prefix ? `${prefix}/${name}` : name;
+    const size = Number.parseInt(header.subarray(124, 136).toString("ascii").replace(/\0.*$/, "").trim(), 8);
+    if (!Number.isFinite(size)) break;
+    const start = offset + 512;
+    // "0" and "\0" are files; a directory, link or long-name entry carries no content worth reading.
+    if (/^[0\0]$/.test(header.subarray(156, 157).toString("ascii")))
+      entries.push({ path, text: bytes.subarray(start, start + size).toString("utf8") });
+    offset = start + Math.ceil(size / 512) * 512;
+  }
+  return entries;
+}
 
 /**
  * Every model named in a repository the moment it is first watched, reported as `named`: written
- * into the code, which is what a first read can honestly say. Nothing here is a commit, so there
- * is no message to judge and no author's account of it.
+ * into the code, which is what a file can honestly say without a commit message behind it.
  */
 async function firstReadNames(
   db: Database,
-  api: string,
+  repo: string,
   sha: string,
   headers: Record<string, string>,
   request: Fetch,
   watch: MentionWatch,
 ): Promise<{ records: RecordData[]; scanned: number }> {
   if (watch.talkOnly) return { records: [], scanned: 0 };
-  let tree: z.infer<typeof treeSchema>;
+  let archive: Uint8Array;
   try {
-    tree = treeSchema.parse(JSON.parse(await fetchText(`${api}/git/trees/${sha}?recursive=1`, headers, request)));
+    const response = await request(`https://api.github.com/repos/${repo}/tarball/${sha}`, { headers });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const body = await response.arrayBuffer();
+    if (body.byteLength > ARCHIVE_LIMIT) throw new Error("archive too large");
+    archive = Bun.gunzipSync(new Uint8Array(body));
   } catch {
-    // A repository too large for one tree request is read from its commits alone, as before.
+    // Unreadable for any reason, the repository is watched from its commits, as it was before.
     return { records: [], scanned: 0 };
   }
-  const paths = tree.tree
-    .filter((entry) => entry.type === "blob" && (entry.size ?? 0) < 512_000)
-    .map((entry) => entry.path)
-    .filter((path) => (watch.paths ? watch.paths.includes(path) : READABLE.test(path) && !IGNORED_FILE.test(path)))
-    // A name in a file about models is worth the request before a name in one that is not.
-    .sort((left, right) => Number(NAMES_MODELS.test(right)) - Number(NAMES_MODELS.test(left)))
-    .slice(0, FIRST_READ_FILES);
+  const files = tarEntries(archive)
+    // The archive's paths are prefixed with a directory named for the commit.
+    .map((entry) => ({ ...entry, path: entry.path.split("/").slice(1).join("/") }))
+    .filter((entry) => entry.path)
+    .filter((entry) =>
+      watch.paths
+        ? watch.paths.includes(entry.path)
+        : READABLE.test(entry.path) && !IGNORED_FILE.test(entry.path) && !VENDORED.test(entry.path),
+    );
   const records: RecordData[] = [];
   const seen = new Set<string>();
-  for (const path of paths) {
-    let text: string;
-    try {
-      text = await fetchText(`${api}/contents/${path}`, { ...headers, Accept: "application/vnd.github.raw" }, request);
-    } catch {
-      continue;
-    }
-    const found = modelIdsInText(text);
-    const invented = isTestFile(path) ? inventedIn([...found.keys()]) : null;
+  // A file that lists or prices models is read before one that merely mentions them, so the first
+  // sighting of a name carries the most telling path.
+  for (const file of [...files].sort(
+    (left, right) => Number(NAMES_MODELS.test(right.path)) - Number(NAMES_MODELS.test(left.path)),
+  )) {
+    const found = modelIdsInText(file.text);
+    const invented = isTestFile(file.path) ? inventedIn([...found.keys()]) : null;
     for (const [id, line] of found) {
       if (seen.has(id) || invented?.has(familyShape(id) ?? "")) continue;
       seen.add(id);
       // A repository names every model it has ever supported, and almost all of them are out. The
       // first read is worth having for the one name nothing else holds -- `MiniMax-M3.1` -- not for
       // the hundred that would arrive with it.
-      if (stageKnown(db, id, "named") || olderThanKnown(db, id)) continue;
+      if (!BARE_NAME.test(id) || stageKnown(db, id, "named") || olderThanKnown(db, id)) continue;
       records.push({
         id,
         name: id,
         model: id,
         stage: "named" satisfies MentionStage,
         ...(watch.vendor ? { maker: watch.vendor } : {}),
-        url: `https://github.com/${watch.repo}/blob/${sha}/${path}`,
-        file: path,
+        url: `https://github.com/${repo}/blob/${sha}/${file.path}`,
+        file: file.path,
         line,
       });
     }
   }
-  return { records, scanned: paths.length };
+  return { records, scanned: files.length };
 }
 
 export async function collectModelMentions(
@@ -351,7 +398,7 @@ export async function collectModelMentions(
   // head meant never reporting it: nothing would add that name again. So a repository is read
   // whole when it is first watched, and from its commits ever after.
   if (!cursor) {
-    const found = await firstReadNames(db, api, head.sha, headers, request, watch);
+    const found = await firstReadNames(db, watch.repo, head.sha, headers, request, watch);
     return {
       ...base,
       raw: { sha: head.sha, scanned: found.scanned },

@@ -441,25 +441,28 @@ test("a repository first watched is read whole, and reports only what no catalog
       "2026-09-24T00:00:00.000Z",
     );
 
+  const sha = "a".repeat(40);
+  const archive = Bun.gzipSync(
+    tar([
+      {
+        path: `minimax-code-${sha.slice(0, 7)}/src/models.ts`,
+        text:
+          'export const catalogue = ["MiniMax-M3", "MiniMax-M3.1", "gpt-6-astra"];\n' +
+          'tester.test("minimax-m3-provider", { dedupKey: `x@minimax-m3-thinking` });',
+      },
+      { path: `minimax-code-${sha.slice(0, 7)}/LICENSE`, text: "MiniMax-M9 is not a model, this is a licence" },
+    ]),
+  );
   const answers: Record<string, string> = {
     "https://api.github.com/repos/MiniMax-AI/minimax-code/commits?per_page=1": JSON.stringify([
-      {
-        sha: "a".repeat(40),
-        html_url: "https://github.com/x/y/commit/a",
-        commit: { message: "release", author: null },
-      },
+      { sha, html_url: "https://github.com/x/y/commit/a", commit: { message: "release", author: null } },
     ]),
-    [`https://api.github.com/repos/MiniMax-AI/minimax-code/git/trees/${"a".repeat(40)}?recursive=1`]: JSON.stringify({
-      tree: [
-        { path: "src/models.ts", type: "blob", size: 400 },
-        { path: "LICENSE", type: "blob", size: 400 },
-      ],
-    }),
-    "https://api.github.com/repos/MiniMax-AI/minimax-code/contents/src/models.ts":
-      'const catalogue = ["MiniMax-M3", "MiniMax-M3.1", "gpt-6-astra"];',
   };
-  const request = (async (url: string) =>
-    new Response(answers[String(url)] ?? "", { status: answers[String(url)] ? 200 : 404 })) as unknown as Fetch;
+  const request = (async (url: string) => {
+    if (String(url).endsWith(`/tarball/${sha}`)) return new Response(archive, { status: 200 });
+    const body = answers[String(url)];
+    return new Response(body ?? "", { status: body ? 200 : 404 });
+  }) as unknown as Fetch;
 
   const collection = await collectModelMentions(
     db,
@@ -467,7 +470,31 @@ test("a repository first watched is read whole, and reports only what no catalog
     { repo: "MiniMax-AI/minimax-code", vendor: "MiniMax", authority: "vendor_owned" },
     request,
   );
-  // The bookmark, and the one name nothing else holds -- not the models already shipped beside it.
+  // The bookmark, and the one name nothing else holds -- not the models already shipped beside it,
+  // not the name in a file nobody lists models in, and not `minimax-m3-provider` or
+  // `minimax-m3-thinking`, which are a test's provider and a dedup key that the code made up.
   expect(collection.records.map((record) => record.id)).toEqual(["@head", "minimax-m3.1"]);
+  expect(collection.records[1]).toMatchObject({ file: "src/models.ts", stage: "named" });
   db.close();
 });
+
+/** A minimal ustar archive: a 512-byte header per file, content padded to the next 512. */
+function tar(files: readonly { path: string; text: string }[]): Uint8Array<ArrayBuffer> {
+  const blocks: Buffer[] = [];
+  for (const file of files) {
+    const content = Buffer.from(file.text);
+    const header = Buffer.alloc(512);
+    header.write(file.path, 0, "utf8");
+    header.write("0000644\0", 100, "ascii");
+    header.write(`${content.length.toString(8).padStart(11, "0")}\0`, 124, "ascii");
+    header.write("0", 156, "ascii");
+    // The checksum is written over spaces, and nothing here verifies it.
+    header.write("        ", 148, "ascii");
+    blocks.push(header, content, Buffer.alloc((512 - (content.length % 512)) % 512));
+  }
+  blocks.push(Buffer.alloc(1024));
+  const joined = Buffer.concat(blocks);
+  const copy = new Uint8Array(new ArrayBuffer(joined.byteLength));
+  copy.set(joined);
+  return copy;
+}
