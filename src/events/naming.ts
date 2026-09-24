@@ -1,3 +1,4 @@
+import { sourceLabel } from "../sources/labels.js";
 import { displayName } from "./variants.js";
 import { vendorSpelling } from "./vendors.js";
 
@@ -118,8 +119,29 @@ export function displayTitle(name: string, stream: string, source: string): stri
  * "0.155.0", which reached #signals as a bare number on 2026-09-18. The repository names the product.
  */
 function releasedProduct(name: string, source: string): string | null {
+  if (!/^v?\d+(\.\d+)+\S*$/.test(name.trim())) return null;
+  const version = name.trim().replace(/^v/, "");
   const repo = /^github:[^/]+\/([^:]+):releases$/.exec(source)?.[1];
-  if (!repo || !/^v?\d+(\.\d+)+\S*$/.test(name.trim())) return null;
-  const product = readableName(repo);
-  return `${product.charAt(0).toUpperCase()}${product.slice(1)} ${name.trim().replace(/^v/, "")}`;
+  if (repo) {
+    const product = readableName(repo);
+    return `${product.charAt(0).toUpperCase()}${product.slice(1)} ${version}`;
+  }
+  const product = productOf(source);
+  return product ? `${product} ${version}` : null;
+}
+
+/**
+ * The thing a feed is about, taken from the feed's own name. A changelog entry is titled with its
+ * version and nothing else, and `0.156.0` went to the public channel three times spelled exactly
+ * that way. "OpenAI · Codex changelog" says what released: Codex did.
+ */
+const FEED_WORDS = /\b(changelog|release notes|releases|updates|news|docs|api|blog|feed)\b/gi;
+
+function productOf(source: string): string | null {
+  const [publisher, section] = sourceLabel(source).split(" · ");
+  if (!publisher) return null;
+  const product = (section ?? "").replace(FEED_WORDS, "").replace(/\s+/g, " ").trim();
+  if (!product) return publisher;
+  // "OpenAI · Codex changelog" is OpenAI Codex; "Claude Code · changelog" is already the product.
+  return publisher.toLowerCase().includes(product.toLowerCase()) ? publisher : `${publisher} ${product}`;
 }

@@ -156,6 +156,9 @@ const AZURE_DIRECTORIES = ["microsoft-foundry", "azure-ai-foundry"];
 
 const TRUEFOUNDRY_TREE_URL = "https://api.github.com/repos/truefoundry/models/git/trees/main?recursive=1";
 
+/** Files in a provider's directory that configure the provider rather than name a model. */
+const NOT_A_MODEL = new Set(["provider-config", "config", "defaults", "index", "schema", "readme"]);
+
 /**
  * A trailing `-2` on an Azure slug is the provider's deployment version, not a new model.
  *
@@ -209,6 +212,10 @@ export async function collectTrueFoundryAzure(
     if (!match || node.type !== "blob") continue;
     const provider = match[1] as string;
     const slug = bareModelSlug(match[2] as string);
+    // The provider's own settings file sits beside its models and is named for what it is. Read as
+    // a model, `providers/microsoft-foundry/provider-config.yaml` reached the scouts channel on
+    // 2026-09-22 as "Provider Config on TrueFoundry", listed by five providers.
+    if (NOT_A_MODEL.has(slug)) continue;
     entries.push({ provider, slug, path: node.path });
     const seen = providersBySlug.get(slug);
     if (seen) seen.add(provider);

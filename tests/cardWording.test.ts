@@ -60,3 +60,15 @@ test("a field is labelled in words, and never repeats the handle above it", () =
   } as never);
   expect(facts.map((fact) => (typeof fact === "string" ? fact : fact.label))).toEqual(["Providers"]);
 });
+
+test("a release titled with its version says what released", () => {
+  // `0.156.0` reached the public channel three times as a bare number.
+  expect(displayTitle("0.156.0", "packages", "openai-codex-changelog")).toBe("OpenAI Codex 0.156.0");
+  expect(displayTitle("v2.0.0", "packages", "kimi-code-changelog")).toBe("Kimi Code 2.0.0");
+  // The publisher alone, where the feed's name adds nothing.
+  expect(displayTitle("3.4", "packages", "gemini-api-changelog")).toBe("Gemini 3.4");
+  // A title that is already words is left alone.
+  expect(displayTitle("A simpler Vibe experience", "packages", "mistral-release-notes")).toBe(
+    "A simpler Vibe experience",
+  );
+});
