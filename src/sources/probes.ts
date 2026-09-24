@@ -422,6 +422,20 @@ const OPENCODE_STEALTH: readonly { maker: string; slug: string }[] = [
   { maker: "unknown", slug: "stealth-model" },
 ];
 
+/**
+ * Whether a source other than the probes already has this model. A data page spells the version
+ * with a hyphen -- `gpt-5-6` for `gpt-5.6` -- so both spellings are asked about.
+ */
+function alreadyListed(db: Database, slug: string): boolean {
+  // OpenCode's own suffix for a model served on contributed capacity is not part of the name.
+  const bare = slug.replace(/-contributor(?:-free)?$/, "");
+  const spellings = [...new Set([bare, bare.replace(/-(\d)-(\d)(?=-|$)/, "-$1.$2")])];
+  const query = db.query(
+    "SELECT 1 FROM records WHERE source NOT LIKE 'discovery:%' AND (lower(id)=?1 OR lower(id) LIKE '%/' || ?1) LIMIT 1",
+  );
+  return spellings.some((spelling) => Boolean(query.get(spelling.toLowerCase())));
+}
+
 function opencodeUrl(maker: string, slug: string): string {
   return `https://opencode.ai/data/${maker}/${slug}`;
 }
@@ -437,6 +451,10 @@ export async function collectOpenCodeData(db: Database, request: Fetch = fetch):
   const jar = new Map<string, string>();
   for (const { maker, slug } of [...opencodeCandidates(db), ...OPENCODE_STEALTH]) {
     if (!OPENCODE_MAKERS.includes(maker as (typeof OPENCODE_MAKERS)[number])) continue;
+    // A page exists for every model OpenCode serves, most of which everybody already lists. Asking
+    // after the version a catalogue holds finds the one nobody has -- and, beside it, several that
+    // are simply out: `gpt-5-6` went to the radar as a find on 2026-09-24, five days into GPT-6.
+    if (alreadyListed(db, slug)) continue;
     const url = opencodeUrl(maker, slug);
     const answer = await probe(url, request, jar).catch(() => null);
     if (!answer) continue;

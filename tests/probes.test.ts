@@ -79,19 +79,42 @@ test("OpenCode is asked about the version after the one it lists, and only a rea
     stored,
   );
 
+  // A model everybody already lists has a data page too, and it is not a find: `gpt-5-6` reached
+  // the radar as one five days into the GPT-6 series.
+  db.query("INSERT INTO records(source,id,body,missing_count,stream,observed_at) VALUES(?,?,?,0,?,?)").run(
+    "openrouter",
+    "openai/gpt-5.6",
+    "{}",
+    "openrouter",
+    stored,
+  );
+  for (const id of ["gpt-5.4-contributor", "gpt-5.5-contributor"])
+    db.query("INSERT INTO records(source,id,body,missing_count,stream,observed_at) VALUES(?,?,?,0,?,?)").run(
+      "opencode-go",
+      id,
+      JSON.stringify({ maker: "OpenAI" }),
+      "api-models",
+      stored,
+    );
+
   const collection = await collectOpenCodeData(
     db,
     answering({
+      // The page is real, because the model is real -- it has simply been out for weeks.
+      "https://opencode.ai/data/openai/gpt-5-6-contributor": real,
       // The release that actually shipped, which the hand-written list guessed straight past.
       "https://opencode.ai/data/meta/muse-spark-1-4-contributor": real,
       "https://opencode.ai/data/unknown/space-bunny": real,
       "https://opencode.ai/data/unknown/sonoma-sky": "Models ... breadcrumb only",
     }),
   );
+  // Only the name no catalogue holds. The GPT version is not even asked about: a model already
+  // listed cannot be a find, so the question is not worth the request.
   expect(collection.records.map((record) => record.id)).toEqual([
     "meta/muse-spark-1-4-contributor",
     "unknown/space-bunny",
   ]);
+  expect(Object.keys(collection.raw as Record<string, number>)).not.toContain("openai/gpt-5-6-contributor");
   db.close();
 });
 
