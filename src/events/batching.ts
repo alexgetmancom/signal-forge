@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { Destination } from "../config.js";
 import { newsroomVote } from "../insights.js";
+import { judgementOf } from "../jev.js";
 import { promotionContextSchema } from "../promotion.js";
 import { type RecapContext, recapContextSchema } from "../recap.js";
 import { sourceLabel } from "../sources/labels.js";
@@ -61,6 +62,7 @@ import {
   isMinorBoardMove,
   isPageWithoutAProduct,
   isPublishedByAFollowedLab,
+  isTheModalityOfAPricedModel,
   isTrendingFromAnUnfollowedLab,
   isWeightsBesideTheRelease,
   knownModelNames,
@@ -389,6 +391,40 @@ function awaitingSummary(db: Database, events: readonly Event[], now: number): b
   });
 }
 
+/**
+ * How long an immediate news batch waits for Jev to read it.
+ *
+ * The vote in `standingReason` was almost dead code without this: judging runs on a five-minute
+ * worker and a news card is built seconds after the poll, so the reader that was meant to overrule
+ * a two-word rule had almost never seen the post by the time the rule decided. Three minutes is
+ * longer than the judge's own cycle and shorter than any news is stale.
+ */
+const JUDGEMENT_GRACE_MS = 180_000;
+
+/**
+ * True while a vendor's post in this batch could still gain a judgement and the batch is young
+ * enough to wait. Only newsroom posts wait, because they are the only events a judgement changes
+ * the fate of. A deployment whose judge is silent -- no key, a spent daily allowance, an upstream
+ * that is down -- has judged nothing in a day and waits for nothing, so a card is never stranded
+ * on a reader that is never coming.
+ */
+function awaitingJudgement(
+  db: Database,
+  events: readonly (Event & { signal: SignalClass | "" })[],
+  now: number,
+): boolean {
+  const posts = events.filter(
+    (event) => event.stream === "news" && (event.signal === "article" || event.signal === "business"),
+  );
+  const young = posts.filter((event) => Date.parse(event.detected_at) + JUDGEMENT_GRACE_MS > now);
+  if (!young.length) return false;
+  const judging = db
+    .query<{ one: number }, [string]>("SELECT 1 one FROM event_evaluations WHERE evaluated_at>=? LIMIT 1")
+    .get(new Date(now - 24 * 3_600_000).toISOString());
+  if (!judging) return false;
+  return young.some((event) => !judgementOf(db, event.id));
+}
+
 type PendingBatch = { id: number; context_json: string | null };
 type BatchTarget = { destination_id: string; destination_json: string };
 
@@ -567,6 +603,7 @@ function standingReason(
   if (view.longKnown.has(event.id)) return "known_here_for_weeks";
   if (isAliasRow(event)) return "alias_of_another_row";
   if (isAnotherTierOfAListedModel(db, event)) return "another_tier_of_a_listed_model";
+  if (isTheModalityOfAPricedModel(db, event)) return "the_modality_a_price_list_bills_for";
   if (isPublishedByAFollowedLab(db, event)) return "published_by_a_followed_lab";
   if (isWeightsBesideTheRelease(event)) return "weights_with_nothing_to_run";
   if (isLongPublishedWeights(event)) return "weights_published_long_ago";
@@ -788,6 +825,8 @@ export function prepareDeliveries(
     // version of the card and seals the batch before the sentence can ever arrive. Hourly digests
     // never hit this because they sit unsealed for an hour; every delivered package release did.
     if (batch.kind === "event" && !batch.digest && awaitingSummary(db, events, now)) continue;
+    // And the same wait for a judgement, which decides whether a vendor's post speaks at all.
+    if (batch.kind === "event" && !batch.digest && awaitingJudgement(db, events, now)) continue;
     const targets = db
       .query<{ destination_id: string; destination_json: string }, [number]>(
         "SELECT destination_id,destination_json FROM batch_targets WHERE batch_id=? ORDER BY rowid",

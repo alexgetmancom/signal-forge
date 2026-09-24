@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
 import type { Collection } from "../events/types.js";
+import { vendorOfName } from "../events/vendors.js";
 import type { Fetch } from "../http-client.js";
 import { googleCloudHeaders } from "./vertex.js";
 
@@ -34,7 +35,7 @@ export function skuModels(descriptions: readonly string[]): string[] {
  */
 export async function collectGoogleSkus(config: AppConfig, request: Fetch = fetch): Promise<Collection> {
   const headers = await googleCloudHeaders(config, request, false);
-  const records = new Map<string, { id: string; name: string; maker: string; services: string[] }>();
+  const records = new Map<string, { id: string; name: string; maker: string; service: string; services: string[] }>();
   for (const [service, label] of Object.entries(SERVICES)) {
     const descriptions: string[] = [];
     let cursor = "";
@@ -50,7 +51,16 @@ export async function collectGoogleSkus(config: AppConfig, request: Fetch = fetc
     }
     if (!descriptions.length) throw new Error(`Google Cloud lists no SKUs for ${label}`);
     for (const model of skuModels(descriptions)) {
-      const record = records.get(model) ?? { id: model, name: model, maker: "Google Cloud", services: [] };
+      // The service is not the maker. GLM 5, Qwen 3.6, Llama 4 and GPT-OSS are all priced here and
+      // were all filed under "Google Cloud", so a card for any of them named the wrong company.
+      const maker = vendorOfName(model);
+      const record = records.get(model) ?? {
+        id: model,
+        name: model,
+        maker: maker === "Unknown" ? "Google" : maker,
+        service: "Google Cloud",
+        services: [],
+      };
       record.services.push(label);
       records.set(model, record);
     }

@@ -41,6 +41,7 @@ const SUPPRESSION_REASONS = [
   "trending_from_an_unfollowed_lab",
   "same_release_on_another_page",
   "announced_before_it_was_sighted",
+  "the_modality_a_price_list_bills_for",
 ] as const;
 
 export type SuppressionReason = (typeof SUPPRESSION_REASONS)[number];
@@ -109,6 +110,8 @@ function suppressionDetail(event: Event, reason: SuppressionReason): string {
       return "A trending repository from a lab this service does not follow";
     case "announced_before_it_was_sighted":
       return "Its maker's announcement already reached a channel; a later glimpse of it is not a sighting";
+    case "the_modality_a_price_list_bills_for":
+      return "A price list charging a listed model for image or text tokens, which no other catalogue knows as a model";
     case "alias_of_another_row":
       return "A row that points at whichever build is newest, not a model of its own";
   }

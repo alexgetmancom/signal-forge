@@ -76,6 +76,12 @@ const SERVING_WORDS = new Set([
   // Search Arena lists Claude Opus 5 as `claude-opus-5-search`: the released model with a search
   // tool attached, two of them on 2026-09-18.
   "search",
+  // The board is not the model. Arena seats one model on several boards and writes the board into
+  // the entry: `step-5-preview-agent` and `step-5-preview-webdev` are StepFun's released model on
+  // the agent and webdev boards, and on 2026-09-24 the two of them made a codename story about a
+  // model the channel had already been told about four days earlier.
+  "agent",
+  "webdev",
 ]);
 
 /** A number straight after the model's name is its version: `grok 4` + `6` is Grok 4.6, not a wiring of Grok 4. */
@@ -115,15 +121,22 @@ export function knownModelNames(db: Database): string[][] {
 /** True when this arena entry is a known model with only its wiring appended. */
 export function isAnotherServing(event: Event, known: readonly string[][]): boolean {
   if (event.stream !== "arena" || event.kind !== "new") return false;
-  const words = normalizeIdentity(String(record(event)?.name ?? event.entity_id))
-    .split(" ")
-    .filter(Boolean);
-  return known.some(
-    (model) =>
-      words.length > model.length &&
-      model.every((word, index) => words[index] === word) &&
-      servingTail(words.slice(model.length)),
+  const body = record(event);
+  // The wiring is written wherever the arena keeps its own key: `name` is the display name, and
+  // step-5-preview's two seats differed only in `model`, so reading the name alone saw one model
+  // twice and called it an unidentified sighting.
+  const written = [body?.name, body?.model, body?.modelKey, event.entity_id].filter(
+    (value): value is string => typeof value === "string" && value.trim().length > 0,
   );
+  return written.some((value) => {
+    const words = normalizeIdentity(value).split(" ").filter(Boolean);
+    return known.some(
+      (model) =>
+        words.length > model.length &&
+        model.every((word, index) => words[index] === word) &&
+        servingTail(words.slice(model.length)),
+    );
+  });
 }
 
 /** Fields that say how a record is addressed and displayed, not what it is. */
@@ -658,4 +671,37 @@ export function isFixesOnlyRelease(event: Event): boolean {
   if (!body || (!body.version && !body.tag && !VERSION.test(String(body.name ?? "")))) return false;
   const summary = String(body.summary ?? body.description ?? "");
   return FIXES.test(summary) && !ADDS.test(summary);
+}
+
+/**
+ * The modality a price list bills a model for, read as a model of its own.
+ *
+ * Google's price catalogue writes what is being charged and then what it is charged on: "Generate
+ * content input token count gemini 3.8 live image" is image tokens on Gemini 3.8 Live, not a model
+ * called `gemini-3.8-live-image`. The collector reads a model out of the words and keeps both, so
+ * the price list holds twenty names no other catalogue has ever listed, and `gemini-3.1-flash-image-image`
+ * -- a real image model with the word said twice -- is the proof of what the last word is doing.
+ *
+ * The word cannot be stripped, because the same suffix is a real model four times over: Nano Banana
+ * is `gemini-2.5-flash-image`. What separates them is not spelling but witness. So only the
+ * modality-suffixed rows are held, and only until a second catalogue lists one -- everything else
+ * this source sees first, such as `gemini-3.8-flash-cyber` or `lyria-3-clip`, still speaks on sight.
+ *
+ * On 2026-09-24 the phantom `gemini-3.8-live-image` took a codename card into the scouts' channel
+ * while the real Gemini 3.8 Live, in the same poll, was rated evidence and got none.
+ */
+const BILLED_MODALITY = /-(image|text|audio|video|token|tokens)$/;
+
+export function isTheModalityOfAPricedModel(db: Database, event: Event): boolean {
+  if (event.source !== "google-skus" || event.kind !== "new") return false;
+  const base = event.entity_id.replace(BILLED_MODALITY, "");
+  if (base === event.entity_id) return false;
+  // The model it is a price for is on the same list; without it there is no reading of this as a modality.
+  if (!db.query("SELECT 1 FROM records WHERE source=? AND id=?").get(event.source, base)) return false;
+  const elsewhere = db
+    .query<{ count: number }, [string, string, string]>(
+      "SELECT COUNT(*) count FROM records WHERE source<>? AND (id=? OR LOWER(json_extract(body,'$.name'))=?)",
+    )
+    .get(event.source, event.entity_id, event.entity_id);
+  return (elsewhere?.count ?? 0) === 0;
 }
