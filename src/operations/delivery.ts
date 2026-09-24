@@ -21,7 +21,7 @@ export function deliveryOperations(db: Database, _config: AppConfig, _all: () =>
       // Sending to subscribers is the operator's call, never an agent's.
       agent: false,
       schema: z.object({ eventId: identifier }),
-      cli: { args: [{ name: "event-id" }] },
+      cli: { args: [{ name: "eventId" }] },
       handler: (input: { eventId: number }) => {
         const event = db
           .query<{ id: number; source: string; entity_id: string }, [number]>(

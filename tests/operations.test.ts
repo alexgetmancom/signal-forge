@@ -202,3 +202,21 @@ test("a card that went out wrong can be sent again, carrying only its own event"
   expect(() => callOperation(defs, "resend", { eventId: 3 })).toThrow(/never delivered/);
   db.close();
 });
+
+test("every positional argument is a field its operation's schema knows", () => {
+  const db = openDatabase(":memory:");
+  const defs = operations(db, testConfig());
+  // `resend` took `event-id` on the command line and `eventId` in its schema, so every value typed
+  // after the command was dropped and the operation refused a number it had just been given. The
+  // registry is the one place both spellings live; a name only one side knows is a typo.
+  for (const [name, def] of Object.entries(defs)) {
+    const shape = (def.schema as { shape?: Record<string, unknown> }).shape ?? {};
+    for (const argument of def.cli?.args ?? [])
+      expect({ [name]: argument.name }).toEqual({
+        [name]: Object.keys(shape).includes(argument.name)
+          ? argument.name
+          : `${argument.name} is not a field of ${name}`,
+      });
+  }
+  db.close();
+});
