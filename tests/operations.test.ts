@@ -152,7 +152,7 @@ test("the database is readable by hand, and only readable", () => {
   db.close();
 });
 
-test("a card that went out wrong can be sent again, and only on its own", () => {
+test("a card that went out wrong can be sent again, carrying only its own event", () => {
   const db = openDatabase(":memory:");
   const defs = operations(db, testConfig());
   const at = "2026-09-24T13:40:30.000Z";
@@ -186,11 +186,19 @@ test("a card that went out wrong can be sent again, and only on its own", () => 
     destination_id: "discord-scouts",
   });
 
-  // An event that shared its message with others is refused: the rest were not wrong.
+  // Sharing a message with another event is the usual reason a card was wrong -- Muse Spark 1.4
+  // went out beside a stale gpt-5-6 -- so it is resent, and the new card carries this event alone.
   db.query(
     "INSERT INTO events(id,source,stream,kind,entity_id,detected_at,after_json,signal,snapshot_id) VALUES(2,?,?,?,?,?,?,?,?)",
   ).run("discovery:opencode-data", "api-models", "new", "unknown/space-bunny", at, "{}", "codename", snapshot.id);
   db.query("INSERT INTO delivery_events(delivery_id,event_id) VALUES(1,2)").run();
-  expect(() => callOperation(defs, "resend", { eventId: 1 })).toThrow(/never sent on its own/);
+  const again = callOperation(defs, "resend", { eventId: 1 }) as { batch: number };
+  expect(db.query("SELECT event_id FROM batch_events WHERE batch_id=?").all(again.batch)).toEqual([{ event_id: 1 }]);
+
+  // An event nothing ever delivered has nowhere to be sent again.
+  db.query(
+    "INSERT INTO events(id,source,stream,kind,entity_id,detected_at,after_json,signal,snapshot_id) VALUES(3,?,?,?,?,?,?,?,?)",
+  ).run("discovery:opencode-data", "api-models", "new", "unknown/sonoma-sky", at, "{}", "codename", snapshot.id);
+  expect(() => callOperation(defs, "resend", { eventId: 3 })).toThrow(/never delivered/);
   db.close();
 });

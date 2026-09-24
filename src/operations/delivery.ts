@@ -15,7 +15,8 @@ export function deliveryOperations(db: Database, _config: AppConfig, _all: () =>
         "For a card that went out wrong and was deleted: a second card is normally worse than an " +
         "unclear one, so this is asked for by hand and journalled. It queues a fresh card from the " +
         "event as it stands now, which is only worth doing once whatever made the first one wrong " +
-        "has been fixed. An event delivered alongside others is refused: the rest are not resent.",
+        "has been fixed. An event that shared its message with others can be resent too: the new " +
+        "card is built from this event alone, so the others do not go out again.",
       mutates: true,
       // Sending to subscribers is the operator's call, never an agent's.
       agent: false,
@@ -35,12 +36,11 @@ export function deliveryOperations(db: Database, _config: AppConfig, _all: () =>
                     COALESCE(e.signal,'') AS signal
              FROM deliveries d JOIN delivery_events de ON de.delivery_id=d.id JOIN events e ON e.id=de.event_id
              WHERE de.event_id=?1 AND d.status='sent'
-               AND (SELECT COUNT(*) FROM delivery_events x WHERE x.delivery_id=d.id)=1
              GROUP BY d.destination_id`,
           )
           .all(input.eventId);
         if (sent.length === 0)
-          throw new Error(`Event ${input.eventId} was never sent on its own; resending it would resend the others`);
+          throw new Error(`Event ${input.eventId} was never delivered, so there is nowhere to send it again`);
         const queued = db.transaction(() => {
           const batch = db
             .query<{ id: number }, [string, string]>(
