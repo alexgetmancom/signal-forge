@@ -8,6 +8,68 @@ import { count, identifier, type OperationMap } from "./definition.js";
 /** The "delivery" section of the operation registry; src/operations.ts joins the sections. */
 export function deliveryOperations(db: Database, _config: AppConfig, _all: () => OperationMap): OperationMap {
   return {
+    resend: {
+      section: "delivery",
+      summary: "Send one event's card again, to the channels that already had it.",
+      note:
+        "For a card that went out wrong and was deleted: a second card is normally worse than an " +
+        "unclear one, so this is asked for by hand and journalled. It queues a fresh card from the " +
+        "event as it stands now, which is only worth doing once whatever made the first one wrong " +
+        "has been fixed. An event delivered alongside others is refused: the rest are not resent.",
+      mutates: true,
+      // Sending to subscribers is the operator's call, never an agent's.
+      agent: false,
+      schema: z.object({ eventId: identifier }),
+      cli: { args: [{ name: "event-id" }] },
+      handler: (input: { eventId: number }) => {
+        const event = db
+          .query<{ id: number; source: string; entity_id: string }, [number]>(
+            "SELECT id,source,entity_id FROM events WHERE id=?",
+          )
+          .get(input.eventId);
+        if (!event) throw new Error(`No event ${input.eventId}`);
+        const sent = db
+          .query<{ destination_id: string; destination_json: string; url: string; signal: string }, [number]>(
+            `SELECT d.destination_id,d.destination_json,
+                    COALESCE(NULLIF(json_extract(e.after_json,'$.url'),''),'') AS url,
+                    COALESCE(e.signal,'') AS signal
+             FROM deliveries d JOIN delivery_events de ON de.delivery_id=d.id JOIN events e ON e.id=de.event_id
+             WHERE de.event_id=?1 AND d.status='sent'
+               AND (SELECT COUNT(*) FROM delivery_events x WHERE x.delivery_id=d.id)=1
+             GROUP BY d.destination_id`,
+          )
+          .all(input.eventId);
+        if (sent.length === 0)
+          throw new Error(`Event ${input.eventId} was never sent on its own; resending it would resend the others`);
+        const queued = db.transaction(() => {
+          const batch = db
+            .query<{ id: number }, [string, string]>(
+              "INSERT INTO batches(source,digest,ready_at,kind,context_json) VALUES(?,0,?,'event',NULL) RETURNING id",
+            )
+            .get(event.source, new Date().toISOString());
+          if (!batch) throw new Error("Resend batch insert failed");
+          db.query("INSERT INTO batch_events(batch_id,event_id,url,signal) VALUES(?,?,?,?)").run(
+            batch.id,
+            event.id,
+            sent[0]?.url ?? "",
+            sent[0]?.signal ?? "",
+          );
+          for (const target of sent)
+            db.query("INSERT INTO batch_targets(batch_id,destination_id,destination_json) VALUES(?,?,?)").run(
+              batch.id,
+              target.destination_id,
+              target.destination_json,
+            );
+          return batch.id;
+        })();
+        return {
+          event: event.entity_id,
+          batch: queued,
+          destinations: sent.map((target) => target.destination_id),
+          message: "A fresh card is queued; the next delivery cycle sends it",
+        };
+      },
+    },
     deliveries: {
       section: "delivery",
       summary: "Recent delivery outcomes. Ambiguous sends require checking the destination.",

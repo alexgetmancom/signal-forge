@@ -36,6 +36,8 @@ test("health is public, operational state requires token, MCP lists matching sch
   expect(tools).not.toContain("clear_credential_circuit");
   expect(tools).not.toContain("guide");
   expect(tools).not.toContain("sync_publications");
+  // Sending to subscribers is the operator's call: it is a command, never a tool.
+  expect(tools).not.toContain("resend");
   expect(tools).toEqual([
     "doctor",
     "status",
