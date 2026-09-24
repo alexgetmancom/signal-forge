@@ -177,6 +177,16 @@ function familyShape(id: string): string | null {
  * `gpt-6-astra-wm` first appeared in a Codex test -- so only the invented family is dropped, and
  * only where a test wrote it.
  */
+/** The same reading, over ids already extracted: a whole file is not a patch. */
+function inventedIn(ids: readonly string[]): Set<string> {
+  const counts = new Map<string, Set<string>>();
+  for (const id of ids) {
+    const shape = familyShape(id);
+    if (shape) counts.set(shape, (counts.get(shape) ?? new Set()).add(id));
+  }
+  return new Set([...counts].filter(([, found]) => found.size >= 3).map(([shape]) => shape));
+}
+
 export function inventedFamilies(patch: string): Set<string> {
   const counts = new Map<string, Set<string>>();
   for (const [id] of modelIdsInPatch(patch)) {
@@ -236,6 +246,81 @@ function recordLookup(db: Database): (source: string, id: string) => boolean {
   return (source, id) => Boolean(query.get(source, id));
 }
 
+/**
+ * Files worth opening on a first read. A repository holds thousands, and a model is named in the
+ * few that list, price, configure or test one; opening the rest would spend the hour's requests on
+ * licences and lockfiles.
+ */
+const NAMES_MODELS = /model|catalog|pricing|price|config|constant|registry|provider|client|agent|spec/i;
+const READABLE = /\.(ts|tsx|js|jsx|py|go|rs|java|kt|json|ya?ml|toml|md|txt)$/i;
+/** How many files one first read opens. Above this the repository is sampled, not read. */
+const FIRST_READ_FILES = 200;
+
+const treeSchema = z.object({
+  tree: z.array(z.object({ path: z.string(), type: z.string(), size: z.number().optional() })),
+});
+
+/**
+ * Every model named in a repository the moment it is first watched, reported as `named`: written
+ * into the code, which is what a first read can honestly say. Nothing here is a commit, so there
+ * is no message to judge and no author's account of it.
+ */
+async function firstReadNames(
+  db: Database,
+  api: string,
+  sha: string,
+  headers: Record<string, string>,
+  request: Fetch,
+  watch: MentionWatch,
+): Promise<{ records: RecordData[]; scanned: number }> {
+  if (watch.talkOnly) return { records: [], scanned: 0 };
+  let tree: z.infer<typeof treeSchema>;
+  try {
+    tree = treeSchema.parse(JSON.parse(await fetchText(`${api}/git/trees/${sha}?recursive=1`, headers, request)));
+  } catch {
+    // A repository too large for one tree request is read from its commits alone, as before.
+    return { records: [], scanned: 0 };
+  }
+  const paths = tree.tree
+    .filter((entry) => entry.type === "blob" && (entry.size ?? 0) < 512_000)
+    .map((entry) => entry.path)
+    .filter((path) => (watch.paths ? watch.paths.includes(path) : READABLE.test(path) && !IGNORED_FILE.test(path)))
+    // A name in a file about models is worth the request before a name in one that is not.
+    .sort((left, right) => Number(NAMES_MODELS.test(right)) - Number(NAMES_MODELS.test(left)))
+    .slice(0, FIRST_READ_FILES);
+  const records: RecordData[] = [];
+  const seen = new Set<string>();
+  for (const path of paths) {
+    let text: string;
+    try {
+      text = await fetchText(`${api}/contents/${path}`, { ...headers, Accept: "application/vnd.github.raw" }, request);
+    } catch {
+      continue;
+    }
+    const found = modelIdsInText(text);
+    const invented = isTestFile(path) ? inventedIn([...found.keys()]) : null;
+    for (const [id, line] of found) {
+      if (seen.has(id) || invented?.has(familyShape(id) ?? "")) continue;
+      seen.add(id);
+      // A repository names every model it has ever supported, and almost all of them are out. The
+      // first read is worth having for the one name nothing else holds -- `MiniMax-M3.1` -- not for
+      // the hundred that would arrive with it.
+      if (stageKnown(db, id, "named") || olderThanKnown(db, id)) continue;
+      records.push({
+        id,
+        name: id,
+        model: id,
+        stage: "named" satisfies MentionStage,
+        ...(watch.vendor ? { maker: watch.vendor } : {}),
+        url: `https://github.com/${watch.repo}/blob/${sha}/${path}`,
+        file: path,
+        line,
+      });
+    }
+  }
+  return { records, scanned: paths.length };
+}
+
 export async function collectModelMentions(
   db: Database,
   config: AppConfig,
@@ -261,9 +346,19 @@ export async function collectModelMentions(
     .parse(JSON.parse(await fetchText(`${api}/commits?per_page=1`, headers, request)))[0];
   if (!head) throw new Error(`${watch.repo}: no commits`);
   const at = (sha: string): RecordData => ({ id: CURSOR, name: "Last commit read", sha });
-  // The first read, and a history rewritten under the cursor, start from the head: what the
-  // repository already says is its past, not news.
-  if (!cursor) return { ...base, raw: head, records: [at(head.sha)], silentIds: [CURSOR] };
+  // The first read is the one chance to see what the repository already holds. `MiniMax-M3.1` sat
+  // in five files of minimax-code on 2026-09-24 while the catalogue had M3, and starting from the
+  // head meant never reporting it: nothing would add that name again. So a repository is read
+  // whole when it is first watched, and from its commits ever after.
+  if (!cursor) {
+    const found = await firstReadNames(db, api, head.sha, headers, request, watch);
+    return {
+      ...base,
+      raw: { sha: head.sha, scanned: found.scanned },
+      records: [at(head.sha), ...found.records],
+      silentIds: [CURSOR],
+    };
+  }
   if (cursor === head.sha) return { ...base, raw: head, records: [at(cursor)], silentIds: [CURSOR] };
   let compare: z.infer<typeof compareSchema>;
   try {

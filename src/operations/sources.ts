@@ -11,11 +11,31 @@ import { signalQuality } from "../reports/signalQuality.js";
 import { sourceVerdicts } from "../reports/sourceVerdicts.js";
 import { deepSeekUsage } from "../runtime/deepseekUsage.js";
 import { codeAnalytics } from "../runtime/metrics.js";
+import { mentionSource } from "../sources/modelMentions.js";
 import { count, type OperationMap } from "./definition.js";
 
 /** The "sources" section of the operation registry; src/operations.ts joins the sections. */
 export function sourcesOperations(db: Database, config: AppConfig, _all: () => OperationMap): OperationMap {
   return {
+    rescan_repository: {
+      section: "sources",
+      summary: "Forget where a watched repository was read to, so its next poll reads the whole tree again.",
+      note:
+        "For a repository subscribed to before the first read scanned its tree: the names already " +
+        "sitting in it were never reported, and nothing will add them again. Reports only names no " +
+        "catalogue holds, so a repository full of shipped models stays quiet.",
+      mutates: true,
+      // A poll that re-reads a repository can deliver, which is routine work, but the operator asks for it.
+      agent: false,
+      schema: z.object({ repo: z.string().min(3) }),
+      cli: { args: [{ name: "repo", rest: true }] },
+      handler: (input: { repo: string }) => {
+        const source = mentionSource(input.repo);
+        const removed = db.query("DELETE FROM records WHERE source=? AND id='@head'").run(source).changes;
+        if (!removed) throw new Error(`${input.repo} is not a watched repository, or has never been read`);
+        return { repo: input.repo, source, message: "The next poll of this repository reads its tree in full" };
+      },
+    },
     lead_time: {
       section: "sources",
       summary: "Which sources saw a story first, and by how long, over an operator-selected period.",

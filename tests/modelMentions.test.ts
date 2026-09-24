@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { loadConfig } from "../src/config.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import { pingWorthy, signalClass } from "../src/events/signals.js";
+import type { Fetch } from "../src/http-client.js";
 import { familyVersion, guessStage, judgeMentions, olderThanKnown, stageKnown } from "../src/sources/mentionStage.js";
 import {
   collectModelMentions,
@@ -426,4 +427,47 @@ test("a proxy's name for the client that asks is not a model", () => {
   expect(modelIdsInText("Claude Code's `claude-gpt-6-astra` routes as `gpt-6-astra`.")).toEqual(
     new Map([["gpt-6-astra", "Claude Code's `claude-gpt-6-astra` routes as `gpt-6-astra`."]]),
   );
+});
+
+test("a repository first watched is read whole, and reports only what no catalogue holds", async () => {
+  const db = openDatabase(":memory:");
+  // What the catalogue already has. The repository names these too, and naming them is not news.
+  for (const id of ["minimax-m3", "gpt-6-astra"])
+    db.query("INSERT INTO records(source,id,body,missing_count,stream,observed_at) VALUES(?,?,?,0,?,?)").run(
+      "openrouter",
+      id,
+      "{}",
+      "openrouter",
+      "2026-09-24T00:00:00.000Z",
+    );
+
+  const answers: Record<string, string> = {
+    "https://api.github.com/repos/MiniMax-AI/minimax-code/commits?per_page=1": JSON.stringify([
+      {
+        sha: "a".repeat(40),
+        html_url: "https://github.com/x/y/commit/a",
+        commit: { message: "release", author: null },
+      },
+    ]),
+    [`https://api.github.com/repos/MiniMax-AI/minimax-code/git/trees/${"a".repeat(40)}?recursive=1`]: JSON.stringify({
+      tree: [
+        { path: "src/models.ts", type: "blob", size: 400 },
+        { path: "LICENSE", type: "blob", size: 400 },
+      ],
+    }),
+    "https://api.github.com/repos/MiniMax-AI/minimax-code/contents/src/models.ts":
+      'const catalogue = ["MiniMax-M3", "MiniMax-M3.1", "gpt-6-astra"];',
+  };
+  const request = (async (url: string) =>
+    new Response(answers[String(url)] ?? "", { status: answers[String(url)] ? 200 : 404 })) as unknown as Fetch;
+
+  const collection = await collectModelMentions(
+    db,
+    config,
+    { repo: "MiniMax-AI/minimax-code", vendor: "MiniMax", authority: "vendor_owned" },
+    request,
+  );
+  // The bookmark, and the one name nothing else holds -- not the models already shipped beside it.
+  expect(collection.records.map((record) => record.id)).toEqual(["@head", "minimax-m3.1"]);
+  db.close();
 });
