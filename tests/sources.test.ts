@@ -554,6 +554,15 @@ test("official developer feeds validate RSS and Atom and retain tool release evi
   );
   expect(rss.records[0]).toMatchObject({ name: "Codex skill update", published: "2026-09-09T10:00:00.000Z" });
   expect(rss.records[0]?.description).toBe("Full release details.");
+  // Google's blogs caption the item's image in `media:description`. Stripping namespaces made that
+  // tag and the item's own `description` one name, and the caption was read out in front of the post.
+  const captioned = parseOfficialFeed(
+    `<rss version="2.0" xmlns:media="http://search.yahoo.com/mrss/"><channel><item><title>Introducing Gemini 3.8 Live with Live Avatar</title><link>https://example.test/live-avatar</link><media:description>an image with the phrase "Gemini 3.8 Live with Live Avatar"</media:description><description>&lt;img src="https://example.test/slide.webp"&gt;Introducing Gemini 3.8 Live with Live Avatar, which brings near real-time visual presence.</description><pubDate>Wed, 09 Sep 2026 10:00:00 GMT</pubDate></item></channel></rss>`,
+    { source: "caption-test", maker: "Google", url: "https://example.test/feed.xml" },
+  );
+  expect(captioned.records[0]?.description).toBe(
+    "Introducing Gemini 3.8 Live with Live Avatar, which brings near real-time visual presence.",
+  );
   const atom = parseOfficialFeed(
     `<feed xmlns="http://www.w3.org/2005/Atom"><entry><title>CUDA AI</title><link rel="alternate" href="https://example.test/atom"/><id>x</id><updated>2026-09-09T10:00:00.000Z</updated><summary>GPU model</summary></entry></feed>`,
     { source: "atom-test", maker: "Example Vendor", url: "https://example.test/feed.atom" },

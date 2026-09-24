@@ -152,3 +152,39 @@ export function newsroomVote(db: Database, eventId: number, now = new Date()): "
   if (judgement.worth >= worthCutoffs(db, now).story) return "speaks";
   return judgement.worth <= worthCutoff(db, NEWSROOM_FLOOR_SHARE, NEWSROOM_FLOOR, now) ? "recap" : null;
 }
+
+/**
+ * The readers' vote on a source, which is a vote and never a veto.
+ *
+ * Every card's thumbs are already counted, for both channels, and until now nothing read them back.
+ * They are the only signal in the system that comes from the people the newsroom is written for,
+ * rather than from a rule about what they might want. A reaction arrives after its own card, so it
+ * can never hold that card back; what it can say is whether this source has been worth reading
+ * before. The Gemini models blog is the case it was built from: two posts in sixty days, one
+ * delivered, nought in favour and three against -- the worst received card the newsroom has sent.
+ *
+ * It speaks only where a source has actually been voted against more than for, and only about the
+ * posts a word rule was already unsure of. A release stays a release: this holds back a blog, not a
+ * model. Jev outranks it, so a post he vouches for goes out however the source's last cards landed.
+ *
+ * The threshold is two because the counts are small and one thumb is a mood. It stays arithmetic
+ * for that reason: there is not enough here to calibrate a judge on, and pretending otherwise would
+ * teach the judge noise.
+ */
+const READERS_AGAINST = 2;
+const READERS_WINDOW_DAYS = 60;
+
+export function readersVote(db: Database, source: string, now = new Date()): "against" | null {
+  const since = new Date(now.getTime() - READERS_WINDOW_DAYS * 86_400_000).toISOString();
+  const tally = db
+    .query<{ against: number; favour: number }, [string, string]>(
+      `SELECT COALESCE(SUM(r.against),0) against, COALESCE(SUM(r.votes),0) favour
+         FROM scout_reactions r
+         JOIN delivery_events de ON de.delivery_id = r.delivery_id
+         JOIN events e ON e.id = de.event_id
+        WHERE e.source = ? AND e.detected_at >= ?`,
+    )
+    .get(source, since);
+  if (!tally) return null;
+  return tally.against >= READERS_AGAINST && tally.against > tally.favour ? "against" : null;
+}

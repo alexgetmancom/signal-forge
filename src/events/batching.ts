@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import type { Destination } from "../config.js";
-import { newsroomVote } from "../insights.js";
+import { newsroomVote, readersVote } from "../insights.js";
 import { judgementOf } from "../jev.js";
 import { promotionContextSchema } from "../promotion.js";
 import { type RecapContext, recapContextSchema } from "../recap.js";
@@ -596,6 +596,10 @@ function standingReason(
     if (vote === "recap") return "left_to_the_daily_recap";
     if (vote !== "speaks" && isAboutTheCompanyNotAModel(event, view.known))
       return "a_post_about_the_company_not_a_model";
+    // The readers' own verdict on the source, which Jev can overrule and a release never reaches;
+    // see readersVote.
+    if (vote !== "speaks" && event.stream === "news" && readersVote(db, event.source))
+      return "the_readers_voted_this_source_down";
   }
   if (isLabelOnlyChange(event)) return "display_label_only";
   if (view.schema.has(event.id)) return "a_field_the_source_started_sending";

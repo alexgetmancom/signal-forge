@@ -25,6 +25,7 @@ const SUPPRESSION_REASONS = [
   "known_here_for_weeks",
   "alias_of_another_row",
   "a_post_about_the_company_not_a_model",
+  "the_readers_voted_this_source_down",
   "another_tier_of_a_listed_model",
   "published_by_a_followed_lab",
   "weights_with_nothing_to_run",
@@ -80,6 +81,8 @@ function suppressionDetail(event: Event, reason: SuppressionReason): string {
       return "A model this deployment has followed for weeks, listed at one more venue";
     case "a_post_about_the_company_not_a_model":
       return "A newsroom post naming no model this deployment knows, and announcing none";
+    case "the_readers_voted_this_source_down":
+      return "A post from a source the channel has voted against more often than for";
     case "another_tier_of_a_listed_model":
       return "A dated snapshot or billing tier of a model this catalogue already lists";
     case "published_by_a_followed_lab":

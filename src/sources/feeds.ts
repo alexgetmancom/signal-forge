@@ -137,14 +137,23 @@ function sourceCollection(options: FeedOptions, raw: unknown, records: RecordDat
   };
 }
 
-/** Parse RSS 2.0 and Atom without trusting the feed's presentation markup. */
+/**
+ * Parse RSS 2.0 and Atom without trusting the feed's presentation markup.
+ *
+ * Namespaces are kept rather than stripped, because stripping them makes two different tags one.
+ * Google's blogs carry `<media:description>`, the caption of the item's image, beside the item's own
+ * `<description>`; with the prefixes gone both are called `description`, the reader joins them, and
+ * the caption is read out in front of the post. The Gemini 3.8 Live card began "an image with the
+ * phrase ..." for that reason. `content:encoded` is the one namespaced tag a feed item is read for,
+ * so it is renamed on its own and nothing else collides.
+ */
 export function parseOfficialFeed(text: string, options: FeedOptions): Collection {
   if (XMLValidator.validate(text) !== true) throw new Error(`${options.source}: invalid XML`);
   const raw: unknown = new XMLParser({
     ignoreAttributes: false,
     attributeNamePrefix: "@_",
-    removeNSPrefix: true,
     parseTagValue: false,
+    transformTagName: (name) => (name === "content:encoded" ? "encoded" : name),
     isArray: (name) => name === "item" || name === "entry" || name === "link",
   }).parse(text);
   const rss = rssSchema.safeParse(raw);

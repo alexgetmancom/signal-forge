@@ -34,6 +34,8 @@ export type SourceVerdict = {
   firstSightings: number;
   delivered: number;
   scoutVotes: number;
+  /** Thumbs down the source's cards drew, which delivering more cards cannot cancel out. */
+  scoutVotesAgainst: number;
   /** Events the source recorded in the period. */
   events: number;
   /** Of those, how many were arrivals that share a story with another source's event. */
@@ -44,7 +46,7 @@ export type SourceVerdict = {
   corroborationRate: number | null;
   /** Corroborated events that never reached a reader: value the routing is not carrying. */
   heldBack: number;
-  verdict: "earning" | "held_back" | "no_measurable_value";
+  verdict: "earning" | "voted_down" | "held_back" | "no_measurable_value";
 };
 
 const MIN_OBSERVED_DAYS = 14;
@@ -73,15 +75,15 @@ export function sourceVerdicts(
       .all(since)
       .map((row) => [row.source, row.n]),
   );
-  const votes = new Map(
+  const reactions = new Map(
     db
-      .query<{ source: string; n: number }, [string]>(
-        `SELECT e.source, SUM(r.votes) n FROM scout_reactions r
+      .query<{ source: string; n: number; against: number }, [string]>(
+        `SELECT e.source, SUM(r.votes) n, SUM(r.against) against FROM scout_reactions r
          JOIN delivery_events de ON de.delivery_id=r.delivery_id JOIN events e ON e.id=de.event_id
          WHERE e.detected_at>=? GROUP BY e.source`,
       )
       .all(since)
-      .map((row) => [row.source, row.n]),
+      .map((row) => [row.source, row]),
   );
   const witnessed = new Map(
     db
@@ -149,20 +151,30 @@ export function sourceVerdicts(
       ledOthers: lead?.ledOthers ?? 0,
       firstSightings: lead?.firstSightings ?? 0,
       delivered: delivered.get(definition.id) ?? 0,
-      scoutVotes: votes.get(definition.id) ?? 0,
+      scoutVotes: reactions.get(definition.id)?.n ?? 0,
+      scoutVotesAgainst: reactions.get(definition.id)?.against ?? 0,
       events,
       arrivals,
       corroborated,
       corroborationRate: arrivals ? Math.round((corroborated / arrivals) * 100) / 100 : null,
       heldBack: seen?.held ?? 0,
     };
+    // Delivering a card is not the same as being worth one. A source the channel voted against more
+    // often than for has been measured by its readers, and that measurement outranks the count of
+    // what it managed to send; the Gemini models blog delivered one card and drew three thumbs down.
+    const votedDown = row.scoutVotesAgainst >= 2 && row.scoutVotesAgainst > row.scoutVotes;
     const earning = row.ledOthers > 0 || row.delivered > 0 || row.scoutVotes > 0;
     return {
       ...row,
-      verdict: earning ? "earning" : row.heldBack > 0 ? "held_back" : "no_measurable_value",
+      verdict: votedDown ? "voted_down" : earning ? "earning" : row.heldBack > 0 ? "held_back" : "no_measurable_value",
     };
   };
-  const rank: Record<SourceVerdict["verdict"], number> = { no_measurable_value: 0, held_back: 1, earning: 2 };
+  const rank: Record<SourceVerdict["verdict"], number> = {
+    voted_down: 0,
+    no_measurable_value: 1,
+    held_back: 2,
+    earning: 3,
+  };
   const ordered = (rows: SourceVerdict[]) =>
     rows.sort((left, right) => rank[left.verdict] - rank[right.verdict] || left.source.localeCompare(right.source));
   const sources = ordered(enabled.filter((definition) => judged(definition.id)).map(verdictFor));

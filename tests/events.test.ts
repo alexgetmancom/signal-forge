@@ -1090,6 +1090,11 @@ test("a failing source is asked less often, and a healthy one keeps its interval
   expect(due(fiveMinutesAgo, 300, 1, now)).toBe(false);
   // A source never asked is always due.
   expect(due(null, 3600, 5, now)).toBe(true);
+  // A daily source is not put out for days by one dropped connection: the extra wait is bounded, so
+  // the image-editing arena is asked again the same day rather than on Friday.
+  const dayAgo = "2026-09-07T12:00:00.000Z";
+  expect(due(dayAgo, 86_400, 2, Date.parse("2026-09-08T18:30:00.000Z"))).toBe(true);
+  expect(due(dayAgo, 86_400, 2, Date.parse("2026-09-08T14:00:00.000Z"))).toBe(false);
 });
 
 test("a card says how long another kind of source had it first", () => {

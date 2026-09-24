@@ -16,10 +16,21 @@ const MAX_CONCURRENT_SOURCES = 4;
  * is refusing us recovers on its own schedule, and asking every two minutes in the meantime is how
  * a refusal turns into a block — which is exactly what happened when a status page's bot
  * protection started answering with a CAPTCHA.
+ *
+ * Doubling an interval that is already long puts the source out for days. The image-editing arena
+ * is read once a day; its connection dropped on 2026-09-22, and the doubling meant the next attempt
+ * was two days later and the one after that four, so a blink of the link became a board that stayed
+ * red for most of a week. The extra wait is therefore bounded: the backoff is what stops us asking
+ * a refusing host every two minutes, not a reason to stop asking a daily source until Friday. A
+ * frequent source keeps the behaviour it had, since eight times fifteen minutes is inside the
+ * ceiling anyway.
  */
+const MAX_BACKOFF_SECONDS = 6 * 3_600;
+
 export function due(checkedAt: string | null, interval: number, failures: number, now = Date.now()): boolean {
   if (!checkedAt) return true;
-  return now - Date.parse(checkedAt) >= interval * Math.min(2 ** failures, 8) * 1000;
+  const backedOff = Math.min(interval * Math.min(2 ** failures, 8), interval + MAX_BACKOFF_SECONDS);
+  return now - Date.parse(checkedAt) >= backedOff * 1000;
 }
 
 /**
