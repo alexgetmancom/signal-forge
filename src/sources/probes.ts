@@ -1,3 +1,4 @@
+import type { Database } from "bun:sqlite";
 import type { Collection, RecordData } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
 
@@ -22,8 +23,13 @@ import type { Fetch } from "../http-client.js";
 const USER_AGENT =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
 
-/** A family the vendor ships today, and the version its documentation is written for. */
-type Family = { family: string; version: readonly [number, number] };
+/**
+ * The version a probe asks past is read from the catalogue, never written down here. A constant in
+ * this file is a guess that rots: the first version of this probe asked OpenAI for `gpt-5.7` and
+ * `gpt-6` while `gpt-6-astra`, `gpt-6-luna` and `gpt-6-sol` had all been out for days, so two of
+ * its three questions were about the past. Asking `model_facts` instead means the probe moves the
+ * day a model lands, without anybody remembering to edit it.
+ */
 
 /**
  * The versions a vendor could publish next. A maker moves a minor ("5.5" after "5.4"), a major
@@ -41,7 +47,8 @@ function nextVersions([major, minor]: readonly [number, number]): (readonly [num
 export type Site = {
   id: string;
   vendor: string;
-  families: readonly Family[];
+  /** The shapes to follow, as a pattern over a model id: group one is the major, group two the minor. */
+  shapes: readonly { family: string; version: RegExp }[];
   /** How the site spells one guess: the slug it would live at. */
   slug: (family: string, version: readonly [number, number]) => string;
   /**
@@ -49,9 +56,9 @@ export type Site = {
    * nothing has shipped or the addresses moved, and the second is how a source dies quietly. The
    * control has to answer 200 or the poll is a failure, and the board says so.
    */
-  control: string;
-  /** Slugs that are not a version of anything -- a codename heard somewhere this tracker reads. */
-  names?: readonly string[];
+  control: (observed: string) => string;
+  /** Slugs that are not a version of anything, built from the highest version the vendor has out. */
+  names?: (highest: readonly [number, number]) => readonly string[];
   url: (slug: string) => string;
 };
 
@@ -70,39 +77,73 @@ export const PROBE_SITES: readonly Site[] = [
     id: "discovery:docs-openai",
     vendor: "OpenAI",
     // OpenAI names a model and versions it: `gpt-5.6-cyber` beside `gpt-6-astra`. Only the numbers
-    // can be guessed, so the codenames are asked for by name instead.
-    families: [{ family: "gpt", version: [5, 6] }],
+    // can be guessed, so a few codenames are asked for by name as well.
+    shapes: [{ family: "gpt", version: /^gpt-(\d+)(?:\.(\d+))?(?:-[a-z]+)?$/ }],
     slug: (family, version) => `${family}-${dotted(version)}`,
-    control: "gpt-6-astra",
-    names: ["gpt-6.1", "gpt-6.5", "gpt-7", "gpt-6-nova", "gpt-6-vega", "gpt-6-orion"],
+    control: (observed) => observed,
+    names: (highest) => [`gpt-${highest[0]}-nova`, `gpt-${highest[0]}-vega`, `gpt-${highest[0] + 1}`],
     url: (slug) => `https://platform.openai.com/docs/models/${slug}`,
   },
   {
     id: "discovery:docs-anthropic",
     vendor: "Anthropic",
-    families: [
-      { family: "opus", version: [5, 5] },
-      { family: "sonnet", version: [5, 0] },
-      { family: "haiku", version: [4, 5] },
+    shapes: [
+      { family: "opus", version: /^claude-opus-(\d+)[-.](\d+)$/ },
+      { family: "sonnet", version: /^claude-sonnet-(\d+)(?:[-.](\d+))?$/ },
+      { family: "haiku", version: /^claude-haiku-(\d+)[-.](\d+)$/ },
     ],
     slug: (family, [major, minor]) => (minor === 0 ? `${family}-${major}` : `${family}-${major}-${minor}`),
-    control: "opus-5-5",
+    // The catalogue writes `claude-opus-5-5`; the documentation drops the maker's own name.
+    control: (observed) => observed.replace(/^claude-/, "").replaceAll(".", "-"),
     url: (slug) => `https://platform.claude.com/docs/en/models/${slug}/overview`,
   },
   {
     id: "discovery:docs-google",
     vendor: "Google",
     // Google's slug carries the tier: `gemini-3.8-flash`, `gemini-3.1-pro-preview`.
-    families: [
-      { family: "gemini-#-pro", version: [3, 8] },
-      { family: "gemini-#-flash", version: [3, 8] },
-      { family: "gemini-#-flash-lite", version: [3, 8] },
+    shapes: [
+      { family: "gemini-#-pro", version: /^gemini-(\d+)\.(\d+)-pro$/ },
+      { family: "gemini-#-flash", version: /^gemini-(\d+)\.(\d+)-flash$/ },
+      { family: "gemini-#-flash-lite", version: /^gemini-(\d+)\.(\d+)-flash-lite$/ },
     ],
     slug: (family, version) => family.replace("#", dotted(version)),
-    control: "gemini-3.8-flash",
+    control: (observed) => observed,
     url: (slug) => `https://ai.google.dev/gemini-api/docs/models/${slug}`,
   },
 ];
+
+/**
+ * The highest version of each shape this tracker has ever recorded, and the id that carried it.
+ *
+ * `model_facts` is the one place every catalogue's names end up under one spelling, so it answers
+ * "what is out" without asking a vendor. Where several ids tie at the top version the shortest is
+ * kept: `claude-opus-5-5` over `claude-opus-5-5-fast`, which is the name a documentation page is
+ * written for.
+ */
+export function observedFamilies(
+  db: Database,
+  site: Site,
+): { family: string; version: readonly [number, number]; observed: string }[] {
+  const ids = db
+    .query<{ canonical_id: string }, []>("SELECT canonical_id FROM model_facts")
+    .all()
+    .map((row) => row.canonical_id);
+  const highest = new Map<string, { version: [number, number]; observed: string }>();
+  for (const shape of site.shapes)
+    for (const id of ids) {
+      const match = shape.version.exec(id);
+      if (!match) continue;
+      const version: [number, number] = [Number(match[1]), Number(match[2] ?? 0)];
+      const seen = highest.get(shape.family);
+      const higher =
+        !seen ||
+        version[0] > seen.version[0] ||
+        (version[0] === seen.version[0] && version[1] > seen.version[1]) ||
+        (version[0] === seen.version[0] && version[1] === seen.version[1] && id.length < seen.observed.length);
+      if (higher) highest.set(shape.family, { version, observed: id });
+    }
+  return [...highest].map(([family, found]) => ({ family, version: found.version, observed: found.observed }));
+}
 
 /**
  * One address, asked the way a browser asks.
@@ -136,13 +177,25 @@ async function probe(url: string, request: Fetch, jar: Map<string, string>): Pro
   throw new Error(`${url}: redirected past six hops`);
 }
 
-/** Every unannounced address a site answers for. Nothing is stored for a 404, which is the usual answer. */
-export async function collectDocsProbe(site: Site, request: Fetch = fetch): Promise<Collection> {
+/**
+ * Every unannounced address a site answers for. Nothing is stored for a 404, which is the usual
+ * answer, and the questions move on their own: they are the next versions of what the vendor has
+ * out today, read from the catalogue at the moment of asking.
+ */
+export async function collectDocsProbe(db: Database, site: Site, request: Fetch = fetch): Promise<Collection> {
+  const families = observedFamilies(db, site);
+  if (!families.length) throw new Error(`${site.id}: the catalogue names no model of any shape it follows`);
+  const highest = families.reduce((top, family) => (family.version[0] > top[0] ? family.version : top), [
+    0, 0,
+  ] as readonly [number, number]);
+  const control = site.control(
+    families.reduce((top, family) => (family.version[0] > top.version[0] ? family : top)).observed,
+  );
   const candidates = new Set<string>();
-  for (const { family, version } of site.families)
+  for (const { family, version } of families)
     for (const next of nextVersions(version)) candidates.add(site.slug(family, next));
-  for (const name of site.names ?? []) candidates.add(name);
-  candidates.delete(site.control);
+  for (const name of site.names?.(highest) ?? []) candidates.add(name);
+  candidates.delete(control);
   const records: RecordData[] = [];
   const tried: Record<string, number> = {};
   const jar = new Map<string, string>();
@@ -154,9 +207,9 @@ export async function collectDocsProbe(site: Site, request: Fetch = fetch): Prom
     if (answer.status !== 200) continue;
     records.push({ id: slug, name: slug, url, maker: site.vendor, source: "documentation" });
   }
-  const control = await probe(site.url(site.control), request, jar);
-  if (control.status !== 200) throw new Error(`${site.id}: ${site.control} answered HTTP ${control.status}`);
-  tried[site.control] = control.status;
+  const answered = await probe(site.url(control), request, jar);
+  if (answered.status !== 200) throw new Error(`${site.id}: ${control} answered HTTP ${answered.status}`);
+  tried[control] = answered.status;
   return {
     source: site.id,
     stream: "pages",

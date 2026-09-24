@@ -225,7 +225,7 @@ export function communitySources({ db, config, cache }: SourceContext): SourceEn
        */
       intervalSeconds: 300,
       pace: { group: site.id, seconds: 5 },
-      collector: () => collectDocsProbe(site, fetch),
+      collector: () => collectDocsProbe(db, site, fetch),
     });
   definitions.push({
     id: "discovery:opencode-data",
