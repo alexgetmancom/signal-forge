@@ -38,7 +38,7 @@ function fail(message: string): never {
 
 /** Names this push added, most distinctive first: a long identifier is a better probe than `id`. */
 async function addedSymbols(range: string): Promise<string[]> {
-  const diff = await run(["git", "diff", "-U0", range, "--", "src/"]);
+  const diff = await run(["git", "diff", "-U0", range, "--", "src/", "scripts/"]);
   const names = new Set<string>();
   for (const line of diff.out.split("\n")) {
     if (!line.startsWith("+") || line.startsWith("+++")) continue;
