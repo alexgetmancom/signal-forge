@@ -36,6 +36,8 @@ export type SourceVerdict = {
   scoutVotes: number;
   /** Thumbs down the source's cards drew, which delivering more cards cannot cancel out. */
   scoutVotesAgainst: number;
+  /** Lines this source put in a morning recap, which is value that never takes the shape of a card. */
+  recapLines: number;
   /** Events the source recorded in the period. */
   events: number;
   /** Of those, how many were arrivals that share a story with another source's event. */
@@ -71,6 +73,19 @@ export function sourceVerdicts(
         `SELECT e.source, COUNT(DISTINCT e.id) n FROM delivery_events de
          JOIN deliveries d ON d.id=de.delivery_id JOIN events e ON e.id=de.event_id
          WHERE d.status='sent' AND e.detected_at>=? GROUP BY e.source`,
+      )
+      .all(since)
+      .map((row) => [row.source, row.n]),
+  );
+  // A card is not the only way a source is worth reading. The Codex commit log sent nothing to a
+  // channel in the month to 2026-09-24 and wrote four lines into the morning recaps, and a report
+  // that counted only cards called it valueless -- which is the one verdict that would have got it
+  // switched off. What a source contributed to a recap is counted beside what it delivered.
+  const recapped = new Map(
+    db
+      .query<{ source: string; n: number }, [string]>(
+        `SELECT e.source, COUNT(*) n FROM summaries s JOIN events e ON e.id=s.event_id
+         WHERE e.detected_at>=? GROUP BY e.source`,
       )
       .all(since)
       .map((row) => [row.source, row.n]),
@@ -153,6 +168,7 @@ export function sourceVerdicts(
       delivered: delivered.get(definition.id) ?? 0,
       scoutVotes: reactions.get(definition.id)?.n ?? 0,
       scoutVotesAgainst: reactions.get(definition.id)?.against ?? 0,
+      recapLines: recapped.get(definition.id) ?? 0,
       events,
       arrivals,
       corroborated,
@@ -163,7 +179,7 @@ export function sourceVerdicts(
     // often than for has been measured by its readers, and that measurement outranks the count of
     // what it managed to send; the Gemini models blog delivered one card and drew three thumbs down.
     const votedDown = row.scoutVotesAgainst >= 2 && row.scoutVotesAgainst > row.scoutVotes;
-    const earning = row.ledOthers > 0 || row.delivered > 0 || row.scoutVotes > 0;
+    const earning = row.ledOthers > 0 || row.delivered > 0 || row.scoutVotes > 0 || row.recapLines > 0;
     return {
       ...row,
       verdict: votedDown ? "voted_down" : earning ? "earning" : row.heldBack > 0 ? "held_back" : "no_measurable_value",

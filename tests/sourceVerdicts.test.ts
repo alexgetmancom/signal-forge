@@ -121,3 +121,22 @@ test("a number that moved on a model others carry is not corroboration", () => {
   expect(row).toMatchObject({ arrivals: 0, corroborated: 0, heldBack: 0, verdict: "no_measurable_value" });
   db.close();
 });
+
+test("a source that writes into the morning recap is earning, though it never sent a card", () => {
+  const db = openDatabase(":memory:");
+  db.exec("INSERT INTO snapshots(id,source,collected_at) VALUES(1,'x','2026-09-01T00:00:00.000Z')");
+  db.query(
+    `INSERT INTO events(id,source,stream,entity_id,kind,after_json,detected_at,snapshot_id,confidence,evidence_type,authority)
+     VALUES(1,'github:openai/codex:commits','repos','c1','new','{}','2026-09-20T00:00:00.000Z',1,'observed','status_page','first_party')`,
+  ).run();
+  db.query("INSERT INTO summaries(event_id,text,created_at) VALUES(1,'A line for the recap.',?)").run(
+    "2026-09-20T01:00:00.000Z",
+  );
+  const config = loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname });
+  const report = sourceVerdicts(db, config, 30, Date.parse("2026-09-24T00:00:00.000Z"));
+  const row = [...report.sources, ...report.preliminary].find(
+    (entry) => entry.source === "github:openai/codex:commits",
+  );
+  expect(row?.recapLines).toBe(1);
+  expect(row?.verdict).toBe("earning");
+});
