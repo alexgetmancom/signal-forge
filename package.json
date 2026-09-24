@@ -30,7 +30,8 @@
     "events": "bun src/cli.ts events",
     "suppressions": "bun src/cli.ts suppressions",
     "prod": "bun scripts/prod.ts",
-    "prod:mcp": "bun scripts/prod-mcp.ts"
+    "prod:mcp": "bun scripts/prod-mcp.ts",
+    "ship": "bun scripts/ship.ts"
   },
   "dependencies": {
     "@resvg/resvg-wasm": "^2.6.2",
