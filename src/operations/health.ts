@@ -5,6 +5,7 @@ import type { AppConfig } from "../config.js";
 import { buildOperationsGuide, OPERATION_SECTIONS, type OperationSection } from "../guide.js";
 import { doctorReport } from "../reports/doctor.js";
 import { listActionableIssues } from "../reports/issues.js";
+import { keyStandings } from "../reports/keys.js";
 import { statusReport } from "../reports/statusReport.js";
 import { memoryReport } from "../runtime/observability.js";
 import { dateIntegrity } from "../storage/dateIntegrity.js";
@@ -70,6 +71,23 @@ export function healthOperations(db: Database, config: AppConfig, all: () => Ope
       cli: {},
       http: { method: "get", path: "/api/capabilities" },
       handler: () => capabilityReport(db, config),
+    },
+    keys: {
+      section: "health",
+      summary:
+        "Credentials this deployment is short of, by the name of the setting: which are absent, which an upstream refused, and what stopped collecting for each.",
+      startHere: "a source needs a key and I am about to supply it",
+      note:
+        "Asked when someone is about to fix a key, never as an opening ritual: a missing credential " +
+        "is a standing fact about a deployment, and a report that recites it at the top of every " +
+        "session teaches its reader to skip the one time it changed. Pass `all` to see the " +
+        "capabilities that are fine too. Names of settings only; no value is ever read out.",
+      mutates: false,
+      agent: true,
+      schema: z.object({ scope: z.enum(["attention", "all"]).default("attention") }),
+      cli: { args: [{ name: "scope", optional: true }] },
+      http: { method: "get", path: "/api/keys" },
+      handler: (input: { scope: "attention" | "all" }) => keyStandings(db, config, input.scope),
     },
     date_integrity: {
       section: "health",

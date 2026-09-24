@@ -43,6 +43,7 @@ test("health is public, operational state requires token, MCP lists matching sch
     "status",
     "issues",
     "capabilities",
+    "keys",
     "date_integrity",
     "memory",
     "preview",
