@@ -2,7 +2,7 @@
  * The one list of checks this repository runs before code leaves the machine. check.ts runs it
  * serially for readable output, or group-parallel for the pre-push gate.
  *
- * Adding a rule means adding a step here, which is what CLAUDE.md means by "`bun run check` is the
+ * Adding a rule means adding a step here, which is what AGENTS.md means by "`bun run check` is the
  * gate and says what it enforces".
  */
 export type CheckStep = { name: string; args: string[] };
