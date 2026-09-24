@@ -2,7 +2,13 @@ import type { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
 import { bundleModelIds, CLI_BUNDLES } from "../src/sources/cliBundles.js";
 import { APT_REPOSITORIES, collectAptRepository, collectClaudeDownloads } from "../src/sources/desktop.js";
-import { collectDocsProbe, collectOpenCodeData, observedFamilies, PROBE_SITES } from "../src/sources/probes.js";
+import {
+  collectDocsProbe,
+  collectOpenCodeData,
+  heardNames,
+  observedFamilies,
+  PROBE_SITES,
+} from "../src/sources/probes.js";
 import { openDatabase } from "../src/storage/database.js";
 
 function answering(pages: Record<string, string>): typeof fetch {
@@ -18,6 +24,9 @@ const anthropic = PROBE_SITES.find((site) => site.id === "discovery:docs-anthrop
 /** A catalogue that has heard of the models named, and of nothing newer. */
 function catalogue(ids: readonly string[]): Database {
   const db = openDatabase(":memory:");
+  db.query(
+    "INSERT INTO snapshots(id,source,collected_at,body,hash,bytes) VALUES(1,'models-dev','2026-09-22T00:00:00.000Z','{}','h',2)",
+  ).run();
   const insert = db.query(
     "INSERT INTO model_facts(canonical_id,first_seen_at,updated_at) VALUES(?,'2026-09-22T00:00:00.000Z','2026-09-22T00:00:00.000Z')",
   );
@@ -120,6 +129,29 @@ test("an index that stops naming the package is a failure, not a release", async
       }),
     ),
   ).rejects.toThrow("names no chatgpt");
+});
+
+test("a name heard once and served nowhere is asked about; one that is out is not", () => {
+  const openai = PROBE_SITES.find((site) => site.id === "discovery:docs-openai");
+  if (!openai) throw new Error("the OpenAI probe is gone");
+  const db = catalogue(["gpt-6-sol"]);
+  const insert = db.query(
+    "INSERT INTO events(source,stream,entity_id,kind,after_json,detected_at,signal,snapshot_id) VALUES('models-dev','api-models',?,'new','{}',?,'codename',1)",
+  );
+  insert.run("gpt-6-vela", "2026-09-23T10:00:00.000Z");
+  // Already in the catalogue, so the documentation has nothing to confirm.
+  insert.run("openai/gpt-6-sol:served", "2026-09-23T11:00:00.000Z");
+  expect(heardNames(db, openai, Date.parse("2026-09-24T00:00:00.000Z"))).toEqual(["gpt-6-vela"]);
+});
+
+test("a name heard long ago has stopped being a question", () => {
+  const openai = PROBE_SITES.find((site) => site.id === "discovery:docs-openai");
+  if (!openai) throw new Error("the OpenAI probe is gone");
+  const db = catalogue(["gpt-6-sol"]);
+  db.query(
+    "INSERT INTO events(source,stream,entity_id,kind,after_json,detected_at,signal,snapshot_id) VALUES('models-dev','api-models','gpt-6-vela','new','{}','2026-06-01T10:00:00.000Z','codename',1)",
+  ).run();
+  expect(heardNames(db, openai, Date.parse("2026-09-24T00:00:00.000Z"))).toEqual([]);
 });
 
 test("the questions follow the catalogue: what is out is never asked for again", async () => {

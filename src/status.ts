@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { AppConfig, SourceMode } from "./config.js";
+import { INDEPENDENT_SOURCES } from "./events/corroboration.js";
 import { COLLECTION_DEGRADED_PREFIX } from "./events/store.js";
 import type { SourceAuthority } from "./events/types.js";
 import type { Fetch } from "./http-client.js";
@@ -658,7 +659,8 @@ function minutesText(minutes: number): string {
  */
 function releaseAuditEmbed(db: Database, now = Date.now()): Record<string, unknown> {
   const { releases } = releaseAudit(db, 7, now);
-  const missed = releases.filter((release) => !release.cardAt).length;
+  // The board turns red for a miss nothing explains, not for a name the threshold held back.
+  const missed = releases.filter((release) => release.silence === "unexplained").length;
   const lines = releases.length
     ? releases
         .slice(-20)
@@ -668,7 +670,9 @@ function releaseAuditEmbed(db: Database, now = Date.now()): Record<string, unkno
             release.lagMinutes === null ? "" : ` · ${minutesText(release.lagMinutes)} after its own timestamp`;
           const card = release.cardAt
             ? `card ${minutesText(Math.max(0, Math.round((Date.parse(release.cardAt) - Date.parse(release.firstSeenAt)) / 60_000)))} later`
-            : "**no card**";
+            : release.silence === "below_the_agreement_threshold"
+              ? `quiet · ${release.families} of ${INDEPENDENT_SOURCES} sources agreed`
+              : "**no card**";
           return `· **${clip(release.model, 60)}** — ${release.firstLabel} ${release.firstSeenAt.slice(5, 16).replace("T", " ")}${lag} · ${card}`;
         })
     : ["No model was released this week"];

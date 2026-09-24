@@ -64,9 +64,13 @@ export type Site = {
    * nothing has shipped or the addresses moved, and the second is how a source dies quietly. The
    * control has to answer 200 or the poll is a failure, and the board says so.
    */
-  control: (observed: string) => string;
-  /** Slugs that are not a version of anything, built from the highest version the vendor has out. */
-  names?: (highest: readonly [number, number]) => readonly string[];
+  /**
+   * How this site spells a model id the catalogues use: `claude-opus-5-5` is `opus-5-5` in
+   * Anthropic's documentation. Used both for the control and for a name heard elsewhere.
+   */
+  spell: (observed: string) => string;
+  /** The shape of a name this maker gives a model beside its number, as `gpt-6-astra` is. */
+  codename?: RegExp;
   url: (slug: string) => string;
 };
 
@@ -88,8 +92,8 @@ export const PROBE_SITES: readonly Site[] = [
     // can be guessed, so a few codenames are asked for by name as well.
     shapes: [{ family: "gpt", version: /^gpt-(\d+)(?:\.(\d+))?(?:-[a-z]+)?$/ }],
     slug: (family, version) => `${family}-${dotted(version)}`,
-    control: (observed) => observed,
-    names: (highest) => [`gpt-${highest[0]}-nova`, `gpt-${highest[0]}-vega`, `gpt-${highest[0] + 1}`],
+    spell: (observed) => observed,
+    codename: /^gpt-\d+(?:\.\d+)?-[a-z]{3,12}$/,
     url: (slug) => `https://platform.openai.com/docs/models/${slug}`,
   },
   {
@@ -102,7 +106,8 @@ export const PROBE_SITES: readonly Site[] = [
     ],
     slug: (family, [major, minor]) => (minor === 0 ? `${family}-${major}` : `${family}-${major}-${minor}`),
     // The catalogue writes `claude-opus-5-5`; the documentation drops the maker's own name.
-    control: (observed) => observed.replace(/^claude-/, "").replaceAll(".", "-"),
+    spell: (observed) => observed.replace(/^claude-/, "").replaceAll(".", "-"),
+    codename: /^claude-(?:opus|sonnet|haiku)-\d+(?:[-.]\d+)?$/,
     url: (slug) => `https://platform.claude.com/docs/en/models/${slug}/overview`,
   },
   {
@@ -115,7 +120,8 @@ export const PROBE_SITES: readonly Site[] = [
       { family: "gemini-#-flash-lite", version: /^gemini-(\d+)\.(\d+)-flash-lite$/ },
     ],
     slug: (family, version) => family.replace("#", dotted(version)),
-    control: (observed) => observed,
+    spell: (observed) => observed,
+    codename: /^gemini-\d+(?:\.\d+)?-[a-z][a-z-]{2,20}$/,
     url: (slug) => `https://ai.google.dev/gemini-api/docs/models/${slug}`,
   },
 ];
@@ -152,6 +158,50 @@ export function observedFamilies(
       if (higher) highest.set(shape.family, { version, observed: id });
     }
   return [...highest].map(([family, found]) => ({ family, version: found.version, observed: found.observed }));
+}
+
+/** How far back a name heard once is still worth asking a documentation site about. */
+const HEARD_DAYS = 30;
+
+/** At most this many heard names per poll, newest first, so a noisy week cannot become a crawl. */
+const HEARD_LIMIT = 6;
+
+/**
+ * Names this tracker has heard but no catalogue serves.
+ *
+ * Version numbers can be guessed; `gpt-6-astra` cannot. Those names arrive somewhere else first --
+ * a third party's model list, a client's bundle, a radar sighting -- and the question worth asking
+ * is whether the maker's own documentation has a page for one yet, because that page is the
+ * confirmation the name is real and the sighting alone is not. A name already in `model_facts` is
+ * out and is not asked about; the probe is for what is not out.
+ *
+ * The first version of this probe guessed codenames instead -- `gpt-6-nova`, `gpt-6-vega` -- which
+ * is a lottery ticket bought twice every five minutes. These are names somebody actually wrote down.
+ */
+export function heardNames(db: Database, site: Site, now = Date.now()): string[] {
+  if (!site.codename) return [];
+  const since = new Date(now - HEARD_DAYS * 24 * 3_600_000).toISOString();
+  const released = new Set(
+    db
+      .query<{ canonical_id: string }, []>("SELECT canonical_id FROM model_facts")
+      .all()
+      .map((row) => row.canonical_id.toLowerCase()),
+  );
+  const heard: string[] = [];
+  for (const row of db
+    .query<{ entity_id: string }, [string]>(
+      `SELECT DISTINCT e.entity_id FROM events e
+       WHERE e.kind='new' AND e.detected_at>=? AND e.signal IN ('codename','launch','release')
+       ORDER BY e.id DESC LIMIT 2000`,
+    )
+    .all(since)) {
+    const name = (row.entity_id.split("/").pop() ?? "").split(":")[0]?.toLowerCase() ?? "";
+    if (!site.codename.test(name) || released.has(name)) continue;
+    const slug = site.spell(name);
+    if (!heard.includes(slug)) heard.push(slug);
+    if (heard.length >= HEARD_LIMIT) break;
+  }
+  return heard;
 }
 
 /**
@@ -201,7 +251,7 @@ export async function collectDocsProbe(db: Database, site: Site, request: Fetch 
       : top,
   );
   const highest = furthest.version;
-  const control = site.control(furthest.observed);
+  const control = site.spell(furthest.observed);
   const candidates = new Set<string>();
   for (const { family, version } of families) {
     for (const next of nextVersions(version)) candidates.add(site.slug(family, next));
@@ -213,7 +263,7 @@ export async function collectDocsProbe(db: Database, site: Site, request: Fetch 
      */
     for (const next of nextVersions(highest)) candidates.add(site.slug(family, next));
   }
-  for (const name of site.names?.(highest) ?? []) candidates.add(name);
+  for (const heard of heardNames(db, site)) candidates.add(heard);
   candidates.delete(control);
   const records: RecordData[] = [];
   const tried: Record<string, number> = {};

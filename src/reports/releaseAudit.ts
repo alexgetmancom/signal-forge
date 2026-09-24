@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { INDEPENDENT_SOURCES } from "../events/corroboration.js";
 import { identityFor, normalizeIdentity } from "../events/identity.js";
 import { recordFor } from "../events/record.js";
 import { sourceFamily } from "../events/sourceFamily.js";
@@ -28,6 +29,13 @@ export type ReleaseAuditRow = {
   lagMinutes: number | null;
   families: number;
   cardAt: string | null;
+  /**
+   * Why nothing was said, for a release that got no card. "No card" on its own reads as a miss, and
+   * most of these are not: a name seen by one family of sources is below the agreement a radar card
+   * needs, which is the threshold working. Null when a card went out, and `unexplained` when no rule
+   * accounts for the silence -- that last one is the only row this report exists to show.
+   */
+  silence: "below_the_agreement_threshold" | "unexplained" | null;
 };
 
 type EventRow = Event & { card_at: string | null; authority: string | null; suppressed: number };
@@ -154,6 +162,11 @@ export function releaseAudit(db: Database, days = 7, now = Date.now()): { since:
         lagMinutes: lag === null ? null : Math.max(0, Math.round(lag)),
         families: group.families.size,
         cardAt: group.cardAt,
+        silence: group.cardAt
+          ? null
+          : group.families.size < INDEPENDENT_SOURCES
+            ? "below_the_agreement_threshold"
+            : "unexplained",
       };
     });
   return { since, releases };
