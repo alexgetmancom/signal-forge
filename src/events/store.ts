@@ -94,13 +94,24 @@ const RESTLESS_FIELDS: Readonly<Record<string, readonly string[]>> = {
   "api-models": ["providers", "providerCount", "created"],
 };
 
+/**
+ * Verdicts this service stamps onto a record itself, which no source ever published.
+ *
+ * `audience` is written by the judge in sources/audienceJudge.ts, not by the vendor, and it is
+ * already in the NOISE set that keeps it off a card. A verdict arriving late is this service
+ * catching up with itself, not the release note changing: 272 of the 275 stored ChatGPT release
+ * notes predate the judge, and back-filling them would otherwise write 272 change events about
+ * text nobody touched.
+ */
+const OWN_VERDICTS: readonly string[] = ["audience"];
+
 function comparisonBody(stream: string, body: string): string {
   const restless = RESTLESS_FIELDS[stream];
-  if (stream !== "leaderboards" && !restless) return body;
   try {
     const record = JSON.parse(body) as Record<string, unknown>;
     if (stream === "leaderboards") return canonical(comparable(record));
-    return canonical(Object.fromEntries(Object.entries(record).filter(([key]) => !restless?.includes(key))));
+    const ignored = [...OWN_VERDICTS, ...(restless ?? [])];
+    return canonical(Object.fromEntries(Object.entries(record).filter(([key]) => !ignored.includes(key))));
   } catch {
     return body;
   }

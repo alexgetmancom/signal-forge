@@ -11,6 +11,17 @@ import { persistCollection } from "./store.js";
 import type { Collection } from "./types.js";
 
 /**
+ * What a saved collection leaves behind: the events it wrote, and the story projection it rebuilt.
+ *
+ * The projection is handed back rather than filed here because it is a cache in memory, and memory
+ * is the one place a rolled-back transaction cannot reach. `saveCollection` runs inside the
+ * poller's own transaction, so its commit is not the commit that decides anything; filing the
+ * projection at the end of this function published a view of stories that the enclosing rollback
+ * then erased from the database and nowhere else. The outermost caller owns that moment.
+ */
+export type SavedCollection = { events: number; projection: StoryProjection | null };
+
+/**
  * Composes persistence and delivery preparation in one SQLite transaction. Each stage is timed as
  * pipeline.<stage>, across all sources: source.persist:<id> says which source was slow, these say
  * which stage. A stage that throws rolls its own measurement back with the transaction.
@@ -22,7 +33,7 @@ export function saveCollection(
   now = new Date().toISOString(),
   vendorRoles: Record<string, string> = {},
   allSignalsRole?: string,
-): number {
+): SavedCollection {
   let projection: StoryProjection | null = null;
   const count = db.transaction(() => {
     const initialized = db
@@ -52,6 +63,11 @@ export function saveCollection(
     );
     return count;
   })();
-  if (projection) rememberStoryProjection(db, projection);
-  return count;
+  // Inside an enclosing transaction the projection is the caller's to file once its own commit
+  // lands; standing alone, this was that commit.
+  if (!db.inTransaction) {
+    if (projection) rememberStoryProjection(db, projection);
+    return { events: count, projection: null };
+  }
+  return { events: count, projection };
 }

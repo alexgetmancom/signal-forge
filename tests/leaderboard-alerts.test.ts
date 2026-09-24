@@ -51,7 +51,7 @@ test("first-place movement is immediate, stable rechecks are silent, and a real 
   const db = openDatabase(":memory:");
   saveCollection(db, textBoard([ranked("riverflow-2.5-pro", 2)]), [destination], "2026-09-10T10:00:00.000Z");
   expect(
-    saveCollection(db, textBoard([ranked("riverflow-2.5-pro", 1)]), [destination], "2026-09-10T10:05:00.000Z"),
+    saveCollection(db, textBoard([ranked("riverflow-2.5-pro", 1)]), [destination], "2026-09-10T10:05:00.000Z").events,
   ).toBe(1);
 
   expect(deliveries(db)).toHaveLength(1);
@@ -65,12 +65,12 @@ test("first-place movement is immediate, stable rechecks are silent, and a real 
   expect(first.embeds[0]?.description).toContain("Rank 1 🔼 1 (was 2)");
 
   expect(
-    saveCollection(db, textBoard([ranked("riverflow-2.5-pro", 1)]), [destination], "2026-09-10T10:10:00.000Z"),
+    saveCollection(db, textBoard([ranked("riverflow-2.5-pro", 1)]), [destination], "2026-09-10T10:10:00.000Z").events,
   ).toBe(0);
   expect(deliveries(db)).toHaveLength(1);
 
   expect(
-    saveCollection(db, textBoard([ranked("riverflow-2.5-pro", 2)]), [destination], "2026-09-10T10:15:00.000Z"),
+    saveCollection(db, textBoard([ranked("riverflow-2.5-pro", 2)]), [destination], "2026-09-10T10:15:00.000Z").events,
   ).toBe(1);
   expect(deliveries(db)).toHaveLength(2);
   const second = JSON.parse(deliveries(db)[1]?.body ?? "{}") as {
@@ -108,10 +108,10 @@ test("a leaderboard departure waits for two successful snapshots and does not re
   saveCollection(db, collection(present), [destination], "2026-09-10T11:05:00.000Z");
 
   const missing = [model("other-model", 2)];
-  expect(saveCollection(db, collection(missing), [destination], "2026-09-10T11:10:00.000Z")).toBe(0);
+  expect(saveCollection(db, collection(missing), [destination], "2026-09-10T11:10:00.000Z").events).toBe(0);
   expect(deliveries(db)).toHaveLength(0);
 
-  expect(saveCollection(db, collection(missing), [destination], "2026-09-10T11:15:00.000Z")).toBe(1);
+  expect(saveCollection(db, collection(missing), [destination], "2026-09-10T11:15:00.000Z").events).toBe(1);
   const body = JSON.parse(deliveries(db)[0]?.body ?? "{}") as {
     embeds: { description: string; fields?: unknown[] }[];
   };

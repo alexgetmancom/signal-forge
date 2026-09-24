@@ -14,6 +14,23 @@ export type Attachment = { filename: string; content: string };
 const MIN_CHANGES_TO_ATTACH = 12;
 const MAX_ATTACHMENT_BYTES = 1_000_000;
 
+/**
+ * The limit is bytes, so it is counted in bytes.
+ *
+ * `String.slice` counts UTF-16 code units, which is the same number only while the text is ASCII.
+ * A page of CJK release notes is three bytes per character and would have gone out at three times
+ * the limit the upload accepts; an emoji cut at its limit would also have been cut in half. The cut
+ * is taken on the encoded buffer and then walked back to a character boundary.
+ */
+function withinBytes(text: string, limit: number): string {
+  const bytes = Buffer.from(text, "utf8");
+  if (bytes.byteLength <= limit) return text;
+  let end = limit;
+  // A continuation byte is 10xxxxxx; step back to the start of the character it belongs to.
+  while (end > 0 && (bytes[end] ?? 0) >= 0x80 && (bytes[end] ?? 0) < 0xc0) end--;
+  return bytes.subarray(0, end).toString("utf8");
+}
+
 export function eventAttachment(event: Event): Attachment | null {
   if (event.stream !== "web" || event.kind !== "changed") return null;
   const before = event.before_json ? (JSON.parse(event.before_json) as RecordData) : null;
@@ -30,14 +47,13 @@ export function eventAttachment(event: Event): Attachment | null {
     `${meaningfulAdded.length} added, ${meaningfulRemoved.length} removed`,
     "",
   ];
-  const content = [
+  const body = [
     ...header,
     ...meaningfulAdded.map((line) => `+ ${line}`),
     ...(meaningfulAdded.length && meaningfulRemoved.length ? [""] : []),
     ...meaningfulRemoved.map((line) => `- ${line}`),
     "",
-  ]
-    .join("\n")
-    .slice(0, MAX_ATTACHMENT_BYTES);
+  ].join("\n");
+  const content = withinBytes(body, MAX_ATTACHMENT_BYTES);
   return { filename: `${slug(name) || "evidence"}-${event.id}.txt`, content };
 }

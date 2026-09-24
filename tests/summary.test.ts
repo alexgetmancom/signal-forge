@@ -243,3 +243,37 @@ test("pages that changed together are summarised once, for the rollout rather th
   expect(texts.every((row) => row.text.startsWith("Codex now defaults"))).toBe(true);
   expect(db.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM deepseek_usage").get()?.count).toBe(1);
 });
+
+test("a sentence and the attempt that paid for it are written together or not at all", async () => {
+  const db = openDatabase(":memory:");
+  const destination = {
+    id: "d",
+    platform: "discord" as const,
+    channelId: "1",
+    signals: ["launch", "codename", "evidence", "change"] as ("launch" | "codename" | "evidence" | "change")[],
+  };
+  const record: RecordData = { id: "m", name: "Model" };
+  for (let index = 0; index < 20; index++) record[`field${index}`] = "before";
+  const collection = { source: "openrouter", stream: "api-models", url: "https://e.test", raw: [], records: [record] };
+  saveCollection(db, collection, [destination], "2026-09-08T10:00:00.000Z");
+  const changed: RecordData = { ...record };
+  for (let index = 0; index < 20; index++) changed[`field${index}`] = "after";
+  collection.records = [changed];
+  saveCollection(db, collection, [destination], "2026-09-08T10:05:00.000Z");
+
+  // The provider answers, and storing the sentence then fails. The table stays readable, so the
+  // pending query still finds the event; only the write into it is refused.
+  db.exec("CREATE TRIGGER summaries_refuse BEFORE INSERT ON summaries BEGIN SELECT RAISE(ABORT, 'disk is full'); END");
+  const answering = (async () =>
+    Response.json({
+      choices: [{ message: { content: "The model context window doubled today." } }],
+      usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
+    })) as unknown as typeof fetch;
+  expect(await fillSummaries(db, config, answering, new Date("2026-09-08T12:00:00.000Z"))).toBe(0);
+
+  // The attempt is left retryable rather than claiming a sentence nothing can find. Settling it as
+  // `summarized` is what used to strand the event: the pending query skips any settled attempt, so
+  // the card would ship the empty version of itself and never be filled in.
+  expect(db.query("SELECT outcome FROM deepseek_usage").all()).toEqual([{ outcome: "failed" }]);
+  db.close();
+});

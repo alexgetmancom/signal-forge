@@ -8,6 +8,7 @@ import { lockHolder, withActionLock } from "./runtime/actionLock.js";
 import { measure } from "./runtime/metrics.js";
 import { SourceHttpError } from "./sources/http.js";
 import { type SourceDefinition, sourceJobs } from "./sources/registry.js";
+import { rememberStoryProjection } from "./stories.js";
 
 const MAX_CONCURRENT_SOURCES = 4;
 
@@ -156,7 +157,7 @@ async function collectDueSources(db: Database, config: AppConfig, force: boolean
         const destinations = job.mode === "shadow" ? [] : config.destinations;
         // The backoff is cleared in the transaction that stores the read: a crash between the two
         // would otherwise leave a source that just succeeded waiting out an old retry time.
-        const events = measure(db, `source.persist:${job.id}`, () =>
+        const saved = measure(db, `source.persist:${job.id}`, () =>
           db.transaction(() => {
             const emitted = saveCollection(
               db,
@@ -170,6 +171,9 @@ async function collectDueSources(db: Database, config: AppConfig, force: boolean
             return emitted;
           })(),
         );
+        // Past the commit, so the cached projection describes stories that are actually stored.
+        if (saved.projection) rememberStoryProjection(db, saved.projection);
+        const events = saved.events;
         if (job.pace) pacedAt.set(job.pace.group, Date.parse(checkedAt));
         log("info", "Source collected", { source: job.id, records: collection.records.length, events });
       } catch (error) {

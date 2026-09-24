@@ -433,6 +433,37 @@ type BatchTarget = { destination_id: string; destination_json: string };
  * `refreshDestination` also rewrites the stored destination, which event and reminder cards do and
  * promotions and recaps, carried as first written, do not.
  */
+/**
+ * Which message carried which event, recorded where it is known exactly rather than inferred later
+ * from batch membership, which is wrong as soon as a batch pages.
+ *
+ * Every report that measures whether this service is useful reads through `delivery_events`:
+ * `delivered` in source-verdicts, the reaction tally, the reader vote, judge-gap. A delivery with
+ * no link is a card the reports cannot see, and the source that sent it looks like a source that
+ * has never reached anybody -- which is how a collector earns a recommendation to be switched off.
+ */
+function linkDelivery(
+  db: Database,
+  batchId: number,
+  destinationId: string,
+  part: number,
+  eventIds: readonly number[],
+): void {
+  const delivery = db
+    .query<{ id: number }, [number, string, number]>(
+      "SELECT id FROM deliveries WHERE batch_id=? AND destination_id=? AND part=?",
+    )
+    .get(batchId, destinationId, part);
+  if (!delivery) return;
+  // A re-render may move an event to another page or drop it; the links describe this render,
+  // so an unsent part forgets what an earlier render put on it.
+  db.query(
+    "DELETE FROM delivery_events WHERE delivery_id IN (SELECT id FROM deliveries WHERE id=? AND status='pending' AND attempts=0)",
+  ).run(delivery.id);
+  for (const eventId of eventIds)
+    db.query("INSERT OR IGNORE INTO delivery_events(delivery_id,event_id) VALUES(?,?)").run(delivery.id, eventId);
+}
+
 function upsertDelivery(
   db: Database,
   batchId: number,
@@ -544,6 +575,8 @@ function prepareLifecycleReminder(
   const context = parseLifecycleReminderContext(JSON.parse(batch.context_json));
   for (const target of targets) {
     const destination = JSON.parse(target.destination_json) as Destination;
+    // A reminder is about one deadline, which is one event; unlike a recap it has an exact subject,
+    // and it was the one card path that never said so.
     if (readsCards(destination)) {
       upsertDelivery(
         db,
@@ -554,9 +587,11 @@ function prepareLifecycleReminder(
         now,
         true,
       );
+      linkDelivery(db, batch.id, target.destination_id, 0, [event.id]);
     } else {
       splitMessage(renderLifecycleReminderText(context, event), 3900).forEach((body, part) => {
         upsertDelivery(db, batch.id, target, body, part, now, true);
+        linkDelivery(db, batch.id, target.destination_id, part, [event.id]);
       });
     }
   }
@@ -1004,22 +1039,13 @@ export function prepareDeliveries(
         upsertDelivery(db, batch.id, target, payload, part, now, true);
         // Which message carried which event, recorded where it is known exactly rather than
         // inferred later from batch membership, which is wrong as soon as a batch pages.
-        const delivery = db
-          .query<{ id: number }, [number, string, number]>(
-            "SELECT id FROM deliveries WHERE batch_id=? AND destination_id=? AND part=?",
-          )
-          .get(batch.id, target.destination_id, part);
-        if (!delivery) return;
-        // A re-render may move an event to another page or drop it; the links describe this render,
-        // so an unsent part forgets what an earlier render put on it.
-        db.query(
-          "DELETE FROM delivery_events WHERE delivery_id IN (SELECT id FROM deliveries WHERE id=? AND status='pending' AND attempts=0)",
-        ).run(delivery.id);
-        for (const event of carried)
-          db.query("INSERT OR IGNORE INTO delivery_events(delivery_id,event_id) VALUES(?,?)").run(
-            delivery.id,
-            event.id,
-          );
+        linkDelivery(
+          db,
+          batch.id,
+          target.destination_id,
+          part,
+          carried.map((event) => event.id),
+        );
       };
 
       if (readsCards(destination)) {

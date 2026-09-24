@@ -99,6 +99,16 @@ test("a due reminder creates one lifecycle batch linked to the original evidence
   expect(body).toContain("LIFECYCLE DEADLINE");
   expect(body).toContain("Claude example model retires in 30 days");
   expect(body).toContain("platform.claude.com/docs/en/about-claude/model-deprecations");
+  // The reminder names the deadline it is about, so every report that counts what a source
+  // delivered can see this one. Without the link the deprecation reads as never having reached
+  // anybody, and the source that found it reads as a source worth switching off.
+  expect(
+    db
+      .query<{ event_id: number }, []>(
+        "SELECT de.event_id FROM delivery_events de JOIN deliveries d ON d.id=de.delivery_id",
+      )
+      .all(),
+  ).toEqual([{ event_id: eventId }]);
   db.close();
 });
 

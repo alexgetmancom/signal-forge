@@ -1,6 +1,7 @@
-import { Database } from "bun:sqlite";
+import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
+import { readonlyDatabase } from "../storage/database.js";
 import { readLatestSnapshot } from "../storage/snapshots.js";
 import { count, type OperationMap } from "./definition.js";
 
@@ -57,7 +58,9 @@ function teach(connection: Database, query: string, error: unknown): string {
 }
 
 export function databaseOperations(db: Database, config: AppConfig, _all: () => OperationMap): OperationMap {
-  const readOnly = () => new Database(config.DATABASE_URL, { readonly: true });
+  // The shared helper, not a bare connection: a reader opened without a busy timeout is refused
+  // outright when it arrives during a write, and these run against the live file by definition.
+  const readOnly = () => readonlyDatabase(config.DATABASE_URL);
   return {
     sql: {
       section: "evidence",

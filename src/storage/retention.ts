@@ -108,6 +108,47 @@ export function expireSnapshotBodies(db: Database, now = Date.now()): number {
 }
 
 /**
+ * Every collection attempt writes a row here, success or failure, and nothing ever deleted one.
+ *
+ * Measured on production 2026-09-24: 146,529 rows against 11,131 events, growing by 15--21 thousand
+ * a day and accelerating with each source added. It is the only operational table that was never
+ * given a horizon -- `code_metrics` has ninety days, snapshots have theirs -- and the reports that
+ * read it never look past a week.
+ *
+ * Ninety days, to match the metrics it sits beside: long enough that a source's failure rate over
+ * a quarter is still answerable, short enough that the table stops being the largest thing in the
+ * database that nobody reads.
+ */
+const COLLECTION_METRICS_LIFETIME_DAYS = 90;
+
+export function pruneSourceCollectionMetrics(db: Database, now = Date.now()): number {
+  const cutoff = new Date(now - COLLECTION_METRICS_LIFETIME_DAYS * 24 * 3_600_000).toISOString();
+  let removed = 0;
+  for (let chunk = 0; chunk < MAX_CHUNKS; chunk++) {
+    try {
+      // Chunked like the snapshots above: the first run after this ships has a six-figure backlog
+      // to clear, and one statement for all of it holds a write lock for the length of it.
+      const deleted = db
+        .query<{ removed: number }, [string, number]>(
+          `DELETE FROM source_collection_metrics WHERE rowid IN (
+             SELECT rowid FROM source_collection_metrics WHERE collected_at < ? LIMIT ?
+           ) RETURNING 1 AS removed`,
+        )
+        .all(cutoff, CHUNK * 20).length;
+      removed += deleted;
+      if (deleted < CHUNK * 20) return removed;
+    } catch (error) {
+      log("warn", "Collection metrics retention cleanup failed", {
+        errorType: error instanceof Error ? error.message : "unknown",
+        removed,
+      });
+      return removed;
+    }
+  }
+  return removed;
+}
+
+/**
  * Shadow sources scan everything a registry publishes to find the few uploads worth watching.
  * Those rows are candidates, not evidence: they were never sent to anybody and never corroborated
  * anything. Six thousand of them accumulated in four days, and the ones nothing ever referred to

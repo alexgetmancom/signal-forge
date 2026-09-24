@@ -1,7 +1,12 @@
 import { expect, test } from "bun:test";
 import { openDatabase } from "../src/storage/database.js";
 import { HttpCache } from "../src/storage/httpCache.js";
-import { expireSnapshotBodies, pruneShadowCandidates, pruneSnapshots } from "../src/storage/retention.js";
+import {
+  expireSnapshotBodies,
+  pruneShadowCandidates,
+  pruneSnapshots,
+  pruneSourceCollectionMetrics,
+} from "../src/storage/retention.js";
 import { readSnapshot, storeSnapshot } from "../src/storage/snapshots.js";
 
 const now = Date.parse("2026-09-12T00:00:00.000Z");
@@ -200,5 +205,29 @@ test("the response cache is bounded by size, not only by age", () => {
   // What survives is what was used most recently.
   expect(cache.get("https://example.test/bundle-0.js")).not.toBeNull();
   expect(cache.get("https://example.test/bundle-89.js")).toBeNull();
+  db.close();
+});
+
+test("collection metrics older than the horizon are dropped, recent ones kept", () => {
+  const db = openDatabase(":memory:");
+  const write = (daysAgo: number) =>
+    db
+      .query("INSERT INTO source_collection_metrics(source,collected_at,success) VALUES(?,?,1)")
+      .run("arena", new Date(now - daysAgo * 24 * 3_600_000).toISOString());
+  for (const days of [200, 120, 91, 89, 30, 1]) write(days);
+
+  expect(pruneSourceCollectionMetrics(db, now)).toBe(3);
+  const left = db.query<{ c: number }, []>("SELECT COUNT(*) c FROM source_collection_metrics").get()?.c;
+  expect(left).toBe(3);
+  db.close();
+});
+
+test("a backlog larger than one chunk is cleared, not partly cleared", () => {
+  const db = openDatabase(":memory:");
+  const old = new Date(now - 200 * 24 * 3_600_000).toISOString();
+  const insert = db.query("INSERT INTO source_collection_metrics(source,collected_at,success) VALUES(?,?,1)");
+  for (let i = 0; i < 2_500; i++) insert.run("arena", old);
+  expect(pruneSourceCollectionMetrics(db, now)).toBe(2_500);
+  expect(db.query<{ c: number }, []>("SELECT COUNT(*) c FROM source_collection_metrics").get()?.c).toBe(0);
   db.close();
 });

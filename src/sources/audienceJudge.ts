@@ -119,9 +119,28 @@ async function judgeAudience(
 }
 
 /**
+ * How many unjudged entries one poll will ask about.
+ *
+ * The question is one request for the whole batch, so the cap is about the size of that request
+ * rather than the number of them: 275 ChatGPT release notes at 400 characters of summary each is a
+ * prompt no answer comes back from. A backlog drains over a few polls instead.
+ */
+const JUDGED_PER_POLL = 40;
+
+/**
  * Stamps each record with its audience: kept from the stored row when there is one, so a record the
- * judge already answered never changes body on the next poll, and asked of the judge only for the
- * entries nothing has stored.
+ * judge already answered never changes body on the next poll, and asked of the judge for the
+ * entries no verdict has been stored for yet.
+ *
+ * Having been seen before is not having been answered. The first version asked only about IDs the
+ * table had never held, so a record stored while the judge was failing -- or before there was a
+ * judge at all -- was marked as handled by its own existence and never asked about again: on
+ * 2026-09-24 production held 275 ChatGPT release notes, 272 of them unjudged, against two judge
+ * calls in the ledger for all time. What is missing is the verdict, so that is what is checked.
+ *
+ * Back-filling a verdict does change the stored body, which is why `audience` is excluded from the
+ * comparison body in events/store.ts: this service catching up with itself is not the vendor
+ * rewriting a release note, and it must not read as one.
  */
 export async function withAudience<T extends { id: string; name: string; summary?: unknown }>(
   db: Database,
@@ -138,7 +157,7 @@ export async function withAudience<T extends { id: string; name: string; summary
       .all(source)
       .map((row) => [row.id, row.audience] as const),
   );
-  const fresh = records.filter((record) => !stored.has(record.id));
+  const fresh = records.filter((record) => !stored.get(record.id)).slice(0, JUDGED_PER_POLL);
   const verdicts = await judgeAudience(
     config,
     request,

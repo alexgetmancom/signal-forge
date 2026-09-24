@@ -2,7 +2,10 @@ export function canonical(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
   if (value !== null && typeof value === "object") {
     const entries = Object.entries(value)
-      .sort(([a], [b]) => a.localeCompare(b))
+      // Codepoint order, not locale order: these bytes are the identity of a record, and
+      // `localeCompare` answers to the runtime's ICU tables rather than to the data. Two hosts on
+      // different ICU versions would disagree about what the same record is.
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
       .map(([key, nested]) => `${JSON.stringify(key)}:${canonical(nested)}`);
     return `{${entries.join(",")}}`;
   }

@@ -78,3 +78,19 @@ export function callOperation(defs: OperationMap, name: string, input: unknown =
 /** Query strings and shell arguments arrive as text; MCP sends JSON. Both parse with coercion. */
 export const count = (max: number, fallback: number) => z.coerce.number().int().min(1).max(max).default(fallback);
 export const identifier = z.coerce.number().int().positive();
+
+/**
+ * A switch that arrives as text, read as what it says rather than as whether it was said.
+ *
+ * `z.coerce.boolean()` is `Boolean(value)`, and every non-empty string is true under it -- so
+ * `?all=false` turned the flag on, which is the opposite of the only thing anyone would have meant
+ * by typing it. The CLI passes the word, the HTTP query passes the word, and both get the word's
+ * meaning. Anything else is a mistake worth reporting rather than guessing at.
+ */
+export const flag = () =>
+  z.union([
+    z.boolean(),
+    z
+      .enum(["true", "false", "1", "0", "yes", "no"])
+      .transform((value) => value === "true" || value === "1" || value === "yes"),
+  ]);

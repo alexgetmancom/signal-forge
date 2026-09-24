@@ -57,7 +57,16 @@ export function createHttpApp(config: AppConfig, db: Database): Hono {
         .replaceAll("<", "&lt;")
         .replaceAll(">", "&gt;")
         .replaceAll('"', "&quot;");
-    const pretty = (value: string | null) => (value ? JSON.stringify(JSON.parse(value), null, 2) : "—");
+    // Stored evidence that will not parse is a thing worth seeing, not a 500: the page exists to
+    // show what was actually recorded, and the one time it is malformed is the one time it matters.
+    const pretty = (value: string | null) => {
+      if (!value) return "—";
+      try {
+        return JSON.stringify(JSON.parse(value), null, 2);
+      } catch {
+        return `Invalid stored evidence:\n\n${value}`;
+      }
+    };
     return c.html(
       `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Signal Forge · #${event.id}</title><style>body{font:16px system-ui;max-width:1100px;margin:40px auto;padding:0 20px;color:#17202a}h1{margin-bottom:4px}small{color:#667085}section{margin-top:28px}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f4f6f8;padding:18px;border-radius:10px}</style></head><body><h1>${escapeHtml(event.entity_id)}</h1><small>Signal Forge · ${escapeHtml(event.source)} · ${escapeHtml(event.kind)} · ${escapeHtml(event.detected_at)} · ${escapeHtml(evidenceLabel(event.evidence_type))} · ${escapeHtml(event.authority)} · #${event.id}</small><section><h2>Before</h2><pre>${escapeHtml(pretty(event.before_json))}</pre></section><section><h2>After</h2><pre>${escapeHtml(pretty(event.after_json))}</pre></section></body></html>`,
     );

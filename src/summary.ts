@@ -269,6 +269,48 @@ function failedResult(inputChars: number, error: unknown): SummaryResult {
 }
 
 /**
+ * The attempt and the sentence it produced, written together or not at all.
+ *
+ * These used to be two statements: the usage row was completed, then the summary was inserted. A
+ * crash in between leaves an attempt marked `summarized` with nothing behind it, and the pending
+ * query excludes every event whose usage has settled -- so that event is never summarised again,
+ * and its card ships the empty version of itself. One transaction closes the window.
+ *
+ * A storage failure settles the attempt as `failed` rather than rolling it back to `pending`,
+ * because `pending` counts as settled everywhere it is read and would strand the event just as
+ * permanently. `failed` is the one outcome that is allowed to be tried again.
+ */
+function settleSummary(
+  db: Database,
+  usageId: number,
+  result: DeepSeekAttemptResult,
+  sentence: { eventIds: readonly number[]; text: string; at: string } | null,
+): number {
+  try {
+    return db.transaction(() => {
+      finishDeepSeekUsage(db, usageId, result);
+      if (!sentence) return 0;
+      for (const eventId of sentence.eventIds)
+        db.query("INSERT OR REPLACE INTO summaries(event_id,text,created_at) VALUES(?,?,?)").run(
+          eventId,
+          sentence.text,
+          sentence.at,
+        );
+      return sentence.eventIds.length;
+    })();
+  } catch (error) {
+    log("warn", "Summary could not be stored", { errorType: safeErrorType(error) });
+    finishDeepSeekUsage(db, usageId, {
+      outcome: "failed",
+      responseStatus: result.responseStatus,
+      usage: result.usage,
+      errorType: safeErrorType(error),
+    });
+    return 0;
+  }
+}
+
+/**
  * Summarises the events waiting in unsealed batches, so the sentence exists by the time the
  * message is built. Every attempted event is claimed and recorded, including rejected or unclear
  * responses, so a provider failure cannot turn into a paid retry loop.
@@ -380,9 +422,7 @@ export async function summarizeEvents(
     } catch (error) {
       summary = failedResult(promptContent(body, context).length, error);
     }
-    finishDeepSeekUsage(
-      db,
-      usageId,
+    const recordedRollout: DeepSeekAttemptResult =
       summary.outcome === "disabled"
         ? { outcome: "failed", responseStatus: null, usage: null, errorType: "Disabled" }
         : {
@@ -390,21 +430,13 @@ export async function summarizeEvents(
             responseStatus: summary.responseStatus,
             usage: summary.usage,
             errorType: summary.errorType,
-          },
+          };
+    written += settleSummary(
+      db,
+      usageId,
+      recordedRollout,
+      summary.text ? { eventIds: events.map((event) => event.id), text: summary.text, at: now.toISOString() } : null,
     );
-    if (!summary.text) continue;
-    for (const event of events) {
-      try {
-        db.query("INSERT OR REPLACE INTO summaries(event_id,text,created_at) VALUES(?,?,?)").run(
-          event.id,
-          summary.text,
-          now.toISOString(),
-        );
-        written++;
-      } catch (error) {
-        log("warn", "Summary could not be stored", { event: event.id, errorType: safeErrorType(error) });
-      }
-    }
   }
   // Twenty attempts a cycle, counted where they are spent: an event that needs no sentence is
   // passed over without taking a place, so it can never keep one that does waiting behind it.
@@ -466,20 +498,14 @@ export async function summarizeEvents(
             usage: summary.usage,
             errorType: summary.errorType,
           };
-    finishDeepSeekUsage(db, usageId, recorded);
     if (summary.outcome === "failed")
       log("warn", "Summary failed", { event: event.id, errorType: summary.errorType ?? "UnknownError" });
-    if (!summary.text) continue;
-    try {
-      db.query("INSERT OR REPLACE INTO summaries(event_id,text,created_at) VALUES(?,?,?)").run(
-        event.id,
-        summary.text,
-        now.toISOString(),
-      );
-      written++;
-    } catch (error) {
-      log("warn", "Summary could not be stored", { event: event.id, errorType: safeErrorType(error) });
-    }
+    written += settleSummary(
+      db,
+      usageId,
+      recorded,
+      summary.text ? { eventIds: [event.id], text: summary.text, at: now.toISOString() } : null,
+    );
   }
   return written;
 }
@@ -520,9 +546,7 @@ export async function summarizeForRecap(
   } catch (error) {
     summary = failedResult(body.length, error);
   }
-  finishDeepSeekUsage(
-    db,
-    usageId,
+  const recordedRecap: DeepSeekAttemptResult =
     summary.outcome === "disabled"
       ? { outcome: "failed", responseStatus: null, usage: null, errorType: "Disabled" }
       : {
@@ -530,13 +554,14 @@ export async function summarizeForRecap(
           responseStatus: summary.responseStatus,
           usage: summary.usage,
           errorType: summary.errorType,
-        },
+        };
+  const kept = settleSummary(
+    db,
+    usageId,
+    recordedRecap,
+    summary.text ? { eventIds: [event.id], text: summary.text, at: now.toISOString() } : null,
   );
-  if (!summary.text) return null;
-  db.query("INSERT OR REPLACE INTO summaries(event_id,text,created_at) VALUES(?,?,?)").run(
-    event.id,
-    summary.text,
-    now.toISOString(),
-  );
-  return summary.text;
+  // A sentence that could not be stored is not a sentence the caller can quote: the recap would
+  // print it while nothing else could ever find it again.
+  return kept ? summary.text : null;
 }

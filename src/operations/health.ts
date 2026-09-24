@@ -9,7 +9,7 @@ import { keyStandings } from "../reports/keys.js";
 import { statusReport } from "../reports/statusReport.js";
 import { memoryReport } from "../runtime/observability.js";
 import { dateIntegrity } from "../storage/dateIntegrity.js";
-import { count, type OperationMap, operationCatalog } from "./definition.js";
+import { count, flag, type OperationMap, operationCatalog } from "./definition.js";
 
 /** The "health" section of the operation registry; src/operations.ts joins the sections. */
 export function healthOperations(db: Database, config: AppConfig, all: () => OperationMap): OperationMap {
@@ -23,7 +23,7 @@ export function healthOperations(db: Database, config: AppConfig, all: () => Ope
       // Every MCP tool is already listed to an agent with its own summary; the catalog is what a
       // surface without that listing needs.
       agent: false,
-      schema: z.object({ section: z.enum(OPERATION_SECTIONS).optional(), all: z.coerce.boolean().optional() }),
+      schema: z.object({ section: z.enum(OPERATION_SECTIONS).optional(), all: flag().optional() }),
       cli: { args: [{ name: "section", optional: true }] },
       http: { method: "get", path: "/api/guide" },
       handler: (input: { section?: OperationSection; all?: boolean }) =>

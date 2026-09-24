@@ -37,9 +37,9 @@ const collection = (ids: string[]): Collection => ({
   records: ids.map((id) => ({ id, name: id })),
 });
 test("first snapshot is quiet, new records fan out exactly once", () => {
-  expect(saveCollection(db, collection(["a"]), targets)).toBe(0);
-  expect(saveCollection(db, collection(["a", "b"]), targets)).toBe(1);
-  expect(saveCollection(db, collection(["a", "b"]), targets)).toBe(0);
+  expect(saveCollection(db, collection(["a"]), targets).events).toBe(0);
+  expect(saveCollection(db, collection(["a", "b"]), targets).events).toBe(1);
+  expect(saveCollection(db, collection(["a", "b"]), targets).events).toBe(0);
   expect(db.query("SELECT destination_id FROM deliveries ORDER BY id").all()).toEqual([
     { destination_id: "tg" },
     { destination_id: "dc" },
@@ -99,17 +99,17 @@ test("a destination receives only the signal classes it subscribed to", () => {
 
 test("removal needs two observations; reappearance is a new event", () => {
   saveCollection(db, collection(["a", "b"]), []);
-  expect(saveCollection(db, collection(["a"]), [])).toBe(0);
-  expect(saveCollection(db, collection(["a"]), [])).toBe(1);
-  expect(saveCollection(db, collection(["a"]), [])).toBe(0);
-  expect(saveCollection(db, collection(["a", "b"]), [])).toBe(1);
+  expect(saveCollection(db, collection(["a"]), []).events).toBe(0);
+  expect(saveCollection(db, collection(["a"]), []).events).toBe(1);
+  expect(saveCollection(db, collection(["a"]), []).events).toBe(0);
+  expect(saveCollection(db, collection(["a", "b"]), []).events).toBe(1);
   expect(db.query("SELECT kind FROM events ORDER BY id").all()).toEqual([{ kind: "removed" }, { kind: "new" }]);
 });
 test("temporary disappearance does not publish removal", () => {
   saveCollection(db, collection(["a", "b"]), []);
   saveCollection(db, collection(["a"]), []);
-  expect(saveCollection(db, collection(["a", "b"]), [])).toBe(0);
-  expect(saveCollection(db, collection(["a"]), [])).toBe(0);
+  expect(saveCollection(db, collection(["a", "b"]), []).events).toBe(0);
+  expect(saveCollection(db, collection(["a"]), []).events).toBe(0);
 });
 test("invalid snapshots preserve known records", () => {
   saveCollection(db, collection(["a"]), []);
@@ -138,7 +138,7 @@ test("an accepted shrink is spent on one collection, and what it accepted leaves
   saveCollection(db, collection(roster), []);
   expect(() => saveCollection(db, collection(roster.slice(0, 6)), [])).toThrow("Collection degraded");
   db.query("UPDATE sources SET accept_shrink=1 WHERE id=?").run("openrouter");
-  expect(saveCollection(db, collection(roster.slice(0, 6)), [])).toBe(0);
+  expect(saveCollection(db, collection(roster.slice(0, 6)), []).events).toBe(0);
   // The rows the operator accepted as gone leave quietly: fourteen removal cards is the refusal
   // said louder, and a roster that no longer exists must not be what the next poll is measured by.
   expect(db.query("SELECT COUNT(*) AS count FROM records").get()).toEqual({ count: 6 });
@@ -170,16 +170,16 @@ test("an answer missing a quarter of the catalogue is rejected, and a few real r
 
 test("append-only collections are exempt from shrinkage protection", () => {
   saveCollection(db, { ...collection(["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"]), appendOnly: true }, []);
-  expect(saveCollection(db, { ...collection(["a", "b", "c", "d"]), appendOnly: true }, [])).toBe(0);
+  expect(saveCollection(db, { ...collection(["a", "b", "c", "d"]), appendOnly: true }, []).events).toBe(0);
 });
 test("changed metadata preserves before and after; key order has no effect", () => {
   const c = collection(["a"]);
   c.records[0] = { id: "a", name: "a", pricing: { input: 1, output: 2 } };
   saveCollection(db, c, []);
   c.records[0] = { name: "a", id: "a", pricing: { output: 2, input: 1 } };
-  expect(saveCollection(db, c, [])).toBe(0);
+  expect(saveCollection(db, c, []).events).toBe(0);
   c.records[0] = { id: "a", name: "a", pricing: { input: 2, output: 2 } };
-  expect(saveCollection(db, c, [])).toBe(1);
+  expect(saveCollection(db, c, []).events).toBe(1);
   const event = db
     .query<{ before_json: string; after_json: string }, []>("SELECT before_json,after_json FROM events")
     .get();
@@ -191,17 +191,17 @@ test("confirmed changes suppress one-observation catalog jitter", () => {
   c.records[0] = { id: "a", name: "A", pricing: { prompt: 1 } };
   saveCollection(db, c, []);
   c.records[0] = { id: "a", name: "A", pricing: { prompt: 2 } };
-  expect(saveCollection(db, c, [])).toBe(0);
+  expect(saveCollection(db, c, []).events).toBe(0);
   c.records[0] = { id: "a", name: "A", pricing: { prompt: 1 } };
-  expect(saveCollection(db, c, [])).toBe(0);
+  expect(saveCollection(db, c, []).events).toBe(0);
   c.records[0] = { id: "a", name: "A", pricing: { prompt: 2 } };
-  expect(saveCollection(db, c, [])).toBe(0);
-  expect(saveCollection(db, c, [])).toBe(1);
+  expect(saveCollection(db, c, []).events).toBe(0);
+  expect(saveCollection(db, c, []).events).toBe(1);
 });
 test("append-only feeds do not remove older entries or reannounce edited entries", () => {
   saveCollection(db, { ...collection(["a"]), appendOnly: true }, []);
-  expect(saveCollection(db, { ...collection([]), appendOnly: true }, [])).toBe(0);
-  expect(saveCollection(db, { ...collection(["a", "b"]), appendOnly: true, silentIds: ["b"] }, [])).toBe(0);
+  expect(saveCollection(db, { ...collection([]), appendOnly: true }, []).events).toBe(0);
+  expect(saveCollection(db, { ...collection(["a", "b"]), appendOnly: true, silentIds: ["b"] }, []).events).toBe(0);
 });
 test("event and fanout roll back together on queue failure", () => {
   saveCollection(db, collection(["a"]), []);

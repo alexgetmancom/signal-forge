@@ -28,7 +28,17 @@ case "$MODE" in
 esac
 
 DIR=$SIGNAL_FORGE_DIR
+# The most recent archives, whatever day they fall on: the rollback points for a deployment.
 KEEP=${SIGNAL_FORGE_BACKUP_KEEP:-5}
+# And the first archive of each of this many days, which is the history KEEP alone cannot hold.
+#
+# Every deployment takes a snapshot and there are 15-45 deployments a day, so a flat KEEP=5 over one
+# pool meant the five newest archives were five deployments old. Measured on production 2026-09-24:
+# all five archives had been written inside 81 minutes of the same afternoon, so the recovery window
+# was about an hour. A defect noticed the next morning -- a bad dedupe rule, a migration that ate
+# rows, the classes that have actually happened here -- had no clean point to go back to, because
+# every archive that existed was already from after it started.
+DAILY_KEEP=${SIGNAL_FORGE_BACKUP_DAILY_KEEP:-14}
 MEMORY=${SIGNAL_FORGE_BACKUP_MEMORY:-2g}
 IMAGE=${SIGNAL_FORGE_BACKUP_IMAGE:-signal-forge:latest}
 DEST="$DIR/backups"
@@ -47,7 +57,7 @@ snapshot() {
   "${RUN[@]}" bun -e "
     const { Database } = require('bun:sqlite');
     const db = new Database('/app/data/app.db', { readonly: true });
-    db.exec(\"VACUUM INTO '/app/data/backup-$STAMP.db'\");
+    db.exec(\"VACUUM INTO '/app/backups/pending-$STAMP.db'\");
     db.close();
   "
   # A backup that cannot be opened is not a backup: read it back before trusting it. The file is
@@ -56,7 +66,7 @@ snapshot() {
   # gigabyte: the backup was written, and the step that proves it readable was OOM-killed.
   "${RUN[@]}" bun -e "
     const { Database } = require('bun:sqlite');
-    const db = new Database('/app/data/backup-$STAMP.db', { readonly: true });
+    const db = new Database('/app/backups/pending-$STAMP.db', { readonly: true });
     const integrity = db.query('PRAGMA integrity_check').get();
     const events = db.query('SELECT COUNT(*) AS n FROM events').get();
     db.close();
@@ -68,11 +78,16 @@ snapshot() {
     require('fs').writeFileSync('/app/backups/last-verified.json', JSON.stringify({
       verifiedAt: new Date().toISOString(),
       file: 'app-$STAMP.db',
-      bytes: require('fs').statSync('/app/data/backup-$STAMP.db').size,
+      bytes: require('fs').statSync('/app/backups/pending-$STAMP.db').size,
       events: events.n,
     }) + '\n');
   "
-  mv "$DIR/data/backup-$STAMP.db" "$DEST/app-$STAMP.db"
+  # Staged and renamed inside backups/, so a run killed between writing and verifying leaves its
+  # debris where the rotation can see it. It used to be written into data/ and moved here at the
+  # end: an interruption in that window left a full copy of the database -- 415 MB and growing --
+  # beside the live one, archived by nothing, rotated by nothing, and invisible to `doctor`, which
+  # only ever reads backups/. The name says it is not yet a backup; only verification renames it.
+  mv "$DEST/pending-$STAMP.db" "$DEST/app-$STAMP.db"
   # The routing table is not in the repository -- it names channels and carries the bot's
   # destinations -- so the database was backed up nightly while the file that decides where any of
   # it goes existed in exactly one place. Restoring the database onto a new host without it means
@@ -94,6 +109,9 @@ archive() {
   local compress
   compress=$(command -v pigz || command -v gzip)
   local snapshot_file archived=""
+  # A staging copy left by a run that died before verification is not a backup and must never enter
+  # the rotation as one. Anything still called pending an hour later belongs to a job that is gone.
+  find "$DEST" -maxdepth 1 -name 'pending-*.db' -mmin +60 -delete 2>/dev/null || true
   # Every uncompressed snapshot, not only this run's: one left behind by a deployment that died
   # between the phases is archived here rather than lingering outside the rotation.
   for snapshot_file in "$DEST"/app-*.db; do
@@ -114,15 +132,47 @@ archive() {
       require('fs').writeFileSync(path, JSON.stringify(marker) + '\n');
     "
   fi
-  # Nothing to rotate is the normal state on a host that has just been set up, and under `pipefail`
-  # a failing `ls` would turn that into a failed job.
-  if compgen -G "$DEST/app-*.db.gz" > /dev/null; then
-    ls -1t "$DEST"/app-*.db.gz | tail -n "+$((KEEP + 1))" | xargs -r rm --
-  fi
-  if compgen -G "$DEST/config-*.json" > /dev/null; then
-    ls -1t "$DEST"/config-*.json | tail -n "+$((KEEP + 1))" | xargs -r rm --
-  fi
+  rotate "$DEST/app-*.db.gz"
+  rotate "$DEST/config-*.json"
+  # restore.sh sets the database it replaced aside as superseded-<stamp>.db; it is the way back from
+  # a restore that went wrong, and it was covered by no mask at all. Two are enough to be the way
+  # back; the rest are full copies of the database sitting there for good.
+  rotate "$DEST/superseded-*.db" 2 2
+  # A file under no mask is a file nothing will ever delete. backups/ held a
+  # signal-forge-20260919-203947.json -- the routing table under the name it had before the
+  # config-*.json scheme -- five days after that scheme replaced it.
+  local stray
+  for stray in "$DEST"/*; do
+    [[ -f "$stray" ]] || continue
+    case "$(basename "$stray")" in
+      app-*.db | app-*.db.gz | config-*.json | superseded-*.db* | pending-*.db | last-verified.json) ;;
+      *) echo "unrotated file in backups/, covered by no retention mask: $stray" >&2 ;;
+    esac
+  done
   echo "backup ok: $STAMP"
+}
+
+# Keep the newest $keep, and the first archive of each of the newest $days days. A deployment storm
+# consumes the first budget and cannot touch the second, so the daily history survives it.
+rotate() {
+  local pattern=$1
+  local keep=${2:-$KEEP}
+  local days=${3:-$DAILY_KEEP}
+  compgen -G "$pattern" > /dev/null || return 0
+  local kept file day
+  kept=$(mktemp)
+  # shellcheck disable=SC2086
+  ls -1t $pattern | head -n "$keep" >> "$kept"
+  # shellcheck disable=SC2086
+  for day in $(ls -1 $pattern | sed -nE 's/.*-([0-9]{8})-[0-9]{6}[.-].*/\1/p' | sort -ru | head -n "$days"); do
+    # shellcheck disable=SC2086
+    ls -1 $pattern | grep -- "-$day-" | sort | head -n 1 >> "$kept"
+  done
+  # shellcheck disable=SC2086
+  for file in $pattern; do
+    grep -qxF -- "$file" "$kept" || { rm -- "$file"; echo "rotated out: $(basename "$file")"; }
+  done
+  rm -f "$kept"
 }
 
 case "$MODE" in

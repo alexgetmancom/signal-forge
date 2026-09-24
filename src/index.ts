@@ -23,7 +23,12 @@ import { buildSourceRegistry, recordSourceIdentities } from "./sources/registry.
 import { BOARD_ORDER, publishBoard } from "./status.js";
 import { openDatabase } from "./storage/database.js";
 import { HttpCache } from "./storage/httpCache.js";
-import { expireSnapshotBodies, pruneShadowCandidates, pruneSnapshots } from "./storage/retention.js";
+import {
+  expireSnapshotBodies,
+  pruneShadowCandidates,
+  pruneSnapshots,
+  pruneSourceCollectionMetrics,
+} from "./storage/retention.js";
 import { rebuildStories, rememberStoryProjection } from "./stories.js";
 import { readTelegramReactions } from "./telegramReactions.js";
 
@@ -104,6 +109,7 @@ supervisor.register(
     // Each step is timed on its own: the cycle takes seconds and its total does not say which.
     measure(db, "status.prune:metrics", () => pruneCodeMetrics(db));
     measure(db, "status.prune:snapshots", () => pruneSnapshots(db));
+    measure(db, "status.prune:collection-metrics", () => pruneSourceCollectionMetrics(db));
     measure(db, "status.prune:snapshot-bodies", () => expireSnapshotBodies(db));
     measure(db, "status.prune:shadow-candidates", () =>
       pruneShadowCandidates(
@@ -115,6 +121,10 @@ supervisor.register(
     );
     // Cached bodies for files nobody links to any more; a rebuilt bundle renames everything.
     measure(db, "status.prune:http-cache", () => new HttpCache(db).prune());
+    // Statistics decide whether the indexes get used at all: the planner ignored four of the five
+    // added in migration 049 until ANALYZE ran. `optimize` re-analyses only what has moved enough
+    // to matter, so this stays cheap while the tables it reads about keep growing.
+    measure(db, "status.optimize", () => db.exec("PRAGMA optimize"));
   }),
 );
 supervisor.register(startIntervalWorker(db, "memory", 3_600_000, logMemoryUsage));
