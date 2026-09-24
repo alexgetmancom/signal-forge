@@ -149,3 +149,27 @@ test("the highest version of each shape is the one the catalogue has, under its 
     { family: "gemini-#-flash", version: [3, 8], observed: "gemini-3.8-flash" },
   ]);
 });
+
+test("a tier behind the rest is asked the questions the furthest tier earns", async () => {
+  const google = PROBE_SITES.find((site) => site.id === "discovery:docs-google");
+  if (!google) throw new Error("the Google probe is gone");
+  const asked: string[] = [];
+  const watching = (async (input: string | URL) => {
+    asked.push(String(input).split("/").at(-1) ?? "");
+    return new Response("a page", { status: String(input).endsWith("gemini-3.8-flash") ? 200 : 404 });
+  }) as unknown as typeof fetch;
+  await collectDocsProbe(catalogue(["gemini-3.8-flash", "gemini-3.1-pro"]), google, watching);
+  // Pro is five minors behind flash, and the next pro is likelier to be the next whole number.
+  expect(asked).toContain("gemini-4-pro");
+  expect(asked).toContain("gemini-3.9-pro");
+  expect(asked).toContain("gemini-3.2-pro");
+});
+
+test("a version no maker could be at is a spelling, not a version", () => {
+  const openai = PROBE_SITES.find((site) => site.id === "discovery:docs-openai");
+  if (!openai) throw new Error("the OpenAI probe is gone");
+  // `gpt-56-sol` is `gpt-5.6-sol` with the dot normalised away, and read as 56 it poisons the probe.
+  expect(observedFamilies(catalogue(["gpt-56-sol", "gpt-6-sol"]), openai)).toEqual([
+    { family: "gpt", version: [6, 0], observed: "gpt-6-sol" },
+  ]);
+});

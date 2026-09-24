@@ -36,6 +36,14 @@ const USER_AGENT =
  * ("6"), or opens the next major at its half step ("6.5"), and nothing else has been seen: the
  * guess list stays at three per family so a poll is three requests, not a crawl.
  */
+/**
+ * No maker of these three is anywhere near a tenth major, so a bigger number is a spelling, not a
+ * version: `model_facts` holds `gpt-56-sol`, which is `gpt-5.6-sol` with the dot taken out by an
+ * identity that normalises punctuation away. Read as a version it makes the probe ask OpenAI for
+ * `gpt-57`, and every question that follows is nonsense.
+ */
+const MAX_PLAUSIBLE_MAJOR = 10;
+
 function nextVersions([major, minor]: readonly [number, number]): (readonly [number, number])[] {
   return [
     [major, minor + 1],
@@ -134,6 +142,7 @@ export function observedFamilies(
       const match = shape.version.exec(id);
       if (!match) continue;
       const version: [number, number] = [Number(match[1]), Number(match[2] ?? 0)];
+      if (version[0] > MAX_PLAUSIBLE_MAJOR) continue;
       const seen = highest.get(shape.family);
       const higher =
         !seen ||
@@ -185,15 +194,25 @@ async function probe(url: string, request: Fetch, jar: Map<string, string>): Pro
 export async function collectDocsProbe(db: Database, site: Site, request: Fetch = fetch): Promise<Collection> {
   const families = observedFamilies(db, site);
   if (!families.length) throw new Error(`${site.id}: the catalogue names no model of any shape it follows`);
-  const highest = families.reduce((top, family) => (family.version[0] > top[0] ? family.version : top), [
-    0, 0,
-  ] as readonly [number, number]);
-  const control = site.control(
-    families.reduce((top, family) => (family.version[0] > top.version[0] ? family : top)).observed,
+  /** The furthest the maker has gone in any tier, and the model that got there. */
+  const furthest = families.reduce((top, family) =>
+    family.version[0] > top.version[0] || (family.version[0] === top.version[0] && family.version[1] > top.version[1])
+      ? family
+      : top,
   );
+  const highest = furthest.version;
+  const control = site.control(furthest.observed);
   const candidates = new Set<string>();
-  for (const { family, version } of families)
+  for (const { family, version } of families) {
     for (const next of nextVersions(version)) candidates.add(site.slug(family, next));
+    /**
+     * A tier does not have to catch up before the maker moves the whole line. Google was at
+     * `gemini-3.8-flash` while its pro tier was still `gemini-3.1-pro`, and the next pro is far
+     * likelier to be `gemini-4-pro` than `gemini-3.2-pro`. So every tier is also asked the
+     * questions the maker's furthest tier earns.
+     */
+    for (const next of nextVersions(highest)) candidates.add(site.slug(family, next));
+  }
   for (const name of site.names?.(highest) ?? []) candidates.add(name);
   candidates.delete(control);
   const records: RecordData[] = [];
