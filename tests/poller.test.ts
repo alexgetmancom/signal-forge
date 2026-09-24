@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { z } from "zod";
-import { unexplainedFailure } from "../src/poller.js";
+import { byLongestWait, unexplainedFailure } from "../src/poller.js";
 
 test("a withheld failure still says which kind it was, and nothing an upstream wrote", () => {
   const parsed = z.object({ data: z.array(z.string()) }).safeParse({ data: "sk-live-secret" });
@@ -15,4 +15,21 @@ test("a withheld failure still says which kind it was, and nothing an upstream w
   expect(unexplainedFailure(odd)).toBe("Collection failed: unexpected error (Error)");
   const busy = Object.assign(new Error("database is locked"), { name: "SQLiteError", code: "SQLITE_BUSY" });
   expect(unexplainedFailure(busy)).toBe("Collection failed: local database error (SQLiteError, SQLITE_BUSY)");
+});
+
+test("a paced group's turn goes to the source that has waited longest, not to the earliest in the registry", () => {
+  const job = (id: string) => ({ id }) as unknown as Parameters<typeof byLongestWait>[0][number];
+  const jobs = [job("huggingface:google"), job("huggingface:internlm"), job("huggingface:XiaomiMiMo")];
+  const checked: Record<string, string | null> = {
+    "huggingface:google": "2026-09-24T15:18:20.656Z",
+    "huggingface:internlm": "2026-09-22T14:45:12.389Z",
+    // Never collected once, which is the longest wait there is.
+    "huggingface:XiaomiMiMo": null,
+  };
+  const now = Date.parse("2026-09-24T15:30:00.000Z");
+  expect(byLongestWait(jobs, (id) => checked[id] ?? null, now).map((entry) => entry.id)).toEqual([
+    "huggingface:XiaomiMiMo",
+    "huggingface:internlm",
+    "huggingface:google",
+  ]);
 });

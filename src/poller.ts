@@ -72,6 +72,28 @@ export async function pollSources(db: Database, config: AppConfig, force = false
   return { collected: false, sources: 0, heldBy: outcome.heldBy.holder };
 }
 
+/**
+ * The job that has gone longest without an answer takes a paced group's turn.
+ *
+ * A pace group is one slot per cycle, and it used to go to whoever stood earliest in the source
+ * registry. Thirty Hugging Face authors share `huggingface.co`, so the labs at the front took every
+ * slot and the tail was never collected at all: on 2026-09-24 five authors had not been read since
+ * the 22nd and two had never been read once, with no error on any of them and nothing anywhere
+ * that said so. Waiting longest is the only fair claim on a slot, and a source that has never been
+ * collected has waited longest of all.
+ */
+export function byLongestWait(
+  jobs: readonly SourceDefinition[],
+  checkedAt: (id: string) => string | null,
+  now = Date.now(),
+): SourceDefinition[] {
+  const waited = (job: SourceDefinition): number => {
+    const at = checkedAt(job.id);
+    return at ? now - Date.parse(at) : Number.POSITIVE_INFINITY;
+  };
+  return [...jobs].sort((a, b) => waited(b) - waited(a));
+}
+
 async function collectDueSources(db: Database, config: AppConfig, force: boolean): Promise<number> {
   const jobs = sourceJobs(db, config);
   const rows = new Map(
@@ -91,8 +113,10 @@ async function collectDueSources(db: Database, config: AppConfig, force: boolean
       pacedAt.set(job.pace.group, Math.max(pacedAt.get(job.pace.group) ?? 0, Date.parse(checkedAt)));
   }
 
+  const ordered = byLongestWait(jobs, (id) => rows.get(id)?.checked_at ?? null);
+
   const dueJobs: SourceDefinition[] = [];
-  for (const job of jobs) {
+  for (const job of ordered) {
     const last = rows.get(job.id);
     const now = Date.now();
     // Even a forced run waits out a server's own Retry-After: asking early is what earned it.

@@ -136,6 +136,8 @@ export function parsePolymarket(pages: readonly string[]): Collection {
     url: POLYMARKET_URL,
     raw: pages,
     trackChanges: true,
+    // Asked with `closed=false`: a market leaves this answer by resolving. See Collection.churns.
+    churns: true,
     records,
   };
 }

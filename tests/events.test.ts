@@ -150,6 +150,14 @@ test("an accepted shrink is spent on one collection, and what it accepted leaves
   expect(() => saveCollection(db, collection(roster.slice(0, 1)), [])).toThrow("Collection degraded");
 });
 
+test("a filtered live query is allowed to shrink, because rows leave it by meeting the filter", () => {
+  const roster = Array.from({ length: 20 }, (_, index) => `market-${index}`);
+  saveCollection(db, { ...collection(roster), churns: true }, []);
+  // Fifteen of polymarket's thirty-seven rows answered closed=true on 2026-09-22 and the guard
+  // still refused the collection, freezing the source for two days.
+  expect(() => saveCollection(db, { ...collection(roster.slice(0, 5)), churns: true }, [])).not.toThrow();
+});
+
 test("an answer missing a quarter of the catalogue is rejected, and a few real removals are not", () => {
   // The arena served 539 of 1065 entries on 2026-09-15 and had all of them back five minutes later.
   const roster = Array.from({ length: 100 }, (_, index) => `model-${index}`);

@@ -273,7 +273,13 @@ export function persistCollection(
   // An operator who accepted a smaller catalogue spends that acceptance here, on this one answer.
   const accepted = Boolean(initialized?.accept_shrink);
   if (accepted) db.query("UPDATE sources SET accept_shrink=0 WHERE id=?").run(c.source);
-  if (!accepted && !c.appendOnly && initialized?.last_success && suspiciousShrink(previous.size, c.records.length))
+  if (
+    !accepted &&
+    !c.churns &&
+    !c.appendOnly &&
+    initialized?.last_success &&
+    suspiciousShrink(previous.size, c.records.length)
+  )
     throw new CollectionDegradedError(c.source, previous.size, c.records.length);
   let count = 0;
   const emitted: Event[] = [];

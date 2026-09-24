@@ -39,6 +39,15 @@ export type Collection = {
    */
   forget?: (id: string) => boolean;
   /**
+   * The collection is a filtered live query, not a catalogue, so rows leave it by meeting the
+   * filter rather than by being dropped from an answer. Polymarket asks for open AI markets, and
+   * every one of the fifteen rows it "lost" on 2026-09-22 answers `closed: true` when asked for by
+   * id: they resolved. The shrink guard reads that as a mass removal and froze the source for two
+   * days. Set only where a missing row is the source working, and never on a catalogue, where the
+   * guard is the only thing standing between a partial answer and a wave of removals.
+   */
+  churns?: boolean;
+  /**
    * Records this answer could not speak for -- a part of the catalogue that answered empty. They are
    * neither counted missing nor compared by the shrink guard; the stored rows stand as they were.
    */
