@@ -2,12 +2,38 @@ import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
 import { requireDeliveryVerification, resolveDeliveryVerification } from "../deliveryVerification.js";
+import { eventEmbed } from "../events/render/discord.js";
+import type { Event } from "../events/types.js";
 import { sentByChannel } from "../reports/news.js";
 import { count, identifier, type OperationMap } from "./definition.js";
 
 /** The "delivery" section of the operation registry; src/operations.ts joins the sections. */
 export function deliveryOperations(db: Database, _config: AppConfig, _all: () => OperationMap): OperationMap {
   return {
+    preview: {
+      section: "delivery",
+      summary: "Render one event's card the way a channel would receive it, without sending anything.",
+      startHere: "what would this event's card actually say",
+      note:
+        "The card is built from the event as it stands now, so it shows the wording a resend would " +
+        "produce. It carries no lead time, no sibling comparison and no borrowed catalogue facts: " +
+        "those are assembled per batch, and this reads one event on its own.",
+      mutates: false,
+      agent: true,
+      schema: z.object({ eventId: identifier }),
+      cli: { args: [{ name: "eventId" }] },
+      http: { method: "get", path: "/api/preview/:eventId", input: (request) => ({ eventId: request.params.eventId }) },
+      handler: (input: { eventId: number }) => {
+        const event = db
+          .query<Event & { url: string }, [number]>(
+            `SELECT e.*, COALESCE(NULLIF(json_extract(e.after_json,'$.url'),''),
+                    NULLIF(json_extract(e.before_json,'$.url'),''),'') AS url FROM events e WHERE e.id=?`,
+          )
+          .get(input.eventId);
+        if (!event) throw new Error(`No event ${input.eventId}`);
+        return { eventId: event.id, source: event.source, embed: eventEmbed(event, event.url) };
+      },
+    },
     resend: {
       section: "delivery",
       summary: "Send one event's card again, to the channels that already had it.",

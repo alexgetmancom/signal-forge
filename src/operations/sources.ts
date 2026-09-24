@@ -4,10 +4,12 @@ import type { AppConfig } from "../config.js";
 import { openCredentialCircuits } from "../credentials.js";
 import { channelMix } from "../reports/channelMix.js";
 import { coverageGaps } from "../reports/coverageGaps.js";
+import { judgeGap } from "../reports/judgeGap.js";
 import { leadTime } from "../reports/leadTime.js";
 import { passedOver } from "../reports/passedOver.js";
 import { releaseAudit } from "../reports/releaseAudit.js";
 import { signalQuality } from "../reports/signalQuality.js";
+import { silentSources } from "../reports/silentSources.js";
 import { sourceVerdicts } from "../reports/sourceVerdicts.js";
 import { deepSeekUsage } from "../runtime/deepseekUsage.js";
 import { codeAnalytics } from "../runtime/metrics.js";
@@ -35,6 +37,62 @@ export function sourcesOperations(db: Database, config: AppConfig, _all: () => O
         if (!removed) throw new Error(`${input.repo} is not a watched repository, or has never been read`);
         return { repo: input.repo, source, message: "The next poll of this repository reads its tree in full" };
       },
+    },
+    accept_shrink: {
+      section: "sources",
+      summary:
+        "Accept that a catalogue is genuinely smaller now, so its next collection is stored however far it shrank.",
+      startHere: 'a source is stuck on "collection degraded"',
+      note:
+        "The guard refuses an answer that lost a quarter of a source's rows, because a partial " +
+        "answer reads as a mass removal and the rows come back on the next poll. When the loss is " +
+        "real the guard never clears by itself: arena.ai stopped publishing its anonymous models " +
+        "and the source has been frozen against 1083 rows it will never serve again. Check the " +
+        "live page before spending this -- it is spent on the next collection, whatever it holds.",
+      mutates: true,
+      // Accepting a mass removal is a judgement about the outside world, which is the operator's.
+      agent: false,
+      schema: z.object({ source: z.string().min(2) }),
+      cli: { args: [{ name: "source" }] },
+      handler: (input: { source: string }) => {
+        const known = db.query("SELECT 1 FROM sources WHERE id=?").get(input.source);
+        if (!known) throw new Error(`${input.source} is not a source that has ever been collected`);
+        db.query(
+          "UPDATE sources SET accept_shrink=1,failures=0,retry_at=NULL,failure_started_at=NULL,last_error=NULL WHERE id=?",
+        ).run(input.source);
+        return {
+          source: input.source,
+          message: "The next collection of this source is stored at whatever size it comes back, once",
+        };
+      },
+    },
+    silent_sources: {
+      section: "sources",
+      summary:
+        "Enabled sources that have neither collected nor recorded anything lately, with the error each one carries.",
+      startHere: "which sources went quiet without anyone noticing",
+      mutates: false,
+      agent: true,
+      schema: z.object({ days: count(90, 3) }),
+      cli: { args: [{ name: "days", optional: true }] },
+      http: { method: "get", path: "/api/silent-sources" },
+      handler: (input: { days: number }) => silentSources(db, config, input.days),
+    },
+    judge_gap: {
+      section: "sources",
+      summary: "Events Jev rated highly that a rule held back, and low-rated events that reached a reader.",
+      startHere: "do the routing rules and the classifier agree",
+      mutates: false,
+      agent: true,
+      schema: z.object({ days: count(90, 7), limit: count(200, 25) }),
+      cli: {
+        args: [
+          { name: "days", optional: true },
+          { name: "limit", optional: true },
+        ],
+      },
+      http: { method: "get", path: "/api/judge-gap" },
+      handler: (input: { days: number; limit: number }) => judgeGap(db, input.days, input.limit),
     },
     lead_time: {
       section: "sources",

@@ -128,3 +128,27 @@ export async function prepareInsights(db: Database, config: AppConfig, request: 
   await publishWeeklyVotes(db, config, request, now.getTime());
   return { judged, commits, findings, audited };
 }
+
+/**
+ * Jev's vote on a newsroom post, which is a vote and never a veto.
+ *
+ * `isAboutTheCompanyNotAModel` decides a vendor's post by two words: it speaks if its title names a
+ * model this deployment knows, or opens with "introducing". That rule let an Australian youth
+ * safety blueprint through for opening with "Introducing", and held back every one of the nine
+ * anthropic-news posts of the week to 2026-09-23 -- none reached a reader. A calibrated reader of
+ * the post itself is the thing the word rule is standing in for, so where it has one, it defers.
+ *
+ * It votes only on what it has read. No judgement is no vote, and the word rule stands: judging
+ * runs a cycle behind collection, so an immediate card is usually decided before Jev has seen it.
+ * A rescue takes the same share of the distribution the morning's stories take, and a post already
+ * heading out is deferred to the recap only from the bottom tenth.
+ */
+const NEWSROOM_FLOOR_SHARE = 0.9;
+const NEWSROOM_FLOOR = 0.5;
+
+export function newsroomVote(db: Database, eventId: number, now = new Date()): "speaks" | "recap" | null {
+  const judgement = judgementOf(db, eventId);
+  if (!judgement) return null;
+  if (judgement.worth >= worthCutoffs(db, now).story) return "speaks";
+  return judgement.worth <= worthCutoff(db, NEWSROOM_FLOOR_SHARE, NEWSROOM_FLOOR, now) ? "recap" : null;
+}

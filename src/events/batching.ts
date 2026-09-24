@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import type { Destination } from "../config.js";
+import { newsroomVote } from "../insights.js";
 import { promotionContextSchema } from "../promotion.js";
 import { type RecapContext, recapContextSchema } from "../recap.js";
 import { sourceLabel } from "../sources/labels.js";
@@ -553,8 +554,13 @@ function standingReason(
   if (view.renamed.has(event.id)) return "renamed_by_the_source";
   if (isMinorBoardMove(event)) return "below_the_top_of_the_board";
   if (isAnotherServing(event, view.known)) return "another_serving_of_a_known_model";
-  if ((event.signal === "article" || event.signal === "business") && isAboutTheCompanyNotAModel(event, view.known))
-    return "a_post_about_the_company_not_a_model";
+  if (event.signal === "article" || event.signal === "business") {
+    // Jev reads the post the word rule can only pattern-match; see newsroomVote.
+    const vote = event.stream === "news" ? newsroomVote(db, event.id) : null;
+    if (vote === "recap") return "left_to_the_daily_recap";
+    if (vote !== "speaks" && isAboutTheCompanyNotAModel(event, view.known))
+      return "a_post_about_the_company_not_a_model";
+  }
   if (isLabelOnlyChange(event)) return "display_label_only";
   if (view.schema.has(event.id)) return "a_field_the_source_started_sending";
   if (view.herd.has(event.id)) return "one_change_across_the_whole_list";

@@ -133,6 +133,16 @@ test("a suspicious full-catalogue shrink preserves the last known-good records",
   expect(db.query("SELECT COUNT(*) AS count FROM events").get()).toEqual({ count: 0 });
 });
 
+test("an accepted shrink is spent on one collection and the guard is back on the next", () => {
+  saveCollection(db, collection(["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"]), []);
+  expect(() => saveCollection(db, collection(["a", "b", "c", "d"]), [])).toThrow("Collection degraded");
+  db.query("UPDATE sources SET accept_shrink=1 WHERE id=?").run("openrouter");
+  expect(() => saveCollection(db, collection(["a", "b", "c", "d"]), [])).not.toThrow();
+  expect(db.query("SELECT accept_shrink AS flag FROM sources WHERE id=?").get("openrouter")).toEqual({ flag: 0 });
+  // The source keeps shrinking: the acceptance was for the one answer, not for the source.
+  expect(() => saveCollection(db, collection(["a"]), [])).toThrow("Collection degraded");
+});
+
 test("an answer missing a quarter of the catalogue is rejected, and a few real removals are not", () => {
   // The arena served 539 of 1065 entries on 2026-09-15 and had all of them back five minutes later.
   const roster = Array.from({ length: 100 }, (_, index) => `model-${index}`);

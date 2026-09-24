@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { loadConfig } from "../src/config.js";
 import { saveCollection } from "../src/events/pipeline.js";
-import { isNewsworthyStory, isNotableCommit, notableCommits, prepareInsights } from "../src/insights.js";
+import { isNewsworthyStory, isNotableCommit, newsroomVote, notableCommits, prepareInsights } from "../src/insights.js";
 import { jevCallsToday, judgeEvents, judgementOf, PROMPT_VERSION, worthCutoff } from "../src/jev.js";
 import { openDatabase } from "../src/storage/database.js";
 
@@ -206,4 +206,27 @@ test("a day of leaderboard churn does not hide the events worth judging", async 
       answers: { kind: { choice: "internal" }, worth: { score: 0.2 }, codename: { noul: 0.01 } },
     });
   expect(await judgeEvents(db, config, request as unknown as typeof fetch, now)).toBe(1);
+});
+
+test("Jev's newsroom vote rescues a high judgement and defers a low one, and says nothing unread", () => {
+  const db = openDatabase(":memory:");
+  db.query("INSERT INTO snapshots(id,source,collected_at) VALUES(1,'anthropic-news','2026-09-24T00:00:00.000Z')").run();
+  db.query(
+    "INSERT INTO events(source,stream,entity_id,kind,detected_at,snapshot_id,confidence,evidence_type,authority) VALUES('anthropic-news','news','post','new','2026-09-24T00:00:00.000Z',1,'observed','status_page','first_party')",
+  ).run();
+  const judge = (worth: number) =>
+    db
+      .query(
+        `INSERT OR REPLACE INTO event_evaluations(event_id, evaluator, model, prompt_version, kind, worth, codename, confidence, rules, evaluated_at)
+         VALUES(1,'jev','jev-latest',?,'business',?,0,0.5,'article','2026-09-24T00:00:00.000Z')`,
+      )
+      .run(PROMPT_VERSION, worth);
+  // Nothing judged: the word rule is left to decide on its own.
+  expect(newsroomVote(db, 1)).toBe(null);
+  judge(3);
+  expect(newsroomVote(db, 1)).toBe("speaks");
+  judge(0);
+  expect(newsroomVote(db, 1)).toBe("recap");
+  judge(1.2);
+  expect(newsroomVote(db, 1)).toBe(null);
 });

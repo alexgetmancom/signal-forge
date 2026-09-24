@@ -238,8 +238,9 @@ export function persistCollection(
   validateRecords(c.source, c.records);
   // The registry declares authority and the poller carries it; a collection without one claims the least.
   const authority = c.authority ?? "third_party";
-  const initialized = db.query("SELECT last_success FROM sources WHERE id=?").get(c.source) as {
+  const initialized = db.query("SELECT last_success,accept_shrink FROM sources WHERE id=?").get(c.source) as {
     last_success: string | null;
+    accept_shrink: number;
   } | null;
   const snapshot = storeSnapshot(db, c.source, now, JSON.stringify(c.raw)).id;
   const old = db
@@ -269,7 +270,9 @@ export function persistCollection(
         previous.delete(id);
       }
   if (c.keepMissing) for (const id of [...previous.keys()]) if (c.keepMissing(id)) previous.delete(id);
-  if (!c.appendOnly && initialized?.last_success && suspiciousShrink(previous.size, c.records.length))
+  // An operator who accepted a smaller catalogue spends that acceptance here, on this one answer.
+  if (initialized?.accept_shrink) db.query("UPDATE sources SET accept_shrink=0 WHERE id=?").run(c.source);
+  else if (!c.appendOnly && initialized?.last_success && suspiciousShrink(previous.size, c.records.length))
     throw new CollectionDegradedError(c.source, previous.size, c.records.length);
   let count = 0;
   const emitted: Event[] = [];
