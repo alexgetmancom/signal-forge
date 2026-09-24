@@ -69,6 +69,9 @@ test("health is public, operational state requires token, MCP lists matching sch
     "code_analytics",
     "deepseek_usage",
     "credential_circuits",
+    "sql",
+    "schema",
+    "snapshot",
     "journal",
   ]);
   const batch = await app.request("/api/mcp", {

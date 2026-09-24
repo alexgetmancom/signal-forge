@@ -6,6 +6,7 @@ import { listOperatorActions, recordOperatorAction } from "../src/journal.js";
 import { callOperation, cliCommand, operationCatalog, operations } from "../src/operations.js";
 import { lockHolder, withActionLock } from "../src/runtime/actionLock.js";
 import { openDatabase } from "../src/storage/database.js";
+import { storeSnapshot } from "../src/storage/snapshots.js";
 
 const configPath = new URL("./fixtures/config.json", import.meta.url).pathname;
 const testConfig = () => loadConfig({ CONFIG_PATH: configPath, BACKUP_DIRECTORY: "./tests/fixtures/backups" });
@@ -113,5 +114,40 @@ test("a refused credential stops its sources and is cleared only by the owner", 
   expect(clearCredentialCircuit(db, "github").state).toBe("cleared");
   expect(openCredentialCircuitIds(db).size).toBe(0);
   expect(() => clearCredentialCircuit(db, "github")).toThrow(/No open credential circuit/);
+  db.close();
+});
+
+test("the database is readable by hand, and only readable", () => {
+  const file = `${process.env.TMPDIR ?? "/tmp"}/sql-${Bun.randomUUIDv7()}.db`;
+  const db = openDatabase(file);
+  const defs = operations(db, { ...testConfig(), DATABASE_URL: file });
+  storeSnapshot(db, "openrouter", "2026-09-24T10:00:00.000Z", '{"data":[{"id":"gpt-6-astra"}]}');
+
+  // A blob is what a question about stored evidence runs into first: it is gzip, and printing the
+  // bytes is what sent an investigation to a script on the host instead.
+  const answer = callOperation(defs, "sql", { query: "SELECT source, body FROM snapshots" }) as {
+    rows: { source: string; body: string }[];
+    truncated: boolean;
+  };
+  expect(answer.rows[0]?.source).toBe("openrouter");
+  expect(answer.rows[0]?.body).toBe('{"data":[{"id":"gpt-6-astra"}]}');
+  expect(answer.truncated).toBe(false);
+  // The limit is the rows taken, not a clause appended to somebody's query.
+  expect(
+    (callOperation(defs, "sql", { query: "SELECT 1 UNION SELECT 2", limit: 1 }) as { truncated: boolean }).truncated,
+  ).toBe(true);
+
+  // The guarantee is the connection, not a reading of the text: a write fails rather than lands.
+  expect(() => callOperation(defs, "sql", { query: "DELETE FROM snapshots" })).toThrow(/readonly/);
+  expect(db.query("SELECT COUNT(*) AS n FROM snapshots").get()).toEqual({ n: 1 });
+
+  const schema = callOperation(defs, "schema", { table: "snapshots" }) as { table: string; columns: string[] }[];
+  expect(schema).toHaveLength(1);
+  expect(schema[0]?.columns).toContain("collected_at TEXT NOT NULL");
+  expect(() => callOperation(defs, "schema", { table: "nope" })).toThrow(/No such table/);
+
+  const snapshot = callOperation(defs, "snapshot", { source: "openrouter" }) as { body: string };
+  expect(snapshot.body).toBe('{"data":[{"id":"gpt-6-astra"}]}');
+  expect(callOperation(defs, "snapshot", { source: "nobody" })).toBeNull();
   db.close();
 });

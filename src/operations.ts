@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import type { AppConfig } from "./config.js";
+import { databaseOperations } from "./operations/database.js";
 import type { OperationMap } from "./operations/definition.js";
 import { deliveryOperations } from "./operations/delivery.js";
 import { evidenceOperations } from "./operations/evidence.js";
@@ -21,6 +22,7 @@ export function operations(db: Database, config: AppConfig): OperationMap {
     ...deliveryOperations(db, config, all),
     ...evidenceOperations(db, config, all),
     ...sourcesOperations(db, config, all),
+    ...databaseOperations(db, config, all),
     ...hostOperations(db, config, all),
   };
   return defs;
