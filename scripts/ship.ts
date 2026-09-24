@@ -75,10 +75,14 @@ for (let attempt = 0; attempt < 10 && !runId; attempt++) {
 }
 if (!runId) fail(`No workflow run for ${sha}`);
 say(`run ${runId}, watching`);
+// `gh run watch` has its own ways to fail -- a run it cannot see yet, a poll that dropped -- and
+// once it reported a red build over a run whose three jobs had all passed. The verdict is the
+// conclusion the run itself carries; watching is only how the waiting is done.
 const watched = await run(["gh", "run", "watch", runId, "--exit-status"]);
-if (!watched.ok)
+const conclusion = (await run(["gh", "run", "view", runId, "--json", "conclusion", "-q", ".conclusion"])).out;
+if (!watched.ok && conclusion !== "success")
   fail(
-    `CI failed: https://github.com/${(await run(["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"])).out}/actions/runs/${runId}`,
+    `CI ${conclusion || "did not finish"}: https://github.com/${(await run(["gh", "repo", "view", "--json", "nameWithOwner", "-q", ".nameWithOwner"])).out}/actions/runs/${runId}`,
   );
 say("CI green");
 
