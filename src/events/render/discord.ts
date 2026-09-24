@@ -1,7 +1,7 @@
 import { sourceLabel } from "../../sources/labels.js";
 import { readerStanding } from "../confidence.js";
 import { vendorOf } from "../interpretation.js";
-import { displayTitle } from "../naming.js";
+import { displayTitle, readableName, versioned } from "../naming.js";
 import {
   boardPlace,
   DEBUT_PLACES,
@@ -92,15 +92,6 @@ function mentionSentence(record: RecordData): string {
 }
 
 /**
- * A slug has no dots, so `grok-4-8` came out as "Grok 4 8". A lone digit after a name followed by one
- * more lone digit is a version; a date or a longer run of numbers is left as it was. Done when the
- * card is drawn: the stored page name is what later polls compare against.
- */
-export function versioned(title: string): string {
-  return title.replace(/(?<=[A-Za-z] )(\d) (\d)(?![\d ]*\d)(?=$| [A-Za-z])/g, "$1.$2");
-}
-
-/**
  * A page's name as its maker writes it. The name is recovered from the URL slug, so a page about a
  * model arrived as "Claude opus 5 5": the version lost its dot and the model's name lost its
  * capital. Only a name is capitalised -- few words and a number in it -- because the same slugs
@@ -119,8 +110,12 @@ function eventHeadline(event: Event, name: string, incident: Incident | null): s
   if (mentionSighting(event)) {
     const record = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
     const model = typeof record?.model === "string" ? record.model : name;
-    if (record?.stage === "served") return `📡 ${model} is answering requests`;
-    if (event.kind === "new") return `🔎 ${model} named in code`;
+    // The handle is the evidence and the card prints it underneath, quoted from the file it was
+    // read in; the headline is where a reader decides whether to keep reading, and `minimax-m3.1`
+    // is not how anyone says it.
+    const spoken = readableName(model);
+    if (record?.stage === "served") return `📡 ${spoken} is answering requests`;
+    if (event.kind === "new") return `🔎 ${spoken} named in code`;
   }
   if (event.stream === "arena" && event.kind === "new") return `🆕 ${name} appears on Arena`;
   // A page names itself "Pricing" or "Overview", which is a heading, not a headline: whose pricing

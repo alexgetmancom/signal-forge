@@ -13,7 +13,7 @@ import {
   describe,
   type Fact,
   factText,
-  fieldLabels,
+  fieldLabel,
   githubChangeStats,
   NOISE,
   prices,
@@ -43,14 +43,14 @@ function value(key: string, raw: unknown): string {
 }
 
 function field(key: string, raw: unknown): Fact {
-  return { label: fieldLabels[key] ?? key, value: value(key, raw) };
+  return { label: fieldLabel(key), value: value(key, raw) };
 }
 
 function transition(key: string, before: unknown, after: unknown): Fact {
   // A value that appears for the first time is the value; "not set → hidream" is a line spent on a blank.
-  if (!present(before)) return { label: fieldLabels[key] ?? key, value: value(key, after) };
+  if (!present(before)) return { label: fieldLabel(key), value: value(key, after) };
   return {
-    label: fieldLabels[key] ?? key,
+    label: fieldLabel(key),
     value: `${value(key, before)} → ${present(after) ? value(key, after) : "—"}`,
   };
 }
@@ -216,6 +216,13 @@ function elsewhereLine(sources: readonly string[]): string {
 
 export function eventFacts(event: Event & CardContext, summary?: string): string[] {
   return eventFactParts(event, summary).map(factText);
+}
+
+/** Two spellings of one handle: `provider-config` beside `microsoft-foundry/provider-config`. */
+function sameHandle(value: unknown, handle: unknown): boolean {
+  if (typeof value !== "string" || typeof handle !== "string" || !value) return false;
+  const bare = (text: string) => (text.split("/").at(-1) ?? text).toLowerCase().replace(/[^a-z0-9]/g, "");
+  return bare(value) === bare(handle);
 }
 
 export function eventFactParts(event: Event & CardContext, summary?: string): Fact[] {
@@ -386,8 +393,8 @@ export function eventFactParts(event: Event & CardContext, summary?: string): Fa
         const next = after[key] as unknown[];
         const added = next.filter((item) => !old.some((previous) => canonical(previous) === canonical(item)));
         const removed = old.filter((item) => !next.some((current) => canonical(current) === canonical(item)));
-        if (added.length) lines.push({ label: fieldLabels[key] ?? key, value: `+ ${describe(added)}` });
-        if (removed.length) lines.push({ label: fieldLabels[key] ?? key, value: `− ${describe(removed)}` });
+        if (added.length) lines.push({ label: fieldLabel(key), value: `+ ${describe(added)}` });
+        if (removed.length) lines.push({ label: fieldLabel(key), value: `− ${describe(removed)}` });
         continue;
       }
       lines.push(transition(key, before[key], after[key]));
@@ -395,6 +402,10 @@ export function eventFactParts(event: Event & CardContext, summary?: string): Fa
   } else {
     for (const [key, raw] of Object.entries(record ?? {})) {
       if (key === "id" || key === "name" || key === "prerelease" || NOISE.has(key)) continue;
+      // A field whose value is the model's own handle under another name. TrueFoundry's card for
+      // `microsoft-foundry/provider-config` printed the handle in its description and then twice
+      // more, as "canonical_id" and as "Model", because the catalogue keeps it under three keys.
+      if (sameHandle(raw, record?.id) || sameHandle(raw, record?.name)) continue;
       // The full list of supported API parameters is retained evidence that no reader decides
       // anything from. When it changes, the added and removed entries are shown instead.
       if (key === "parameters" && typeof raw === "number") {

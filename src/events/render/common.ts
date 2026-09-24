@@ -24,6 +24,10 @@ export const NOISE = new Set([
   // system" and "section: news", which is the URL a reader can already click, spelled out twice.
   "path",
   "section",
+  // Which feed a record came from, which the footer of every card says already. The OpenCode
+  // discovery card for Muse Spark 1.4 spent a labelled field on "source: opencode-data" directly
+  // above a footer reading "OpenCode · discovery".
+  "source",
 ]);
 
 /**
@@ -47,7 +51,7 @@ function rateValue(value: unknown): string {
   return Number.isFinite(amount) && amount > 0 ? `$${Number(amount.toPrecision(3))}` : describe(value);
 }
 
-export const fieldLabels: Record<string, string> = {
+const fieldLabels: Record<string, string> = {
   name: "Name",
   context: "Context",
   input: "Accepts",
@@ -95,6 +99,22 @@ export const fieldLabels: Record<string, string> = {
   platform: "Platform",
   requires: "Requires",
 };
+
+/**
+ * The label for a field nothing names. A key is written for a program: the TrueFoundry card carried
+ * "canonical_id" and "providers" in the places a reader looks for words, and the OpenCode one
+ * "services". Spelled out, a key reads as the label somebody would have written by hand.
+ */
+export function fieldLabel(key: string): string {
+  const named = fieldLabels[key];
+  if (named) return named;
+  const words = key
+    .replace(/[_-]+/g, " ")
+    .replace(/(?<=[a-z0-9])(?=[A-Z])/g, " ")
+    .trim()
+    .toLowerCase();
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : key;
+}
 
 /** A context window reads as 131K, not as 131072. */
 export function compactCount(value: unknown): string {

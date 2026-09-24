@@ -50,9 +50,15 @@ const SHOUTED = new Set([
  * searches for exactly those characters, and prettifying one into "Amber Fern" hands them something
  * that matches nothing. Only catalogue entries, where the handle stands in for a published product,
  * are rewritten.
+ *
+ * A repository found by a search is such a string; a model listed on OpenCode is not. Its entries
+ * are products under a maker's namespace, and `meta/muse-spark-1-4-contributor` went to the scouts
+ * channel spelled that way in a title, under a ping, and again in a footer. The characters
+ * themselves are not lost by this: a card whose headline prettified a handle prints the bare one
+ * underneath, to copy into an API call.
  */
 function isLiteralSighting(stream: string, source: string): boolean {
-  return stream === "arena" || stream === "leaderboards" || source.startsWith("discovery:");
+  return stream === "arena" || stream === "leaderboards" || source.startsWith("discovery:github-");
 }
 
 /**
@@ -75,6 +81,15 @@ function word(part: string): string {
   return part[0]?.toUpperCase() + part.slice(1);
 }
 
+/**
+ * A slug has no dots, so `grok-4-8` came out as "Grok 4 8". A lone digit after a name followed by one
+ * more lone digit is a version; a date or a longer run of numbers is left as it was. Done when a name
+ * is written for a reader: the stored name is what later polls compare against.
+ */
+export function versioned(title: string): string {
+  return title.replace(/(?<=[A-Za-z] )(\d) (\d)(?![\d ]*\d)(?=$| [A-Za-z])/g, "$1.$2");
+}
+
 export function readableName(raw: string): string {
   const trimmed = displayName(raw);
   if (!trimmed) return raw;
@@ -88,7 +103,7 @@ export function readableName(raw: string): string {
   // GPT-6, never "GPT 6". Before an ordinary word the hyphen goes, or "AI-For-Media" survives it.
   const joined = (index: number) =>
     SHOUTED.has((parts[index - 1] ?? "").toLowerCase()) && /^\d/.test(parts[index] ?? "") ? "-" : " ";
-  return parts.map(word).reduce((line, next, index) => line + joined(index) + next);
+  return versioned(parts.map(word).reduce((line, next, index) => line + joined(index) + next));
 }
 
 /** The title of a card: the published name where there is one, the literal sighting where there is not. */

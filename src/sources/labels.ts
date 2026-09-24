@@ -109,6 +109,10 @@ const STATIC_LABELS: Record<string, string> = {
   mimo: "Xiaomi MiMo API",
   poolside: "Poolside API",
   deepinfra: "DeepInfra API",
+  // Named here because the id is what a reader saw otherwise: the card for Muse Spark 1.4 was
+  // titled "muse-spark-1-4-contributor on discovery:opencode-data".
+  "discovery:opencode-data": "OpenCode · discovery",
+  "nvidia-ai-feed": "NVIDIA · AI feed",
 };
 
 /** Pure source naming used by both the registry and transport-neutral renderers. */
@@ -132,7 +136,15 @@ export function sourceLabel(id: string): string {
   if (id.startsWith("pypi:")) return `PyPI · ${id.slice("pypi:".length)}`;
   if (id.startsWith("github:")) {
     const [, repository, kind] = id.split(":");
-    const suffix = kind === "commits" ? "commits" : kind === "releases" ? "releases" : "PR";
+    // Only `pulls` reads pull requests. `models` reads the code itself and `talk` reads issues,
+    // their comments and discussions, and both were labelled "PR" by a default that fit neither:
+    // the card for `minimax-m3.1` said a pull request had named it when a test file had.
+    const suffix =
+      kind === "commits" || kind === "releases" || kind === "pulls"
+        ? (kind as string).replace("pulls", "PR")
+        : kind === "talk"
+          ? "discussions"
+          : "code";
     return `GitHub · ${repository ?? id} · ${suffix}`;
   }
   return id;
