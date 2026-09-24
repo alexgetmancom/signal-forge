@@ -7,6 +7,7 @@ import { coverageGaps } from "../reports/coverageGaps.js";
 import { judgeGap } from "../reports/judgeGap.js";
 import { leadTime } from "../reports/leadTime.js";
 import { passedOver } from "../reports/passedOver.js";
+import { reactionStandings } from "../reports/reactions.js";
 import { releaseAudit } from "../reports/releaseAudit.js";
 import { signalQuality } from "../reports/signalQuality.js";
 import { silentSources } from "../reports/silentSources.js";
@@ -77,6 +78,20 @@ export function sourcesOperations(db: Database, config: AppConfig, _all: () => O
       cli: { args: [{ name: "days", optional: true }] },
       http: { method: "get", path: "/api/silent-sources" },
       handler: (input: { days: number }) => silentSources(db, config, input.days),
+    },
+    reactions: {
+      section: "sources",
+      summary: "The thumbs each source and each kind of card drew, and whether there are enough to calibrate on.",
+      startHere: "what the channel has actually voted for and against",
+      note:
+        "The readers' vote is arithmetic on purpose while the counts are this small. This is where " +
+        "the question of feeding them to Jev gets answered on evidence rather than on appetite.",
+      mutates: false,
+      agent: true,
+      schema: z.object({ days: count(365, 60) }),
+      cli: { args: [{ name: "days", optional: true }] },
+      http: { method: "get", path: "/api/reactions" },
+      handler: (input: { days: number }) => reactionStandings(db, input.days),
     },
     judge_gap: {
       section: "sources",
