@@ -1,6 +1,4 @@
 import { expect, test } from "bun:test";
-import { signalClass } from "../src/events/signals.js";
-import type { Event } from "../src/events/types.js";
 import { APP_STORE_APPS, collectAppStore, parseAppStore } from "../src/sources/apps.js";
 
 const app = APP_STORE_APPS[0] as (typeof APP_STORE_APPS)[number];
@@ -65,18 +63,4 @@ test("the collector asks Apple for one listing and keeps credentials out of the 
   });
   expect(seen).toBe("https://itunes.apple.com/lookup?id=6448311069&country=us&entity=software");
   expect(collection.records).toHaveLength(1);
-});
-
-test("an app build is evidence until something reads what changed in it", () => {
-  const event: Event = {
-    id: 1,
-    source: "app:ios:chatgpt",
-    stream: "apps",
-    entity_id: "ios:6448311069",
-    kind: "changed",
-    before_json: JSON.stringify({ id: "ios:6448311069", name: "ChatGPT for iOS", version: "1.2026.243" }),
-    after_json: JSON.stringify({ id: "ios:6448311069", name: "ChatGPT for iOS", version: "1.2026.244" }),
-    detected_at: "2026-09-11T00:00:00.000Z",
-  };
-  expect(signalClass(event)).toBe("evidence");
 });

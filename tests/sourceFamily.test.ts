@@ -35,14 +35,7 @@ test("independent confirmation collapses every surface one vendor answers for", 
   // Moonshot's coding tier is still Moonshot speaking, not a second witness.
   expect(
     sourceIndependenceFamily({ source: "kimi", stream: "api-models", authority: "first_party", vendor: "Moonshot" }),
-  ).toBe(
-    sourceIndependenceFamily({
-      source: "moonshot",
-      stream: "api-models",
-      authority: "first_party",
-      vendor: "Moonshot",
-    }),
-  );
+  ).toBe("vendor:Moonshot");
   expect(
     sourceIndependenceFamily({ source: "openrouter", stream: "openrouter", authority: "third_party", vendor: null }),
   ).toBe("openrouter");

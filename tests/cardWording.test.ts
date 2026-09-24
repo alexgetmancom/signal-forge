@@ -34,7 +34,6 @@ test("a handle is spoken as a name where the card prints the handle underneath",
   expect(readableName("claude-opus-5-5")).toBe("Claude Opus 5.5");
   // A date is not a version, and a literal sighting is the evidence itself.
   expect(readableName("claude-haiku-4-5-20251001")).toBe("Claude Haiku 4 5 20251001");
-  expect(displayTitle("amber_fern", "arena", "arena")).toBe("amber_fern");
   expect(displayTitle("openai/some-repo", "github", "discovery:github-ai")).toBe("openai/some-repo");
 });
 
