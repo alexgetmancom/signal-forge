@@ -10,14 +10,43 @@ export type ModelIdentity = {
   status: IdentityStatus;
 };
 
+/**
+ * The makers whose version follows the family word, so a two-digit number there is a version with
+ * its dot dropped rather than a version past twelve. models.dev writes `gpt-56-sol` for
+ * `gpt-5.6-sol`, and a Google docs path writes `gemini-15` for 1.5.
+ */
+const DOTTED_FAMILY =
+  /(^| )(gpt|glm|gemini|grok|qwen|kimi k|minimax m|deepseek [vr]|mistral|magistral|devstral|codestral|claude (?:opus|sonnet|haiku|fable)) (\d)(\d)(?= |$)/g;
+
+/**
+ * One spelling of a version, so two spellings of one model are one model.
+ *
+ * `gpt-5.6-sol` and `gpt-56-sol` are the same release, and counting them apart made fourteen
+ * phantom entries in the catalogue by 2026-09-24 -- among them `gpt-52`, `gpt-55-pro` and
+ * `gpt-56-terra`, every one of them a model already held under its dotted name. One reached a
+ * reader as `glm-53-fast`, and one poisoned the probes, which read `gpt-56-sol` as a model at
+ * version 56 and went hunting for `gpt-57`.
+ *
+ * Only a two-digit number above twelve is read this way, because no family here is past version
+ * twelve -- the same rule `familyVersion` states where it refuses one. A number that could be a
+ * real version is left alone: `grok-4.20` keeps its twenty, because the dot was never dropped.
+ */
+function oneSpelling(value: string): string {
+  return value.replace(DOTTED_FAMILY, (match, lead: string, family: string, first: string, second: string) =>
+    Number(`${first}${second}`) > 12 ? `${lead}${family} ${first} ${second}` : match,
+  );
+}
+
 export function normalizeIdentity(value: string): string {
-  return value
-    .normalize("NFKC")
-    .toLowerCase()
-    .replace(/^https?:\/\//, "")
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim()
-    .replace(/\s+/g, " ");
+  return oneSpelling(
+    value
+      .normalize("NFKC")
+      .toLowerCase()
+      .replace(/^https?:\/\//, "")
+      .replace(/[^a-z0-9]+/g, " ")
+      .trim()
+      .replace(/\s+/g, " "),
+  );
 }
 
 function unique(values: (string | null)[]): string[] {

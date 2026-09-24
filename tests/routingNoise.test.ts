@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import type { AppConfig } from "../src/config.js";
 import { classify } from "../src/events/classify.js";
-import { identityFor, identityTerms } from "../src/events/identity.js";
+import { identityFor, identityTerms, normalizeIdentity } from "../src/events/identity.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import { signalClass } from "../src/events/signals.js";
 import type { Event } from "../src/events/types.js";
@@ -210,4 +210,20 @@ test("a reseller moving only its cache or regional rates is evidence; input and 
   // OpenRouter is the catalogue people price by: its cache moving still reaches the public channel.
   const or = { ...at, source: "openrouter", stream: "openrouter" };
   expect(classify(db, event({ ...or, before_json: JSON.stringify(priced(was)), record: priced(side) }))).toBe("change");
+});
+
+test("a version with its dot dropped is the same model as the version with it", () => {
+  // models.dev writes `gpt-56-sol`, and holding that apart from `gpt-5.6-sol` put fourteen phantom
+  // models in the catalogue, sent one to a reader as `glm-53-fast`, and had the probes hunting for
+  // a `gpt-57` to follow version 56.
+  expect(normalizeIdentity("gpt-56-sol")).toBe(normalizeIdentity("gpt-5.6-sol"));
+  expect(normalizeIdentity("glm-53-fast")).toBe(normalizeIdentity("glm-5.3-fast"));
+  expect(normalizeIdentity("claude-opus-55")).toBe(normalizeIdentity("claude-opus-5.5"));
+  // A Google docs path writes the version the same way.
+  expect(normalizeIdentity("gemini-15")).toBe(normalizeIdentity("gemini-1.5"));
+  // A number that could be a real version is left alone: grok-4.20's twenty is a minor version,
+  // and a parameter count is not a version at all.
+  expect(normalizeIdentity("grok-4.20-beta")).toBe("grok 4 20 beta");
+  expect(normalizeIdentity("qwen3-14b")).toBe("qwen3 14b");
+  expect(normalizeIdentity("nemotron-3-super-120b-a12b")).toBe("nemotron 3 super 120b a12b");
 });
