@@ -133,14 +133,21 @@ test("a suspicious full-catalogue shrink preserves the last known-good records",
   expect(db.query("SELECT COUNT(*) AS count FROM events").get()).toEqual({ count: 0 });
 });
 
-test("an accepted shrink is spent on one collection and the guard is back on the next", () => {
-  saveCollection(db, collection(["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"]), []);
-  expect(() => saveCollection(db, collection(["a", "b", "c", "d"]), [])).toThrow("Collection degraded");
+test("an accepted shrink is spent on one collection, and what it accepted leaves quietly", () => {
+  const roster = Array.from({ length: 20 }, (_, index) => `model-${index}`);
+  saveCollection(db, collection(roster), []);
+  expect(() => saveCollection(db, collection(roster.slice(0, 6)), [])).toThrow("Collection degraded");
   db.query("UPDATE sources SET accept_shrink=1 WHERE id=?").run("openrouter");
-  expect(() => saveCollection(db, collection(["a", "b", "c", "d"]), [])).not.toThrow();
+  expect(saveCollection(db, collection(roster.slice(0, 6)), [])).toBe(0);
+  // The rows the operator accepted as gone leave quietly: fourteen removal cards is the refusal
+  // said louder, and a roster that no longer exists must not be what the next poll is measured by.
+  expect(db.query("SELECT COUNT(*) AS count FROM records").get()).toEqual({ count: 6 });
+  expect(db.query("SELECT COUNT(*) AS count FROM events WHERE kind='removed'").get()).toEqual({ count: 0 });
   expect(db.query("SELECT accept_shrink AS flag FROM sources WHERE id=?").get("openrouter")).toEqual({ flag: 0 });
-  // The source keeps shrinking: the acceptance was for the one answer, not for the source.
-  expect(() => saveCollection(db, collection(["a"]), [])).toThrow("Collection degraded");
+  // The accepted size is the roster now, so an answer at that size is ordinary and a further
+  // collapse is refused as before: the acceptance was for one answer, not for the source.
+  expect(() => saveCollection(db, collection(roster.slice(0, 6)), [])).not.toThrow();
+  expect(() => saveCollection(db, collection(roster.slice(0, 1)), [])).toThrow("Collection degraded");
 });
 
 test("an answer missing a quarter of the catalogue is rejected, and a few real removals are not", () => {

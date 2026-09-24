@@ -271,8 +271,9 @@ export function persistCollection(
       }
   if (c.keepMissing) for (const id of [...previous.keys()]) if (c.keepMissing(id)) previous.delete(id);
   // An operator who accepted a smaller catalogue spends that acceptance here, on this one answer.
-  if (initialized?.accept_shrink) db.query("UPDATE sources SET accept_shrink=0 WHERE id=?").run(c.source);
-  else if (!c.appendOnly && initialized?.last_success && suspiciousShrink(previous.size, c.records.length))
+  const accepted = Boolean(initialized?.accept_shrink);
+  if (accepted) db.query("UPDATE sources SET accept_shrink=0 WHERE id=?").run(c.source);
+  if (!accepted && !c.appendOnly && initialized?.last_success && suspiciousShrink(previous.size, c.records.length))
     throw new CollectionDegradedError(c.source, previous.size, c.records.length);
   let count = 0;
   const emitted: Event[] = [];
@@ -342,6 +343,13 @@ export function persistCollection(
   }
   if (!c.appendOnly || c.resolveMissing)
     for (const row of previous.values()) {
+      // What the operator accepted is exactly these rows leaving. Reporting 781 arena entries gone
+      // one card at a time is the same answer as refusing the collection, said more loudly, and
+      // keeping them would leave the next poll measured against a roster that no longer exists.
+      if (accepted) {
+        db.query("DELETE FROM records WHERE source=? AND id=?").run(c.source, row.id);
+        continue;
+      }
       if (c.resolveMissing) {
         if (hasEnded(row.body)) {
           db.query("UPDATE records SET stream=?,observed_at=?,missing_count=0 WHERE source=? AND id=?").run(
