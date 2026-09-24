@@ -10,6 +10,7 @@ import {
   PROBE_SITES,
 } from "../src/sources/probes.js";
 import { openDatabase } from "../src/storage/database.js";
+import { storeSnapshot } from "../src/storage/snapshots.js";
 
 function answering(pages: Record<string, string>): typeof fetch {
   return (async (input: string | URL | Request) => {
@@ -214,4 +215,46 @@ test("a released model written another way is still released", () => {
     "INSERT INTO events(source,stream,entity_id,kind,after_json,detected_at,signal,snapshot_id) VALUES('models-dev','api-models',?,'new','{}','2026-09-23T10:00:00.000Z','codename',1)",
   ).run(["claude-opus", "5.5"].join("-"));
   expect(heardNames(db, anthropicProbe, Date.parse("2026-09-24T00:00:00.000Z"))).toEqual([]);
+});
+
+test("a name below the maker's own frontier is still a question", () => {
+  const openai = PROBE_SITES.find((site) => site.id === "discovery:docs-openai");
+  if (!openai) throw new Error("the OpenAI probe is gone");
+  const db = catalogue(["gpt-6-sol"]);
+  const insert = db.query(
+    "INSERT INTO events(source,stream,entity_id,kind,after_json,detected_at,signal,snapshot_id) VALUES('models-dev','api-models',?,'new','{}','2026-09-23T10:00:00.000Z','codename',1)",
+  );
+  /**
+   * A maker ships below its own frontier all the time -- a K2.9 for code beside K3.1, a small model
+   * after the flagship -- and that release is exactly the one version guessing cannot reach.
+   */
+  insert.run("gpt-5.7-mini");
+  insert.run("gpt-6-vela");
+  expect(heardNames(db, openai, Date.parse("2026-09-24T00:00:00.000Z")).sort()).toEqual(["gpt-5.7-mini", "gpt-6-vela"]);
+});
+
+test("a name that answered 404 is left alone for a day, and the version guesses are not", async () => {
+  const openai = PROBE_SITES.find((site) => site.id === "discovery:docs-openai");
+  if (!openai) throw new Error("the OpenAI probe is gone");
+  const db = catalogue(["gpt-6-sol"]);
+  db.query(
+    "INSERT INTO events(source,stream,entity_id,kind,after_json,detected_at,signal,snapshot_id) VALUES('models-dev','api-models','gpt-6-vela','new','{}','2026-09-23T10:00:00.000Z','codename',1)",
+  ).run();
+  const asked: string[][] = [];
+  const watching = (async (input: string | URL) => {
+    asked.at(-1)?.push(String(input).split("/").at(-1) ?? "");
+    return new Response("a page", { status: String(input).endsWith("gpt-6-sol") ? 200 : 404 });
+  }) as unknown as typeof fetch;
+  const minute = Date.parse("2026-09-24T00:00:00.000Z");
+  for (const at of [minute, minute + 300_000, minute + 25 * 3_600_000]) {
+    asked.push([]);
+    const collection = await collectDocsProbe(db, openai, watching, at);
+    storeSnapshot(db, collection.source, new Date(at).toISOString(), JSON.stringify(collection.raw));
+  }
+  expect(asked[0]).toContain("gpt-6-vela");
+  // Five minutes later the heard name is spent, and the versions are asked again regardless.
+  expect(asked[1]).not.toContain("gpt-6-vela");
+  expect(asked[1]).toContain("gpt-6.1");
+  // A day later it is a question again.
+  expect(asked[2]).toContain("gpt-6-vela");
 });

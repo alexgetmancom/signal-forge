@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { Collection, RecordData } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
+import { readLatestSnapshot } from "../storage/snapshots.js";
 
 /**
  * Asking a documentation site for a model that has not been announced.
@@ -177,6 +178,14 @@ const HEARD_LIMIT = 6;
  *
  * The first version of this probe guessed codenames instead -- `gpt-6-nova`, `gpt-6-vega` -- which
  * is a lottery ticket bought twice every five minutes. These are names somebody actually wrote down.
+ *
+ * No rule here asks whether the number looks current, and the second version of this probe was
+ * wrong to. A maker ships below its own frontier all the time: a Kimi K2.9 for code beside K3.1, a
+ * smaller model after the flagship. `olderThanKnown` in `mentionStage.ts` is the right rule where a
+ * mistake costs a reader a card; here a mistake costs one HTTP request, and the miss it would cause
+ * is exactly the release that version guessing cannot reach. Measured on the thirty days to
+ * 2026-09-24: of 351 delivered cards, that rule read 18 as stale, and 15 of those were fresh when
+ * they went out -- `gpt-5.6-sol` was news five days before `gpt-6-sol` existed.
  */
 export function heardNames(db: Database, site: Site, now = Date.now()): string[] {
   if (!site.codename) return [];
@@ -247,7 +256,41 @@ async function probe(url: string, request: Fetch, jar: Map<string, string>): Pro
  * answer, and the questions move on their own: they are the next versions of what the vendor has
  * out today, read from the catalogue at the moment of asking.
  */
-export async function collectDocsProbe(db: Database, site: Site, request: Fetch = fetch): Promise<Collection> {
+/**
+ * How long a name that answered 404 is left alone.
+ *
+ * A heard name is worth asking about once, not every five minutes for a month: `gpt-5.1-mini` would
+ * be 8,640 requests to be told the same thing. The version guesses are not rate-limited this way --
+ * catching the minute a page appears is the whole point of them -- but a name from somebody else's
+ * commit can wait a day between questions.
+ */
+const COOLOFF_HOURS = 24;
+
+/** What a previous poll asked and what it was told, carried in the stored snapshot. */
+type Asked = Record<string, { status: number; at: string }>;
+
+function previouslyAsked(db: Database, source: string): Asked {
+  const stored = readLatestSnapshot(db, source);
+  if (!stored) return {};
+  try {
+    const body: unknown = JSON.parse(stored);
+    return body && typeof body === "object" ? (body as Asked) : {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Every unannounced address a site answers for. Nothing is stored for a 404, which is the usual
+ * answer, and the questions move on their own: they are the next versions of what the vendor has
+ * out today, read from the catalogue at the moment of asking.
+ */
+export async function collectDocsProbe(
+  db: Database,
+  site: Site,
+  request: Fetch = fetch,
+  now = Date.now(),
+): Promise<Collection> {
   const families = observedFamilies(db, site);
   if (!families.length) throw new Error(`${site.id}: the catalogue names no model of any shape it follows`);
   /** The furthest the maker has gone in any tier, and the model that got there. */
@@ -258,6 +301,7 @@ export async function collectDocsProbe(db: Database, site: Site, request: Fetch 
   );
   const highest = furthest.version;
   const control = site.spell(furthest.observed);
+  const asked = previouslyAsked(db, site.id);
   const candidates = new Set<string>();
   for (const { family, version } of families) {
     for (const next of nextVersions(version)) candidates.add(site.slug(family, next));
@@ -269,27 +313,35 @@ export async function collectDocsProbe(db: Database, site: Site, request: Fetch 
      */
     for (const next of nextVersions(highest)) candidates.add(site.slug(family, next));
   }
-  for (const heard of heardNames(db, site)) candidates.add(heard);
+  for (const heard of heardNames(db, site, now)) {
+    const last = asked[heard];
+    if (last && Date.parse(last.at) > now - COOLOFF_HOURS * 3_600_000) continue;
+    candidates.add(heard);
+  }
   candidates.delete(control);
   const records: RecordData[] = [];
-  const tried: Record<string, number> = {};
+  const tried: Asked = { ...asked };
   const jar = new Map<string, string>();
   for (const slug of [...candidates].sort()) {
     const url = site.url(slug);
     const answer = await probe(url, request, jar).catch(() => null);
     if (!answer) continue;
-    tried[slug] = answer.status;
+    tried[slug] = { status: answer.status, at: new Date(now).toISOString() };
     if (answer.status !== 200) continue;
     records.push({ id: slug, name: slug, url, maker: site.vendor, source: "documentation" });
   }
   const answered = await probe(site.url(control), request, jar);
   if (answered.status !== 200) throw new Error(`${site.id}: ${control} answered HTTP ${answered.status}`);
-  tried[control] = answered.status;
+  tried[control] = { status: answered.status, at: new Date(now).toISOString() };
+  // A question asked a month ago is no longer a reason not to ask again.
+  const kept = Object.fromEntries(
+    Object.entries(tried).filter(([, when]) => Date.parse(when.at) > now - HEARD_DAYS * 24 * 3_600_000),
+  );
   return {
     source: site.id,
     stream: "pages",
     url: site.url("*"),
-    raw: tried,
+    raw: kept,
     appendOnly: true,
     records,
   };
