@@ -57,15 +57,42 @@ test("a probe whose control has moved is a failure, not an empty answer", async 
   );
 });
 
-test("OpenCode answers for every name and only a real page counts", async () => {
+test("OpenCode is asked about the version after the one it lists, and only a real page counts", async () => {
   const real = "Completed sessions ... Token Share";
+  // What the catalogue holds, and the leaderboard row that says whose lab the family belongs to.
+  const db = openDatabase(":memory:");
+  const stored = "2026-09-24T00:00:00.000Z";
+  storeSnapshot(db, "opencode-go", stored, "{}");
+  for (const id of ["muse-spark-1.2-contributor", "muse-spark-1.3-contributor"])
+    db.query("INSERT INTO records(source,id,body,missing_count,stream,observed_at) VALUES(?,?,?,0,?,?)").run(
+      "opencode-go",
+      id,
+      "{}",
+      "api-models",
+      stored,
+    );
+  db.query("INSERT INTO records(source,id,body,missing_count,stream,observed_at) VALUES(?,?,?,0,?,?)").run(
+    "arena-leaderboards",
+    "text:overall:muse-spark-1.3-text",
+    JSON.stringify({ maker: "Meta" }),
+    "leaderboards",
+    stored,
+  );
+
   const collection = await collectOpenCodeData(
+    db,
     answering({
+      // The release that actually shipped, which the hand-written list guessed straight past.
+      "https://opencode.ai/data/meta/muse-spark-1-4-contributor": real,
       "https://opencode.ai/data/unknown/space-bunny": real,
       "https://opencode.ai/data/unknown/sonoma-sky": "Models ... breadcrumb only",
     }),
   );
-  expect(collection.records.map((record) => record.id)).toEqual(["unknown/space-bunny"]);
+  expect(collection.records.map((record) => record.id)).toEqual([
+    "meta/muse-spark-1-4-contributor",
+    "unknown/space-bunny",
+  ]);
+  db.close();
 });
 
 test("a client's bundle names its models and not its fixtures", () => {

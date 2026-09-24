@@ -359,10 +359,64 @@ export async function collectDocsProbe(
  */
 const OPENCODE_MAKERS = ["meta", "unknown", "anthropic", "openai", "google"] as const;
 
-/** Names heard elsewhere -- a tweet, a router, a client -- that OpenCode may already have a page for. */
-const OPENCODE_GUESSES: readonly { maker: string; slug: string }[] = [
-  { maker: "meta", slug: "muse-spark-1-5-contributor" },
-  { maker: "meta", slug: "muse-spark-2-contributor" },
+/**
+ * What to ask for, read from the catalogue rather than written down here.
+ *
+ * The list this replaced was three names guessed by hand, and it guessed past the release: it held
+ * `muse-spark-1-5-contributor` and `-2-` while the one that shipped was 1.4, whose page was live
+ * and counting sessions on 2026-09-24 with nothing here asking for it. A version the catalogue
+ * already lists is the only seed that cannot go stale.
+ */
+function opencodeCandidates(db: Database): { maker: string; slug: string }[] {
+  const listed = db
+    .query<{ id: string }, []>("SELECT DISTINCT id FROM records WHERE source LIKE 'opencode-%'")
+    .all()
+    .map((row) => row.id);
+  const highest = new Map<string, { version: number[]; maker: string }>();
+  for (const id of listed) {
+    const match = /^([a-z][a-z-]*?)-(\d+)(?:\.(\d+))?(-contributor)?(?:-free)?$/.exec(id.toLowerCase());
+    if (!match) continue;
+    const [, family = "", major = "0", minor = "0", variant = ""] = match;
+    const version = [Number(major), Number(minor)];
+    const key = `${family}${variant}`;
+    const seen = highest.get(key);
+    if (seen && compare(seen.version, version) >= 0) continue;
+    highest.set(key, { version, maker: makerOf(db, family) });
+  }
+  const candidates: { maker: string; slug: string }[] = [];
+  for (const [key, { version, maker }] of highest) {
+    if (!maker) continue;
+    const variant = key.endsWith("-contributor") ? "-contributor" : "";
+    const family = key.slice(0, key.length - variant.length);
+    // A data page spells the version with a hyphen: `/data/meta/muse-spark-1-4-contributor`.
+    for (const [major, minor] of nextVersions(version as [number, number]))
+      candidates.push({ maker, slug: `${family}-${major}-${minor}${variant}` });
+  }
+  return candidates;
+}
+
+function compare(a: readonly number[], b: readonly number[]): number {
+  for (let index = 0; index < Math.max(a.length, b.length); index++) {
+    const difference = (a[index] ?? 0) - (b[index] ?? 0);
+    if (difference !== 0) return difference;
+  }
+  return 0;
+}
+
+/** Which lab's page a family lives under. OpenCode's own rows say "OpenCode"; a leaderboard says Meta. */
+function makerOf(db: Database, family: string): string {
+  const row = db
+    .query<{ body: string }, [string]>(
+      "SELECT body FROM records WHERE source NOT LIKE 'opencode-%' AND lower(id) LIKE '%' || ?1 || '%' AND body LIKE '%\"maker\"%' LIMIT 1",
+    )
+    .get(family);
+  const maker = row ? ((JSON.parse(row.body) as { maker?: unknown }).maker ?? "") : "";
+  const slug = typeof maker === "string" ? maker.toLowerCase() : "";
+  return OPENCODE_MAKERS.includes(slug as (typeof OPENCODE_MAKERS)[number]) ? slug : "";
+}
+
+/** Stealth names, which no catalogue lists and no version rule reaches. */
+const OPENCODE_STEALTH: readonly { maker: string; slug: string }[] = [
   { maker: "unknown", slug: "space-bunny" },
   { maker: "unknown", slug: "sonoma-sky" },
   { maker: "unknown", slug: "stealth-model" },
@@ -377,11 +431,11 @@ function opencodeIsReal(body: string): boolean {
   return body.includes("Completed sessions") && body.includes("Token Share");
 }
 
-export async function collectOpenCodeData(request: Fetch = fetch): Promise<Collection> {
+export async function collectOpenCodeData(db: Database, request: Fetch = fetch): Promise<Collection> {
   const records: RecordData[] = [];
   const tried: Record<string, number> = {};
   const jar = new Map<string, string>();
-  for (const { maker, slug } of OPENCODE_GUESSES) {
+  for (const { maker, slug } of [...opencodeCandidates(db), ...OPENCODE_STEALTH]) {
     if (!OPENCODE_MAKERS.includes(maker as (typeof OPENCODE_MAKERS)[number])) continue;
     const url = opencodeUrl(maker, slug);
     const answer = await probe(url, request, jar).catch(() => null);

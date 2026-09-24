@@ -234,7 +234,7 @@ export function communitySources({ db, config, cache }: SourceContext): SourceEn
     stream: "api-models",
     intervalSeconds: 900,
     pace: { group: "opencode.ai", seconds: 5 },
-    collector: () => collectOpenCodeData(fetch),
+    collector: () => collectOpenCodeData(db, fetch),
   });
   definitions.push({
     id: "discovery:huggingface-trending",
