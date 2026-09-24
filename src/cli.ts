@@ -55,6 +55,18 @@ try {
   const name = byCommand.get(command);
   if (!name || !defs[name]?.cli) {
     process.stderr.write(`${usage(defs)}\n`);
+    // A name that is not a command is the clearest signal the registry can get: somebody expected
+    // this command to exist. Recorded under the name that was asked for, so `usage` lists the
+    // guesses next to the commands, and a guess made repeatedly is a command worth writing.
+    if (command !== "help" && command !== "--help")
+      recordOperatorAction(db, {
+        surface: "cli",
+        operation: command,
+        input: {},
+        outcome: "rejected",
+        mutates: false,
+        detail: "No such command",
+      });
     process.exitCode = command === "help" || command === "--help" ? 0 : 1;
   } else {
     const definition = defs[name];
@@ -63,22 +75,38 @@ try {
       process.stderr.write(
         `${input.error.issues.map((issue) => `${issue.path.join(".") || "input"}: ${issue.message}`).join("\n")}\n`,
       );
-      if (definition.mutates)
-        recordOperatorAction(db, { surface: "cli", operation: name, input: {}, outcome: "rejected" });
+      recordOperatorAction(db, {
+        surface: "cli",
+        operation: name,
+        input: {},
+        outcome: "rejected",
+        mutates: definition.mutates,
+      });
       process.exitCode = 1;
     } else {
       // A mutation says so before it runs: the operator asked for it, and the journal will carry it.
       if (definition.mutates) process.stderr.write(`This command changes stored state: ${name}\n`);
       await measure(db, `cli.command:${command}`, async () => {
+        // Every call is journalled, not only the mutations: what an agent asked is the record of
+        // which questions the commands could not answer. `mutates` keeps the two kinds apart.
+        const started = Bun.nanoseconds();
+        const journal = (outcome: "ok" | "failed", detail?: string) =>
+          recordOperatorAction(db, {
+            surface: "cli",
+            operation: name,
+            input: input.data,
+            outcome,
+            mutates: definition.mutates,
+            durationMs: (Bun.nanoseconds() - started) / 1e6,
+            ...(detail ? { detail } : {}),
+          });
         try {
           const result = await (definition.handler as (value: unknown) => unknown)(input.data);
-          if (definition.mutates)
-            recordOperatorAction(db, { surface: "cli", operation: name, input: input.data, outcome: "ok" });
+          journal("ok");
           write(result ?? null, tsv);
         } catch (error) {
           const detail = error instanceof Error ? error.message : "Operation failed";
-          if (definition.mutates)
-            recordOperatorAction(db, { surface: "cli", operation: name, input: input.data, outcome: "failed", detail });
+          journal("failed", detail);
           process.stderr.write(`${detail}\n`);
           process.exitCode = 1;
         }

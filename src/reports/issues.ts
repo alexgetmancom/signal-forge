@@ -40,6 +40,15 @@ export type ActionableIssue = {
   destination?: string;
   firstSeenAt: string;
   updatedAt: string;
+  /**
+   * When the poller will ask this source again, for the issues where waiting is the right answer.
+   *
+   * A failing source and a rate-limited one read identically in a list -- both say "not
+   * collecting" -- and the difference that matters is whether anybody needs to do anything. The
+   * backoff already decided, and until now it kept the decision to itself, so the only way to know
+   * whether a red row would clear on its own was to query `sources` by hand.
+   */
+  retryAt?: string | null;
   message: string;
   hint: string;
 };
@@ -100,9 +109,10 @@ export function listActionableIssues(db: Database, config: AppConfig, now = Date
     // When it started and when it was last confirmed are different questions. Reading both from
     // checked_at reported every outage as a moment old, however many days it had been running.
     const row = db
-      .query<{ checked_at: string | null; failure_started_at: string | null; failures: number }, [string]>(
-        "SELECT checked_at,failure_started_at,failures FROM sources WHERE id=?",
-      )
+      .query<
+        { checked_at: string | null; failure_started_at: string | null; failures: number; retry_at: string | null },
+        [string]
+      >("SELECT checked_at,failure_started_at,failures,retry_at FROM sources WHERE id=?")
       .get(entry.id);
     // One short answer rejected is the guard working, not a source in trouble. The arena serves a
     // roster missing a quarter or more of itself several times a week and every time the next
@@ -118,6 +128,7 @@ export function listActionableIssues(db: Database, config: AppConfig, now = Date
       source: entry.id,
       firstSeenAt: issueTime(started, now),
       updatedAt: issueTime(checked, now),
+      retryAt: row?.retry_at ?? null,
       message: `${entry.label} ${
         entry.state === "stale"
           ? "is stale"

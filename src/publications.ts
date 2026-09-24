@@ -106,7 +106,7 @@ export async function syncPublications(db: Database, config: AppConfig, request:
   const endpoint = config.SOLO_PUBLISHER_MCP_URL;
   const token = config.SOLO_PUBLISHER_MCP_TOKEN;
   if (!endpoint || !token) throw new Error("Solo Publisher is not configured");
-  const outcome = await withActionLock(db, STATE_KEY, lockHolder("publications"), 180_000, async () => {
+  const outcome = await withActionLock(db, STATE_KEY, lockHolder("publications"), 180_000, async ({ holder }) => {
     const previous = storedState(db);
     if (previous && previous.endpoint !== endpoint)
       throw new Error("Solo Publisher endpoint differs from the stored publication archive");
@@ -150,7 +150,7 @@ export async function syncPublications(db: Database, config: AppConfig, request:
           "SELECT holder FROM action_locks WHERE name=? AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')",
         )
         .get(STATE_KEY);
-      if (lease?.holder !== lockHolder("publications")) throw new Error("Solo Publisher synchronization lease expired");
+      if (lease?.holder !== holder) throw new Error("Solo Publisher synchronization lease expired");
       const upsert =
         db.query(`INSERT INTO publications(ref,post_id,published_at,status,headline,text_en,targets_json,checked_at)
         VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(ref) DO UPDATE SET published_at=excluded.published_at,status=excluded.status,

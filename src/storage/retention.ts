@@ -90,12 +90,19 @@ export function expireSnapshotBodies(db: Database, now = Date.now()): number {
          WHERE id IN (
            SELECT id FROM snapshots
            WHERE body IS NOT NULL
+             -- The bound first, so the partial index on (collected_at) WHERE body IS NOT NULL can
+             -- seek. A row can only qualify under either horizon if it is older than the shorter
+             -- one, so this admits exactly the CASE's rows and no more; the CASE then decides which
+             -- horizon each of those actually falls under. With the CASE alone the predicate is not
+             -- a range over any column and SQLite scans every unexpired snapshot to find the few.
+             AND collected_at < ?
              AND collected_at < (CASE WHEN bytes > ? THEN ? ELSE ? END)
            LIMIT ?
          ) RETURNING 1 AS expired`,
       )
       .all(
         new Date(now).toISOString(),
+        cutoff(Math.min(HEAVY_BODY_LIFETIME_DAYS, BODY_LIFETIME_DAYS)),
         HEAVY_BODY_BYTES,
         cutoff(HEAVY_BODY_LIFETIME_DAYS),
         cutoff(BODY_LIFETIME_DAYS),
@@ -118,6 +125,12 @@ export function expireSnapshotBodies(db: Database, now = Date.now()): number {
  * Ninety days, to match the metrics it sits beside: long enough that a source's failure rate over
  * a quarter is still answerable, short enough that the table stops being the largest thing in the
  * database that nobody reads.
+ *
+ * Thirty was considered and rejected. `sourceVerdicts` reads `MIN(collected_at)` across all of
+ * history to say how long a source has been observed, and that number decides whether a source is
+ * old enough to be judged at all. Shorten the horizon and every source's apparent age silently
+ * caps at the horizon: the verdicts keep rendering, with a wrong denominator. Any future change to
+ * this constant has to answer that query first.
  */
 const COLLECTION_METRICS_LIFETIME_DAYS = 90;
 
@@ -189,4 +202,40 @@ export function databaseSize(db: Database): { bytes: number; snapshotBytes: numb
   const snapshotBytes =
     db.query<{ total: number | null }, []>("SELECT SUM(LENGTH(body)) AS total FROM snapshots").get()?.total ?? 0;
   return { bytes: pages * pageSize, snapshotBytes };
+}
+
+/**
+ * The operator journal, now that it records reads and not only writes.
+ *
+ * It was a slow table while it held mutations alone -- a few hundred rows a year. Recording every
+ * call changes the shape: 558 `sql` invocations in a fortnight on production, before any of the
+ * new commands existed, and an agent session asks more questions than a person does. Kept long
+ * enough for `usage` to still have a fortnight of evidence after a quiet month, which is what the
+ * missing-command detector needs to see a repeat.
+ */
+const JOURNAL_LIFETIME_DAYS = 120;
+
+export function pruneOperatorJournal(db: Database, now = Date.now()): number {
+  const cutoff = new Date(now - JOURNAL_LIFETIME_DAYS * 24 * 3_600_000).toISOString();
+  let removed = 0;
+  for (let chunk = 0; chunk < MAX_CHUNKS; chunk++) {
+    try {
+      const deleted = db
+        .query<{ removed: number }, [string, number]>(
+          `DELETE FROM operator_journal WHERE rowid IN (
+             SELECT rowid FROM operator_journal WHERE recorded_at < ? LIMIT ?
+           ) RETURNING 1 AS removed`,
+        )
+        .all(cutoff, CHUNK * 20).length;
+      removed += deleted;
+      if (deleted < CHUNK * 20) return removed;
+    } catch (error) {
+      log("warn", "Operator journal retention cleanup failed", {
+        errorType: error instanceof Error ? error.message : "unknown",
+        removed,
+      });
+      return removed;
+    }
+  }
+  return removed;
 }

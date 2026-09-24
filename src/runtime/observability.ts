@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { log } from "../logger.js";
 import { readState, writeState } from "../storage/appState.js";
 
-type RuntimeState = {
+export type RuntimeState = {
   bootId: string;
   bootedAt: string;
   stoppedAt: string | null;
@@ -13,7 +13,7 @@ type RuntimeState = {
 const RUNTIME_KEY = "runtime";
 const RESTART_WINDOW_MS = 30 * 60 * 1000;
 
-function readRuntime(db: Database): RuntimeState | null {
+export function readRuntime(db: Database): RuntimeState | null {
   const stored = readState(db, RUNTIME_KEY);
   if (!stored) return null;
   try {

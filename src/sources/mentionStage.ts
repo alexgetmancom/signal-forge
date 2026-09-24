@@ -151,6 +151,17 @@ export async function judgeMentions(
 
 const MENTION_SOURCES = "(source LIKE 'github:%:models' OR source LIKE 'github:%:talk')";
 
+/**
+ * A model slug as a LIKE pattern, with the wildcards in it turned back into characters.
+ *
+ * `_` is one character of anything and `%` is any run of them, and a model slug is allowed to
+ * contain both: `llama_3_1` spelled with underscores matched `llama-3-1`, `llamax3y1` and every
+ * other slug of that shape. The failure is silent and points the wrong way -- an unescaped slug
+ * matches more rows, `publiclyListed` says yes, and a model nobody has listed is judged already
+ * known and never announced.
+ */
+const likePattern = (value: string) => value.replace(/[\\%_]/g, "\\$&");
+
 /** Whether a source other than the repositories' own sightings has recorded this model. */
 function publiclyListed(db: Database, id: string): boolean {
   const bare = bareModelSlug(id);
@@ -158,9 +169,14 @@ function publiclyListed(db: Database, id: string): boolean {
   // its listed models extend: `qwen3.8` for `qwen3.8-27b`, `kimi-k2.7` for `kimi-k2.7-code`.
   const spellings = [...new Set([bare, bare.replace(/(\d)\.(\d)/g, "$1-$2")])];
   const query = db.query(
-    `SELECT 1 FROM records WHERE NOT ${MENTION_SOURCES} AND (lower(id)=?1 OR lower(id) LIKE '%/' || ?1 OR lower(id) LIKE ?1 || '-%' OR lower(id) LIKE '%/' || ?1 || '-%' OR id LIKE '%.' || ?1 || '%' OR body LIKE '%"' || ?1 || '"%') LIMIT 1`,
+    `SELECT 1 FROM records WHERE NOT ${MENTION_SOURCES} AND (lower(id)=?1
+       OR lower(id) LIKE '%/' || ?2 ESCAPE '\\'
+       OR lower(id) LIKE ?2 || '-%' ESCAPE '\\'
+       OR lower(id) LIKE '%/' || ?2 || '-%' ESCAPE '\\'
+       OR id LIKE '%.' || ?2 || '%' ESCAPE '\\'
+       OR body LIKE '%"' || ?2 || '"%' ESCAPE '\\') LIMIT 1`,
   );
-  return spellings.some((spelling) => Boolean(query.get(spelling)));
+  return spellings.some((spelling) => Boolean(query.get(spelling, likePattern(spelling))));
 }
 
 /**
@@ -172,9 +188,9 @@ export function listedInCatalogue(db: Database, id: string): boolean {
   const bare = bareModelSlug(id).toLowerCase();
   const spellings = [...new Set([bare, bare.replace(/(\d)-(\d)/g, "$1.$2"), bare.replace(/(\d)\.(\d)/g, "$1-$2")])];
   const query = db.query(
-    `SELECT 1 FROM records WHERE stream IN ('api-models','openrouter') AND (lower(id)=?1 OR lower(id) LIKE '%/' || ?1) LIMIT 1`,
+    `SELECT 1 FROM records WHERE stream IN ('api-models','openrouter') AND (lower(id)=?1 OR lower(id) LIKE '%/' || ?2 ESCAPE '\\') LIMIT 1`,
   );
-  return spellings.some((spelling) => Boolean(query.get(spelling)));
+  return spellings.some((spelling) => Boolean(query.get(spelling, likePattern(spelling))));
 }
 
 /** `gpt-5.4-mini-2026-03-17` is a dated snapshot of `gpt-5.4-mini`; knowing one is knowing the other. */

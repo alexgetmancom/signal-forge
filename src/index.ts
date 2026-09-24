@@ -25,6 +25,7 @@ import { openDatabase } from "./storage/database.js";
 import { HttpCache } from "./storage/httpCache.js";
 import {
   expireSnapshotBodies,
+  pruneOperatorJournal,
   pruneShadowCandidates,
   pruneSnapshots,
   pruneSourceCollectionMetrics,
@@ -110,6 +111,7 @@ supervisor.register(
     measure(db, "status.prune:metrics", () => pruneCodeMetrics(db));
     measure(db, "status.prune:snapshots", () => pruneSnapshots(db));
     measure(db, "status.prune:collection-metrics", () => pruneSourceCollectionMetrics(db));
+    measure(db, "status.prune:journal", () => pruneOperatorJournal(db));
     measure(db, "status.prune:snapshot-bodies", () => expireSnapshotBodies(db));
     measure(db, "status.prune:shadow-candidates", () =>
       pruneShadowCandidates(

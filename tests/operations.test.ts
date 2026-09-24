@@ -69,6 +69,30 @@ test("mutating operations are journalled with the surface that ran them", () => 
   db.close();
 });
 
+test("a holder that loses its lease is told, and does not release the new holder's row", async () => {
+  const db = openDatabase(":memory:");
+  let toldWhileRunning = false;
+  // Renewal runs on a floor of a second, so the wait has to outlast one of them.
+  const outcome = await withActionLock(db, "collection", lockHolder("slow"), 4_000, async ({ signal, holder }) => {
+    db.query("UPDATE action_locks SET holder='usurper' WHERE name='collection'").run();
+    await Bun.sleep(1_300);
+    toldWhileRunning = signal.aborted;
+    return holder;
+  });
+  expect(outcome.acquired).toBe(true);
+  // Without this the stalled holder keeps collecting the same sources the new one is collecting.
+  expect(toldWhileRunning).toBe(true);
+  // And its release matches on its own holder, so it cannot delete a lease it no longer owns.
+  expect(db.query<{ holder: string }, []>("SELECT holder FROM action_locks").get()?.holder).toBe("usurper");
+  db.close();
+});
+
+test("two acquisitions of one lease never share a holder string", () => {
+  // Reconstructing the holder to fence a write was only ever correct while this was false, and a
+  // container that restarts its processes at low pids makes it false across a crash.
+  expect(lockHolder("poller")).not.toBe(lockHolder("poller"));
+});
+
 test("one holder at a time, and a lease outlives a holder that died", async () => {
   const db = openDatabase(":memory:");
   let inside = 0;

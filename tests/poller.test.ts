@@ -17,6 +17,18 @@ test("a withheld failure still says which kind it was, and nothing an upstream w
   expect(unexplainedFailure(busy)).toBe("Collection failed: local database error (SQLiteError, SQLITE_BUSY)");
 });
 
+test("a TypeError from our own parsing is a collector bug, not a network error", () => {
+  // What `fetch` raises when it cannot connect, and what reading a field off undefined raises, are
+  // the same class. Only the first sends anyone to the router.
+  const transport = new TypeError("fetch failed");
+  expect(unexplainedFailure(transport)).toBe("Collection failed: network error (TypeError)");
+  const ours = new TypeError("undefined is not an object (evaluating 'payload.models.length')");
+  expect(unexplainedFailure(ours)).toBe("Collection failed: collector bug (TypeError)");
+  // The message is still never repeated, whichever side it came from.
+  const leaky = new TypeError("undefined is not an object (evaluating 'body.sk-live-secret')");
+  expect(unexplainedFailure(leaky)).not.toContain("secret");
+});
+
 test("a paced group's turn goes to the source that has waited longest, not to the earliest in the registry", () => {
   const job = (id: string) => ({ id }) as unknown as Parameters<typeof byLongestWait>[0][number];
   const jobs = [job("huggingface:google"), job("huggingface:internlm"), job("huggingface:XiaomiMiMo")];

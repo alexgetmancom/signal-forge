@@ -666,3 +666,16 @@ test("every maker and source with a logo has its file beside the renderer", () =
   // Reading the files is the check: a mapping to a missing PNG throws when the message is sent.
   expect(logoFiles({ embeds: urls.map((url) => ({ thumbnail: { url } })) })).toHaveLength(new Set(urls).size);
 });
+
+test("a quote inside a link URL cannot end the href attribute", () => {
+  const body = JSON.stringify({
+    content: '[the release](https://example.com/a?q="x"&b=1) landed',
+    embeds: [{ title: "Release", url: 'https://example.com/b?q="y"' }],
+  });
+  const message = telegramMessage(body);
+  expect(message.html).toContain('href="https://example.com/a?q=&quot;x&quot;&amp;b=1"');
+  // Two links, so two attributes opened: the quotes from inside the URLs are not among them.
+  expect(message.html.match(/href="/g)?.length).toBe(2);
+  expect(message.html).toContain(">the release</a>");
+  expect(message.html).toContain('href="https://example.com/b?q=&quot;y&quot;"');
+});

@@ -149,6 +149,34 @@ describe("RuntimeSupervisor", () => {
 });
 
 describe("startIntervalWorker", () => {
+  test("a cycle that outlives its deadline is reported failed, not running", async () => {
+    const db = openDatabase(":memory:");
+    let aborted = false;
+    let release = (): void => {};
+    const finished = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const worker = startIntervalWorker(
+      db,
+      "slow",
+      60_000,
+      async (signal) => {
+        signal.addEventListener("abort", () => {
+          aborted = true;
+        });
+        await finished;
+      },
+      { stallAfterMs: 5 },
+    );
+    await Bun.sleep(40);
+    const stalled = db.query<{ value: string }, [string]>("SELECT value FROM app_state WHERE key=?").get("worker:slow");
+    // The heartbeat would have said `running` forever; only the deadline can tell hung from busy.
+    expect(JSON.parse(stalled?.value ?? "{}").state).toBe("failed");
+    expect(aborted).toBe(true);
+    release();
+    await worker.stop();
+  });
+
   test("runs the first cycle immediately", async () => {
     const db = openDatabase(":memory:");
     let runs = 0;

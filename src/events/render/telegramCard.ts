@@ -30,6 +30,17 @@ type Embed = {
 
 const escapeHtml = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 
+/**
+ * The same, for the inside of a double-quoted attribute, where a quote is one character more to
+ * worry about.
+ *
+ * Telegram takes HTML and rejects a message whose markup it cannot parse -- the whole card, not the
+ * bad part of it. A double quote is legal in a URL query string and several upstreams emit one, so
+ * `href="...?q="..."` ends the attribute early and the send fails with `can't parse entities`,
+ * which arrives as a failed delivery with no hint of which character caused it.
+ */
+const escapeAttribute = (text: string) => escapeHtml(text).replace(/"/g, "&quot;");
+
 const two = (value: number) => String(value).padStart(2, "0");
 
 /** Discord draws a timestamp in each reader's own time; Telegram gets UTC and a count of hours. */
@@ -56,7 +67,7 @@ function inline(text: string): string {
   return escapeHtml(text)
     .replace(
       /\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g,
-      (_m, label: string, url: string) => `<a href="${url}">${label}</a>`,
+      (_m, label: string, url: string) => `<a href="${url.replace(/"/g, "&quot;")}">${label}</a>`,
     )
     .replace(/\*\*(.+?)\*\*/g, "<b>$1</b>")
     .replace(/__(.+?)__/g, "<u>$1</u>")
@@ -102,7 +113,7 @@ export const visibleLength = (html: string) =>
 function embedHtml(embed: Embed, now: number): string {
   const title = embed.title
     ? embed.url
-      ? `<b><a href="${escapeHtml(embed.url)}">${escapeHtml(embed.title)}</a></b>`
+      ? `<b><a href="${escapeAttribute(embed.url)}">${escapeHtml(embed.title)}</a></b>`
       : `<b>${escapeHtml(embed.title)}</b>`
     : "";
   const fields = (embed.fields ?? []).map((field) => `<b>${inline(field.name)}</b>\n${block(field.value, now)}`);

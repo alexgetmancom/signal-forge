@@ -93,6 +93,7 @@ test("source registry has unique IDs, valid streams, labels and consistent pacin
     new Map([
       ["huggingface.co", 10],
       ["designarena.ai", 60],
+      ["artificialanalysis.ai", 10],
       ["itunes.apple.com", 10],
       ["github-search", 60],
       ["polymarket.com", 60],

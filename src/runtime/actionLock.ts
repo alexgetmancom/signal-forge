@@ -22,6 +22,15 @@ type ActionLease = {
   expiresAt: string;
 };
 
+/**
+ * What the work is told about the lease it is running under.
+ *
+ * `holder` is handed over rather than recomputed. `publications` used to fence its own write by
+ * calling `lockHolder` a second time and comparing the strings, which only worked while the string
+ * was a pure function of the process -- and a string that identifies an acquisition cannot be.
+ */
+export type HeldLease = { holder: string; signal: AbortSignal };
+
 export type LockOutcome<T> = { acquired: true; result: T } | { acquired: false; heldBy: ActionLease };
 
 function currentLease(db: Database, name: string): ActionLease | null {
@@ -42,7 +51,7 @@ export async function withActionLock<T>(
   name: string,
   holder: string,
   leaseMs: number,
-  run: () => Promise<T> | T,
+  run: (lease: HeldLease) => Promise<T> | T,
 ): Promise<LockOutcome<T>> {
   const now = new Date().toISOString();
   const expiresAt = new Date(Date.now() + leaseMs).toISOString();
@@ -61,20 +70,28 @@ export async function withActionLock<T>(
       heldBy: held ?? { name, holder: "unknown", acquiredAt: now, expiresAt: now },
     };
   }
+  // The lease keeps a second holder out; it does not keep the first one's work in. A process that
+  // stalls past its expiry -- a long GC pause, a disk that stops answering -- loses the lease to
+  // somebody else, wakes up, and carries on collecting: two cycles writing the same sources, which
+  // is the exact thing the lock exists to prevent, and neither of them can tell. The renewal is the
+  // only place that finds out, because it is the only thing that touches the row while the work
+  // runs, so it is what says so.
+  const lost = new AbortController();
   const renewal = setInterval(() => {
     try {
-      db.query("UPDATE action_locks SET expires_at=? WHERE name=? AND holder=?").run(
-        new Date(Date.now() + leaseMs).toISOString(),
-        name,
-        holder,
-      );
+      const renewed = db
+        .query("UPDATE action_locks SET expires_at=? WHERE name=? AND holder=?")
+        .run(new Date(Date.now() + leaseMs).toISOString(), name, holder);
+      if (renewed.changes === 0 && !lost.signal.aborted)
+        lost.abort(new Error(`Lease ${name} was taken by another holder`));
     } catch {
       // A renewal that cannot be written leaves the lease to expire on its own, which is the
       // behaviour a crashed holder gets and is safe; the cycle itself is not worth failing for it.
+      // Losing the row to somebody else is the other case, and it is handled above, not here.
     }
   }, renewalInterval(leaseMs));
   try {
-    return { acquired: true, result: await run() };
+    return { acquired: true, result: await run({ holder, signal: lost.signal }) };
   } finally {
     clearInterval(renewal);
     db.query("DELETE FROM action_locks WHERE name=? AND holder=?").run(name, holder);
@@ -86,7 +103,15 @@ function renewalInterval(leaseMs: number): number {
   return Math.max(1_000, Math.floor(leaseMs / 4));
 }
 
-/** Identifies the process holding a lease well enough to name it in an operator message. */
+/**
+ * Identifies one acquisition of a lease, well enough to name it in an operator message and well
+ * enough that no other acquisition can be mistaken for it.
+ *
+ * The pid alone is not enough on its own terms: a container starts its processes at low numbers and
+ * reuses them across restarts, so `poller:7` after a crash is the same string as the `poller:7`
+ * whose row may still be sitting in the table. Release and renewal both match on this string, and
+ * both are wrong if two acquisitions can share one.
+ */
 export function lockHolder(surface: string): string {
-  return `${surface}:${process.pid}`;
+  return `${surface}:${process.pid}:${crypto.randomUUID().slice(0, 8)}`;
 }

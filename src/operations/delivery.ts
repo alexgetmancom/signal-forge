@@ -4,11 +4,12 @@ import type { AppConfig } from "../config.js";
 import { requireDeliveryVerification, resolveDeliveryVerification } from "../deliveryVerification.js";
 import { eventEmbed } from "../events/render/discord.js";
 import type { Event } from "../events/types.js";
+import { destinationStandings } from "../reports/destinations.js";
 import { sentByChannel } from "../reports/news.js";
 import { count, identifier, type OperationMap } from "./definition.js";
 
 /** The "delivery" section of the operation registry; src/operations.ts joins the sections. */
-export function deliveryOperations(db: Database, _config: AppConfig, _all: () => OperationMap): OperationMap {
+export function deliveryOperations(db: Database, config: AppConfig, _all: () => OperationMap): OperationMap {
   return {
     preview: {
       section: "delivery",
@@ -179,6 +180,22 @@ export function deliveryOperations(db: Database, _config: AppConfig, _all: () =>
            ORDER BY s.recorded_at DESC, s.event_id DESC LIMIT ?2`,
           )
           .all(input.destinationId ?? null, input.limit),
+    },
+    destinations: {
+      section: "delivery",
+      summary:
+        "Every channel the registry configures, with what it received, what failed and how long it has been quiet — and, separately, channels that appear in the delivery history but are no longer configured.",
+      startHere: "which channels are live, and has one of them gone quiet",
+      note:
+        "Ask this before grouping `deliveries` by destination in SQL. The table keeps a row for " +
+        "every channel that ever received anything, so a retired destination reads exactly like a " +
+        "live one that broke. The registry is what decides; raw SQL does not know it exists.",
+      mutates: false,
+      agent: true,
+      schema: z.object({ days: count(90, 7) }),
+      cli: { args: [{ name: "days", optional: true }] },
+      http: { method: "get", path: "/api/destinations" },
+      handler: (input: { days: number }) => destinationStandings(db, config, input.days),
     },
     sent: {
       section: "delivery",

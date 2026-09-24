@@ -67,6 +67,12 @@ export function leaderboardsSources({ config, cache }: SourceContext): SourceEnt
       intervalSeconds: 3600,
       capabilityId: "artificial-analysis",
       requiredCapabilities: ["ARTIFICIAL_ANALYSIS_API_KEY"],
+      // Five sources, one host, one key. Without a pacing group all five fire in the same cycle,
+      // and the hourly ones do it every hour: the key was refused on 2026-09-18 and the six issues
+      // that followed were all the same request being made five times at once. Every other host
+      // this service asks more than once is paced; this one was the exception because the sources
+      // were added one at a time and each was alone when it was.
+      pace: { group: "artificialanalysis.ai", seconds: 10 },
       collector: () => collectArtificialAnalysis(config),
     },
     ...MEDIA_ARENAS.map(
@@ -80,6 +86,7 @@ export function leaderboardsSources({ config, cache }: SourceContext): SourceEnt
         intervalSeconds: arena === "text-to-video" || arena === "image-editing" ? 86_400 : 3600,
         capabilityId: "artificial-analysis",
         requiredCapabilities: ["ARTIFICIAL_ANALYSIS_API_KEY"],
+        pace: { group: "artificialanalysis.ai", seconds: 10 },
         collector: () => collectMediaArena(config, arena),
       }),
     ),

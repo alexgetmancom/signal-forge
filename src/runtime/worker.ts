@@ -9,6 +9,16 @@ export type WorkerHandle = {
 
 const WORKER_HEARTBEAT_INTERVAL_MS = 60_000;
 
+/**
+ * How long a cycle may run before it is called stalled, when the caller names no bound.
+ *
+ * A worker that hangs is the one failure the heartbeat cannot see: the heartbeat is written by the
+ * timer beside the task, not by the task, so a cycle blocked forever on a socket that will never
+ * answer keeps writing `running` every minute and `issues` keeps reporting it healthy. Only a
+ * deadline can tell "working" from "hung", because from outside they look the same.
+ */
+const stallAfter = (intervalMs: number) => Math.max(intervalMs * 5, 600_000);
+
 type WorkerState = {
   state: "running" | "idle" | "failed" | "stopped";
   lastStartedAt: string;
@@ -32,7 +42,8 @@ export function startIntervalWorker(
   db: Database,
   name: string,
   intervalMs: number,
-  task: () => void | Promise<void>,
+  task: (signal: AbortSignal) => void | Promise<void>,
+  options: { stallAfterMs?: number } = {},
 ): WorkerHandle {
   if (!Number.isInteger(intervalMs) || intervalMs <= 0) {
     throw new Error("Worker interval must be a positive integer");
@@ -70,8 +81,36 @@ export function startIntervalWorker(
         heartbeatIntervalMs: WORKER_HEARTBEAT_INTERVAL_MS,
       });
     }, WORKER_HEARTBEAT_INTERVAL_MS);
+    const deadline = options.stallAfterMs ?? stallAfter(intervalMs);
+    const abort = new AbortController();
+    let stalled = false;
+    const stallTimer = setTimeout(() => {
+      stalled = true;
+      // The heartbeat stops here on purpose. A stalled cycle that keeps saying `running` is the
+      // bug; once the deadline passes, the worker goes quiet and `worker_stale` fires on its own
+      // even if the task never returns to let the `failed` state below be written.
+      clearInterval(heartbeatTimer);
+      abort.abort(new Error(`Worker ${name} exceeded ${deadline} ms`));
+      storeState(db, name, {
+        state: "failed",
+        lastStartedAt,
+        lastFinishedAt: null,
+        durationMs: Date.now() - started,
+        lastError: `Cycle still running after ${Math.round(deadline / 1000)}s`,
+        lastHeartbeatAt: new Date().toISOString(),
+        heartbeatIntervalMs: WORKER_HEARTBEAT_INTERVAL_MS,
+      });
+      log("error", "Worker cycle is stalled", { worker: name, afterMs: deadline });
+    }, deadline);
     try {
-      await measure(db, `worker:${name}`, task);
+      await measure(db, `worker:${name}`, () => task(abort.signal));
+      if (stalled) {
+        // It finished, late. The next cycle is scheduled as usual by the `finally` below, but the
+        // stall is not overwritten with `idle`: that a cycle took longer than its deadline is the
+        // thing worth keeping, and the next successful cycle clears it.
+        log("warn", "Worker cycle finished after it was called stalled", { worker: name });
+        return;
+      }
       const finishedAt = new Date().toISOString();
       storeState(db, name, {
         state: "idle",
@@ -95,6 +134,7 @@ export function startIntervalWorker(
       });
       log("error", "Worker cycle failed", { worker: name, error });
     } finally {
+      clearTimeout(stallTimer);
       clearInterval(heartbeatTimer);
       if (!stopped) timer = setTimeout(startCycle, intervalMs);
     }

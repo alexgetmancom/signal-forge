@@ -35,6 +35,26 @@ export function due(checkedAt: string | null, interval: number, failures: number
 }
 
 /**
+ * Whether a `TypeError` came from the transport or from our own code.
+ *
+ * `fetch` reports every connection failure as a bare `TypeError`, and so does reading a property of
+ * something undefined -- which is what a collector does the first time an upstream renames a field.
+ * Calling both "network error" sends whoever reads it to the router while the bug sits in the
+ * parser, and the source keeps failing for as long as they look in the wrong place.
+ *
+ * The transport leaves evidence the runtime chose: a `cause` carrying a code, or one of a small set
+ * of fixed phrases it raises itself. Neither can quote a credential or a response body, which is
+ * why they are the only two things read here. Everything else is ours.
+ */
+const TRANSPORT_PHRASES = ["fetch failed", "unable to connect", "failed to fetch", "network request failed"];
+
+function transportFailure(error: unknown, code: string | undefined): boolean {
+  if (code) return true;
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  return TRANSPORT_PHRASES.some((phrase) => message.includes(phrase));
+}
+
+/**
  * What kind of failure this was, in words that can carry no credential and no response body.
  *
  * The message is withheld because it can quote either. That used to withhold everything: Artificial
@@ -55,9 +75,13 @@ export function unexplainedFailure(error: unknown): string {
       ? "response did not match the schema"
       : name === "SQLiteError"
         ? "local database error"
-        : name === "TypeError" || name === "AbortError" || name === "TimeoutError" || code?.startsWith("E")
+        : name === "AbortError" || name === "TimeoutError" || code?.startsWith("E")
           ? "network error"
-          : "unexpected error";
+          : name === "TypeError"
+            ? transportFailure(error, code)
+              ? "network error"
+              : "collector bug"
+            : "unexpected error";
   return `Collection failed: ${kind} (${[name, code].filter(Boolean).join(", ")})`;
 }
 
@@ -76,8 +100,8 @@ export type PollOutcome = { collected: boolean; sources: number; heldBy?: string
 const COLLECTION_LEASE_MS = 2 * 60_000;
 
 export async function pollSources(db: Database, config: AppConfig, force = false): Promise<PollOutcome> {
-  const outcome = await withActionLock(db, "collection", lockHolder("poller"), COLLECTION_LEASE_MS, () =>
-    collectDueSources(db, config, force),
+  const outcome = await withActionLock(db, "collection", lockHolder("poller"), COLLECTION_LEASE_MS, ({ signal }) =>
+    collectDueSources(db, config, force, signal),
   );
   if (outcome.acquired) return { collected: true, sources: outcome.result };
   log("info", "Collection cycle skipped", { heldBy: outcome.heldBy.holder });
@@ -106,7 +130,12 @@ export function byLongestWait(
   return [...jobs].sort((a, b) => waited(b) - waited(a));
 }
 
-async function collectDueSources(db: Database, config: AppConfig, force: boolean): Promise<number> {
+async function collectDueSources(
+  db: Database,
+  config: AppConfig,
+  force: boolean,
+  lease?: AbortSignal,
+): Promise<number> {
   const jobs = sourceJobs(db, config);
   const rows = new Map(
     jobs.map((job) => [
@@ -148,6 +177,14 @@ async function collectDueSources(db: Database, config: AppConfig, force: boolean
   const light = dueJobs.filter((job) => !job.heavy);
   const worker = async (queue: SourceDefinition[]): Promise<void> => {
     while (queue.length) {
+      // Between two sources is the safe place to notice. The lease was lost while this cycle was
+      // running, which means another process is already collecting the same sources; finishing the
+      // queue would write both of their answers over each other. The sources not reached are due
+      // again immediately, and the holder that took the lease is the one collecting them.
+      if (lease?.aborted) {
+        log("warn", "Collection cycle stopped: the lease was taken by another holder", { remaining: queue.length });
+        return;
+      }
       const job = queue.shift();
       if (!job) return;
       try {

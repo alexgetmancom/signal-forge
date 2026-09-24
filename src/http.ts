@@ -96,22 +96,30 @@ export function createHttpApp(config: AppConfig, db: Database): Hono {
           })
         : { ...c.req.query(), ...(c.req.param() as Record<string, string | undefined>) };
       const input = definition.schema.safeParse(raw);
+      const started = Bun.nanoseconds();
+      const journal = (outcome: "ok" | "rejected" | "failed", value: unknown, detail?: string) =>
+        recordOperatorAction(db, {
+          surface: "http",
+          operation: name,
+          input: value,
+          outcome,
+          mutates: definition.mutates,
+          durationMs: (Bun.nanoseconds() - started) / 1e6,
+          ...(detail ? { detail } : {}),
+        });
       if (!input.success) {
-        if (definition.mutates)
-          recordOperatorAction(db, { surface: "http", operation: name, input: raw, outcome: "rejected" });
+        journal("rejected", raw);
         return c.json({ error: `Invalid input for ${name}` }, 400);
       }
       try {
         const result = await (definition.handler as (value: unknown) => unknown)(input.data);
-        if (definition.mutates)
-          recordOperatorAction(db, { surface: "http", operation: name, input: input.data, outcome: "ok" });
+        journal("ok", input.data);
         if (definition.notFoundWhenEmpty && (result === undefined || result === null))
           return c.json({ error: "Not found" }, 404);
         return c.json((result ?? null) as never);
       } catch (error) {
         const detail = error instanceof Error ? error.message : "Operation failed";
-        if (definition.mutates)
-          recordOperatorAction(db, { surface: "http", operation: name, input: input.data, outcome: "failed", detail });
+        journal("failed", input.data, detail);
         // An operator error — a delivery that is not awaiting verification, a credential circuit
         // that is not open — is an answer about the request, not a broken service.
         return c.json({ error: detail }, 400);
@@ -165,22 +173,25 @@ export function createHttpApp(config: AppConfig, db: Database): Hono {
           const input = def.schema.safeParse(req.params?.arguments ?? {});
           if (!input.success)
             return reply({ result: { isError: true, content: [{ type: "text", text: "Invalid tool arguments" }] } });
+          const started = Bun.nanoseconds();
+          const journal = (outcome: "ok" | "failed", detail?: string) =>
+            recordOperatorAction(db, {
+              surface: "mcp",
+              operation: name as string,
+              input: input.data,
+              outcome,
+              mutates: def.mutates,
+              durationMs: (Bun.nanoseconds() - started) / 1e6,
+              ...(detail ? { detail } : {}),
+            });
           try {
             const result = measure(db, `mcp.tool:${name}`, () =>
               (def.handler as (value: unknown) => unknown)(input.data),
             );
-            if (def.mutates)
-              recordOperatorAction(db, { surface: "mcp", operation: name as string, input: input.data, outcome: "ok" });
+            journal("ok");
             return reply({ result: { content: [{ type: "text", text: JSON.stringify(result) }] } });
           } catch (error) {
-            if (def.mutates)
-              recordOperatorAction(db, {
-                surface: "mcp",
-                operation: name as string,
-                input: input.data,
-                outcome: "failed",
-                detail: error instanceof Error ? error.message : "Tool execution failed",
-              });
+            journal("failed", error instanceof Error ? error.message : "Tool execution failed");
             return reply({ error: { code: -32000, message: "Tool execution failed" } });
           }
         }

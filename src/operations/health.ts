@@ -6,7 +6,9 @@ import { buildOperationsGuide, OPERATION_SECTIONS, type OperationSection } from 
 import { doctorReport } from "../reports/doctor.js";
 import { listActionableIssues } from "../reports/issues.js";
 import { keyStandings } from "../reports/keys.js";
+import { releaseCheck } from "../reports/release.js";
 import { statusReport } from "../reports/statusReport.js";
+import { usageReport } from "../reports/usage.js";
 import { memoryReport } from "../runtime/observability.js";
 import { dateIntegrity } from "../storage/dateIntegrity.js";
 import { count, flag, type OperationMap, operationCatalog } from "./definition.js";
@@ -100,6 +102,43 @@ export function healthOperations(db: Database, config: AppConfig, all: () => Ope
       cli: { args: [{ name: "limit", optional: true }] },
       http: { method: "get", path: "/api/date-integrity" },
       handler: (input: { limit: number }) => dateIntegrity(db, input.limit),
+    },
+    usage: {
+      section: "health",
+      summary:
+        "Which commands are actually used, which fail, and the raw queries asked by hand often enough to deserve a command of their own.",
+      startHere: "what should the next command be, and is anything I shipped going unused",
+      note:
+        "Read from the operator journal, which records every call and not only the ones that write. " +
+        "The `askedByHand` list is the useful half: a SQL shape asked more than once is a report " +
+        "nobody wrote yet, and the repeat is the evidence for writing it.",
+      mutates: false,
+      agent: true,
+      schema: z.object({ days: count(90, 14) }),
+      cli: { args: [{ name: "days", optional: true }] },
+      http: { method: "get", path: "/api/usage" },
+      handler: (input: { days: number }) => usageReport(db, input.days),
+    },
+    verify: {
+      section: "health",
+      summary:
+        "Whether the running build is the one just pushed: schema version, hot-path indexes, a named symbol in the built code, and failures since the restart.",
+      startHere: "I just deployed and want to know it landed",
+      note:
+        "Name a symbol the release added. Everything else can pass while the container runs last " +
+        "week's image, because the database outlives the image and only the built code can say " +
+        "which release is loaded.",
+      mutates: false,
+      agent: true,
+      schema: z.object({ symbol: z.string().min(1).optional(), directory: z.string().min(1).optional() }),
+      cli: {
+        args: [
+          { name: "symbol", optional: true },
+          { name: "directory", optional: true },
+        ],
+      },
+      http: { method: "get", path: "/api/verify" },
+      handler: (input: { symbol?: string; directory?: string }) => releaseCheck(db, input),
     },
     memory: {
       section: "health",
