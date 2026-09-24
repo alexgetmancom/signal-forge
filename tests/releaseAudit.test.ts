@@ -58,3 +58,33 @@ test("a release is dated by its first source against its own timestamp, under wh
   });
   db.close();
 });
+
+test("the report keeps the misses: a page and a name the policy silenced are not misses", () => {
+  const db = openDatabase(":memory:");
+  db.query(
+    "INSERT INTO snapshots(id,source,collected_at,body,hash,bytes) VALUES(1,'x','2026-09-21T19:45:00.000Z','{}','h',2)",
+  ).run();
+  const insert = db.query(
+    "INSERT INTO events(source,stream,entity_id,kind,after_json,detected_at,snapshot_id,authority,signal) VALUES(?,?,?,'new',?,?,1,'third_party',?)",
+  );
+  // A prompting guide is a page about a model, and its slug carries the model's version.
+  insert.run(
+    "pages:anthropic",
+    "pages",
+    "/docs/prompting-claude-opus-5-5",
+    "{}",
+    "2026-09-21T10:00:00.000Z",
+    "evidence",
+  );
+  insert.run("web:anthropic", "web", "prompting-claude-opus-5-5", "{}", "2026-09-21T11:00:00.000Z", "article");
+  // An alias of a model that is already out: seen twice, silenced both times on purpose.
+  for (const [index, source] of ["openrouter", "groq"].entries()) {
+    insert.run(source, "api-models", "grok-4.20-beta", "{}", `2026-09-21T1${index}:30:00.000Z`, "codename");
+    db.query(
+      "INSERT INTO suppressions(event_id,destination_id,batch_id,reason,detail,recorded_at) VALUES(?,'discord-signals',1,'already_out_at_its_maker','','2026-09-21T12:00:00.000Z')",
+    ).run(db.query<{ id: number }, []>("SELECT MAX(id) AS id FROM events").get()?.id ?? 0);
+  }
+
+  expect(releaseAudit(db, 7, Date.parse("2026-09-22T12:00:00.000Z")).releases).toEqual([]);
+  db.close();
+});

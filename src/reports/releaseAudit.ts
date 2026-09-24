@@ -30,7 +30,17 @@ export type ReleaseAuditRow = {
   cardAt: string | null;
 };
 
-type EventRow = Event & { card_at: string | null; authority: string | null };
+type EventRow = Event & { card_at: string | null; authority: string | null; suppressed: number };
+
+/**
+ * Whether the pipeline took this event for a model, rather than for writing about one. Events
+ * stored before the class was kept have none, and an unknown class is not an accusation: they count.
+ */
+const ABOUT_A_MODEL = new Set(["launch", "release", "codename"]);
+
+function aboutAModel(event: Event): boolean {
+  return !event.signal || ABOUT_A_MODEL.has(event.signal);
+}
 
 function modelKey(canonicalId: string): string {
   return normalizeIdentity(canonicalId.split("/").pop() ?? canonicalId);
@@ -76,14 +86,24 @@ export function releaseAudit(db: Database, days = 7, now = Date.now()): { since:
     .query<EventRow, [string]>(
       `SELECT e.*,
          (SELECT MIN(d.updated_at) FROM delivery_events de JOIN deliveries d ON d.id=de.delivery_id
-          WHERE de.event_id=e.id AND d.status='sent') AS card_at
+          WHERE de.event_id=e.id AND d.status='sent') AS card_at,
+         (SELECT COUNT(*) FROM suppressions s WHERE s.event_id=e.id) AS suppressed
        FROM events e WHERE e.kind='new' AND e.detected_at>=? ORDER BY e.detected_at, e.id`,
     )
     .all(since);
 
   const groups = new Map<
     string,
-    { model: string; first: EventRow; families: Set<string>; upstreamAt: string | null; cardAt: string | null }
+    {
+      model: string;
+      first: EventRow;
+      families: Set<string>;
+      upstreamAt: string | null;
+      cardAt: string | null;
+      /** Events that were judged a model at all, and how many of those the policy silenced on purpose. */
+      judged: number;
+      silenced: number;
+    }
   >();
   for (const event of events) {
     const canonicalId = identityFor(event, recordFor(event)).canonicalId ?? slugModel(event);
@@ -97,7 +117,13 @@ export function releaseAudit(db: Database, days = 7, now = Date.now()): { since:
       families: new Set<string>(),
       upstreamAt: null,
       cardAt: null,
+      judged: 0,
+      silenced: 0,
     };
+    if (aboutAModel(event)) {
+      group.judged += 1;
+      if (event.suppressed) group.silenced += 1;
+    }
     group.families.add(sourceFamily(event.source, event.stream));
     const upstream = upstreamTime(event);
     if (upstream && (!group.upstreamAt || upstream < group.upstreamAt)) group.upstreamAt = upstream;
@@ -106,7 +132,16 @@ export function releaseAudit(db: Database, days = 7, now = Date.now()): { since:
   }
 
   const releases = [...groups.values()]
-    .filter((group) => group.families.size >= 2 || group.cardAt)
+    /**
+     * What the report is for is the miss: a model that came out and got no card. Two other things
+     * were reaching it and reading as misses. A page the classifier never took for a model --
+     * `prompting-claude-opus-5-5` is a prompting guide -- was listed because its slug has a digit
+     * in it. And a name the policy silenced on purpose -- an alias of a model already out, a second
+     * catalogue's row for one already told -- was listed as though nobody had noticed it. Neither is
+     * a miss; one is a page and the other is the policy working. A model whose every sighting was
+     * silenced is left out entirely, and "no card" is kept for the ones nothing explains.
+     */
+    .filter((group) => group.cardAt || (group.families.size >= 2 && group.judged > group.silenced))
     .map((group): ReleaseAuditRow => {
       const firstSeenAt = group.first.detected_at;
       const lag = group.upstreamAt ? (Date.parse(firstSeenAt) - Date.parse(group.upstreamAt)) / 60_000 : null;

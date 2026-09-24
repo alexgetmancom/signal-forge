@@ -39,6 +39,12 @@ export const MODEL_MENTION_REPOS: readonly MentionWatch[] = [
   { repo: "anthropics/anthropic-sdk-python", vendor: "Anthropic", authority: "vendor_owned" },
   { repo: "google-gemini/gemini-cli", vendor: "Google", authority: "vendor_owned" },
   { repo: "googleapis/python-genai", vendor: "Google", authority: "vendor_owned" },
+  /**
+   * MiniMax ships its coding client from its own repository, and the client carries the catalogue
+   * it will call. `MiniMax-M3.1` sat in five of its test files on 2026-09-24 -- ordered ahead of M3
+   * in the catalogue tests -- while nothing else this tracker reads had ever written the name.
+   */
+  { repo: "MiniMax-AI/minimax-code", vendor: "MiniMax", authority: "vendor_owned" },
   // Proxies that relay real traffic and record the model a response names. They see what a backend
   // actually serves, which no catalogue says.
   { repo: "d4rken/clankermux", authority: "third_party" },

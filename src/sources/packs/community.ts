@@ -1,5 +1,6 @@
 import type { AppConfig } from "../../config.js";
 import { collectClaudeCodeModels } from "../claudeCode.js";
+import { CLI_BUNDLES, collectCliBundle } from "../cliBundles.js";
 import { collectCodexModels } from "../codex.js";
 import { collectCommandCodeModels, collectOpenCodeGo, collectOpenCodeZen } from "../codingPlans.js";
 import type { SourceContext, SourceEntry } from "../definition.js";
@@ -7,6 +8,7 @@ import { collectGithubDiscovery, collectHuggingFaceTrending, GITHUB_DISCOVERY_QU
 import { collectGithubCommits, collectGithubPulls, collectGithubReleases } from "../github.js";
 import { collectPolymarket } from "../markets.js";
 import { collectModelMentions, MODEL_MENTION_REPOS, mentionSource } from "../modelMentions.js";
+import { collectDocsProbe, collectOpenCodeData, PROBE_SITES } from "../probes.js";
 import { collectRepoTalk, talkSource } from "../repoTalk.js";
 import { collectMimoTraining } from "../training.js";
 
@@ -195,6 +197,45 @@ export function communitySources({ db, config, cache }: SourceContext): SourceEn
       collector: () => collectGithubDiscovery(config, query, fetch, new Date(), cache),
     });
   }
+  for (const bundle of CLI_BUNDLES)
+    definitions.push({
+      id: bundle.source,
+      authority: "vendor_owned",
+      vendor: bundle.vendor,
+      group: "GitHub",
+      stream: "github",
+      // A 20 to 30 MB download, read only when the published version moves.
+      intervalSeconds: 3600,
+      heavy: true,
+      collector: () => collectCliBundle(bundle, fetch),
+    });
+
+  for (const site of PROBE_SITES)
+    definitions.push({
+      id: site.id,
+      authority: "vendor_owned",
+      vendor: site.vendor,
+      group: "Discovery",
+      stream: "pages",
+      /**
+       * A handful of addresses, asked often. This is the one source that can be first: the page is
+       * written before the announcement and answers to anyone who guesses it, so the whole value is
+       * in the minutes. Five minutes is a dozen requests an hour against a documentation host that
+       * serves millions, and nothing is stored unless an address answers.
+       */
+      intervalSeconds: 300,
+      pace: { group: site.id, seconds: 5 },
+      collector: () => collectDocsProbe(site, fetch),
+    });
+  definitions.push({
+    id: "discovery:opencode-data",
+    authority: "third_party",
+    group: "Discovery",
+    stream: "api-models",
+    intervalSeconds: 900,
+    pace: { group: "opencode.ai", seconds: 5 },
+    collector: () => collectOpenCodeData(fetch),
+  });
   definitions.push({
     id: "discovery:huggingface-trending",
     authority: "third_party",

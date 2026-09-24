@@ -96,6 +96,10 @@ test("source registry has unique IDs, valid streams, labels and consistent pacin
       ["itunes.apple.com", 10],
       ["github-search", 60],
       ["polymarket.com", 60],
+      ["discovery:docs-openai", 5],
+      ["discovery:docs-anthropic", 5],
+      ["discovery:docs-google", 5],
+      ["opencode.ai", 5],
     ]),
   );
   db.close();
