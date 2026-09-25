@@ -93,7 +93,11 @@ export function releaseCheck(
   const schemaOk = applied === CURRENT_SCHEMA_VERSION;
   const missing = REQUIRED_INDEXES.filter((name) => !present.has(name));
   return {
-    ok: schemaOk && missing.length === 0 && (!input.symbol || files.length > 0) && failedOperations === 0,
+    // `ok` is about the deployment, so it is the schema, the indexes and the image -- not
+    // `failedOperations`. That count includes an operator mistyping a column name in a read, which
+    // is what it caught the first time this was asked on production, and a typo in somebody's query
+    // is not a bad release. It is reported below because it is worth seeing, not voted on here.
+    ok: schemaOk && missing.length === 0 && (!input.symbol || files.length > 0),
     schema: { expected: CURRENT_SCHEMA_VERSION, applied, ok: schemaOk },
     symbol: { name: input.symbol ?? null, found: input.symbol ? files.length > 0 : null, files: files.slice(0, 10) },
     indexes: { missing, analysed },

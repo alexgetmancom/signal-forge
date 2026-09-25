@@ -47,6 +47,18 @@ test("a build directory that is not there is a failed check, not a crash", () =>
   db.close();
 });
 
+test("an operator's mistyped query does not count against the release", () => {
+  const db = openDatabase(":memory:");
+  db.query(
+    "INSERT INTO operator_journal(recorded_at,surface,operation,input_json,outcome,detail,mutates) VALUES(?,?,?,?,?,?,0)",
+  ).run(new Date().toISOString(), "cli", "sql", "{}", "failed", "no such column: total_ms");
+  const check = releaseCheck(db, {});
+  // The count is worth seeing; it is not a verdict on the image that was deployed.
+  expect(check.sinceBoot.failedOperations).toBe(1);
+  expect(check.ok).toBe(true);
+  db.close();
+});
+
 test("an index dropped after the migration ran is reported missing", () => {
   const db = openDatabase(":memory:");
   db.exec("DROP INDEX events_detected_at");
