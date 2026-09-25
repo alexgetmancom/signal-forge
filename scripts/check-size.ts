@@ -37,7 +37,7 @@ const BUDGET: Readonly<Record<string, number>> = {
   "src/events/batching.ts:prepareDeliveries": 325,
   "src/sources/packs/news.ts:newsSources": 325,
   "src/reports/issues.ts:listActionableIssues": 275,
-  "src/operations/health.ts:healthOperations": 250,
+  "src/operations/health.ts:healthOperations": 200,
   "src/delivery.ts:deliverPending": 225,
   "src/events/store.ts:persistCollection": 225,
   "src/operations/delivery.ts:deliveryOperations": 225,

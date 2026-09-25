@@ -4,6 +4,7 @@ import type { AppConfig } from "../config.js";
 import { readRuntime } from "../runtime/observability.js";
 import { buildSourceRegistry } from "../sources/registry.js";
 import { CURRENT_SCHEMA_VERSION } from "../storage/migrations.js";
+import { type RenderFingerprint, releaseRender } from "./releaseRender.js";
 
 /**
  * Did the release that just landed actually land, and has anything broken since it did.
@@ -32,6 +33,14 @@ export type ReleaseCheck = {
    * `issues`. A collector retired on purpose read as a deployment that had just broken something.
    */
   retiredFailing: number;
+  /**
+   * Whether this build renders the cards the last one did.
+   *
+   * Every other field here answers "is the new image running". This is the only one that answers
+   * "does the new image say anything different", which is the part of a release a reader is on the
+   * other end of. Null when the process has not recorded a start, which is a process still starting.
+   */
+  cards: RenderFingerprint | null;
 };
 
 /** The indexes the hot paths depend on; a missing one is a slowdown nothing else reports. */
@@ -70,7 +79,7 @@ function symbolInBuild(name: string, directory: string): string[] {
 export function releaseCheck(
   db: Database,
   config: AppConfig,
-  input: { symbol?: string | undefined; directory?: string | undefined },
+  input: { symbol?: string | undefined; directory?: string | undefined; cardDays?: number | undefined },
 ): ReleaseCheck {
   const applied = db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version ?? 0;
   const present = new Set(
@@ -117,5 +126,6 @@ export function releaseCheck(
     sinceBoot: { bootedAt, failedOperations, failedCollections },
     issues,
     retiredFailing: failing.length - issues,
+    cards: releaseRender(db, input.cardDays ?? 2),
   };
 }

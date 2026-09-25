@@ -39,6 +39,10 @@ const SNAPSHOT_SCRIPT = [
 ].join(" ");
 
 async function pullSnapshot(into: string): Promise<boolean> {
+  // The sidecars of the copy this replaces, first. `VACUUM INTO` produces a plain file, but the
+  // `-wal` and `-shm` left beside the previous one are read as belonging to the new one -- which
+  // is `database disk image is malformed` from a copy that arrived intact.
+  for (const suffix of ["-wal", "-shm"]) rmSync(`${into}${suffix}`, { force: true });
   const encoded = Buffer.from(SNAPSHOT_SCRIPT).toString("base64");
   const remote = [
     "rm -f /tmp/rehearsal.db",

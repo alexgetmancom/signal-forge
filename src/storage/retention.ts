@@ -287,3 +287,26 @@ export function pruneSourceShapes(db: Database, now = Date.now()): number {
     return 0;
   }
 }
+
+/**
+ * Release fingerprints older than the deploys anybody still asks about.
+ *
+ * One row per boot, and a container that restarts unexpectedly writes one too. Forty is what
+ * `verify` reads back to find the boot before this one; ninety days is generous beside that and
+ * still bounded, which is the whole requirement for a 200-byte row.
+ */
+const RELEASE_RENDER_LIFETIME_DAYS = 90;
+
+export function pruneReleaseRenders(db: Database, now = Date.now()): number {
+  const cutoff = new Date(now - RELEASE_RENDER_LIFETIME_DAYS * 24 * 3_600_000).toISOString();
+  try {
+    return db
+      .query<{ removed: number }, [string]>("DELETE FROM release_renders WHERE booted_at < ? RETURNING 1 AS removed")
+      .all(cutoff).length;
+  } catch (error) {
+    log("warn", "Release render retention cleanup failed", {
+      errorType: error instanceof Error ? error.message : "unknown",
+    });
+    return 0;
+  }
+}

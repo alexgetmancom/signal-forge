@@ -27,6 +27,7 @@ import {
   expireSnapshotBodies,
   pruneFailureEvidence,
   pruneOperatorJournal,
+  pruneReleaseRenders,
   pruneShadowCandidates,
   pruneSnapshots,
   pruneSourceCollectionMetrics,
@@ -116,6 +117,7 @@ supervisor.register(
     measure(db, "status.prune:journal", () => pruneOperatorJournal(db));
     measure(db, "status.prune:failure-evidence", () => pruneFailureEvidence(db));
     measure(db, "status.prune:source-shapes", () => pruneSourceShapes(db));
+    measure(db, "status.prune:release-renders", () => pruneReleaseRenders(db));
     measure(db, "status.prune:snapshot-bodies", () => expireSnapshotBodies(db));
     measure(db, "status.prune:shadow-candidates", () =>
       pruneShadowCandidates(

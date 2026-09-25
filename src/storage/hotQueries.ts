@@ -67,6 +67,11 @@ export const HOT_QUERIES: readonly HotQuery[] = [
     params: ["2026-01-01T00:00:00.000Z"],
   },
   {
+    name: "the boot before this one, by render fingerprint",
+    sql: "SELECT hash FROM release_renders WHERE booted_at<? AND window_days=? ORDER BY booted_at DESC LIMIT 40",
+    params: ["2026-01-01T00:00:00.000Z", 2],
+  },
+  {
     name: "operator journal, mutations only",
     sql: "SELECT id FROM operator_journal WHERE mutates = 1 ORDER BY id DESC LIMIT 50",
     params: [],

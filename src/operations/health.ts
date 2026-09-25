@@ -182,43 +182,7 @@ export function healthOperations(db: Database, config: AppConfig, all: () => Ope
       http: { method: "get", path: "/api/failures/:source" },
       handler: (input: { source: string; days: number }) => sourceFailures(db, config, input.source, input.days),
     },
-    timings: {
-      section: "health",
-      summary:
-        "What this service spends its time in: calls, average, p50 and p95 per instrumented section, slowest first.",
-      startHere: "something is slow, or I want to know what a change cost",
-      note:
-        "This was called `code_analytics` and sat in the `sources` section under the name of its " +
-        "table, and ten raw `sql` queries were written against `code_metrics` by hand rather than " +
-        "found. Ask `timings --name pipeline --limit 5`; the per-hour series needs `--timeline` " +
-        "because the usual question is what is slow, not when. After a deploy ask " +
-        "`timings --since boot`: buckets are hourly, so a release at 13:34 poisons the 13:00 one, " +
-        "and `--since` names that hour in `straddled` and leaves it out rather than averaging the " +
-        "two builds together. It also takes an ISO instant or a span such as 90m, 6h, 2d.",
-      mutates: false,
-      agent: true,
-      schema: z.object({
-        days: count(90, 7),
-        name: z.string().min(1).optional(),
-        limit: count(500, 20),
-        timeline: flag().optional(),
-        since: z.string().min(1).optional(),
-      }),
-      cli: {
-        args: [
-          { name: "days", optional: true },
-          { name: "name", optional: true },
-        ],
-      },
-      http: { method: "get", path: "/api/timings" },
-      handler: (input: { days: number; name?: string; limit: number; timeline?: boolean; since?: string }) =>
-        codeAnalytics(db, input.days, Date.now(), {
-          name: input.name,
-          limit: input.limit,
-          timeline: input.timeline,
-          since: input.since,
-        }),
-    },
+    timings: timingsOperation(db),
     usage: {
       section: "health",
       summary:
@@ -235,27 +199,7 @@ export function healthOperations(db: Database, config: AppConfig, all: () => Ope
       http: { method: "get", path: "/api/usage" },
       handler: (input: { days: number }) => usageReport(db, input.days),
     },
-    verify: {
-      section: "health",
-      summary:
-        "Whether the running build is the one just pushed: schema version, hot-path indexes, a named symbol in the built code, and failures since the restart.",
-      startHere: "I just deployed and want to know it landed",
-      note:
-        "Name a symbol the release added. Everything else can pass while the container runs last " +
-        "week's image, because the database outlives the image and only the built code can say " +
-        "which release is loaded.",
-      mutates: false,
-      agent: true,
-      schema: z.object({ symbol: z.string().min(1).optional(), directory: z.string().min(1).optional() }),
-      cli: {
-        args: [
-          { name: "symbol", optional: true },
-          { name: "directory", optional: true },
-        ],
-      },
-      http: { method: "get", path: "/api/verify" },
-      handler: (input: { symbol?: string; directory?: string }) => releaseCheck(db, config, input),
-    },
+    verify: verifyOperation(db, config),
     memory: {
       section: "health",
       summary: "Memory by day: typical and worst use, time near the container limit, restarts and OOM kills.",
@@ -267,5 +211,83 @@ export function healthOperations(db: Database, config: AppConfig, all: () => Ope
       http: { method: "get", path: "/api/memory" },
       handler: (input: { days: number }) => memoryReport(db, input.days),
     },
+  };
+}
+
+/**
+ * The two entries that were half of this function.
+ *
+ * A section of the registry is a list, and a list whose items are forty lines each stops reading
+ * like one. These two are the longest because they carry the most explanation, which is the part
+ * worth keeping; they are lifted out so the list above is a list again.
+ */
+function timingsOperation(db: Database): OperationMap[string] {
+  return {
+    section: "health",
+    summary:
+      "What this service spends its time in: calls, average, p50 and p95 per instrumented section, slowest first.",
+    startHere: "something is slow, or I want to know what a change cost",
+    note:
+      "This was called `code_analytics` and sat in the `sources` section under the name of its " +
+      "table, and ten raw `sql` queries were written against `code_metrics` by hand rather than " +
+      "found. Ask `timings --name pipeline --limit 5`; the per-hour series needs `--timeline` " +
+      "because the usual question is what is slow, not when. After a deploy ask " +
+      "`timings --since boot`: buckets are hourly, so a release at 13:34 poisons the 13:00 one, " +
+      "and `--since` names that hour in `straddled` and leaves it out rather than averaging the " +
+      "two builds together. It also takes an ISO instant or a span such as 90m, 6h, 2d.",
+    mutates: false,
+    agent: true,
+    schema: z.object({
+      days: count(90, 7),
+      name: z.string().min(1).optional(),
+      limit: count(500, 20),
+      timeline: flag().optional(),
+      since: z.string().min(1).optional(),
+    }),
+    cli: {
+      args: [
+        { name: "days", optional: true },
+        { name: "name", optional: true },
+      ],
+    },
+    http: { method: "get", path: "/api/timings" },
+    handler: (input: { days: number; name?: string; limit: number; timeline?: boolean; since?: string }) =>
+      codeAnalytics(db, input.days, Date.now(), {
+        name: input.name,
+        limit: input.limit,
+        timeline: input.timeline,
+        since: input.since,
+      }),
+  };
+}
+
+function verifyOperation(db: Database, config: AppConfig): OperationMap[string] {
+  return {
+    section: "health",
+    summary:
+      "Whether the running build is the one just pushed: schema version, hot-path indexes, a named symbol in the built code, and failures since the restart.",
+    startHere: "I just deployed and want to know it landed",
+    note:
+      "Name a symbol the release added. Everything else can pass while the container runs last " +
+      "week's image, because the database outlives the image and only the built code can say " +
+      "which release is loaded. `cards` is the other half: every event of the last two days " +
+      "rendered at both detail levels and reduced to one hash, compared against what the boot " +
+      "before this one rendered. `unchangedSince` is the claim worth having -- no build since " +
+      "that boot has moved a card. Computed once per boot, by whoever asks first.",
+    mutates: false,
+    agent: true,
+    schema: z.object({
+      symbol: z.string().min(1).optional(),
+      directory: z.string().min(1).optional(),
+      cardDays: count(30, 2),
+    }),
+    cli: {
+      args: [
+        { name: "symbol", optional: true },
+        { name: "directory", optional: true },
+      ],
+    },
+    http: { method: "get", path: "/api/verify" },
+    handler: (input: { symbol?: string; directory?: string; cardDays: number }) => releaseCheck(db, config, input),
   };
 }
