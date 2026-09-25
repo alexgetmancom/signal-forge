@@ -165,7 +165,10 @@ export function healthOperations(db: Database, config: AppConfig, all: () => Ope
         "This was called `code_analytics` and sat in the `sources` section under the name of its " +
         "table, and ten raw `sql` queries were written against `code_metrics` by hand rather than " +
         "found. Ask `timings --name pipeline --limit 5`; the per-hour series needs `--timeline` " +
-        "because the usual question is what is slow, not when.",
+        "because the usual question is what is slow, not when. After a deploy ask " +
+        "`timings --since boot`: buckets are hourly, so a release at 13:34 poisons the 13:00 one, " +
+        "and `--since` names that hour in `straddled` and leaves it out rather than averaging the " +
+        "two builds together. It also takes an ISO instant or a span such as 90m, 6h, 2d.",
       mutates: false,
       agent: true,
       schema: z.object({
@@ -173,6 +176,7 @@ export function healthOperations(db: Database, config: AppConfig, all: () => Ope
         name: z.string().min(1).optional(),
         limit: count(500, 20),
         timeline: flag().optional(),
+        since: z.string().min(1).optional(),
       }),
       cli: {
         args: [
@@ -181,11 +185,12 @@ export function healthOperations(db: Database, config: AppConfig, all: () => Ope
         ],
       },
       http: { method: "get", path: "/api/timings" },
-      handler: (input: { days: number; name?: string; limit: number; timeline?: boolean }) =>
+      handler: (input: { days: number; name?: string; limit: number; timeline?: boolean; since?: string }) =>
         codeAnalytics(db, input.days, Date.now(), {
           name: input.name,
           limit: input.limit,
           timeline: input.timeline,
+          since: input.since,
         }),
     },
     usage: {

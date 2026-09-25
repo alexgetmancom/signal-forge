@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { codeAnalytics, measure, recordCodeMetric } from "../src/runtime/metrics.js";
 import { openDatabase } from "../src/storage/database.js";
 
@@ -72,4 +72,55 @@ test("timings can be asked about one subsystem, and answers with only the slowes
   expect(pipeline.totals.totalDurationMs).toBe(1_000);
   expect(pipeline.timeline[0]?.totalDurationMs).toBe(1_000);
   db.close();
+});
+
+const memoryDatabase = () => openDatabase(":memory:");
+const record = (db: ReturnType<typeof openDatabase>, name: string, ms: number, at: number) =>
+  recordCodeMetric(db, name, ms, false, at);
+
+describe("a window that starts at a named moment", () => {
+  test("the hour the moment falls inside is named and left out", () => {
+    const db = memoryDatabase();
+    // 13:34 is a deploy. The 13:00 bucket holds the build before it as well as the one after.
+    record(db, "pipeline.stories", 200, Date.parse("2026-09-25T13:10:00.000Z"));
+    record(db, "pipeline.stories", 4, Date.parse("2026-09-25T14:10:00.000Z"));
+    const now = Date.parse("2026-09-25T14:50:00.000Z");
+    const report = codeAnalytics(db, 7, now, { since: "2026-09-25T13:34:00.000Z" });
+    expect(report.straddled).toBe("2026-09-25T13:00:00.000Z");
+    expect(report.since).toBe("2026-09-25T13:34:00.000Z");
+    expect(report.totals.calls).toBe(1);
+    expect(report.sections[0]?.maxDurationMs).toBe(4);
+  });
+
+  test("a moment exactly on the hour straddles nothing", () => {
+    const db = memoryDatabase();
+    record(db, "pipeline.stories", 4, Date.parse("2026-09-25T14:10:00.000Z"));
+    const report = codeAnalytics(db, 7, Date.parse("2026-09-25T14:50:00.000Z"), {
+      since: "2026-09-25T14:00:00.000Z",
+    });
+    expect(report.straddled).toBeNull();
+    expect(report.totals.calls).toBe(1);
+  });
+
+  test("a span is counted back from now, and days says what was covered", () => {
+    const db = memoryDatabase();
+    const now = Date.parse("2026-09-25T14:50:00.000Z");
+    record(db, "pipeline.stories", 4, Date.parse("2026-09-25T14:10:00.000Z"));
+    record(db, "pipeline.stories", 9, Date.parse("2026-09-24T14:10:00.000Z"));
+    const report = codeAnalytics(db, 7, now, { since: "2h" });
+    expect(report.totals.calls).toBe(1);
+    expect(report.days).toBeLessThan(1);
+  });
+
+  test("a moment nobody can read is refused rather than measured", () => {
+    const db = memoryDatabase();
+    expect(() => codeAnalytics(db, 7, Date.now(), { since: "last tuesday" })).toThrow(/Cannot read/);
+  });
+
+  test("counting back whole days straddles nothing and keeps the older window", () => {
+    const db = memoryDatabase();
+    const report = codeAnalytics(db, 7, Date.parse("2026-09-25T14:50:00.000Z"));
+    expect(report.straddled).toBeNull();
+    expect(report.days).toBe(7);
+  });
 });

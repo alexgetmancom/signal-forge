@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { log } from "../logger.js";
 import { round } from "../numbers.js";
+import { readRuntime } from "./observability.js";
 
 const METRIC_BUCKET_MS = 60 * 60 * 1000;
 const RETENTION_DAYS = 90;
@@ -56,6 +57,13 @@ export type CodeAnalyticsReport = {
   since: string;
   until: string;
   days: number;
+  /**
+   * The hour the window opens in, when the moment asked for falls inside one rather than on its
+   * edge. That hour holds both sides of the boundary and is left out: a deploy at 13:34 cannot be
+   * measured from a bucket that also holds 13:00 to 13:34, and a report that quietly included it
+   * would say the new build was slow because the old one was.
+   */
+  straddled: string | null;
   totals: {
     calls: number;
     successes: number;
@@ -278,13 +286,43 @@ export type TimingsQuery = {
   limit?: number | undefined;
   /** The per-hour series, which is only wanted when the question is "when", not "what". */
   timeline?: boolean | undefined;
+  /**
+   * Where to start instead of counting back whole days: `boot` for this process's start, an ISO
+   * instant, or a span such as `90m`, `6h` or `2d`. The question after a deploy is what the new
+   * build costs, and `days` cannot ask it.
+   */
+  since?: string | undefined;
 };
+
+const SPAN = /^(\d+)(m|h|d)$/;
+const SPAN_MS: Record<string, number> = { m: 60_000, h: 3_600_000, d: 86_400_000 };
+
+/** The moment `--since` names, as a number. Throws rather than silently measuring the wrong week. */
+function askedFrom(db: Database, value: string, now: number): number {
+  if (value === "boot") {
+    const bootedAt = readRuntime(db)?.bootedAt;
+    if (!bootedAt) throw new Error("This process has not recorded a start time, so `--since boot` has nothing to use");
+    return Date.parse(bootedAt);
+  }
+  const span = SPAN.exec(value);
+  if (span) return now - Number(span[1]) * (SPAN_MS[span[2] as string] as number);
+  const at = Date.parse(value);
+  if (!Number.isFinite(at))
+    throw new Error(`Cannot read \`${value}\` as a moment: use boot, an ISO instant, or 90m, 6h, 2d`);
+  return at;
+}
 
 export function codeAnalytics(db: Database, days = 7, now = Date.now(), query: TimingsQuery = {}): CodeAnalyticsReport {
   if (!Number.isInteger(days) || days < 1 || days > 90) throw new Error("Code analytics days must be between 1 and 90");
   const until = new Date(now).toISOString();
-  const since = new Date(now - days * 24 * 3_600_000).toISOString();
-  const firstBucket = bucketStart(now - days * 24 * 3_600_000);
+  // A named moment is measured in whole buckets only: the one it falls inside describes both
+  // sides of it. Counting back whole days keeps the older behaviour, where the oldest partial hour
+  // is a rounding error rather than the thing being asked about.
+  const asked = query.since ? askedFrom(db, query.since, now) : null;
+  const opens = asked === null ? now - days * 24 * 3_600_000 : Math.ceil(asked / METRIC_BUCKET_MS) * METRIC_BUCKET_MS;
+  const straddled = asked === null || opens === asked ? null : bucketStart(asked);
+  const since = new Date(asked ?? opens).toISOString();
+  const firstBucket = asked === null ? bucketStart(opens) : new Date(opens).toISOString();
   const rows = db
     .query<StoredMetric, [string, string]>(
       `SELECT name,bucket_start,calls,failures,total_duration_ms,min_duration_ms,max_duration_ms,
@@ -316,7 +354,10 @@ export function codeAnalytics(db: Database, days = 7, now = Date.now(), query: T
   return {
     since,
     until,
-    days,
+    // What the window actually covers, which is not what was asked for once `--since` names a
+    // moment inside an hour: a report saying 7 days over a 40-minute window is the wrong answer.
+    days: asked === null ? days : round((now - opens) / 86_400_000, 3),
+    straddled,
     totals: {
       calls,
       successes: calls - failures,
