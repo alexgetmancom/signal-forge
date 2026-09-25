@@ -1,4 +1,6 @@
 import type { Database } from "bun:sqlite";
+import type { AppConfig } from "../config.js";
+import { buildSourceRegistry } from "../sources/registry.js";
 import { listFailureEvidence } from "../storage/failureEvidence.js";
 import { listSourceShapes, shapeDifference } from "../storage/sourceShapes.js";
 
@@ -17,6 +19,15 @@ import { listSourceShapes, shapeDifference } from "../storage/sourceShapes.js";
  */
 export type SourceFailures = {
   source: string;
+  /**
+   * Whether the registry still asks for this source.
+   *
+   * A name typed at this command is any string, and `sources` keeps a row for everything that has
+   * ever run. Asking about `designarena:logo` returned a wall of failures ending on 2026-09-09 and
+   * said nothing about why they stop: the board was retired the next day. A report that cannot say
+   * "this is not being collected any more" is a report that reads as a broken collector.
+   */
+  registered: boolean;
   days: number;
   attempts: number;
   failures: number;
@@ -34,7 +45,13 @@ export type SourceFailures = {
   shapeChange: { gone: string[]; arrived: string[]; retyped: string[] } | null;
 };
 
-export function sourceFailures(db: Database, source: string, days = 7, now = Date.now()): SourceFailures {
+export function sourceFailures(
+  db: Database,
+  config: AppConfig,
+  source: string,
+  days = 7,
+  now = Date.now(),
+): SourceFailures {
   const from = new Date(now - days * 24 * 3_600_000).toISOString();
   const totals = db
     .query<{ attempts: number; failures: number }, [string, string]>(
@@ -60,8 +77,10 @@ export function sourceFailures(db: Database, source: string, days = 7, now = Dat
     .all(source, from);
   const shapes = listSourceShapes(db, source);
   const [newest, previous] = shapes;
+  const registered = buildSourceRegistry(db, config).some((definition) => definition.id === source);
   return {
     source,
+    registered,
     days,
     attempts: totals.attempts,
     failures: totals.failures ?? 0,

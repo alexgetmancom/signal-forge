@@ -1,6 +1,8 @@
 import type { Database } from "bun:sqlite";
 import { readdirSync, readFileSync } from "node:fs";
+import type { AppConfig } from "../config.js";
 import { readRuntime } from "../runtime/observability.js";
+import { buildSourceRegistry } from "../sources/registry.js";
 import { CURRENT_SCHEMA_VERSION } from "../storage/migrations.js";
 
 /**
@@ -22,6 +24,14 @@ export type ReleaseCheck = {
   indexes: { missing: string[]; analysed: boolean };
   sinceBoot: { bootedAt: string | null; failedOperations: number; failedCollections: number };
   issues: number;
+  /**
+   * Rows of `sources` carrying a failure that belong to no registered source.
+   *
+   * `sources` keeps a row for everything that has ever run and the registry is what is still being
+   * asked; eight rows on production belong to neither, and this count used to fold them into
+   * `issues`. A collector retired on purpose read as a deployment that had just broken something.
+   */
+  retiredFailing: number;
 };
 
 /** The indexes the hot paths depend on; a missing one is a slowdown nothing else reports. */
@@ -59,6 +69,7 @@ function symbolInBuild(name: string, directory: string): string[] {
 
 export function releaseCheck(
   db: Database,
+  config: AppConfig,
   input: { symbol?: string | undefined; directory?: string | undefined },
 ): ReleaseCheck {
   const applied = db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version ?? 0;
@@ -87,7 +98,9 @@ export function releaseCheck(
         "SELECT COUNT(*) n FROM source_collection_metrics WHERE success=0 AND collected_at>=?",
       )
       .get(since)?.n ?? 0;
-  const issues = db.query<{ n: number }, []>("SELECT COUNT(*) n FROM sources WHERE failures>0").get()?.n ?? 0;
+  const registered = new Set(buildSourceRegistry(db, config).map((definition) => definition.id));
+  const failing = db.query<{ id: string }, []>("SELECT id FROM sources WHERE failures>0").all();
+  const issues = failing.filter((row) => registered.has(row.id)).length;
 
   const files = input.symbol ? symbolInBuild(input.symbol, input.directory ?? "./dist") : [];
   const schemaOk = applied === CURRENT_SCHEMA_VERSION;
@@ -103,5 +116,6 @@ export function releaseCheck(
     indexes: { missing, analysed },
     sinceBoot: { bootedAt, failedOperations, failedCollections },
     issues,
+    retiredFailing: failing.length - issues,
   };
 }

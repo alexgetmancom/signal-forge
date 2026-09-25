@@ -10,7 +10,7 @@ import type { Database } from "bun:sqlite";
  */
 export type StoredSnapshot = { id: number; hash: string; bytes: number };
 
-export function hashPayload(raw: string): string {
+function hashPayload(raw: string): string {
   return new Bun.CryptoHasher("sha256").update(raw).digest("hex");
 }
 

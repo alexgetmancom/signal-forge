@@ -168,6 +168,8 @@ export function healthOperations(db: Database, config: AppConfig, all: () => Ope
         "The counterpart to `flaky`, which reads the rate. A schema failure records the field paths " +
         "the parse objected to, so `arena` saying `response did not match the schema` becomes a " +
         "field name. No upstream value is ever kept, which is why the body of a failed parse is not. " +
+        "`registered: false` means the registry no longer asks for this source, and its failures " +
+        "stop on the day it was retired rather than on the day something broke. " +
         "`shapes` is what the answers that worked looked like -- paths, types and how many entries " +
         "each array held -- and `shapeChange` is the diff between the two most recent, which is the " +
         "diagnosis for most schema failures: a path that is gone.",
@@ -176,7 +178,7 @@ export function healthOperations(db: Database, config: AppConfig, all: () => Ope
       schema: z.object({ source: z.string().min(1), days: count(90, 7) }),
       cli: { args: [{ name: "source" }, { name: "days", optional: true }] },
       http: { method: "get", path: "/api/failures/:source" },
-      handler: (input: { source: string; days: number }) => sourceFailures(db, input.source, input.days),
+      handler: (input: { source: string; days: number }) => sourceFailures(db, config, input.source, input.days),
     },
     timings: {
       section: "health",
@@ -250,7 +252,7 @@ export function healthOperations(db: Database, config: AppConfig, all: () => Ope
         ],
       },
       http: { method: "get", path: "/api/verify" },
-      handler: (input: { symbol?: string; directory?: string }) => releaseCheck(db, input),
+      handler: (input: { symbol?: string; directory?: string }) => releaseCheck(db, config, input),
     },
     memory: {
       section: "health",

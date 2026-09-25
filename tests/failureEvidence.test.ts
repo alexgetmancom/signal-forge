@@ -1,7 +1,10 @@
 import { expect, test } from "bun:test";
+import { loadConfig } from "../src/config.js";
 import { sourceFailures } from "../src/reports/sourceFailures.js";
 import { openDatabase } from "../src/storage/database.js";
 import { listFailureEvidence, recordFailureEvidence } from "../src/storage/failureEvidence.js";
+
+const CONFIG = loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname });
 
 const minute = (index: number) => new Date(Date.parse("2026-09-24T00:00:00.000Z") + index * 60_000).toISOString();
 
@@ -39,10 +42,13 @@ test("one source's failures read back as kinds and structure", () => {
   attempt(minute(2), null);
   recordFailureEvidence(db, "arena", minute(0), "schema", { rejected: 2, fields: { "#.displayName": 2 } });
 
-  const report = sourceFailures(db, "arena", 7, Date.parse("2026-09-24T01:00:00.000Z"));
+  const report = sourceFailures(db, CONFIG, "arena", 7, Date.parse("2026-09-24T01:00:00.000Z"));
   expect(report.attempts).toBe(3);
   expect(report.failures).toBe(2);
   expect(report.kinds.map((kind) => kind.kind).sort()).toEqual(["degraded", "schema"]);
   expect(report.evidence[0]?.summary).toEqual({ rejected: 2, fields: { "#.displayName": 2 } });
+  expect(report.registered).toBe(true);
+  // A name the registry no longer asks for says so, rather than reading as a collector that broke.
+  expect(sourceFailures(db, CONFIG, "designarena:logo", 7).registered).toBe(false);
   db.close();
 });
