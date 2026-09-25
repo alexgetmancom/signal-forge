@@ -85,6 +85,7 @@ test("health is public, operational state requires token, MCP lists matching sch
     "credential_circuits",
     "sql",
     "schema",
+    "references",
     "snapshot",
     "journal",
   ]);

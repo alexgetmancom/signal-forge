@@ -13,6 +13,12 @@
  * fragments, where the text in the file is not the text that runs. A statement it parses but whose
  * names it cannot resolve is the bug this exists to catch.
  *
+ * `tests/` is deliberately out. Pointed at it the check finds eleven things and every one of them
+ * is a name written wrong on purpose, to assert that the error comes back -- `event_summaries`,
+ * `snapshots.summary`, `a_table_no_command_reads`. A test that names a real column wrongly fails
+ * the moment it runs, which is the difference: in `src/` a wrong name returns an empty report and
+ * nobody is told anything.
+ *
  * `scripts/` is not scanned yet. Pointing this at it finds one thing, and it is not a typo:
  * `scripts/compress-snapshots.ts` still reads `snapshots.raw_json`, a column migration 026 dropped
  * once the backfill it was written for had run. The script cannot work against any database that

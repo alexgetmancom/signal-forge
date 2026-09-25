@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
+import { tableReferences } from "../reports/references.js";
 import { readonlyDatabase } from "../storage/database.js";
 import { readLatestSnapshot } from "../storage/snapshots.js";
 import { count, type OperationMap } from "./definition.js";
@@ -121,6 +122,32 @@ export function databaseOperations(db: Database, config: AppConfig, _all: () => 
               .all()
               .map((column) => `${column.name} ${column.type}${column.notnull ? " NOT NULL" : ""}`),
           }));
+        } finally {
+          connection.close();
+        }
+      },
+    },
+    references: {
+      section: "evidence",
+      summary:
+        "Who points at a table, what a delete does to each of them, what is orphaned already, and the order a delete has to take.",
+      startHere: "I want to delete or retire rows of a table and need to know what refuses",
+      note:
+        "Read out of the running database, never from a plan written down somewhere. Thirteen " +
+        "foreign keys point at `events` and that is usually described as the difficulty; it is " +
+        "not. Six cascade and take care of themselves, two clear themselves, and the five under " +
+        "`refuses` are the entire job. `orphans` is separate and worth reading on its own: keys " +
+        "were not always enforced, and a child whose parent is gone says the constraint describes " +
+        "an intention rather than the data.",
+      mutates: false,
+      agent: true,
+      schema: z.object({ table: z.string().min(1).default("events") }),
+      cli: { args: [{ name: "table", optional: true }] },
+      http: { method: "get", path: "/api/references/:table" },
+      handler: (input: { table: string }) => {
+        const connection = readOnly();
+        try {
+          return tableReferences(connection, input.table);
         } finally {
           connection.close();
         }
