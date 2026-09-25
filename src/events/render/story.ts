@@ -6,9 +6,9 @@ import { displayTitle } from "../naming.js";
 import { recordFor } from "../record.js";
 import type { Event, RecordData } from "../types.js";
 import { utcStamp, withoutMakerPrefix } from "./common.js";
-import { TRUST } from "./discord.js";
 import { type CardContext, eventFactParts, eventFacts } from "./facts.js";
 import { vendorColor, vendorLogo } from "./logos.js";
+import { TRUST } from "./words.js";
 
 export type StoryRenderEvent = Event & CardContext & { url: string };
 

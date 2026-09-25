@@ -4,7 +4,7 @@ import { sourceLabel } from "../../sources/labels.js";
 import { clip } from "../../text.js";
 import type { Event } from "../types.js";
 import { withoutMakerPrefix } from "./common.js";
-import { footerText } from "./discord.js";
+import { footerText } from "./words.js";
 
 export type LifecycleReminderContext = {
   title: string;
