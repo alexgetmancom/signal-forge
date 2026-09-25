@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Collection } from "../events/types.js";
+import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { htmlText } from "./html.js";
 import { fetchText } from "./http.js";
@@ -112,7 +113,7 @@ export function parseCursorChangelog(html: string): Collection {
     });
   }
   const records = [...seen.values()];
-  if (!records.length) throw new Error("Public page no longer exposes changelog entries");
+  if (!records.length) throw new SourceError("missing-content", "Public page no longer exposes changelog entries");
   return {
     source: "cursor-changelog",
     stream: "news",

@@ -59,6 +59,15 @@ export type StoryProjection = {
   aliases: Map<string, StoryGroup>;
   lastEventId: number;
   lastDetectedAt: string | null;
+  /**
+   * Whether this projection was recomputed from every event rather than extended by the new ones.
+   *
+   * A rebuild is the one path that can move an old event into a different story, because grouping is
+   * sequential in `detected_at` and a late arrival changes the sequence. Anything derived per story
+   * -- hypotheses -- cannot then trust a dirty set built from new event ids alone, and has to redo
+   * the lot. Reporting it here is cheaper and more honest than guessing at it from the outside.
+   */
+  rebuilt: boolean;
 };
 
 const projections = new WeakMap<Database, StoryProjection>();
@@ -181,11 +190,20 @@ function cloneProjection(projection: StoryProjection): StoryProjection {
     aliases: new Map([...projection.aliases].map(([key, group]) => [key, copies.get(group) as StoryGroup])),
     lastEventId: projection.lastEventId,
     lastDetectedAt: projection.lastDetectedAt,
+    rebuilt: projection.rebuilt,
   };
 }
 
 function emptyProjection(): StoryProjection {
-  return { groups: [], active: [], current: new Map(), aliases: new Map(), lastEventId: 0, lastDetectedAt: null };
+  return {
+    groups: [],
+    active: [],
+    current: new Map(),
+    aliases: new Map(),
+    lastEventId: 0,
+    lastDetectedAt: null,
+    rebuilt: false,
+  };
 }
 
 /**
@@ -460,6 +478,7 @@ function rebuildProjection(db: Database): StoryProjection {
     if (page.length < REBUILD_PAGE_SIZE) break;
   }
   projection.lastEventId = lastEventId;
+  projection.rebuilt = true;
   const keys = new Set(projection.groups.map(storyKey));
   for (const row of existing)
     if (!keys.has(row.stable_key)) db.query("DELETE FROM stories WHERE stable_key=?").run(row.stable_key);
@@ -478,7 +497,7 @@ export function updateStories(db: Database): StoryProjection {
   const currentEventId = Number(db.query<{ id: number | null }, []>("SELECT MAX(id) AS id FROM events").get()?.id ?? 0);
   if (currentEventId < cached.lastEventId) return rebuildProjection(db);
   const events = storyEvents(db, cached.lastEventId);
-  if (!events.length) return cached;
+  if (!events.length) return { ...cached, rebuilt: false };
   const lastTime = cached.lastDetectedAt ? Date.parse(cached.lastDetectedAt) : null;
   if (
     lastTime !== null &&
@@ -486,6 +505,7 @@ export function updateStories(db: Database): StoryProjection {
   )
     return rebuildProjection(db);
   const projection = cloneProjection(cached);
+  projection.rebuilt = false;
   for (const event of events) {
     const group = projectEvent(projection, event);
     writeGroup(db, group);

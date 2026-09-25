@@ -1,3 +1,5 @@
+import { SourceError } from "../failure.js";
+
 const NAMED_ENTITIES: Record<string, string> = {
   amp: "&",
   apos: "'",
@@ -41,6 +43,9 @@ export function attribute(attributes: string, name: string): string | null {
   return attributes.match(new RegExp(`\\b${name}=["']([^"']+)["']`, "i"))?.[1] ?? null;
 }
 
+/** React Flight's encoding of the value `undefined`. See the note inside `nextData`. */
+const FLIGHT_UNDEFINED = "$undefined";
+
 /**
  * A value embedded in a React server-rendered page, read without running the page.
  *
@@ -56,7 +61,19 @@ export function nextData(html: string, key: string): unknown {
   }
   const search = (value: unknown): unknown => {
     if (value && typeof value === "object") {
-      if (!Array.isArray(value) && Object.hasOwn(value, key)) return (value as Record<string, unknown>)[key];
+      if (!Array.isArray(value) && Object.hasOwn(value, key)) {
+        const found = (value as Record<string, unknown>)[key];
+        // A key that is present and holds nothing is not an answer.
+        //
+        // React Flight writes the value `undefined` as the string `"$undefined"`, and arena.ai sends
+        // exactly that whenever it renders the page without the roster and lets the client fetch it.
+        // Returning the placeholder made the parse fail with "response did not match the schema",
+        // which is a sentence about our reader and sent whoever read it to the wrong file: measured
+        // on production, 30 of arena's 178 attempts in the three days to 2026-09-25 were this, and
+        // every one of them said `ZodError`. It is the same case as the key being absent, and it is
+        // reported as such -- the page did not carry it this time.
+        if (found !== FLIGHT_UNDEFINED) return found;
+      }
       for (const nested of Object.values(value)) {
         const found = search(nested);
         if (found !== undefined) return found;
@@ -76,5 +93,5 @@ export function nextData(html: string, key: string): unknown {
     const found = search(parsed);
     if (found !== undefined) return found;
   }
-  throw new Error(`Public page no longer exposes ${key}`);
+  throw new SourceError("missing-content", `Public page no longer exposes ${key}`, { evidence: { key } });
 }

@@ -215,6 +215,31 @@ export function databaseSize(db: Database): { bytes: number; snapshotBytes: numb
  */
 const JOURNAL_LIFETIME_DAYS = 120;
 
+/**
+ * How long the structure of a failure is kept.
+ *
+ * `recordFailureEvidence` already caps the rows per source, so this is not about volume: it is about
+ * a source that was retired six months ago still answering for itself in a report. Ninety days
+ * matches `source_collection_metrics`, which is what the rates beside it are read from.
+ */
+const FAILURE_EVIDENCE_LIFETIME_DAYS = 90;
+
+export function pruneFailureEvidence(db: Database, now = Date.now()): number {
+  const cutoff = new Date(now - FAILURE_EVIDENCE_LIFETIME_DAYS * 24 * 3_600_000).toISOString();
+  try {
+    return db
+      .query<{ removed: number }, [string]>(
+        "DELETE FROM source_failure_evidence WHERE observed_at < ? RETURNING 1 AS removed",
+      )
+      .all(cutoff).length;
+  } catch (error) {
+    log("warn", "Failure evidence retention cleanup failed", {
+      errorType: error instanceof Error ? error.message : "unknown",
+    });
+    return 0;
+  }
+}
+
 export function pruneOperatorJournal(db: Database, now = Date.now()): number {
   const cutoff = new Date(now - JOURNAL_LIFETIME_DAYS * 24 * 3_600_000).toISOString();
   let removed = 0;

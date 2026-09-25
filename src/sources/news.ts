@@ -2,6 +2,7 @@ import { XMLParser, XMLValidator } from "fast-xml-parser";
 import { z } from "zod";
 import type { Collection } from "../events/types.js";
 import { vendorOfName } from "../events/vendors.js";
+import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { calendarDate } from "./feeds.js";
 import { decodeHtml } from "./html.js";
@@ -24,7 +25,7 @@ const feedSchema = z.object({
   }),
 });
 export function parseOpenAINews(text: string): Collection {
-  if (XMLValidator.validate(text) !== true) throw new Error("Invalid RSS XML");
+  if (XMLValidator.validate(text) !== true) throw new SourceError("schema", "Invalid RSS XML");
   const raw: unknown = new XMLParser({
     ignoreAttributes: true,
     parseTagValue: false,
@@ -51,7 +52,7 @@ export function parseOpenAINews(text: string): Collection {
 }
 function newsDate(value: string): string {
   const date = calendarDate(value);
-  if (!date) throw new Error(`Source news item has invalid publication date: ${value}`);
+  if (!date) throw new SourceError("schema", "Source news item has an unreadable publication date");
   return date.toISOString();
 }
 
@@ -100,7 +101,7 @@ export function parseAnthropicNews(html: string): Collection {
   );
   const featured = anthropicFeaturedCards(html);
   const records = [...new Map([...featured, ...listed].map((record) => [record.id, record])).values()];
-  if (!records.length) throw new Error("Anthropic newsroom entries not found");
+  if (!records.length) throw new SourceError("missing-content", "Anthropic newsroom entries not found");
   return {
     source: "anthropic-news",
     stream: "news",
@@ -139,7 +140,8 @@ export function parseAnthropicRoutes(html: string): Collection {
   const slugs = new Set<string>();
   for (const [, slug] of html.matchAll(/\\?"\/?([a-z0-9-]+)\\?"/g))
     if (slug && /^claude-[a-z0-9-]*\d/.test(slug)) slugs.add(slug);
-  if (!/\\?"slug\\?",\\?"news\\?"/.test(html)) throw new Error("Anthropic route list not found");
+  if (!/\\?"slug\\?",\\?"news\\?"/.test(html))
+    throw new SourceError("missing-content", "Anthropic route list not found");
   return {
     source: "anthropic-routes",
     stream: "github",

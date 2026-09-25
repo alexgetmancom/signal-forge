@@ -1,3 +1,4 @@
+import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { type CacheEntry, freshUntil, type HttpCache } from "../storage/httpCache.js";
 
@@ -105,9 +106,9 @@ export async function fetchText(
     if (response.status >= 300 && response.status < 400 && response.status !== 304) {
       const location = response.headers.get("location");
       await response.body?.cancel();
-      if (!location) throw new Error("Source redirect missing location");
+      if (!location) throw new SourceError("protocol", "Source redirect missing location");
       const next = new URL(location, url);
-      if (next.origin !== origin) throw new Error("Source redirect changed origin");
+      if (next.origin !== origin) throw new SourceError("protocol", "Source redirect changed origin");
       url = next.href;
       continue;
     }
@@ -120,7 +121,7 @@ export async function fetchText(
     }
     break;
   }
-  if (!response) throw new Error("Source returned no response");
+  if (!response) throw new SourceError("protocol", "Source returned no response");
   if (response.status === 304 && cached) {
     await response.body?.cancel();
     cache?.touch(url, freshUntil(response.headers.get("cache-control")));
@@ -131,7 +132,7 @@ export async function fetchText(
   // challenged is to ask less often, never to look like something else.
   if (response.headers.get("x-amzn-waf-action") || response.headers.get("cf-mitigated")) {
     await response.body?.cancel();
-    throw new Error("Source challenged by bot protection");
+    throw new SourceError("bot-protection", "Source challenged by bot protection");
   }
   if (!response.ok) {
     await response.body?.cancel();
@@ -149,7 +150,7 @@ export async function fetchText(
     );
   }
   const reader = response.body?.getReader();
-  if (!reader) throw new Error("Source returned no body");
+  if (!reader) throw new SourceError("protocol", "Source returned no body");
   const chunks: Uint8Array[] = [];
   let size = 0;
   try {
@@ -157,7 +158,7 @@ export async function fetchText(
       const { done, value } = await reader.read();
       if (done) break;
       size += value.length;
-      if (size > 20_000_000) throw new Error("Source exceeds 20 MB limit");
+      if (size > 20_000_000) throw new SourceError("protocol", "Source exceeds 20 MB limit");
       chunks.push(value);
     }
   } finally {

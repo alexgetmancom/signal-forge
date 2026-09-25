@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import type { Destination } from "../config.js";
-import { rebuildHypotheses } from "../hypotheses.js";
+import { updateHypotheses } from "../hypotheses.js";
 import { rebuildLifecycleDeadlines } from "../lifecycle.js";
 import { type FactsDirty, updateModelFacts } from "../modelFacts.js";
 import { measure } from "../runtime/metrics.js";
@@ -36,13 +36,16 @@ export type SavedCollection = { events: number; projection: StoryProjection | nu
  * and changes no answer; naming too few leaves a stale fact behind, so the error is taken on the
  * safe side.
  */
-function factsDirty(db: Database, source: string, previousEventId: number): FactsDirty {
-  const storyIds = db
+function dirtyStoryIds(db: Database, previousEventId: number): number[] {
+  return db
     .query<{ story_id: number }, [number]>(
       "SELECT DISTINCT se.story_id FROM story_events se JOIN events e ON e.id=se.event_id WHERE e.id>?",
     )
     .all(previousEventId)
     .map((row) => row.story_id);
+}
+
+function factsDirty(db: Database, source: string, storyIds: readonly number[]): FactsDirty {
   const records = db
     .query<{ source: string; id: string }, [string]>("SELECT source,id FROM records WHERE source=?")
     .all(source);
@@ -69,9 +72,17 @@ export function saveCollection(
     const currentEventId = Number(
       db.query<{ id: number | null }, []>("SELECT MAX(id) AS id FROM events").get()?.id ?? 0,
     );
+    let touchedStories: number[] = [];
     if (currentEventId > previousEventId) {
       projection = measure(db, "pipeline.stories", () => updateStories(db));
-      measure(db, "pipeline.hypotheses", () => rebuildHypotheses(db, Date.parse(now)));
+      touchedStories = dirtyStoryIds(db, previousEventId);
+      // A hypothesis is a function of one story's timeline and the clock, so the stories that just
+      // moved are the ones to recompute -- unless the projection was rebuilt from every event, which
+      // is the one path that can move an old event into a different story. Then nothing is safe to
+      // skip. The full pass was 256 ms on every collection that produced an event.
+      measure(db, "pipeline.hypotheses", () =>
+        updateHypotheses(db, projection?.rebuilt ? null : touchedStories, Date.parse(now)),
+      );
       measure(db, "pipeline.lifecycle", () => rebuildLifecycleDeadlines(db, Date.parse(now)));
     }
     // Every collection, not only the ones that produced an event.
@@ -83,7 +94,7 @@ export function saveCollection(
     // rebuild, and a full rebuild then disagreed with the stored rows. The equivalence test found
     // exactly that. Recomputing only the touched models costs single-digit milliseconds, so the
     // reason for the gate is gone and the staleness goes with it.
-    measure(db, "pipeline.model-facts", () => updateModelFacts(db, factsDirty(db, collection.source, previousEventId)));
+    measure(db, "pipeline.model-facts", () => updateModelFacts(db, factsDirty(db, collection.source, touchedStories)));
     // Leave event batches open until the delivery worker has filled any eligible summaries.
     measure(db, "pipeline.prepare-deliveries", () =>
       prepareDeliveries(db, Date.parse(now), vendorRoles, allSignalsRole, false),

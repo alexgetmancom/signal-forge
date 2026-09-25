@@ -8,6 +8,7 @@ import { flakySources } from "../reports/flakySources.js";
 import { listActionableIssues } from "../reports/issues.js";
 import { keyStandings } from "../reports/keys.js";
 import { releaseCheck } from "../reports/release.js";
+import { sourceFailures } from "../reports/sourceFailures.js";
 import { statusReport } from "../reports/statusReport.js";
 import { usageReport } from "../reports/usage.js";
 import { memoryReport } from "../runtime/observability.js";
@@ -120,6 +121,22 @@ export function healthOperations(db: Database, config: AppConfig, all: () => Ope
       cli: { args: [{ name: "days", optional: true }] },
       http: { method: "get", path: "/api/flaky" },
       handler: (input: { days: number }) => flakySources(db, config, input.days),
+    },
+    failures: {
+      section: "health",
+      summary:
+        "Why one source is failing: the failure kinds it produced, and the structure of each complaint -- which field of how many entries, not what was in it.",
+      startHere: "flaky says a source fails and I need to know what to fix",
+      note:
+        "The counterpart to `flaky`, which reads the rate. A schema failure records the field paths " +
+        "the parse objected to, so `arena` saying `response did not match the schema` becomes a " +
+        "field name. No upstream value is ever kept, which is why the body of a failed parse is not.",
+      mutates: false,
+      agent: true,
+      schema: z.object({ source: z.string().min(1), days: count(90, 7) }),
+      cli: { args: [{ name: "source" }, { name: "days", optional: true }] },
+      http: { method: "get", path: "/api/failures/:source" },
+      handler: (input: { source: string; days: number }) => sourceFailures(db, input.source, input.days),
     },
     usage: {
       section: "health",

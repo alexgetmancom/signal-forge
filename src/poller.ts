@@ -2,12 +2,13 @@ import type { Database } from "bun:sqlite";
 import type { AppConfig } from "./config.js";
 import { isCredentialRejection, recordCredentialRejection } from "./credentials.js";
 import { saveCollection } from "./events/pipeline.js";
-import { CollectionDegradedError } from "./events/store.js";
+import { classifyFailure } from "./failureDiagnosis.js";
 import { log } from "./logger.js";
 import { lockHolder, withActionLock } from "./runtime/actionLock.js";
 import { measure } from "./runtime/metrics.js";
 import { SourceHttpError } from "./sources/http.js";
 import { type SourceDefinition, sourceJobs } from "./sources/registry.js";
+import { recordFailureEvidence } from "./storage/failureEvidence.js";
 import { rememberStoryProjection } from "./stories.js";
 
 const MAX_CONCURRENT_SOURCES = 4;
@@ -32,57 +33,6 @@ export function due(checkedAt: string | null, interval: number, failures: number
   if (!checkedAt) return true;
   const backedOff = Math.min(interval * Math.min(2 ** failures, 8), interval + MAX_BACKOFF_SECONDS);
   return now - Date.parse(checkedAt) >= backedOff * 1000;
-}
-
-/**
- * Whether a `TypeError` came from the transport or from our own code.
- *
- * `fetch` reports every connection failure as a bare `TypeError`, and so does reading a property of
- * something undefined -- which is what a collector does the first time an upstream renames a field.
- * Calling both "network error" sends whoever reads it to the router while the bug sits in the
- * parser, and the source keeps failing for as long as they look in the wrong place.
- *
- * The transport leaves evidence the runtime chose: a `cause` carrying a code, or one of a small set
- * of fixed phrases it raises itself. Neither can quote a credential or a response body, which is
- * why they are the only two things read here. Everything else is ours.
- */
-const TRANSPORT_PHRASES = ["fetch failed", "unable to connect", "failed to fetch", "network request failed"];
-
-function transportFailure(error: unknown, code: string | undefined): boolean {
-  if (code) return true;
-  const message = error instanceof Error ? error.message.toLowerCase() : "";
-  return TRANSPORT_PHRASES.some((phrase) => message.includes(phrase));
-}
-
-/**
- * What kind of failure this was, in words that can carry no credential and no response body.
- *
- * The message is withheld because it can quote either. That used to withhold everything: Artificial
- * Analysis failed inside a collection cycle on 2026-09-16 and passed every reproduction outside one,
- * and "network or schema validation error" could not say which half had happened. The class of the
- * error and the transport's own code are names chosen by the runtime, never by the upstream.
- */
-export function unexplainedFailure(error: unknown): string {
-  const name = error instanceof Error ? error.name : typeof error;
-  const cause = error instanceof Error ? (error as { cause?: unknown }).cause : undefined;
-  const code = [error, cause]
-    .map((value) => (value && typeof value === "object" ? (value as { code?: unknown }).code : undefined))
-    .find((value): value is string => typeof value === "string" && /^[A-Z][A-Z0-9_]{1,40}$/.test(value));
-  // `SQLITE_BUSY` from an operator poll racing the service was reported as a network error on
-  // 2026-09-16, which sends whoever reads it to the router instead of to the lock.
-  const kind =
-    name === "ZodError" || name === "SyntaxError"
-      ? "response did not match the schema"
-      : name === "SQLiteError"
-        ? "local database error"
-        : name === "AbortError" || name === "TimeoutError" || code?.startsWith("E")
-          ? "network error"
-          : name === "TypeError"
-            ? transportFailure(error, code)
-              ? "network error"
-              : "collector bug"
-            : "unexpected error";
-  return `Collection failed: ${kind} (${[name, code].filter(Boolean).join(", ")})`;
 }
 
 export type PollOutcome = { collected: boolean; sources: number; heldBy?: string };
@@ -204,7 +154,9 @@ async function collectDueSources(
               config.vendorRoles,
               config.allSignalsRole,
             );
-            db.query("UPDATE sources SET failures=0,retry_at=NULL,failure_started_at=NULL WHERE id=?").run(job.id);
+            db.query(
+              "UPDATE sources SET failures=0,retry_at=NULL,failure_started_at=NULL,last_error_kind=NULL WHERE id=?",
+            ).run(job.id);
             return emitted;
           })(),
         );
@@ -214,32 +166,26 @@ async function collectDueSources(
         if (job.pace) pacedAt.set(job.pace.group, Date.parse(checkedAt));
         log("info", "Source collected", { source: job.id, records: collection.records.length, events });
       } catch (error) {
-        // Source errors may contain credentials or an entire invalid response. Keep a safe operational category.
-        const message =
-          error instanceof CollectionDegradedError
-            ? error.message
-            : error instanceof Error &&
-                /^(Source |Public page |GitHub |Anthropic |Gemini |Invalid RSS|.*: empty collection|.*: duplicate record|.*: invalid normalized record)/.test(
-                  error.message,
-                )
-              ? error.message
-              : unexplainedFailure(error);
+        // The kind comes off the type of the error, never off the shape of its message: see
+        // sources/failureDiagnosis.ts for what the regular expression that used to live here let
+        // through and what it withheld.
+        const diagnosis = classifyFailure(error);
+        const message = diagnosis.message;
         const checkedAt = new Date().toISOString();
         const retryAt = error instanceof SourceHttpError ? error.retryAt : null;
         db.transaction(() => {
           // The first failure of a run stamps when the outage began; later ones leave it alone, so
           // the duration is measured from the start rather than from the latest confirmation.
           db.query(
-            `INSERT INTO sources(id,last_error,checked_at,failures,retry_at,failure_started_at) VALUES(?,?,?,1,?,?)
-           ON CONFLICT(id) DO UPDATE SET last_error=excluded.last_error,checked_at=excluded.checked_at,
+            `INSERT INTO sources(id,last_error,last_error_kind,checked_at,failures,retry_at,failure_started_at) VALUES(?,?,?,?,1,?,?)
+           ON CONFLICT(id) DO UPDATE SET last_error=excluded.last_error,last_error_kind=excluded.last_error_kind,checked_at=excluded.checked_at,
              failures=MIN(sources.failures+1,6),retry_at=excluded.retry_at,
              failure_started_at=COALESCE(sources.failure_started_at,excluded.failure_started_at)`,
-          ).run(job.id, message, checkedAt, retryAt, checkedAt);
-          db.query("INSERT INTO source_collection_metrics(source,collected_at,success,error) VALUES(?,?,0,?)").run(
-            job.id,
-            checkedAt,
-            message,
-          );
+          ).run(job.id, message, diagnosis.kind, checkedAt, retryAt, checkedAt);
+          db.query(
+            "INSERT INTO source_collection_metrics(source,collected_at,success,error,failure_kind) VALUES(?,?,0,?,?)",
+          ).run(job.id, checkedAt, message, diagnosis.kind);
+          if (diagnosis.evidence) recordFailureEvidence(db, job.id, checkedAt, diagnosis.kind, diagnosis.evidence);
           // A failure breaks consecutive confirmation of a disappearance.
           db.query("UPDATE records SET missing_count=0 WHERE source=?").run(job.id);
         })();
@@ -255,7 +201,7 @@ async function collectDueSources(
             detail: message,
           });
         if (job.pace) pacedAt.set(job.pace.group, Date.parse(checkedAt));
-        log("warn", "Source collection failed", { source: job.id, error: message });
+        log("warn", "Source collection failed", { source: job.id, kind: diagnosis.kind, error: message });
       }
     }
   };

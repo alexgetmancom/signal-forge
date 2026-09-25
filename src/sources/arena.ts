@@ -3,26 +3,23 @@ import type { Collection } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
 import { nextData } from "./html.js";
 import { fetchText } from "./http.js";
+import { parseEachEntry } from "./schema.js";
 
-const arenaModels = z
-  .array(
-    z.object({
-      id: z.string().min(1),
-      name: z.string().optional(),
-      displayName: z.string(),
-      organization: z.string().nullable().optional(),
-      provider: z.string().nullable().optional(),
-      userSelectable: z.boolean(),
-      capabilities: z.object({
-        inputCapabilities: z.record(z.string(), z.unknown()),
-        outputCapabilities: z.record(z.string(), z.unknown()),
-      }),
-    }),
-  )
-  .min(1);
+const arenaModel = z.object({
+  id: z.string().min(1),
+  name: z.string().optional(),
+  displayName: z.string(),
+  organization: z.string().nullable().optional(),
+  provider: z.string().nullable().optional(),
+  userSelectable: z.boolean(),
+  capabilities: z.object({
+    inputCapabilities: z.record(z.string(), z.unknown()),
+    outputCapabilities: z.record(z.string(), z.unknown()),
+  }),
+});
 export function parseArena(html: string): Collection {
   const raw = nextData(html, "initialModels"),
-    models = arenaModels.parse(raw);
+    models = parseEachEntry(arenaModel, raw, "arena models");
   return {
     source: "arena",
     stream: "arena",
@@ -64,7 +61,6 @@ const leaderboardBoard = z.object({
       .passthrough(),
   ),
 });
-const boards = z.array(leaderboardBoard).min(1);
 type LeaderboardBoard = z.infer<typeof leaderboardBoard>;
 
 const LEADERBOARD_ENTRY_FIELDS = new Set([
@@ -147,7 +143,7 @@ const RANKED_PLACES = 20;
 
 export function parseLeaderboards(html: string): Collection {
   const raw = nextData(html, "leaderboards"),
-    data = boards.parse(raw);
+    data = parseEachEntry(leaderboardBoard, raw, "arena leaderboards");
   return {
     source: "arena-leaderboards",
     stream: "leaderboards",

@@ -1,6 +1,9 @@
 /**
- * Whether an incremental Model Facts update produces exactly what a full rebuild would, on the real
- * history rather than on a fixture.
+ * Whether the incremental projections produce exactly what a full rebuild would, on the real history
+ * rather than on a fixture.
+ *
+ * Two projections are checked together, because they are updated together and from the same dirty
+ * set: Model Facts and hypotheses.
  *
  * Tests over invented data cannot answer this. What makes an incremental projection dangerous is
  * that it is wrong only for evidence shaped in a way nobody thought to invent -- a record that moves
@@ -25,12 +28,21 @@
 import { Database } from "bun:sqlite";
 import { existsSync, rmSync } from "node:fs";
 import { resolve } from "node:path";
+import { rebuildHypotheses, updateHypotheses } from "../src/hypotheses.js";
 import { rebuildModelFacts, updateModelFacts } from "../src/modelFacts.js";
 
 const root = resolve(import.meta.dir, "..");
 const source = resolve(root, ".rehearsal/prod.db");
 const working = resolve(root, ".rehearsal/projections.db");
 const hideCount = Number(process.argv[2] ?? "40");
+/**
+ * One clock for every pass.
+ *
+ * `STALE_AFTER_MS` is the only input to a hypothesis that is not an event, so a full rebuild at one
+ * moment and an incremental update a second later can legitimately disagree about a story sitting on
+ * the fourteen-day line. Comparing them then measures the wall clock, not the projection.
+ */
+const NOW = Date.now();
 
 if (!existsSync(source)) {
   process.stderr.write("No copy at .rehearsal/prod.db -- run `bun run rehearse` first.\n");
@@ -60,14 +72,27 @@ function snapshot(db: Database): string {
        FROM model_fact_conflicts ORDER BY canonical_id,field,incumbent_event_id,challenger_event_id`,
     )
     .all();
-  return JSON.stringify({ facts, fields, conflicts });
+  const hypotheses = db
+    .query<Record<string, unknown>, []>(
+      `SELECT stable_key,story_id,subject,status,independent_source_count,first_seen_at,formed_at,updated_at,
+              resolved_at,resolution_event_id
+       FROM hypotheses ORDER BY stable_key`,
+    )
+    .all();
+  const hypothesisEvents = db
+    .query<Record<string, unknown>, []>(
+      `SELECT h.stable_key,he.event_id,he.role FROM hypothesis_events he
+       JOIN hypotheses h ON h.id=he.hypothesis_id ORDER BY h.stable_key,he.role,he.event_id`,
+    )
+    .all();
+  return JSON.stringify({ facts, fields, conflicts, hypotheses, hypothesisEvents });
 }
 
 /** The first line on which two snapshots differ, as a sentence rather than two megabytes of JSON. */
 function firstDifference(left: string, right: string): string {
   const a = JSON.parse(left) as Record<string, Record<string, unknown>[]>;
   const b = JSON.parse(right) as Record<string, Record<string, unknown>[]>;
-  for (const table of ["facts", "fields", "conflicts"]) {
+  for (const table of ["facts", "fields", "conflicts", "hypotheses", "hypothesisEvents"]) {
     const rowsA = a[table] ?? [];
     const rowsB = b[table] ?? [];
     if (rowsA.length !== rowsB.length) {
@@ -120,14 +145,24 @@ const sources = db
 
 say(`Full rebuild over ${db.query<{ n: number }, []>("SELECT COUNT(*) n FROM story_events").get()?.n} story events`);
 let started = Bun.nanoseconds();
-db.transaction(() => rebuildModelFacts(db))();
+db.transaction(() => {
+  rebuildModelFacts(db);
+  rebuildHypotheses(db, NOW);
+})();
 const fullMs = (Bun.nanoseconds() - started) / 1e6;
 const afterFull = snapshot(db);
 say(
   `  ${fullMs.toFixed(0)} ms, ${JSON.parse(afterFull).fields.length} fields over ${JSON.parse(afterFull).facts.length} models`,
 );
 
-say(`Idempotence: an incremental update of each of ${sources.length} sources must change nothing`);
+const storyIds = db
+  .query<{ id: number }, []>("SELECT id FROM stories ORDER BY id")
+  .all()
+  .map((row) => row.id);
+
+say(
+  `Idempotence: an incremental update of each of ${sources.length} sources and ${storyIds.length} stories must change nothing`,
+);
 started = Bun.nanoseconds();
 for (const name of sources) {
   const records = db
@@ -135,6 +170,7 @@ for (const name of sources) {
     .all(name);
   db.transaction(() => updateModelFacts(db, { storyIds: [], records }))();
 }
+for (const id of storyIds) db.transaction(() => updateHypotheses(db, [id], NOW))();
 const idempotentMs = (Bun.nanoseconds() - started) / 1e6;
 const afterIdempotent = snapshot(db);
 const idempotent = afterIdempotent === afterFull;
@@ -159,6 +195,7 @@ db.transaction(() => {
   const unlink = db.query("DELETE FROM story_events WHERE event_id=?");
   for (const row of newest) unlink.run(row.event_id);
   rebuildModelFacts(db);
+  rebuildHypotheses(db, NOW);
 })();
 
 const insertLink = db.query("INSERT INTO story_events(story_id,event_id) VALUES(?,?)");
@@ -170,6 +207,7 @@ for (const row of newest) {
       .query<{ source: string; id: string }, [string]>("SELECT source,id FROM records WHERE source=?")
       .all(row.source);
     updateModelFacts(db, { storyIds: [row.story_id], records });
+    updateHypotheses(db, [row.story_id], NOW);
   })();
 }
 const arrivalMs = (Bun.nanoseconds() - started) / 1e6;

@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
 import type { Collection, RecordData } from "../events/types.js";
+import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { log } from "../logger.js";
 import type { HttpCache } from "../storage/httpCache.js";
@@ -117,7 +118,7 @@ export async function collectGithubCommits(
           const next = detailSchema.parse(more).files;
           files.push(...next);
           if (next.length < 100) break;
-          if (p === 30) throw new Error("GitHub commit file list exceeds pagination limit");
+          if (p === 30) throw new SourceError("protocol", "GitHub commit file list exceeds pagination limit");
         }
       summary = summarizeDiff(files, watch.paths);
     }
@@ -177,7 +178,7 @@ export async function collectGithubReleases(
       });
     }
     if (reachedKnown || !initialized || releases.length < 5) break;
-    if (page === 20) throw new Error("GitHub release catch-up exceeds 100 entries; cursor preserved");
+    if (page === 20) throw new SourceError("protocol", "GitHub release catch-up exceeds 100 entries; cursor preserved");
   }
   return {
     source,
@@ -247,7 +248,7 @@ export async function collectGithubPulls(
       pending.push(pr);
     }
     if (reachedKnown || !initialized || pulls.length < 100) break;
-    if (page === 5) throw new Error("GitHub PR catch-up exceeds 500 entries; cursor preserved");
+    if (page === 5) throw new SourceError("protocol", "GitHub PR catch-up exceeds 500 entries; cursor preserved");
   }
   for (const pr of pending.reverse().slice(0, initialized ? 5 : pending.length)) {
     const id = String(pr.number);
@@ -274,7 +275,7 @@ export async function collectGithubPulls(
           .parse(JSON.parse(await fetchText(`${base}/${pr.number}/files?per_page=100&page=${page}`, headers, request)));
         files.push(...list);
         if (list.length < 100) break;
-        if (page === 30) throw new Error("GitHub PR file list exceeds pagination limit");
+        if (page === 30) throw new SourceError("protocol", "GitHub PR file list exceeds pagination limit");
       }
       summary = summarizeDiff(files, watch.paths);
     }

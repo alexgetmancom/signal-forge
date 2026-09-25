@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import type { Collection, RecordData } from "../events/types.js";
+import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { readLatestSnapshot } from "../storage/snapshots.js";
 
@@ -248,7 +249,7 @@ async function probe(url: string, request: Fetch, jar: Map<string, string>): Pro
     }
     return { status: response.status, body: await response.text() };
   }
-  throw new Error(`${url}: redirected past six hops`);
+  throw new SourceError("protocol", "Source redirected past six hops");
 }
 
 /**

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
 import type { Collection, RecordData, SourceAuthority } from "../events/types.js";
+import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { fetchText } from "./http.js";
 
@@ -87,13 +88,14 @@ export async function collectAnthropic(config: AppConfig, request: Fetch = fetch
     raw.push(body);
     records.push(...data.data.map((m) => ({ id: m.id, name: m.display_name, created: m.created_at })));
     if (!data.has_more) {
-      if (!records.length) throw new Error("Anthropic catalogue has no models");
+      if (!records.length) throw new SourceError("empty", "Anthropic catalogue has no models");
       return { source: "anthropic", stream: "api-models", url, raw, records };
     }
-    if (!data.last_id || data.last_id === cursor) throw new Error("Anthropic pagination did not advance");
+    if (!data.last_id || data.last_id === cursor)
+      throw new SourceError("protocol", "Anthropic pagination did not advance");
     cursor = data.last_id;
   }
-  throw new Error("Anthropic pagination exceeded limit");
+  throw new SourceError("protocol", "Anthropic pagination exceeded limit");
 }
 const geminiSchema = z.object({
   models: z.array(
@@ -133,13 +135,13 @@ export async function collectGemini(config: AppConfig, request: Fetch = fetch): 
       })),
     );
     if (!data.nextPageToken) {
-      if (!records.length) throw new Error("Gemini catalogue has no models");
+      if (!records.length) throw new SourceError("empty", "Gemini catalogue has no models");
       return { source: "gemini", stream: "api-models", url, raw, records };
     }
-    if (data.nextPageToken === cursor) throw new Error("Gemini pagination did not advance");
+    if (data.nextPageToken === cursor) throw new SourceError("protocol", "Gemini pagination did not advance");
     cursor = data.nextPageToken;
   }
-  throw new Error("Gemini pagination exceeded limit");
+  throw new SourceError("protocol", "Gemini pagination exceeded limit");
 }
 
 /**

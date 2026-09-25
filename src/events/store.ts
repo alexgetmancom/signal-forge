@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { Destination } from "../config.js";
+import { SourceError } from "../failure.js";
 import { storeSnapshot } from "../storage/snapshots.js";
 import { canonical } from "./canonical.js";
 import { classify } from "./classify.js";
@@ -34,8 +35,11 @@ function validateRecords(source: string, records: Collection["records"]): void {
   const ids = new Set<string>();
   records.forEach((record, index) => {
     const result = normalizedRecord.safeParse(record);
-    if (!result.success) throw new Error(`${source}: invalid normalized record at index ${index}`);
-    if (ids.has(record.id)) throw new Error(`${source}: duplicate record IDs`);
+    if (!result.success)
+      throw new SourceError("schema", `${source}: invalid normalized record at index ${index}`, {
+        evidence: { index, fields: result.error.issues.map((issue) => issue.path.join(".")) },
+      });
+    if (ids.has(record.id)) throw new SourceError("schema", `${source}: duplicate record IDs`);
     ids.add(record.id);
   });
 }
@@ -245,7 +249,7 @@ export function persistCollection(
   destinations: Destination[],
   now = new Date().toISOString(),
 ): number {
-  if (!c.records.length && !c.appendOnly) throw new Error(`${c.source}: empty collection rejected`);
+  if (!c.records.length && !c.appendOnly) throw new SourceError("empty", `${c.source}: empty collection rejected`);
   validateRecords(c.source, c.records);
   // The registry declares authority and the poller carries it; a collection without one claims the least.
   const authority = c.authority ?? "third_party";

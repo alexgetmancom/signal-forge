@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { z } from "zod";
-import { byLongestWait, unexplainedFailure } from "../src/poller.js";
+import { unexplainedFailure } from "../src/failureDiagnosis.js";
+import { byLongestWait } from "../src/poller.js";
 
 test("a withheld failure still says which kind it was, and nothing an upstream wrote", () => {
   const parsed = z.object({ data: z.array(z.string()) }).safeParse({ data: "sk-live-secret" });

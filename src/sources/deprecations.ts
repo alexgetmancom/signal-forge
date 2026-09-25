@@ -1,4 +1,5 @@
 import type { Collection, RecordData } from "../events/types.js";
+import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { fetchText } from "./http.js";
 
@@ -38,7 +39,8 @@ export function parseOpenAIDeprecations(markdown: string): Collection {
       summary: body.join(" ").slice(0, 800),
     });
   }
-  if (!records.length) throw new Error("Public page no longer exposes deprecation announcements");
+  if (!records.length)
+    throw new SourceError("missing-content", "Public page no longer exposes deprecation announcements");
   return {
     source: "openai-deprecations",
     stream: "deprecations",
@@ -81,7 +83,7 @@ export function parseAnthropicDeprecations(markdown: string): Collection {
       retirement: retirement ?? null,
     });
   }
-  if (!records.length) throw new Error("Public page no longer exposes the model status table");
+  if (!records.length) throw new SourceError("missing-content", "Public page no longer exposes the model status table");
   return {
     source: "anthropic-deprecations",
     stream: "deprecations",
