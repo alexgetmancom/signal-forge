@@ -3,6 +3,7 @@ import { z } from "zod";
 import { capabilityReport } from "../capabilities.js";
 import type { AppConfig } from "../config.js";
 import { buildOperationsGuide, OPERATION_SECTIONS, type OperationSection } from "../guide.js";
+import { brokenReport } from "../reports/broken.js";
 import { doctorReport } from "../reports/doctor.js";
 import { flakySources } from "../reports/flakySources.js";
 import { listActionableIssues } from "../reports/issues.js";
@@ -67,6 +68,24 @@ export function healthOperations(db: Database, config: AppConfig, all: () => Ope
       cli: {},
       http: { method: "get", path: "/api/issues" },
       handler: () => listActionableIssues(db, config),
+    },
+    broken: {
+      section: "health",
+      summary:
+        "Everything any of the four readings calls broken, in one call: what is red now, what has gone quiet, what is losing collections, and which host is failing as one.",
+      startHere: "opening a session, or something is wrong and I do not know where to look",
+      note:
+        "The four readings are blind to each other -- the present, an absence, a rate, a " +
+        "correlation -- and each section says which one it is. Read `readings` first: a source " +
+        "flagged by two of them is a different problem from one flagged by one, and that is the " +
+        "only thing here the four commands cannot tell you separately. `issues`, `silent-sources`, " +
+        "`flaky` and `outages` still answer on their own when the question is already narrow.",
+      mutates: false,
+      agent: true,
+      schema: z.object({ days: count(90, 3) }),
+      cli: { args: [{ name: "days", optional: true }] },
+      http: { method: "get", path: "/api/broken" },
+      handler: (input: { days: number }) => brokenReport(db, config, input.days),
     },
     capabilities: {
       section: "health",
