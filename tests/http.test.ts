@@ -46,7 +46,9 @@ test("health is public, operational state requires token, MCP lists matching sch
     "keys",
     "date_integrity",
     "flaky",
+    "outages",
     "failures",
+    "timings",
     "usage",
     "verify",
     "memory",
@@ -78,7 +80,6 @@ test("health is public, operational state requires token, MCP lists matching sch
     "release_audit",
     "channel_mix",
     "signal_quality",
-    "code_analytics",
     "deepseek_usage",
     "credential_circuits",
     "sql",
@@ -133,7 +134,7 @@ test("health is public, operational state requires token, MCP lists matching sch
   });
   resolutionDb.close();
   expect((await app.request("/api/signal-quality", { headers: auth })).status).toBe(200);
-  expect((await app.request("/api/code-analytics", { headers: auth })).status).toBe(200);
+  expect((await app.request("/api/timings", { headers: auth })).status).toBe(200);
   expect((await app.request("/api/deepseek-usage", { headers: auth })).status).toBe(200);
   expect((await app.request("/api/stories", { headers: auth })).status).toBe(200);
   db.close();

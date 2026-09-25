@@ -7,10 +7,12 @@ import { doctorReport } from "../reports/doctor.js";
 import { flakySources } from "../reports/flakySources.js";
 import { listActionableIssues } from "../reports/issues.js";
 import { keyStandings } from "../reports/keys.js";
+import { outages } from "../reports/outages.js";
 import { releaseCheck } from "../reports/release.js";
 import { sourceFailures } from "../reports/sourceFailures.js";
 import { statusReport } from "../reports/statusReport.js";
 import { usageReport } from "../reports/usage.js";
+import { codeAnalytics } from "../runtime/metrics.js";
 import { memoryReport } from "../runtime/observability.js";
 import { dateIntegrity } from "../storage/dateIntegrity.js";
 import { count, flag, type OperationMap, operationCatalog } from "./definition.js";
@@ -122,6 +124,22 @@ export function healthOperations(db: Database, config: AppConfig, all: () => Ope
       http: { method: "get", path: "/api/flaky" },
       handler: (input: { days: number }) => flakySources(db, config, input.days),
     },
+    outages: {
+      section: "health",
+      summary:
+        "Failures grouped by the host their sources share, so one upstream falling over is one line instead of one line per source pointed at it.",
+      startHere: "several sources are flaky at once and I want to know whether it is one cause",
+      note:
+        "Read `concurrentMinutes` first: two sources of a group failing inside the same minute is " +
+        "not something independent failures do. The five `artificial-analysis` sources logged 53 " +
+        "ECONNRESET in seven days at ten per cent each -- five entries in `flaky`, one host.",
+      mutates: false,
+      agent: true,
+      schema: z.object({ days: count(90, 7) }),
+      cli: { args: [{ name: "days", optional: true }] },
+      http: { method: "get", path: "/api/outages" },
+      handler: (input: { days: number }) => outages(db, config, input.days),
+    },
     failures: {
       section: "health",
       summary:
@@ -137,6 +155,38 @@ export function healthOperations(db: Database, config: AppConfig, all: () => Ope
       cli: { args: [{ name: "source" }, { name: "days", optional: true }] },
       http: { method: "get", path: "/api/failures/:source" },
       handler: (input: { source: string; days: number }) => sourceFailures(db, input.source, input.days),
+    },
+    timings: {
+      section: "health",
+      summary:
+        "What this service spends its time in: calls, average, p50 and p95 per instrumented section, slowest first.",
+      startHere: "something is slow, or I want to know what a change cost",
+      note:
+        "This was called `code_analytics` and sat in the `sources` section under the name of its " +
+        "table, and ten raw `sql` queries were written against `code_metrics` by hand rather than " +
+        "found. Ask `timings --name pipeline --limit 5`; the per-hour series needs `--timeline` " +
+        "because the usual question is what is slow, not when.",
+      mutates: false,
+      agent: true,
+      schema: z.object({
+        days: count(90, 7),
+        name: z.string().min(1).optional(),
+        limit: count(500, 20),
+        timeline: flag().optional(),
+      }),
+      cli: {
+        args: [
+          { name: "days", optional: true },
+          { name: "name", optional: true },
+        ],
+      },
+      http: { method: "get", path: "/api/timings" },
+      handler: (input: { days: number; name?: string; limit: number; timeline?: boolean }) =>
+        codeAnalytics(db, input.days, Date.now(), {
+          name: input.name,
+          limit: input.limit,
+          timeline: input.timeline,
+        }),
     },
     usage: {
       section: "health",

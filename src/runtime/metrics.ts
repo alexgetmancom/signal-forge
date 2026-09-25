@@ -271,7 +271,16 @@ function sectionReport(metric: MetricAggregate): CodeAnalyticsSection {
   };
 }
 
-export function codeAnalytics(db: Database, days = 7, now = Date.now()): CodeAnalyticsReport {
+export type TimingsQuery = {
+  /** Only sections whose name contains this, so one subsystem can be asked about on its own. */
+  name?: string | undefined;
+  /** How many of the slowest sections to return. The full list is a wall nobody reads. */
+  limit?: number | undefined;
+  /** The per-hour series, which is only wanted when the question is "when", not "what". */
+  timeline?: boolean | undefined;
+};
+
+export function codeAnalytics(db: Database, days = 7, now = Date.now(), query: TimingsQuery = {}): CodeAnalyticsReport {
   if (!Number.isInteger(days) || days < 1 || days > 90) throw new Error("Code analytics days must be between 1 and 90");
   const until = new Date(now).toISOString();
   const since = new Date(now - days * 24 * 3_600_000).toISOString();
@@ -283,15 +292,21 @@ export function codeAnalytics(db: Database, days = 7, now = Date.now()): CodeAna
        FROM code_metrics WHERE bucket_start>=? AND bucket_start<=? ORDER BY bucket_start,name`,
     )
     .all(firstBucket, until);
-  const metrics = [...aggregateRows(rows).values()].sort((left, right) => {
-    if (right.totalDurationMs !== left.totalDurationMs) return right.totalDurationMs - left.totalDurationMs;
-    return left.name.localeCompare(right.name);
-  });
+  const wanted = query.name?.toLowerCase();
+  const metrics = [...aggregateRows(rows).values()]
+    .filter((metric) => (wanted ? metric.name.toLowerCase().includes(wanted) : true))
+    .sort((left, right) => {
+      if (right.totalDurationMs !== left.totalDurationMs) return right.totalDurationMs - left.totalDurationMs;
+      return left.name.localeCompare(right.name);
+    });
   const calls = metrics.reduce((sum, metric) => sum + metric.calls, 0);
   const failures = metrics.reduce((sum, metric) => sum + metric.failures, 0);
   const totalDurationMs = metrics.reduce((sum, metric) => sum + metric.totalDurationMs, 0);
   const timeline = new Map<string, { calls: number; failures: number; totalDurationMs: number }>();
   for (const row of rows) {
+    // The series has to describe the same sections the totals do, or a name filter produces a
+    // report whose two halves are about different things.
+    if (wanted && !row.name.toLowerCase().includes(wanted)) continue;
     const current = timeline.get(row.bucket_start) ?? { calls: 0, failures: 0, totalDurationMs: 0 };
     current.calls += row.calls;
     current.failures += row.failures;
@@ -310,12 +325,14 @@ export function codeAnalytics(db: Database, days = 7, now = Date.now()): CodeAna
       totalDurationMs,
       averageDurationMs: calls ? round(totalDurationMs / calls, 2) : 0,
     },
-    sections: metrics.map(sectionReport),
-    timeline: [...timeline.entries()].map(([bucketStartValue, value]) => ({
-      bucketStart: bucketStartValue,
-      ...value,
-      averageDurationMs: value.calls ? round(value.totalDurationMs / value.calls, 2) : 0,
-    })),
+    sections: (query.limit ? metrics.slice(0, query.limit) : metrics).map(sectionReport),
+    timeline: query.timeline
+      ? [...timeline.entries()].map(([bucketStartValue, value]) => ({
+          bucketStart: bucketStartValue,
+          ...value,
+          averageDurationMs: value.calls ? round(value.totalDurationMs / value.calls, 2) : 0,
+        }))
+      : [],
   };
 }
 

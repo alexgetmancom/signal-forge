@@ -13,7 +13,6 @@ import { signalQuality } from "../reports/signalQuality.js";
 import { silentSources } from "../reports/silentSources.js";
 import { sourceVerdicts } from "../reports/sourceVerdicts.js";
 import { deepSeekUsage } from "../runtime/deepseekUsage.js";
-import { codeAnalytics } from "../runtime/metrics.js";
 import { mentionSource } from "../sources/modelMentions.js";
 import { count, type OperationMap } from "./definition.js";
 
@@ -194,16 +193,6 @@ export function sourcesOperations(db: Database, config: AppConfig, _all: () => O
       cli: { args: [{ name: "days", optional: true }] },
       http: { method: "get", path: "/api/signal-quality" },
       handler: (input: { days: number }) => signalQuality(db, config, input.days),
-    },
-    code_analytics: {
-      section: "sources",
-      summary: "Execution frequency, duration and failure analytics for instrumented runtime sections.",
-      mutates: false,
-      agent: true,
-      schema: z.object({ days: count(90, 7) }),
-      cli: { args: [{ name: "days", optional: true }] },
-      http: { method: "get", path: "/api/code-analytics" },
-      handler: (input: { days: number }) => codeAnalytics(db, input.days),
     },
     deepseek_usage: {
       section: "sources",

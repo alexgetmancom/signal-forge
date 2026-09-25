@@ -28,6 +28,13 @@ import { buildSourceRegistry } from "../sources/registry.js";
 export type FlakySource = {
   id: string;
   label: string;
+  /**
+   * The pacing group, which is a host name, or the registry group when there is none.
+   *
+   * Here so that five rows sharing one do not read as five unrelated collectors. `outages` is the
+   * aggregate; this is the hint that sends you to it.
+   */
+  group: string;
   attempts: number;
   failures: number;
   failureRate: number;
@@ -63,7 +70,10 @@ export function flakySources(db: Database, config: AppConfig, days = 3, now = Da
   const registry = new Map(
     buildSourceRegistry(db, config)
       .filter((definition) => definition.enabled)
-      .map((definition) => [definition.id, definition.label]),
+      .map((definition) => [
+        definition.id,
+        { label: definition.label, group: definition.pace?.group ?? definition.group },
+      ]),
   );
   const rows = db
     .query<
@@ -121,7 +131,8 @@ export function flakySources(db: Database, config: AppConfig, days = 3, now = Da
         const stored = errors.get(row.source);
         return {
           id: row.source,
-          label: registry.get(row.source) ?? row.source,
+          label: registry.get(row.source)?.label ?? row.source,
+          group: registry.get(row.source)?.group ?? row.source,
           attempts: row.attempts,
           failures: row.failures,
           failureRate: Math.round(failureRate * 100) / 100,

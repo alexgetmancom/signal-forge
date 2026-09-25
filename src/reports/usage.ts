@@ -17,24 +17,79 @@ import type { Database } from "bun:sqlite";
 export type UsageReport = {
   window: { from: string; calls: number };
   commands: { operation: string; surface: string; calls: number; failures: number; maxMs: number | null }[];
-  askedByHand: { shape: string; asked: number; lastAsked: string; example: string }[];
+  askedByHand: {
+    shape: string;
+    asked: number;
+    lastAsked: string;
+    example: string;
+    /** A command that already reads these tables, if there is one. See `COVERED_BY`. */
+    coveredBy: string | null;
+  }[];
   failing: { operation: string; failures: number; lastDetail: string | null }[];
 };
 
 /**
- * One query stands for another when only its literals differ.
+ * The tables a query reads, which is the grain a command is written at.
  *
- * Numbers, quoted strings and the interval in a `datetime('now', ...)` are the parts that change
- * between two askings of the same question; whitespace is noise. What is left is the shape, and a
- * shape asked more than once is a report waiting to be written.
+ * Removing the literals was not enough. Ten of the twenty-two `sql` calls made on 2026-09-25 asked
+ * the same question of `code_metrics`, and the shapes collapsed two of them, because the column
+ * lists differed -- `SELECT name, calls` and `SELECT name, calls, max_duration_ms` are one question
+ * to a person and two strings to a `replace`. A detector that misses eight of ten repeats is a
+ * detector that says there is nothing to write.
+ *
+ * A command is almost never about a projection; it is about a table, or two joined. So that is the
+ * grain: the set of tables, and whether the question was aggregated, because "how many" and "which
+ * ones" are different commands. The example query is kept alongside for the part this throws away.
  */
 export function queryShape(query: string): string {
-  return query
+  const normalized = query
     .replace(/'[^']*'/g, "'?'")
-    .replace(/\b\d+\b/g, "?")
+    .replace(/--[^\n]*/g, " ")
     .replace(/\s+/g, " ")
-    .trim()
-    .slice(0, 400);
+    .toLowerCase();
+  const tables = [
+    ...new Set(
+      [...normalized.matchAll(/\b(?:from|join|into|update)\s+([a-z_][\w]*)/g)]
+        .map((match) => match[1] as string)
+        // A subquery's `FROM (` and the alias of a common table expression are not tables.
+        .filter((name) => name !== "select"),
+    ),
+  ].sort();
+  const grouped = /\bgroup\s+by\b/.test(normalized) || /\b(?:count|sum|avg|min|max)\s*\(/.test(normalized);
+  if (!tables.length) return normalized.slice(0, 200);
+  return `${tables.join(" + ")}${grouped ? " (aggregated)" : ""}`;
+}
+
+/**
+ * Tables that an existing command already answers for.
+ *
+ * The gap detector can only see a question nothing answers. It cannot see the other failure, which
+ * is the one that actually happened: `code_analytics` reported duration percentiles for months, was
+ * listed to every agent, and ten raw queries were still written against `code_metrics` by hand --
+ * because it sat in the `sources` section under the name of the table rather than the name of the
+ * question. A command nobody finds and a command that does not exist look identical from here, and
+ * only one of them is fixed by writing more code.
+ *
+ * Keep this honest rather than complete: an entry claims that the named command answers the usual
+ * question about that table, and a wrong entry is worse than a missing one.
+ */
+const COVERED_BY: Readonly<Record<string, string>> = {
+  code_metrics: "timings",
+  source_collection_metrics: "flaky, failures, outages",
+  sources: "issues, silent-sources, sources",
+  operator_journal: "usage, journal",
+  deliveries: "destinations, delivery-health",
+  source_failure_evidence: "failures",
+  hypotheses: "hypotheses",
+  model_facts: "model-facts",
+  snapshots: "snapshot",
+};
+
+function coveredBy(shape: string): string | null {
+  const named = [...new Set(shape.replace(/ \(aggregated\)$/, "").split(" + "))]
+    .map((table) => COVERED_BY[table])
+    .filter((command): command is string => command !== undefined);
+  return named.length ? [...new Set(named)].join("; ") : null;
 }
 
 const WINDOW_DAYS = 30;
@@ -63,7 +118,7 @@ export function usageReport(db: Database, days = WINDOW_DAYS, now = Date.now()):
     string,
     { operation: string; surface: string; calls: number; failures: number; maxMs: number | null }
   >();
-  const shapes = new Map<string, { shape: string; asked: number; lastAsked: string; example: string }>();
+  const shapes = new Map<string, UsageReport["askedByHand"][number]>();
   const failing = new Map<string, { operation: string; failures: number; lastDetail: string | null }>();
 
   for (const row of rows) {
@@ -96,7 +151,13 @@ export function usageReport(db: Database, days = WINDOW_DAYS, now = Date.now()):
     }
     if (!query) continue;
     const shape = queryShape(query);
-    const asked = shapes.get(shape) ?? { shape, asked: 0, lastAsked: row.recorded_at, example: query.slice(0, 400) };
+    const asked = shapes.get(shape) ?? {
+      shape,
+      asked: 0,
+      lastAsked: row.recorded_at,
+      example: query.slice(0, 400),
+      coveredBy: coveredBy(shape),
+    };
     asked.asked++;
     asked.lastAsked = row.recorded_at;
     shapes.set(shape, asked);
@@ -105,7 +166,8 @@ export function usageReport(db: Database, days = WINDOW_DAYS, now = Date.now()):
   return {
     window: { from, calls: rows.length },
     commands: [...commands.values()].sort((left, right) => right.calls - left.calls),
-    // Asked once is a one-off; asked again is a pattern, and only patterns are worth a command.
+    // Asked once is a one-off; asked again is a pattern. A pattern with `coveredBy` set is not a
+    // command to write but a command to make findable, which is the cheaper of the two fixes.
     askedByHand: [...shapes.values()]
       .filter((shape) => shape.asked > 1)
       .sort((left, right) => right.asked - left.asked),
