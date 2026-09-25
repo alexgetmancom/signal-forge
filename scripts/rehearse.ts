@@ -21,11 +21,21 @@
  *   bun run rehearse 30 discord-signals    including what one channel had already been told
  *   bun run rehearse --base 7e0599f        against the policy as it stood at a commit
  *   bun run rehearse --fresh               ignore the cached copy and pull again
+ *   bun run rehearse --all                 every phase, including the two that are not about cards
+ *   bun run rehearse --only projections    one of them
+ *   bun run rehearse --list                what the phases are
+ *
+ * Every phase shares one copy of production and one unpacked base. Three scripts used to pull
+ * 377MB each and `git archive` the same tree twice, which is why two of them quietly defaulted to
+ * `./data/app.db` instead. What each phase found is appended to `.rehearsal/ledger.json` under the
+ * SHA it was measured against, so a later run can say a fingerprint is the one from four commits
+ * ago -- that those four commits reached no reader, which is more than "nothing moved since HEAD".
  *
  * Reads only, on both ends.
  */
-import { existsSync, mkdirSync, statSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, symlinkSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { appendEntry, type Entry, type Finding, lastAgreement, verdictLine } from "./rehearsalLedger.js";
 
 const ssh = process.env.SIGNAL_FORGE_SSH?.trim() || "vm106";
 const container = process.env.SIGNAL_FORGE_CONTAINER?.trim() || "signal-forge-app-1";
@@ -87,6 +97,94 @@ async function pullSnapshot(into: string): Promise<boolean> {
   return (await child.exited) === 0 && existsSync(into) && statSync(into).size > 0;
 }
 
+/**
+ * The base, unpacked once into `.rehearsal/base/<sha>` rather than once per phase.
+ *
+ * Both replays used to run `git archive` into their own mkdtemp, which is a second unpack of the
+ * same tree for no reason, and neither of them could be told to reuse the other's. A directory is
+ * a base as far as they are concerned, so they are handed one.
+ */
+function unpackBase(ref: string): string {
+  const sha = resolveRef(ref);
+  const into = resolve(cacheDir, "base", sha);
+  if (existsSync(join(into, "src/events/batching.ts"))) return into;
+  mkdirSync(into, { recursive: true });
+  const archive = Bun.spawnSync(["git", "archive", "--format=tar", sha, "src", "package.json"], { cwd: root });
+  if (!archive.success) throw new Error(`git archive ${sha} failed: ${archive.stderr.toString()}`);
+  const unpack = Bun.spawnSync(["tar", "-x", "-C", into], { stdin: archive.stdout });
+  if (!unpack.success) throw new Error(`Unpacking ${sha} failed`);
+  if (!existsSync(join(into, "node_modules"))) symlinkSync(join(root, "node_modules"), join(into, "node_modules"));
+  return into;
+}
+
+function git(...args: string[]): string {
+  return Bun.spawnSync(["git", ...args], { cwd: root })
+    .stdout.toString()
+    .trim();
+}
+
+function resolveRef(ref: string): string {
+  const sha = git("rev-parse", ref);
+  if (!sha) throw new Error(`Not a ref: ${ref}`);
+  return sha;
+}
+
+type Phase = {
+  name: string;
+  /** Whether the default run includes it. The two that answer "what reaches a reader" do. */
+  always: boolean;
+  what: string;
+  run: (unpacked: string, resultPath: string) => string[];
+};
+
+const PHASES: Phase[] = [
+  {
+    name: "policy",
+    always: true,
+    what: "which cards are sent",
+    run: (unpacked, resultPath) => [
+      "scripts/replay-policy.ts",
+      ...["--db", copy, "--days", days, "--base", unpacked, "--result", resultPath],
+      ...(destination ? ["--destination", destination] : []),
+    ],
+  },
+  {
+    name: "cards",
+    always: true,
+    what: "what those cards say",
+    run: (unpacked, resultPath) => [
+      "scripts/replay-cards.ts",
+      ...["--db", copy, "--days", days, "--base", unpacked, "--result", resultPath],
+    ],
+  },
+  {
+    name: "projections",
+    always: false,
+    what: "whether an incremental Model Facts or hypotheses update lands where a rebuild does",
+    run: () => ["scripts/rehearse-projections.ts"],
+  },
+  {
+    name: "migration",
+    always: false,
+    what: "what a pending migration does to production's own rows and to the hot reads",
+    run: () => ["scripts/rehearse-migration.ts", copy],
+  },
+];
+
+const only = argv.includes("--only") ? (argv[argv.indexOf("--only") + 1] ?? "").split(",") : null;
+const chosen = PHASES.filter((phase) => (only ? only.includes(phase.name) : phase.always || flags.has("--all")));
+
+if (flags.has("--list")) {
+  for (const phase of PHASES) say(`${phase.always ? " " : "*"} ${phase.name.padEnd(12)} ${phase.what}`);
+  say("");
+  say("* runs only with --all or --only. Everything above shares one copy of production.");
+  process.exit(0);
+}
+if (chosen.length === 0) {
+  say(`No such phase. There are: ${PHASES.map((phase) => phase.name).join(", ")}`);
+  process.exit(2);
+}
+
 const age = existsSync(copy) ? Date.now() - statSync(copy).mtimeMs : Number.POSITIVE_INFINITY;
 if (flags.has("--fresh") || age > FRESH_FOR_MS) {
   mkdirSync(cacheDir, { recursive: true });
@@ -100,18 +198,42 @@ if (flags.has("--fresh") || age > FRESH_FOR_MS) {
   say(`Replaying against the copy taken ${Math.round(age / 60_000)} minutes ago (--fresh to pull again)`);
 }
 
-async function replay(script: string, extra: string[]): Promise<number> {
-  const child = Bun.spawn(["bun", script, "--db", copy, "--days", days, ...(base ? ["--base", base] : []), ...extra], {
+const unpacked = chosen.some((phase) => phase.always) ? unpackBase(base ?? "HEAD") : "";
+const findings: Finding[] = [];
+for (const [index, phase] of chosen.entries()) {
+  if (index > 0) say("");
+  const resultPath = resolve(cacheDir, `${phase.name}.json`);
+  rmSync(resultPath, { force: true });
+  const child = Bun.spawn(["bun", ...phase.run(unpacked, resultPath)], {
     stdout: "inherit",
     stderr: "inherit",
     cwd: root,
   });
-  return await child.exited;
+  const code = await child.exited;
+  const reported = existsSync(resultPath) ? (JSON.parse(readFileSync(resultPath, "utf8")) as Finding) : null;
+  findings.push(
+    reported ?? { phase: phase.name, verdict: code === 0 ? "same" : "failed", moved: 0, fingerprint: null },
+  );
+  // A phase that could not run says nothing about the change, so the ones after it are not asked.
+  if (code !== 0) break;
 }
 
-// Two halves of one question. The policy replay says which cards are sent; the card replay says
-// what they say, which had nothing measuring it until a 1201-line file claimed to move unchanged.
-const decisions = await replay("scripts/replay-policy.ts", destination ? ["--destination", destination] : []);
-if (decisions !== 0) process.exit(decisions);
+const entry: Entry = {
+  at: new Date().toISOString(),
+  base: base ?? "HEAD",
+  baseSha: unpacked === "" ? "" : resolveRef(base ?? "HEAD"),
+  head: resolveRef("HEAD"),
+  dirty: git("status", "--porcelain").length > 0,
+  days: Number(days),
+  findings,
+};
+const ledger = appendEntry(resolve(cacheDir, "ledger.json"), entry);
+
 say("");
-process.exit(await replay("scripts/replay-cards.ts", []));
+say(verdictLine(entry));
+for (const finding of findings) {
+  const agreement = lastAgreement(ledger.slice(0, -1), finding);
+  if (agreement) say(`  ${agreement}`);
+}
+if (entry.dirty) say("  (working tree is dirty, so this run is not repeatable from the ledger)");
+process.exit(findings.some((finding) => finding.verdict === "failed") ? 1 : 0);

@@ -19,7 +19,7 @@
  */
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { Event } from "../src/events/types.js";
@@ -32,8 +32,12 @@ const args = new Map<string, string>();
 for (let index = 2; index < Bun.argv.length; index += 2) args.set(Bun.argv[index] ?? "", Bun.argv[index + 1] ?? "");
 const dbPath = args.get("--db") ?? "./data/app.db";
 const base = args.get("--base") ?? "HEAD";
+// An unpacked base is a directory path, and its last segment is the SHA it was unpacked from.
+const shown = base.includes("/") ? (base.split("/").pop() as string).slice(0, 12) : base;
 const days = Number(args.get("--days") ?? 30);
 const limit = Number(args.get("--limit") ?? 20);
+/** Where to leave one line of JSON for `rehearse` to put in the ledger. */
+const result = args.get("--result");
 
 /** The link is fixed on purpose: a card's own URL is a fact about the event, not about the change. */
 const LINK = "https://example.invalid/rehearsal";
@@ -105,7 +109,7 @@ try {
   };
   process.stdout.write(
     `${[
-      `Card replay: ${base} -> working tree, ${days} days, ${events.length} events rendered at both detail levels`,
+      `Card replay: ${shown} -> working tree, ${days} days, ${events.length} events rendered at both detail levels`,
       `cards: ${cards}`,
       `cards changed: ${changed.length}`,
       changed.length ? "" : `identical, sha256 ${digest.was.digest("hex").slice(0, 16)} on both sides`,
@@ -122,6 +126,16 @@ try {
       .filter((line) => line !== "")
       .join("\n")}\n`,
   );
+  if (result)
+    writeFileSync(
+      result,
+      JSON.stringify({
+        phase: "cards",
+        verdict: changed.length === 0 ? "same" : "moved",
+        moved: changed.length,
+        fingerprint: digest.now.digest("hex"),
+      }),
+    );
 } finally {
   rmSync(workspace, { recursive: true, force: true });
 }

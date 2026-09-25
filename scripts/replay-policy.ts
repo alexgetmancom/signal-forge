@@ -19,7 +19,8 @@
  *        [--destination id]
  */
 import { Database } from "bun:sqlite";
-import { existsSync, mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import type { Event } from "../src/events/types.js";
@@ -33,9 +34,13 @@ const args = new Map<string, string>();
 for (let index = 2; index < Bun.argv.length; index += 2) args.set(Bun.argv[index] ?? "", Bun.argv[index + 1] ?? "");
 const dbPath = args.get("--db") ?? "./data/app.db";
 const base = args.get("--base") ?? "HEAD";
+// An unpacked base is a directory path, and its last segment is the SHA it was unpacked from.
+const shown = base.includes("/") ? (base.split("/").pop() as string).slice(0, 12) : base;
 const days = Number(args.get("--days") ?? 30);
 const limit = Number(args.get("--limit") ?? 60);
 const destination = args.get("--destination");
+/** Where to leave one line of JSON for `rehearse` to put in the ledger. */
+const result = args.get("--result");
 
 /** A git ref, or a directory holding another checkout's src/ (useful where there is no git). */
 async function policyAt(ref: string, workspace: string): Promise<Replay> {
@@ -87,6 +92,9 @@ try {
   const batches = new Map<number, Event[]>();
   for (const row of rows) batches.set(row.batch_id, [...(batches.get(row.batch_id) ?? []), row]);
   const changed: { event: Event; from: Verdict | undefined; to: Verdict | undefined }[] = [];
+  // Every decision this tree made, in order, as one hash: two runs with the same one decided the
+  // same way about the same history, whatever they were compared against.
+  const digest = createHash("sha256");
   let speaksBefore = 0;
   let speaksAfter = 0;
   for (const events of batches.values()) {
@@ -97,6 +105,7 @@ try {
       const to = now.get(event.id);
       if (from && !from.reason) speaksBefore += 1;
       if (to && !to.reason) speaksAfter += 1;
+      digest.update(`${event.id}:${label(to)}\n`);
       if (label(from) !== label(to)) changed.push({ event, from, to });
     }
   }
@@ -106,7 +115,7 @@ try {
   };
   process.stdout.write(
     [
-      `Policy replay: ${base} -> working tree, ${days} days, ${rows.length} events in ${batches.size} batches`,
+      `Policy replay: ${shown} -> working tree, ${days} days, ${rows.length} events in ${batches.size} batches`,
       destination ? `destination: ${destination} (point-in-time repeat checks included)` : "every destination",
       `speaking (no standing reason): ${speaksBefore} -> ${speaksAfter}`,
       `decisions changed: ${changed.length}`,
@@ -121,6 +130,16 @@ try {
       "",
     ].join("\n"),
   );
+  if (result)
+    writeFileSync(
+      result,
+      JSON.stringify({
+        phase: "policy",
+        verdict: changed.length === 0 ? "same" : "moved",
+        moved: changed.length,
+        fingerprint: digest.digest("hex"),
+      }),
+    );
 } finally {
   rmSync(workspace, { recursive: true, force: true });
 }
