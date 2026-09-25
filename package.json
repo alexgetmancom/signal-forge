@@ -25,6 +25,7 @@
     "check-migrations": "bun scripts/check-migrations.ts",
     "check-sql": "bun scripts/check-sql.ts",
     "check-scripts": "bun scripts/check-scripts.ts",
+    "check-size": "bun scripts/check-size.ts",
     "check": "bun scripts/check.ts",
     "check-fast": "bun scripts/check.ts --fast",
     "poll": "bun src/cli.ts poll",

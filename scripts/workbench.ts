@@ -85,6 +85,11 @@ export const BENCH: Bench[] = [
   },
   {
     group: "prove",
+    command: "check-size",
+    when: "Part of the gate. No declaration in src/ may get longer than it already is, and a new one may not exceed 80 code lines. The forty already over that have a recorded budget in the script, which can only be lowered -- read it as a list of work rather than a list of exceptions.",
+  },
+  {
+    group: "prove",
     command: "test",
     when: "`bun test <word>` narrows to matching files. Reach for tests/fixtures/build.ts before writing an INSERT: anEvent, aSnapshot, anAttempt and aCall produce rows that satisfy the CHECK constraints.",
   },
