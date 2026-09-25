@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import type { Destination } from "../config.js";
 import { rebuildHypotheses } from "../hypotheses.js";
 import { rebuildLifecycleDeadlines } from "../lifecycle.js";
-import { rebuildModelFacts } from "../modelFacts.js";
+import { type FactsDirty, updateModelFacts } from "../modelFacts.js";
 import { measure } from "../runtime/metrics.js";
 import { rememberStoryProjection, type StoryProjection, updateStories } from "../stories.js";
 import { markNovelWeights } from "../weights.js";
@@ -26,6 +26,29 @@ export type SavedCollection = { events: number; projection: StoryProjection | nu
  * pipeline.<stage>, across all sources: source.persist:<id> says which source was slow, these say
  * which stage. A stage that throws rolls its own measurement back with the transaction.
  */
+/**
+ * What this collection could have changed about Model Facts.
+ *
+ * Deliberately a superset. The stories are the ones carrying events this collection wrote; the
+ * records are all of the collected source's, not only the rows that moved, because a record whose
+ * body changed without producing an event still feeds the current-evidence half of the projection
+ * and there is no cheaper honest way to know which did. Naming too many models costs a little work
+ * and changes no answer; naming too few leaves a stale fact behind, so the error is taken on the
+ * safe side.
+ */
+function factsDirty(db: Database, source: string, previousEventId: number): FactsDirty {
+  const storyIds = db
+    .query<{ story_id: number }, [number]>(
+      "SELECT DISTINCT se.story_id FROM story_events se JOIN events e ON e.id=se.event_id WHERE e.id>?",
+    )
+    .all(previousEventId)
+    .map((row) => row.story_id);
+  const records = db
+    .query<{ source: string; id: string }, [string]>("SELECT source,id FROM records WHERE source=?")
+    .all(source);
+  return { storyIds, records };
+}
+
 export function saveCollection(
   db: Database,
   collection: Collection,
@@ -36,9 +59,6 @@ export function saveCollection(
 ): SavedCollection {
   let projection: StoryProjection | null = null;
   const count = db.transaction(() => {
-    const initialized = db
-      .query<{ last_success: string | null }, [string]>("SELECT last_success FROM sources WHERE id=?")
-      .get(collection.source)?.last_success;
     const previousEventId = Number(
       db.query<{ id: number | null }, []>("SELECT MAX(id) AS id FROM events").get()?.id ?? 0,
     );
@@ -54,9 +74,16 @@ export function saveCollection(
       measure(db, "pipeline.hypotheses", () => rebuildHypotheses(db, Date.parse(now)));
       measure(db, "pipeline.lifecycle", () => rebuildLifecycleDeadlines(db, Date.parse(now)));
     }
-    // Baseline observations have no event by design, but they still establish current Model Facts.
-    if (initialized === null || initialized === undefined || currentEventId > previousEventId)
-      measure(db, "pipeline.model-facts", () => rebuildModelFacts(db));
+    // Every collection, not only the ones that produced an event.
+    //
+    // This used to be gated on `initialized === null || currentEventId > previousEventId`, because a
+    // full rebuild cost 1,343 ms and could not be afforded per collection. The gate had a cost of
+    // its own: a record re-observed without producing an event still moves the current evidence, so
+    // `updated_at` on a Model Fact lagged until the next unrelated event happened to trigger a
+    // rebuild, and a full rebuild then disagreed with the stored rows. The equivalence test found
+    // exactly that. Recomputing only the touched models costs single-digit milliseconds, so the
+    // reason for the gate is gone and the staleness goes with it.
+    measure(db, "pipeline.model-facts", () => updateModelFacts(db, factsDirty(db, collection.source, previousEventId)));
     // Leave event batches open until the delivery worker has filled any eligible summaries.
     measure(db, "pipeline.prepare-deliveries", () =>
       prepareDeliveries(db, Date.parse(now), vendorRoles, allSignalsRole, false),

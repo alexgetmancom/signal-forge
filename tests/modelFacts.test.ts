@@ -285,3 +285,78 @@ test("rebuilding Model Facts twice is deterministic and creates no events", () =
   expect(db.query<{ count: number }, []>("SELECT COUNT(*) AS count FROM events").get()?.count).toBe(eventCount);
   db.close();
 });
+
+/** The three projected tables, in a fixed order, as one comparable string. */
+function projected(db: ReturnType<typeof openDatabase>): string {
+  return JSON.stringify({
+    facts: db
+      .query("SELECT canonical_id,canonical_key,first_seen_at,updated_at FROM model_facts ORDER BY canonical_id")
+      .all(),
+    fields: db
+      .query(
+        `SELECT canonical_id,field,value_json,confidence,evidence_type,source,event_id,observed_at
+         FROM model_fact_fields ORDER BY canonical_id,field,source,event_id`,
+      )
+      .all(),
+    conflicts: db
+      .query(
+        `SELECT canonical_id,field,incumbent_event_id,challenger_event_id,detected_at
+         FROM model_fact_conflicts ORDER BY canonical_id,field,incumbent_event_id,challenger_event_id`,
+      )
+      .all(),
+  });
+}
+
+test("an incrementally updated projection equals a full rebuild of the same evidence", () => {
+  const db = openDatabase(":memory:");
+  // Several models across several sources, with disagreement, a correction, and a model that only
+  // ever appears in current records. Every `observe` goes through the incremental path.
+  introduce(db, "openrouter", "openrouter", [model({ context: 128000 })], "2026-09-10T00:00:00.000Z");
+  introduce(
+    db,
+    "models-dev",
+    "api-models",
+    [model({ context: 200000 }), { id: "anthropic/claude-9", name: "Claude 9", context: 500000 }],
+    "2026-09-11T00:00:00.000Z",
+  );
+  // Equal strength from independent sources disagreeing: the conflict's incumbent depends on the
+  // order candidates are seen in, which is what an incremental subset most easily gets wrong.
+  introduce(db, "vercel-gateway", "api-models", [model({ context: 300000 })], "2026-09-12T00:00:00.000Z");
+  // A model whose name is spelled differently by a second source: the kept spelling is whichever
+  // member the projection meets first, so a subset read out of order changes it.
+  introduce(
+    db,
+    "openrouter",
+    "openrouter",
+    [{ id: "qwen/Qwen3.5-9B", name: "Qwen3.5-9B" }],
+    "2026-09-13T00:00:00.000Z",
+  );
+  introduce(db, "models-dev", "api-models", [{ id: "qwen3-5-9b", name: "qwen3-5-9b" }], "2026-09-14T00:00:00.000Z");
+
+  const incremental = projected(db);
+  expect(JSON.parse(incremental).facts.length).toBeGreaterThan(1);
+
+  rebuildModelFacts(db);
+  // Not "close to": the same bytes. An incremental projection that merely approximates the full one
+  // corrupts derived data slowly, and nothing downstream would report it.
+  expect(projected(db)).toBe(incremental);
+  db.close();
+});
+
+test("a model that loses its last evidence loses its row, and its neighbours keep theirs", () => {
+  const db = openDatabase(":memory:");
+  introduce(
+    db,
+    "openrouter",
+    "openrouter",
+    [model(), { id: "qwen/qwen4", name: "Qwen 4" }],
+    "2026-09-10T00:00:00.000Z",
+  );
+  expect(db.query<{ n: number }, []>("SELECT COUNT(*) n FROM model_facts").get()?.n).toBeGreaterThanOrEqual(2);
+  // The catalogue stops listing one of the two; the other must be untouched by the recomputation.
+  observe(db, "openrouter", "openrouter", [model()], "2026-09-15T00:00:00.000Z");
+  const incremental = projected(db);
+  rebuildModelFacts(db);
+  expect(projected(db)).toBe(incremental);
+  db.close();
+});

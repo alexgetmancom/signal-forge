@@ -158,20 +158,6 @@ function extractCandidates(event: EventRow, canonicalId: string, eventId: number
  * Ordered by story so the caller can close one story's run of events before opening the next and
  * never hold the whole join in memory; it read 13358 rows on the production database.
  */
-function streamStoryEvents(db: Database): IterableIterator<StoryEventRow> {
-  return db
-    .query<StoryEventRow, []>(
-      `SELECT s.id AS story_id,s.stable_key,s.first_seen_at,s.updated_at,
-              e.id,e.source,e.stream,e.entity_id,e.kind,e.before_json,e.after_json,e.detected_at,
-              e.confidence,e.evidence_type,e.authority
-       FROM stories s
-       JOIN story_events se ON se.story_id=s.id
-       JOIN events e ON e.id=se.event_id
-       ORDER BY s.id,e.detected_at,e.id`,
-    )
-    .iterate() as IterableIterator<StoryEventRow>;
-}
-
 function currentEvent(row: CurrentRecordRow): EventRow {
   return {
     id: 0,
@@ -261,10 +247,30 @@ function maxInstant(left: string, right: string): string {
   return Date.parse(left) >= Date.parse(right) ? left : right;
 }
 
-/** Rebuilds Model Facts from current records plus immutable event evidence; the caller owns the transaction. */
-export function rebuildModelFacts(db: Database): void {
+/**
+ * The projection itself: story evidence and current records in, Model Facts out. No database.
+ *
+ * Full and incremental rebuilds are the same code over different input, rather than two
+ * implementations that have to be kept agreeing. Everything here partitions by model --
+ * `selectCandidates` keys on the normalized identity, the cross-filters below key on it, the
+ * aggregate is per model -- so feeding it every member of a subset of models produces exactly the
+ * rows a full run would produce for those models, provided the members arrive in the same order.
+ * That ordering is the one invariant this rests on, and it is why both callers read with the same
+ * `ORDER BY`.
+ */
+type Projected = {
+  models: Map<string, ModelAggregate>;
+  selected: Map<string, Candidate>;
+  conflicts: ModelFactConflict[];
+  candidates: Candidate[];
+  /** Which model each story and record was counted under, for the membership index. */
+  members: { kind: "story" | "record"; ref: string; key: string }[];
+};
+
+function projectModelFacts(storyRows: Iterable<StoryEventRow>, recordRows: Iterable<CurrentRecordRow>): Projected {
   const models = new Map<string, ModelAggregate>();
   const historicalCandidates: Candidate[] = [];
+  const members: Projected["members"] = [];
   const closeStory = (events: StoryEventRow[]): void => {
     const first = events[0];
     if (!first) return;
@@ -282,12 +288,13 @@ export function rebuildModelFacts(db: Database): void {
         }
       : { canonicalId, firstSeenAt: first.first_seen_at, updatedAt: first.updated_at };
     models.set(key, aggregate);
+    members.push({ kind: "story", ref: String(first.story_id), key });
     for (const event of events) historicalCandidates.push(...extractCandidates(event, aggregate.canonicalId));
   };
 
   let storyId: number | null = null;
   let run: StoryEventRow[] = [];
-  for (const row of streamStoryEvents(db)) {
+  for (const row of storyRows) {
     if (row.story_id !== storyId) {
       if (storyId !== null) closeStory(run);
       storyId = row.story_id;
@@ -299,14 +306,7 @@ export function rebuildModelFacts(db: Database): void {
 
   const currentCandidates: Candidate[] = [];
   const currentFieldsByModel = new Map<string, Set<string>>();
-  const currentRows = db
-    .query<
-      CurrentRecordRow,
-      []
-    >(`SELECT r.source,r.id,r.body,r.stream,r.observed_at,COALESCE(s.authority,'third_party') AS authority
-       FROM records r LEFT JOIN sources s ON s.id=r.source ORDER BY r.source,r.id`)
-    .iterate() as IterableIterator<CurrentRecordRow>;
-  for (const row of currentRows) {
+  for (const row of recordRows) {
     const event = currentEvent(row);
     const identity = identityFor(event, recordFor(event));
     if (!identity.canonicalId) continue;
@@ -320,6 +320,7 @@ export function rebuildModelFacts(db: Database): void {
         }
       : { canonicalId: identity.canonicalId, firstSeenAt: row.observed_at, updatedAt: row.observed_at };
     models.set(key, aggregate);
+    members.push({ kind: "record", ref: recordRef(row.source, row.id), key });
     const extracted = extractCandidates(event, aggregate.canonicalId, null);
     currentCandidates.push(...extracted);
     const fields = currentFieldsByModel.get(key) ?? new Set<string>();
@@ -342,25 +343,84 @@ export function rebuildModelFacts(db: Database): void {
     ),
   ];
   const selected = selectCandidates(candidates);
-  db.exec("DELETE FROM model_fact_conflicts; DELETE FROM model_fact_fields; DELETE FROM model_facts;");
-  for (const aggregate of [...models.values()].sort((left, right) =>
-    left.canonicalId.localeCompare(right.canonicalId),
-  )) {
-    db.query("INSERT INTO model_facts(canonical_id,first_seen_at,updated_at) VALUES(?,?,?)").run(
-      aggregate.canonicalId,
-      aggregate.firstSeenAt,
-      aggregate.updatedAt,
+  return { models, selected: selected.selected, conflicts: selected.conflicts, candidates, members };
+}
+
+/** A record is identified by its source and its id together; neither is unique alone. */
+function recordRef(source: string, id: string): string {
+  return `${source}\u0000${id}`;
+}
+
+const STORY_EVENTS_SQL = `SELECT s.id AS story_id,s.stable_key,s.first_seen_at,s.updated_at,
+        e.id,e.source,e.stream,e.entity_id,e.kind,e.before_json,e.after_json,e.detected_at,
+        e.confidence,e.evidence_type,e.authority
+ FROM stories s
+ JOIN story_events se ON se.story_id=s.id
+ JOIN events e ON e.id=se.event_id`;
+
+const RECORDS_SQL = `SELECT r.source,r.id,r.body,r.stream,r.observed_at,COALESCE(s.authority,'third_party') AS authority
+ FROM records r LEFT JOIN sources s ON s.id=r.source`;
+
+/**
+ * The order both readers use.
+ *
+ * `selectCandidates` keeps the first candidate it sees for a field and replaces it only on a strict
+ * win, and a conflict records which one was the incumbent. Order is therefore part of the answer,
+ * not a detail of the loop, and an incremental run that read its subset in a different order would
+ * produce different conflicts from the same evidence.
+ */
+const STORY_ORDER = " ORDER BY s.id,e.detected_at,e.id";
+const RECORD_ORDER = " ORDER BY r.source,r.id";
+
+function allStoryRows(db: Database): IterableIterator<StoryEventRow> {
+  return db.query<StoryEventRow, []>(STORY_EVENTS_SQL + STORY_ORDER).iterate() as IterableIterator<StoryEventRow>;
+}
+
+function allRecordRows(db: Database): IterableIterator<CurrentRecordRow> {
+  return db.query<CurrentRecordRow, []>(RECORDS_SQL + RECORD_ORDER).iterate() as IterableIterator<CurrentRecordRow>;
+}
+
+/** Writes one projection. `keys` limits the replacement to those models; null replaces everything. */
+function writeModelFacts(db: Database, projection: Projected, keys: ReadonlySet<string> | null): void {
+  if (keys === null) {
+    db.exec(
+      "DELETE FROM model_fact_conflicts; DELETE FROM model_fact_fields; DELETE FROM model_facts; DELETE FROM model_fact_members;",
     );
+  } else {
+    const dropFields = db.query(
+      "DELETE FROM model_fact_fields WHERE canonical_id IN (SELECT canonical_id FROM model_facts WHERE canonical_key=?)",
+    );
+    const dropConflicts = db.query(
+      "DELETE FROM model_fact_conflicts WHERE canonical_id IN (SELECT canonical_id FROM model_facts WHERE canonical_key=?)",
+    );
+    const dropFacts = db.query("DELETE FROM model_facts WHERE canonical_key=?");
+    const dropMembers = db.query("DELETE FROM model_fact_members WHERE canonical_key=?");
+    for (const key of keys) {
+      dropConflicts.run(key);
+      dropFields.run(key);
+      dropFacts.run(key);
+      dropMembers.run(key);
+    }
   }
-  const fields = [...selected.selected.values()].sort((left, right) => {
+
+  const insertFact = db.query(
+    "INSERT INTO model_facts(canonical_id,canonical_key,first_seen_at,updated_at) VALUES(?,?,?,?)",
+  );
+  for (const [key, aggregate] of [...projection.models.entries()].sort((left, right) =>
+    left[1].canonicalId.localeCompare(right[1].canonicalId),
+  ))
+    insertFact.run(aggregate.canonicalId, key, aggregate.firstSeenAt, aggregate.updatedAt);
+
+  const insertField = db.query(
+    `INSERT INTO model_fact_fields(canonical_id,field,value_json,confidence,evidence_type,source,event_id,observed_at)
+     VALUES(?,?,?,?,?,?,?,?)`,
+  );
+  const fields = [...projection.selected.values()].sort((left, right) => {
     const model = left.canonicalId.localeCompare(right.canonicalId);
     return model || left.field.localeCompare(right.field);
   });
   for (const item of fields)
-    db.query(
-      `INSERT INTO model_fact_fields(canonical_id,field,value_json,confidence,evidence_type,source,event_id,observed_at)
-       VALUES(?,?,?,?,?,?,?,?)`,
-    ).run(
+    insertField.run(
       item.canonicalId,
       item.field,
       canonical(item.value),
@@ -370,21 +430,148 @@ export function rebuildModelFacts(db: Database): void {
       item.eventId,
       item.observedAt,
     );
-  for (const conflict of selected.conflicts.sort(
+
+  const insertConflict = db.query(
+    `INSERT INTO model_fact_conflicts(canonical_id,field,incumbent_event_id,challenger_event_id,detected_at)
+     VALUES(?,?,?,?,?)`,
+  );
+  for (const conflict of projection.conflicts.sort(
     (left, right) =>
       left.field.localeCompare(right.field) ||
       left.incumbentEventId - right.incumbentEventId ||
       left.challengerEventId - right.challengerEventId,
   )) {
-    const canonicalId = candidates.find(
+    const canonicalId = projection.candidates.find(
       (item) => item.field === conflict.field && item.eventId === conflict.incumbentEventId,
     )?.canonicalId;
     if (!canonicalId) continue;
-    db.query(
-      `INSERT INTO model_fact_conflicts(canonical_id,field,incumbent_event_id,challenger_event_id,detected_at)
-       VALUES(?,?,?,?,?)`,
-    ).run(canonicalId, conflict.field, conflict.incumbentEventId, conflict.challengerEventId, conflict.detectedAt);
+    insertConflict.run(
+      canonicalId,
+      conflict.field,
+      conflict.incumbentEventId,
+      conflict.challengerEventId,
+      conflict.detectedAt,
+    );
   }
+
+  const insertMember = db.query("INSERT OR REPLACE INTO model_fact_members(kind,ref,canonical_key) VALUES(?,?,?)");
+  for (const member of projection.members) insertMember.run(member.kind, member.ref, member.key);
+}
+
+/** Rebuilds Model Facts from current records plus immutable event evidence; the caller owns the transaction. */
+export function rebuildModelFacts(db: Database): void {
+  writeModelFacts(db, projectModelFacts(allStoryRows(db), allRecordRows(db)), null);
+}
+
+/** What a collection changed, as the projection sees it: stories carrying new events, and records. */
+export type FactsDirty = { storyIds: readonly number[]; records: readonly { source: string; id: string }[] };
+
+function chunked<T>(values: readonly T[], size = 400): T[][] {
+  const out: T[][] = [];
+  for (let start = 0; start < values.length; start += size) out.push(values.slice(start, start + size));
+  return out;
+}
+
+/**
+ * Recomputes only the models a collection touched, and replaces only their rows.
+ *
+ * Which models those are takes two answers, not one. A changed member's *old* model has to be
+ * recomputed because it may have lost evidence, and its *new* model because it may have gained
+ * some -- a record whose identity was corrected moves between two models and leaves both wrong.
+ * The old answer comes from the membership index, the new one from identifying the member now.
+ *
+ * Once the set is known, every member of every model in it is read back in the same order the full
+ * rebuild reads them and handed to the same projection. Reading all of a model's members rather
+ * than only the changed ones is what makes the result equal to a full rebuild instead of merely
+ * close to it: the cross-filters and the aggregate are over a model's whole evidence, and a subset
+ * of it would answer a different question. `rehearse-projections` checks that equality against real
+ * history rather than trusting this paragraph.
+ */
+export function updateModelFacts(db: Database, dirty: FactsDirty): void {
+  const refs: { kind: "story" | "record"; ref: string }[] = [
+    ...dirty.storyIds.map((id) => ({ kind: "story" as const, ref: String(id) })),
+    ...dirty.records.map((record) => ({ kind: "record" as const, ref: recordRef(record.source, record.id) })),
+  ];
+  if (!refs.length) return;
+
+  const keys = new Set<string>();
+  // The model each changed member used to belong to.
+  const previous = db.query<{ canonical_key: string }, [string, string]>(
+    "SELECT canonical_key FROM model_fact_members WHERE kind=? AND ref=?",
+  );
+  for (const entry of refs) {
+    const row = previous.get(entry.kind, entry.ref);
+    if (row) keys.add(row.canonical_key);
+  }
+  // And the model it belongs to now, which is only knowable by identifying it again.
+  const fresh = projectModelFacts(storyRowsFor(db, dirty.storyIds), recordRowsFor(db, dirty.records));
+  for (const member of fresh.members) keys.add(member.key);
+  if (!keys.size) return;
+
+  // Every member of every affected model, in the full rebuild's order.
+  const storyIds = new Set<number>();
+  const records: { source: string; id: string }[] = [];
+  const membersOf = db.query<{ kind: string; ref: string }, [string]>(
+    "SELECT kind,ref FROM model_fact_members WHERE canonical_key=?",
+  );
+  for (const key of keys)
+    for (const member of membersOf.all(key)) {
+      if (member.kind === "story") storyIds.add(Number(member.ref));
+      else {
+        const [source, id] = member.ref.split("\u0000");
+        if (source !== undefined && id !== undefined) records.push({ source, id });
+      }
+    }
+  for (const id of dirty.storyIds) storyIds.add(id);
+  for (const record of dirty.records) records.push(record);
+
+  const projection = projectModelFacts(storyRowsFor(db, [...storyIds]), recordRowsFor(db, dedupeRecords(records)));
+  writeModelFacts(db, projection, keys);
+}
+
+function dedupeRecords(records: readonly { source: string; id: string }[]): { source: string; id: string }[] {
+  const seen = new Set<string>();
+  const out: { source: string; id: string }[] = [];
+  for (const record of records) {
+    const ref = recordRef(record.source, record.id);
+    if (seen.has(ref)) continue;
+    seen.add(ref);
+    out.push(record);
+  }
+  return out;
+}
+
+/** The same query and the same order as the full rebuild, narrowed to these stories. */
+function* storyRowsFor(db: Database, storyIds: readonly number[]): IterableIterator<StoryEventRow> {
+  // Chunked to stay under the bound-parameter limit; the chunks are cut on story boundaries, and
+  // the order within and between them is the order of `s.id`, so the sequence is unchanged.
+  for (const chunk of chunked([...storyIds].sort((left, right) => left - right)))
+    yield* db
+      .query<StoryEventRow, number[]>(
+        `${STORY_EVENTS_SQL} WHERE s.id IN (${chunk.map(() => "?").join(",")})${STORY_ORDER}`,
+      )
+      .all(...chunk);
+}
+
+function* recordRowsFor(
+  db: Database,
+  records: readonly { source: string; id: string }[],
+): IterableIterator<CurrentRecordRow> {
+  // Codepoint order, because that is what SQLite's `ORDER BY r.source,r.id` means: the default
+  // collation is BINARY. Sorting the chunks with `localeCompare` put them in one order while the
+  // rows inside each chunk came back in another, and the concatenation was neither -- which changed
+  // which member of a model was seen first, and so which spelling of its name was kept. Caught by
+  // `rehearse-projections` on real history: `Qwen3.5-9B` became `qwen3-5-9b`.
+  const byCodepoint = (left: string, right: string) => (left < right ? -1 : left > right ? 1 : 0);
+  const sorted = [...records].sort(
+    (left, right) => byCodepoint(left.source, right.source) || byCodepoint(left.id, right.id),
+  );
+  for (const chunk of chunked(sorted))
+    yield* db
+      .query<CurrentRecordRow, string[]>(
+        `${RECORDS_SQL} WHERE (r.source,r.id) IN (VALUES ${chunk.map(() => "(?,?)").join(",")})${RECORD_ORDER}`,
+      )
+      .all(...chunk.flatMap((record) => [record.source, record.id]));
 }
 
 function view(db: Database, row: { canonical_id: string; first_seen_at: string; updated_at: string }): ModelFactsView {

@@ -4,6 +4,7 @@ import { capabilityReport } from "../capabilities.js";
 import type { AppConfig } from "../config.js";
 import { buildOperationsGuide, OPERATION_SECTIONS, type OperationSection } from "../guide.js";
 import { doctorReport } from "../reports/doctor.js";
+import { flakySources } from "../reports/flakySources.js";
 import { listActionableIssues } from "../reports/issues.js";
 import { keyStandings } from "../reports/keys.js";
 import { releaseCheck } from "../reports/release.js";
@@ -102,6 +103,23 @@ export function healthOperations(db: Database, config: AppConfig, all: () => Ope
       cli: { args: [{ name: "limit", optional: true }] },
       http: { method: "get", path: "/api/date-integrity" },
       handler: (input: { limit: number }) => dateIntegrity(db, input.limit),
+    },
+    flaky: {
+      section: "health",
+      summary:
+        "Sources that fail often but not always, by failure rate over the last N days: the broken state that is neither red right now nor silent.",
+      startHere: "a source looks fine but I suspect it is losing collections",
+      note:
+        "Ask this alongside `issues` and `silent-sources`. Those two read the present and the " +
+        "absence; this reads the rate, which is the only way a source that fails two attempts in " +
+        "three and succeeds on the third becomes visible. `arena` sat at 73% for three days without " +
+        "appearing in either of the others.",
+      mutates: false,
+      agent: true,
+      schema: z.object({ days: count(90, 3) }),
+      cli: { args: [{ name: "days", optional: true }] },
+      http: { method: "get", path: "/api/flaky" },
+      handler: (input: { days: number }) => flakySources(db, config, input.days),
     },
     usage: {
       section: "health",

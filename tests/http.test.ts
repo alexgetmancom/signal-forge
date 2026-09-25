@@ -45,6 +45,7 @@ test("health is public, operational state requires token, MCP lists matching sch
     "capabilities",
     "keys",
     "date_integrity",
+    "flaky",
     "usage",
     "verify",
     "memory",
