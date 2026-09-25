@@ -12,6 +12,10 @@
  * container, keeps the copy for a few minutes so a second question costs nothing, and replays
  * against that. What it prints is every card a change would have added or held back.
  *
+ * Two replays, because "what reaches a reader" is two questions: which cards are sent, and what
+ * those cards say. The second was added when discord.ts was split and the claim "nothing changes"
+ * needed something other than a promise behind it.
+ *
  *   bun run rehearse                       the working tree against HEAD, 30 days
  *   bun run rehearse 60                    a longer window
  *   bun run rehearse 30 discord-signals    including what one channel had already been told
@@ -36,7 +40,10 @@ const flags = new Set(argv.filter((value) => value.startsWith("--")));
 /** `--base <ref>` names the policy to compare against; everything else is positional. */
 const baseAt = argv.indexOf("--base");
 const base = baseAt >= 0 ? argv[baseAt + 1] : undefined;
-const positional = argv.filter((value, index) => !value.startsWith("--") && index !== baseAt + 1);
+// `baseAt + 1` is 0 when there is no `--base`, which dropped the first positional: every
+// `rehearse 60` since this was written replayed 30 days and said so in a line nobody read against
+// what they had typed.
+const positional = argv.filter((value, index) => !value.startsWith("--") && !(baseAt >= 0 && index === baseAt + 1));
 const days = positional[0] ?? "30";
 const destination = positional[1];
 
@@ -93,17 +100,18 @@ if (flags.has("--fresh") || age > FRESH_FOR_MS) {
   say(`Replaying against the copy taken ${Math.round(age / 60_000)} minutes ago (--fresh to pull again)`);
 }
 
-const replay = Bun.spawn(
-  [
-    "bun",
-    "scripts/replay-policy.ts",
-    "--db",
-    copy,
-    "--days",
-    days,
-    ...(base ? ["--base", base] : []),
-    ...(destination ? ["--destination", destination] : []),
-  ],
-  { stdout: "inherit", stderr: "inherit", cwd: root },
-);
-process.exit(await replay.exited);
+async function replay(script: string, extra: string[]): Promise<number> {
+  const child = Bun.spawn(["bun", script, "--db", copy, "--days", days, ...(base ? ["--base", base] : []), ...extra], {
+    stdout: "inherit",
+    stderr: "inherit",
+    cwd: root,
+  });
+  return await child.exited;
+}
+
+// Two halves of one question. The policy replay says which cards are sent; the card replay says
+// what they say, which had nothing measuring it until a 1201-line file claimed to move unchanged.
+const decisions = await replay("scripts/replay-policy.ts", destination ? ["--destination", destination] : []);
+if (decisions !== 0) process.exit(decisions);
+say("");
+process.exit(await replay("scripts/replay-cards.ts", []));
