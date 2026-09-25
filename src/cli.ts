@@ -1,5 +1,6 @@
 import { loadConfig } from "./config.js";
 import { recordOperatorAction } from "./journal.js";
+import { cliInput } from "./operations/cliInput.js";
 import { cliCommand, type OperationMap, operationCatalog, operations } from "./operations.js";
 import { measure } from "./runtime/metrics.js";
 import { openDatabase } from "./storage/database.js";
@@ -25,17 +26,6 @@ function usage(defs: OperationMap): string {
     "",
     "Start with `guide` when the command you need is not obvious.",
   ].join("\n");
-}
-
-/** Positional arguments are named by the registry; the schema coerces them from text. */
-function cliInput(defs: OperationMap, name: string, argv: readonly string[]): Record<string, unknown> {
-  const args = defs[name]?.cli?.args ?? [];
-  const input: Record<string, unknown> = {};
-  args.forEach((argument, index) => {
-    const value = argument.rest ? argv.slice(index).join("/") : argv[index];
-    if (value !== undefined && value !== "") input[argument.name] = value;
-  });
-  return input;
 }
 
 const tsv = Bun.argv.includes("--tsv");
