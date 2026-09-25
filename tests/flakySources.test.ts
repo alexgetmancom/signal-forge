@@ -134,7 +134,7 @@ test("failures written before the kind existed are still told apart by what the 
     "Collection failed: response did not match the schema (ZodError)",
   );
   const [entry] = flakySources(db, config, 3, NOW);
-  expect(entry?.kinds).toEqual({ degraded: 1, unrecorded: 1 });
+  expect(entry?.kinds).toEqual({ degraded: 1, before_kinds_were_recorded: 1 });
   expect(entry?.refusedByGuard).toBe(1);
   expect(entry?.faults).toBe(1);
   db.close();

@@ -102,7 +102,7 @@ export function flakySources(db: Database, config: AppConfig, days = 3, now = Da
   const kindRows = db
     .query<{ source: string; kind: string; failures: number }, [string]>(
       `SELECT source,
-              COALESCE(failure_kind, CASE WHEN error LIKE 'Collection degraded:%' THEN 'degraded' ELSE 'unrecorded' END)
+              COALESCE(failure_kind, CASE WHEN error LIKE 'Collection degraded:%' THEN 'degraded' ELSE 'before_kinds_were_recorded' END)
                 AS kind,
               COUNT(*) AS failures
        FROM source_collection_metrics

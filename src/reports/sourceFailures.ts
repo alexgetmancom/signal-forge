@@ -63,7 +63,7 @@ export function sourceFailures(
       { kind: string; failures: number; first_at: string; last_at: string; example: string | null },
       [string, string]
     >(
-      `SELECT COALESCE(failure_kind, CASE WHEN error LIKE 'Collection degraded:%' THEN 'degraded' ELSE 'unrecorded' END)
+      `SELECT COALESCE(failure_kind, CASE WHEN error LIKE 'Collection degraded:%' THEN 'degraded' ELSE 'before_kinds_were_recorded' END)
                 AS kind,
               COUNT(*) AS failures,
               MIN(collected_at) AS first_at,
