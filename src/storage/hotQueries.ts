@@ -57,6 +57,11 @@ export const HOT_QUERIES: readonly HotQuery[] = [
     params: ["arena"],
   },
   {
+    name: "shapes of one source",
+    sql: "SELECT hash,shape_json FROM source_shapes WHERE source = ? ORDER BY last_seen_at DESC LIMIT 8",
+    params: ["arena"],
+  },
+  {
     name: "unexpired snapshot bodies",
     sql: "SELECT id FROM snapshots WHERE body IS NOT NULL AND collected_at < ?",
     params: ["2026-01-01T00:00:00.000Z"],

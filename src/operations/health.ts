@@ -167,7 +167,10 @@ export function healthOperations(db: Database, config: AppConfig, all: () => Ope
       note:
         "The counterpart to `flaky`, which reads the rate. A schema failure records the field paths " +
         "the parse objected to, so `arena` saying `response did not match the schema` becomes a " +
-        "field name. No upstream value is ever kept, which is why the body of a failed parse is not.",
+        "field name. No upstream value is ever kept, which is why the body of a failed parse is not. " +
+        "`shapes` is what the answers that worked looked like -- paths, types and how many entries " +
+        "each array held -- and `shapeChange` is the diff between the two most recent, which is the " +
+        "diagnosis for most schema failures: a path that is gone.",
       mutates: false,
       agent: true,
       schema: z.object({ source: z.string().min(1), days: count(90, 7) }),

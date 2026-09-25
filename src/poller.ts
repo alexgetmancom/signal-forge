@@ -9,6 +9,7 @@ import { measure } from "./runtime/metrics.js";
 import { SourceHttpError } from "./sources/http.js";
 import { type SourceDefinition, sourceJobs } from "./sources/registry.js";
 import { recordFailureEvidence } from "./storage/failureEvidence.js";
+import { recordSourceShape } from "./storage/sourceShapes.js";
 import { rememberStoryProjection } from "./stories.js";
 
 const MAX_CONCURRENT_SOURCES = 4;
@@ -157,6 +158,9 @@ async function collectDueSources(
             db.query(
               "UPDATE sources SET failures=0,retry_at=NULL,failure_started_at=NULL,last_error_kind=NULL WHERE id=?",
             ).run(job.id);
+            // The shape of an answer that worked, so the next failure has something to be
+            // compared against. Paths and types only: see src/shape.ts for why no value is kept.
+            recordSourceShape(db, job.id, collection.raw, checkedAt);
             return emitted;
           })(),
         );

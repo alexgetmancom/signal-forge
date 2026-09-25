@@ -264,3 +264,26 @@ export function pruneOperatorJournal(db: Database, now = Date.now()): number {
   }
   return removed;
 }
+
+/**
+ * How long a shape nobody has seen since is kept.
+ *
+ * `recordSourceShape` caps the rows per source, so this is about a contract that stopped being the
+ * contract: a shape last seen six months ago is not what this source answers with, and holding it
+ * makes the diff in `failures` a comparison against history rather than against last week.
+ */
+const SOURCE_SHAPE_LIFETIME_DAYS = 90;
+
+export function pruneSourceShapes(db: Database, now = Date.now()): number {
+  const cutoff = new Date(now - SOURCE_SHAPE_LIFETIME_DAYS * 24 * 3_600_000).toISOString();
+  try {
+    return db
+      .query<{ removed: number }, [string]>("DELETE FROM source_shapes WHERE last_seen_at < ? RETURNING 1 AS removed")
+      .all(cutoff).length;
+  } catch (error) {
+    log("warn", "Source shape retention cleanup failed", {
+      errorType: error instanceof Error ? error.message : "unknown",
+    });
+    return 0;
+  }
+}

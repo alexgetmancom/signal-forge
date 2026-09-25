@@ -30,6 +30,7 @@ import {
   pruneShadowCandidates,
   pruneSnapshots,
   pruneSourceCollectionMetrics,
+  pruneSourceShapes,
 } from "./storage/retention.js";
 import { rebuildStories, rememberStoryProjection } from "./stories.js";
 import { readTelegramReactions } from "./telegramReactions.js";
@@ -114,6 +115,7 @@ supervisor.register(
     measure(db, "status.prune:collection-metrics", () => pruneSourceCollectionMetrics(db));
     measure(db, "status.prune:journal", () => pruneOperatorJournal(db));
     measure(db, "status.prune:failure-evidence", () => pruneFailureEvidence(db));
+    measure(db, "status.prune:source-shapes", () => pruneSourceShapes(db));
     measure(db, "status.prune:snapshot-bodies", () => expireSnapshotBodies(db));
     measure(db, "status.prune:shadow-candidates", () =>
       pruneShadowCandidates(

@@ -74,16 +74,17 @@ function counts(db: Database): Record<string, number> {
 try {
   copyFileSync(source, copy);
   // The copy is a throwaway, and a read-only connection to a WAL database cannot create the -shm
-  // file it needs, so the reading pass opens it read-write like the migrating one does.
-  const before = new Database(copy, { create: false, strict: true });
-  const startingVersion = before.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version ?? 0;
-  const beforeCounts = counts(before);
-  const beforeBodies = fingerprints(before);
-  const beforePlans = plans(before);
-  before.close();
+  // file it needs, so the reading pass opens it read-write like the migrating one does. One
+  // connection does both passes: a second one, opened while the first still held prepared
+  // statements, deadlocked against it on any database not in WAL mode -- which is every copy made
+  // by `VACUUM INTO`, and so every copy of production this was supposed to be rehearsed against.
+  const db = new Database(copy, { create: false, strict: true });
+  const startingVersion = db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version ?? 0;
+  const beforeCounts = counts(db);
+  const beforeBodies = fingerprints(db);
+  const beforePlans = plans(db);
 
   const started = Date.now();
-  const db = new Database(copy, { create: false, strict: true });
   db.exec("PRAGMA foreign_keys=ON;");
   runMigrations(db);
   const elapsedMs = Date.now() - started;

@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { listFailureEvidence } from "../storage/failureEvidence.js";
+import { listSourceShapes, shapeDifference } from "../storage/sourceShapes.js";
 
 /**
  * Everything recorded about why one source is failing: the kinds, the sentences, the structure.
@@ -9,6 +10,10 @@ import { listFailureEvidence } from "../storage/failureEvidence.js";
  * the schema (ZodError)" and nothing else, because the body of a failed parse is deliberately never
  * kept. The structure of the complaint is not the body -- a path is a list of field names from the
  * schemas in this repository -- so it can be kept, and this is where it is read.
+ *
+ * `shapes` is the other half, and the one that needed a live fetch of the page before it existed:
+ * the structure of the answers that did work, newest first, with what changed between the two most
+ * recent. A path that is gone is the diagnosis for most of the schema failures there are.
  */
 export type SourceFailures = {
   source: string;
@@ -17,6 +22,16 @@ export type SourceFailures = {
   failures: number;
   kinds: { kind: string; failures: number; firstAt: string; lastAt: string; example: string | null }[];
   evidence: { observedAt: string; kind: string; summary: Record<string, unknown> }[];
+  /** Distinct shapes of a successful answer from this source, newest first. Paths and types only. */
+  shapes: {
+    firstSeenAt: string;
+    lastSeenAt: string;
+    seen: number;
+    paths: number;
+    counts: Record<string, { min: number; max: number; last: number }>;
+  }[];
+  /** What the newest shape has that the one before it did not, and the other way round. */
+  shapeChange: { gone: string[]; arrived: string[]; retyped: string[] } | null;
 };
 
 export function sourceFailures(db: Database, source: string, days = 7, now = Date.now()): SourceFailures {
@@ -43,6 +58,8 @@ export function sourceFailures(db: Database, source: string, days = 7, now = Dat
        ORDER BY failures DESC`,
     )
     .all(source, from);
+  const shapes = listSourceShapes(db, source);
+  const [newest, previous] = shapes;
   return {
     source,
     days,
@@ -60,5 +77,14 @@ export function sourceFailures(db: Database, source: string, days = 7, now = Dat
       kind: entry.kind,
       summary: entry.summary,
     })),
+    shapes: shapes.map((entry) => ({
+      firstSeenAt: entry.firstSeenAt,
+      lastSeenAt: entry.lastSeenAt,
+      seen: entry.seen,
+      paths: entry.paths,
+      counts: entry.counts,
+    })),
+    // Only meaningful with two to compare: one shape is a contract that has held.
+    shapeChange: newest && previous ? shapeDifference(previous.shape, newest.shape) : null,
   };
 }
