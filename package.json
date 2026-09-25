@@ -35,7 +35,8 @@
     "ship": "bun scripts/ship.ts",
     "rehearse": "bun scripts/rehearse.ts",
     "rehearse-projections": "bun scripts/rehearse-projections.ts",
-    "split-module": "bun scripts/split-module.ts"
+    "split-module": "bun scripts/split-module.ts",
+    "probe": "bun scripts/probe.ts"
   },
   "dependencies": {
     "@resvg/resvg-wasm": "^2.6.2",
