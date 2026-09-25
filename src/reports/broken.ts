@@ -45,7 +45,14 @@ export function brokenReport(db: Database, config: AppConfig, days = 3, now = Da
   const flaky = flakySources(db, config, days, now);
   // A correlated outage is read over a longer window than a rate: one host falling over twice in a
   // week is the finding, and three days can hold one of those two and call it a coincidence.
-  const groups = outages(db, config, Math.max(days, 7), now);
+  //
+  // Only the groups that actually failed together. `outages` lists every group that failed at all,
+  // which is right for reading a grouping; here it is a finding, and a group with no concurrent
+  // minute is not one. Measured on production the first time this ran: eleven groups, of which
+  // four had failed together and `Arena` led the rest with 242 failures and no correlation at all.
+  // Counting all eleven made the headline say "11 hosts failing as one", and flagged `claude-web`
+  // as part of an outage because something else on the Web group had failed that week.
+  const groups = outages(db, config, Math.max(days, 7), now).filter((group) => group.concurrentMinutes > 0);
 
   const readings = new Map<string, ("now" | "silent" | "flaky" | "outage")[]>();
   const flag = (source: string, reading: "now" | "silent" | "flaky" | "outage") => {
@@ -79,6 +86,6 @@ export function brokenReport(db: Database, config: AppConfig, days = 3, now = Da
       reading: "a rate: sources that fail often but not always, by faultRate rather than failureRate",
       sources: flaky.slice(0, FLAKY_SHOWN),
     },
-    outages: { reading: "a correlation: sources of one host failing inside the same minute", groups },
+    outages: { reading: "a correlation: sources of one host that failed inside the same minute", groups },
   };
 }

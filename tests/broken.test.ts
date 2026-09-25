@@ -66,3 +66,19 @@ test("the correlation is read over a week even when the rate is read over three 
   expect(report.flaky.sources).toEqual([]);
   expect(report.outages.groups[0]?.concurrentMinutes).toBe(1);
 });
+
+test("a group that never failed together is not an outage, however much it failed", () => {
+  const { db, config, registry } = setup();
+  const paced = registry.filter((definition) => definition.pace);
+  const group = paced[0]?.pace?.group as string;
+  const together = paced.filter((definition) => definition.pace?.group === group).slice(0, 2);
+  // Plenty of failures, never in the same minute: a grouping, not a cause.
+  for (const [index, definition] of together.entries())
+    for (const hours of [2, 4, 6])
+      anAttempt(db, definition.id, reset, new Date(NOW - (hours * 3_600_000 + index * 60_000)).toISOString());
+
+  const report = brokenReport(db, config, 3, NOW);
+  expect(report.outages.groups).toEqual([]);
+  expect(report.headline).not.toContain("failing as one");
+  expect(report.readings.every((row) => !row.readings.includes("outage"))).toBe(true);
+});
