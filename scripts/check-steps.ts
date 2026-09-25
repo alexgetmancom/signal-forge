@@ -18,6 +18,7 @@ export const CHECK_GROUPS: CheckStep[][] = [
     { name: "typecheck", args: ["typecheck"] },
     { name: "architecture", args: ["check-architecture"] },
     { name: "migrations", args: ["check-migrations"] },
+    { name: "sql", args: ["check-sql"] },
     { name: "deploy scripts", args: ["check-scripts"] },
     { name: "dead code", args: ["check-dead-code"] },
     { name: "audit", args: ["check-audit"] },

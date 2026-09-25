@@ -23,6 +23,7 @@
     "rehearse-migration": "bun scripts/rehearse-migration.ts",
     "install-hooks": "lefthook install",
     "check-migrations": "bun scripts/check-migrations.ts",
+    "check-sql": "bun scripts/check-sql.ts",
     "check-scripts": "bun scripts/check-scripts.ts",
     "check": "bun scripts/check.ts",
     "poll": "bun src/cli.ts poll",
