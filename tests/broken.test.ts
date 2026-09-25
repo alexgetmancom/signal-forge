@@ -44,8 +44,11 @@ test("a source two readings agree on is listed above a source only one found", (
 test("each section says which reading it is, and the headline counts all four", () => {
   const { db, config } = setup();
   const report = brokenReport(db, config, 3, NOW);
-  // A database nobody has collected into: every enabled source is an absence and nothing else.
-  expect(report.headline).toContain("gone quiet");
+  // A database nobody has collected into: every enabled source is an absence, and the absence is
+  // that it was never asked -- which is a different repair from a source that worked and stopped.
+  expect(report.headline).toContain("never polled");
+  expect(report.headline).not.toContain("gone quiet");
+  expect(report.silent.sources.every((source) => source.state === "never_polled")).toBe(true);
   expect(report.headline).not.toContain("host failing as one");
   expect(report.now.reading).toContain("the present");
   expect(report.silent.reading).toContain("an absence");

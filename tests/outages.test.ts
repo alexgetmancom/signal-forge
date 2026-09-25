@@ -63,3 +63,25 @@ test("a retired source does not drag its group into a report", () => {
   expect(outages(db, config, 7, NOW)).toEqual([]);
   db.close();
 });
+
+test("a member that failed alone carries no share of the outage it is grouped with", () => {
+  const { db, config, registry } = setup();
+  const paced = registry.filter((definition) => definition.pace);
+  const group = paced[0]?.pace?.group as string;
+  const together = paced.filter((definition) => definition.pace?.group === group);
+  expect(together.length).toBeGreaterThanOrEqual(3);
+  const minute = (offsetHours: number) => new Date(NOW - offsetHours * 3_600_000).toISOString();
+  // Two of the host failed inside one minute. The third failed on its own, hours away from them, and
+  // is in the group only because a pacing group is a host: `broken` reads `concurrent` to tell the
+  // two that took part in an outage from the one that happened to share a rate limit with them.
+  const [first, second, third] = together as [(typeof together)[0], (typeof together)[0], (typeof together)[0]];
+  anAttempt(db, first.id, reset, minute(4));
+  anAttempt(db, second.id, reset, minute(4));
+  anAttempt(db, third.id, reset, minute(9));
+
+  const [outage] = outages(db, config, 7, NOW);
+  const shareOf = (id: string) => outage?.members.find((member) => member.id === id)?.concurrent;
+  expect(shareOf(first.id)).toBe(1);
+  expect(shareOf(second.id)).toBe(1);
+  expect(shareOf(third.id)).toBe(0);
+});

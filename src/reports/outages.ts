@@ -33,7 +33,13 @@ export type Outage = {
   concurrentFailures: number;
   firstAt: string;
   lastAt: string;
-  members: { id: string; failures: number }[];
+  /**
+   * Every source of the group that failed, and how many of its failures landed in a minute shared
+   * with a sibling. `concurrent: 0` is a source that failed alone: it is in the group because the
+   * group is a host, not because it took part in the outage, and a reader of this list who treats
+   * membership as participation reports a host outage against a collector that never joined one.
+   */
+  members: { id: string; failures: number; concurrent: number }[];
 };
 
 /** One source failing is a source. Two of the same group failing together is a host. */
@@ -52,7 +58,7 @@ export function outages(db: Database, config: AppConfig, days = 7, now = Date.no
     .query<{ source: string; minute: string; kind: string; failures: number }, [string]>(
       `SELECT source,
               substr(collected_at, 1, 16) AS minute,
-              COALESCE(failure_kind, CASE WHEN error LIKE 'Collection degraded:%' THEN 'degraded' ELSE 'unrecorded' END)
+              COALESCE(failure_kind, CASE WHEN error LIKE 'Collection degraded:%' THEN 'degraded' ELSE 'before_kinds_were_recorded' END)
                 AS kind,
               COUNT(*) AS failures
        FROM source_collection_metrics
@@ -93,6 +99,9 @@ export function outages(db: Database, config: AppConfig, days = 7, now = Date.no
   return [...groups.entries()]
     .map(([group, entry]) => {
       const shared = [...entry.minutes.values()].filter((minute) => minute.size > 1);
+      const together = new Map<string, number>();
+      for (const minute of shared)
+        for (const [source, failures] of minute) together.set(source, (together.get(source) ?? 0) + failures);
       return {
         group,
         paced: pacedGroups.has(group),
@@ -107,7 +116,7 @@ export function outages(db: Database, config: AppConfig, days = 7, now = Date.no
         firstAt: entry.firstAt,
         lastAt: entry.lastAt,
         members: [...entry.members.entries()]
-          .map(([id, failures]) => ({ id, failures }))
+          .map(([id, failures]) => ({ id, failures, concurrent: together.get(id) ?? 0 }))
           .sort((left, right) => right.failures - left.failures),
       };
     })

@@ -62,12 +62,32 @@ export function brokenReport(db: Database, config: AppConfig, days = 3, now = Da
   for (const issue of issues) if (issue.source) flag(issue.source, "now");
   for (const source of silent) flag(source.source, "silent");
   for (const source of flaky) flag(source.id, "flaky");
-  for (const group of groups) for (const member of group.members) flag(member.id, "outage");
+  // Membership is not participation. A pacing group is a host, so every source pointed at that host
+  // is in it whether or not it was failing when the host fell over: 30 of the 44 sources this report
+  // listed on 2026-09-25 carried `outage` and nothing else, and `anthropic-sdk-releases` was flagged
+  // as part of an outage without having failed once in the window. That buries the finding the
+  // readings exist for -- a source two of them agree on -- under a list of everything sharing a
+  // host with something that broke. Only the sources that failed inside one of the shared minutes.
+  for (const group of groups) for (const member of group.members) if (member.concurrent > 0) flag(member.id, "outage");
 
   const headline =
     [
       countPhrase(issues.length, "problem now", "problems now"),
-      countPhrase(silent.length, "source gone quiet", "sources gone quiet"),
+      countPhrase(
+        silent.filter((source) => source.state === "never_polled").length,
+        "source never polled",
+        "sources never polled",
+      ),
+      countPhrase(
+        silent.filter((source) => source.state === "never_succeeded").length,
+        "source that has never collected",
+        "sources that have never collected",
+      ),
+      countPhrase(
+        silent.filter((source) => source.state === "went_quiet").length,
+        "source gone quiet",
+        "sources gone quiet",
+      ),
       countPhrase(flaky.length, "source losing collections", "sources losing collections"),
       countPhrase(groups.length, "host failing as one", "hosts failing as one"),
     ]
@@ -81,7 +101,10 @@ export function brokenReport(db: Database, config: AppConfig, days = 3, now = Da
       .map(([source, found]) => ({ source, readings: found }))
       .sort((left, right) => right.readings.length - left.readings.length || left.source.localeCompare(right.source)),
     now: { reading: "the present: what is red at this moment, sources and everything else", issues },
-    silent: { reading: "an absence: enabled sources that have collected nothing lately", sources: silent },
+    silent: {
+      reading: "an absence: enabled sources that have collected nothing lately, and those never asked at all",
+      sources: silent,
+    },
     flaky: {
       reading: "a rate: sources that fail often but not always, by faultRate rather than failureRate",
       sources: flaky.slice(0, FLAKY_SHOWN),
