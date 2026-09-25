@@ -98,7 +98,12 @@ export function databaseOperations(db: Database, config: AppConfig, _all: () => 
       section: "evidence",
       summary: "Every table, its columns and how many rows it holds.",
       startHere: "what is stored here, and under what column name",
-      note: "Name a table for its columns alone. Without one, every table is listed.",
+      note:
+        "Name a table for its columns alone; without one, every table is listed. A table is not a " +
+        "report: `sources` and `deliveries` keep a row for everything that ever ran or was ever " +
+        "sent to, retired included, so counting them answers a different question from " +
+        "`silent-sources` and `destinations`, which read the registry. For `sources` this is " +
+        "enforced -- `check-sql` fails the gate on a read of it as a list that skips the registry.",
       mutates: false,
       agent: true,
       schema: z.object({ table: z.string().min(1).optional() }),
@@ -135,7 +140,7 @@ export function databaseOperations(db: Database, config: AppConfig, _all: () => 
       note:
         "Read out of the running database, never from a plan written down somewhere. Thirteen " +
         "foreign keys point at `events` and that is usually described as the difficulty; it is " +
-        "not. Six cascade and take care of themselves, two clear themselves, and the five under " +
+        "not. Six cascade and take care of themselves, two clear themselves, and the six under " +
         "`refuses` are the entire job. `orphans` is separate and worth reading on its own: keys " +
         "were not always enforced, and a child whose parent is gone says the constraint describes " +
         "an intention rather than the data.",

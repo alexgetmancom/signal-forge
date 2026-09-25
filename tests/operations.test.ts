@@ -41,6 +41,43 @@ test("the guide answers with sections and a symptom index before it answers with
   expect(guide.symptoms.every((entry) => entry.usage.startsWith(entry.command))).toBe(true);
   const delivery = buildOperationsGuide(operationCatalog(defs), { section: "delivery" });
   expect(delivery.commands?.every((entry) => entry.section === "delivery")).toBe(true);
+  expect(guide.conventions.length).toBeGreaterThan(2);
+  db.close();
+});
+
+test("one word is a section or a command, whichever it names", () => {
+  const db = openDatabase(":memory:");
+  const catalog = operationCatalog(operations(db, testConfig()));
+  const one = buildOperationsGuide(catalog, { section: "broken" });
+  expect(one.commands?.map((entry) => entry.name)).toEqual(["broken"]);
+  expect(one.noSuchCommand).toBeUndefined();
+  // Nobody arriving with a question knows whether the word they have is a section or a command,
+  // and answering "expected one of health|delivery|evidence|sources|host" helped none of them.
+  expect(buildOperationsGuide(catalog, { section: "brokn" }).noSuchCommand).toBe("brokn");
+  db.close();
+});
+
+test("the commands AGENTS.md used to explain now explain themselves", () => {
+  const db = openDatabase(":memory:");
+  const catalog = operationCatalog(operations(db, testConfig()));
+  // Each of these had a paragraph of its own in AGENTS.md -- how to read what it answers, which
+  // field to read first, which mistake the raw table invites. That paragraph is the `note` now,
+  // and this is what stops it going back to being prose nobody generates.
+  for (const name of [
+    "broken",
+    "flaky",
+    "outages",
+    "failures",
+    "timings",
+    "usage",
+    "destinations",
+    "references",
+    "sql",
+    "schema",
+  ]) {
+    const entry = catalog.find((found) => found.name === name);
+    expect(entry?.note?.length ?? 0, `${name} has no note`).toBeGreaterThan(120);
+  }
   db.close();
 });
 

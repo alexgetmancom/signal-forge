@@ -30,12 +30,24 @@ export type OperationCatalogEntry = {
   http?: string;
 };
 
+/**
+ * How every command is spelled, which the usage lines cannot say because they only carry the
+ * positional arguments. Written once here rather than in each summary.
+ */
+const CONVENTIONS = [
+  "Any field a command accepts can be given as `--field value` or `--field=value`, spelled in kebab: `--min-confidence` is `minConfidence`. The usage line lists only the positional ones, so `guide <command>` is what says the rest.",
+  "Any command takes `--tsv` and answers in tab-separated rows instead of JSON. Reach for it before parsing JSON out of a terminal by hand.",
+  "Every call on every surface is journalled, reads included. `usage` says which commands are actually used and which question has been asked by hand often enough to deserve one; `journal` shows only the calls that changed something.",
+];
+
 export type OperationsGuide = {
   service: string;
   route: string;
+  conventions: string[];
   sections: { section: OperationSection; summary: string; commands: string[] }[];
   symptoms: { symptom: string; command: string; usage: string }[];
   commands?: OperationCatalogEntry[];
+  noSuchCommand?: string;
   whenTheDatabaseIsUnusable: string[];
 };
 
@@ -46,16 +58,21 @@ export type OperationsGuide = {
  */
 export function buildOperationsGuide(
   catalog: readonly OperationCatalogEntry[],
-  options: { section?: OperationSection; all?: boolean } = {},
+  options: { section?: OperationSection | string; all?: boolean } = {},
 ): OperationsGuide {
+  // One word is a section when it names one and a command otherwise, because nobody arriving with
+  // a question knows which of the two they are holding, and getting it wrong printed an error
+  // listing five section names rather than the thing they asked about.
+  const named = options.section;
   const selected = options.all
     ? [...catalog]
-    : options.section
-      ? catalog.filter((entry) => entry.section === options.section)
+    : named
+      ? catalog.filter((entry) => entry.section === named || entry.name === named)
       : [];
   return {
     service: "signal-forge",
     route: "bun src/cli.ts <command> [arguments]",
+    conventions: CONVENTIONS,
     sections: OPERATION_SECTIONS.map((section) => ({
       section,
       summary: SECTION_SUMMARIES[section],
@@ -65,10 +82,11 @@ export function buildOperationsGuide(
       .filter((entry) => entry.startHere)
       .map((entry) => ({ symptom: entry.startHere as string, command: entry.name, usage: entry.usage })),
     ...(selected.length ? { commands: selected } : {}),
+    ...(named && selected.length === 0 ? { noSuchCommand: named } : {}),
     whenTheDatabaseIsUnusable: [
       "The service opens the database on start and migrates it; a failure there stops the process rather than running against a half-migrated schema.",
       "Restore from the newest verified archive in the backup directory, not from the live file: doctor reports which archive was verified and when.",
-      "Never open the production database by hand to repair it. Stop the collector first, and rehearse any migration on a copy with scripts/rehearse-migration.ts.",
+      "Never open the production database by hand to repair it. Stop the collector first, and rehearse any migration on a copy of this database with `bun run rehearse --only migration`.",
     ],
   };
 }

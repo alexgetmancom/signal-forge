@@ -26,6 +26,7 @@
     "check-sql": "bun scripts/check-sql.ts",
     "check-scripts": "bun scripts/check-scripts.ts",
     "check": "bun scripts/check.ts",
+    "check-fast": "bun scripts/check.ts --fast",
     "poll": "bun src/cli.ts poll",
     "status": "bun src/cli.ts status",
     "events": "bun src/cli.ts events",
@@ -36,7 +37,8 @@
     "rehearse": "bun scripts/rehearse.ts",
     "rehearse-projections": "bun scripts/rehearse-projections.ts",
     "split-module": "bun scripts/split-module.ts",
-    "probe": "bun scripts/probe.ts"
+    "probe": "bun scripts/probe.ts",
+    "guide": "bun scripts/workbench.ts"
   },
   "dependencies": {
     "@resvg/resvg-wasm": "^2.6.2",

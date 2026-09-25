@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import { capabilityReport } from "../capabilities.js";
 import type { AppConfig } from "../config.js";
-import { buildOperationsGuide, OPERATION_SECTIONS, type OperationSection } from "../guide.js";
+import { buildOperationsGuide } from "../guide.js";
 import { brokenReport } from "../reports/broken.js";
 import { doctorReport } from "../reports/doctor.js";
 import { flakySources } from "../reports/flakySources.js";
@@ -25,16 +25,15 @@ export function healthOperations(db: Database, config: AppConfig, all: () => Ope
       section: "health",
       summary: "The command catalog, the symptom index and what to do when the database is unusable.",
       startHere: "I do not know which command answers this",
-      note: "Read-only. Ask for one section, or all, when the section names are not enough.",
+      note: "Read-only. A word is a section name or a command name, whichever it matches; `--all` is every command. One command's entry carries the note that says how to read what it answers, which is the only place that is written down.",
       mutates: false,
       // Every MCP tool is already listed to an agent with its own summary; the catalog is what a
       // surface without that listing needs.
       agent: false,
-      schema: z.object({ section: z.enum(OPERATION_SECTIONS).optional(), all: flag().optional() }),
+      schema: z.object({ section: z.string().min(1).optional(), all: flag().optional() }),
       cli: { args: [{ name: "section", optional: true }] },
       http: { method: "get", path: "/api/guide" },
-      handler: (input: { section?: OperationSection; all?: boolean }) =>
-        buildOperationsGuide(operationCatalog(all()), input),
+      handler: (input: { section?: string; all?: boolean }) => buildOperationsGuide(operationCatalog(all()), input),
     },
     doctor: {
       section: "health",
@@ -135,7 +134,10 @@ export function healthOperations(db: Database, config: AppConfig, all: () => Ope
         "Ask this alongside `issues` and `silent-sources`. Those two read the present and the " +
         "absence; this reads the rate, which is the only way a source that fails two attempts in " +
         "three and succeeds on the third becomes visible. `arena` sat at 73% for three days without " +
-        "appearing in either of the others.",
+        "appearing in either of the others. Read `faultRate` rather than `failureRate`: a failure " +
+        "has a kind, and a `degraded` row is this service's own shrink guard refusing a short " +
+        "answer rather than a collector that could not read the page. 73 of `arena`'s 103 failures " +
+        "were the guard, and the undivided rate called that 58% broken. `failures <source>` next.",
       mutates: false,
       agent: true,
       schema: z.object({ days: count(90, 3) }),
