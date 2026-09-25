@@ -35,7 +35,13 @@ export function webSources({ db, cache }: SourceContext): SourceEntry[] {
       vendor: "Anthropic",
       group: "Web",
       stream: "web",
-      intervalSeconds: 3600,
+      // Four hours, because an hour is being refused. Measured on production 2026-09-25: 29 of the
+      // last 46 reads failed, every one of them a 403 or a challenge page, which is the worst rate
+      // of any source here -- and the answer to being challenged is to ask less often, never to
+      // look like something else. The bundles carry interface strings that change when a deploy
+      // changes them, so nothing here is hourly news; six reads a day of 22 MB is also the largest
+      // single share of what this service downloads and stores.
+      intervalSeconds: 14400,
       collector: () => collectClaude(fetch, cache),
     },
     {
