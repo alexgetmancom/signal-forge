@@ -13,6 +13,7 @@ import {
   DEBUT_PLACES,
   isMainBoard,
   isUnfollowedMakerAtAReseller,
+  type SignalClass,
 } from "./events/signals.js";
 import type { Event, RecordData } from "./events/types.js";
 import {
@@ -346,7 +347,29 @@ function recentlyListed(record: RecordData | null, to: string): boolean {
   return Number.isFinite(created) && Date.parse(to) - created <= LAUNCH_PROMOTION_MS;
 }
 
-export function recapContext(db: Database, to: string, period: RecapPeriod = "week"): RecapContext {
+/**
+ * Everything a period is read from, read once.
+ *
+ * Every line of a recap is a different question about the same window, and each of them needs some
+ * of the same five readings: what happened in it, which of those events were renames, which models
+ * anything else has ever seen, what people actually run, and what already went out as a card. They
+ * are gathered here so that each line below is a function of the window rather than of a hundred
+ * lines of setup above it.
+ */
+type PeriodReading = {
+  db: Database;
+  period: RecapPeriod;
+  from: string;
+  to: string;
+  classified: { event: Event; signal: SignalClass }[];
+  renamed: Set<number>;
+  witnessed: Set<string>;
+  usage: Map<string, number>;
+  /** Events a card already carried, for the periods whose lines are only what was never told. */
+  carded: Set<number>;
+};
+
+function periodReading(db: Database, to: string, period: RecapPeriod): PeriodReading {
   const from = new Date(Date.parse(to) - PERIODS[period].ms).toISOString();
   const events = db
     .query<Event, [string, string]>("SELECT * FROM events WHERE detected_at>=? AND detected_at<? ORDER BY id")
@@ -354,6 +377,38 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
   const classified = events.map((event) => ({ event, signal: signalOf(event) }));
   const renamed = renamedEvents(db, events);
   const witnessed = witnessedSubjects(db);
+  const usage = usageRanks(db);
+  // On 2026-09-18 the morning recap repeated GLM 5.2, Kimi K3 and gpt-oss-120b from cards sent
+  // hours before.
+  const carded = new Set(
+    !PERIODS[period].untold
+      ? []
+      : db
+          .query<{ event_id: number }, [string, string]>(
+            `SELECT DISTINCT de.event_id FROM delivery_events de JOIN deliveries d ON d.id=de.delivery_id
+         JOIN events e ON e.id=de.event_id
+         WHERE d.status IN ('pending','sending','sent','ambiguous','verification_required')
+           AND e.detected_at>=? AND e.detected_at<?`,
+          )
+          .all(from, to)
+          .map((row) => row.event_id),
+  );
+  return { db, period, from, to, classified, renamed, witnessed, usage, carded };
+}
+
+/**
+ * What arrived, grouped by maker, and the subjects those arrivals are about.
+ *
+ * The subjects come back with them because a name this period reports as arrived is not also a name
+ * it reports as retiring.
+ */
+function periodArrivals(reading: PeriodReading): {
+  arrivals: RecapContext["arrivals"];
+  arrivalCount: number;
+  arrived: Set<string>;
+} {
+  const { db, from, to, classified, renamed } = reading;
+  const events = classified.map(({ event }) => event);
   // What anything had already named before the period began. A catalogue listing a model is not
   // the model arriving: OpenRouter carried GLM 5.2 and GLM 5.3 on 8 September and OpenAI's own API
   // carried gpt-live-1 on the 10th, and all three were reported as this week's arrivals because a
@@ -389,7 +444,6 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
         .map(({ event }) => nameOf(event).toLowerCase())
         .join("\n")
     : "";
-  const usage = usageRanks(db);
   // One model however many collectors saw it, and the maker's own word ahead of a reseller's.
   const bySubject = new Map<string, { name: string; vendor: string; weight: number }>();
   for (const { event, signal } of classified) {
@@ -439,6 +493,16 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
     byVendor.set(arrival.vendor, names);
   }
   const arrivals = [...byVendor.entries()].map(([vendor, names]) => ({ vendor, names }));
+  return {
+    arrivals,
+    arrivalCount: ranked.length,
+    arrived: new Set([...bySubject.values()].map((arrival) => modelSubject(arrival.name))),
+  };
+}
+
+/** One model, one price line: the period's net move, told only for a model something else knows. */
+function periodPriceMoves(reading: PeriodReading): RecapContext["priceMoves"] {
+  const { classified, carded, witnessed, usage, to } = reading;
   // One model, one price line, and the line is the week's net move rather than its steepest step.
   //
   // A catalogue lists the same model under several rows and edits each of them more than once. On
@@ -456,21 +520,6 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
     row.push({ event, name: nameOf(event) });
     byRow.set(`${event.source}\u0000${event.entity_id}`, row);
   }
-  // On 2026-09-18 the morning recap repeated GLM 5.2, Kimi K3 and gpt-oss-120b from cards sent
-  // hours before.
-  const carded = new Set(
-    !PERIODS[period].untold
-      ? []
-      : db
-          .query<{ event_id: number }, [string, string]>(
-            `SELECT DISTINCT de.event_id FROM delivery_events de JOIN deliveries d ON d.id=de.delivery_id
-         JOIN events e ON e.id=de.event_id
-         WHERE d.status IN ('pending','sending','sent','ambiguous','verification_required')
-           AND e.detected_at>=? AND e.detected_at<?`,
-          )
-          .all(from, to)
-          .map((row) => row.event_id),
-  );
   const bySubjectMove = new Map<string, PriceMove[]>();
   for (const whole of byRow.values()) {
     // Only what came after the last card is untold. Skipping the whole row once any step was carded
@@ -529,7 +578,12 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
       from: was,
       to: now,
     }));
-  // A board changing hands at the top is the one ranking move a reader repeats to somebody else.
+  return priceMoves;
+}
+
+/** A board changing hands at the top is the one ranking move a reader repeats to somebody else. */
+function periodLeaders(reading: PeriodReading): RecapContext["leaders"] {
+  const { classified } = reading;
   const leaders = classified
     .filter(({ event }) => event.stream === "leaderboards" && event.kind === "changed")
     .flatMap(({ event }) => {
@@ -542,6 +596,15 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
     })
     .filter((leader, index, all) => all.findIndex((other) => other.board === leader.board) === index)
     .slice(0, 5);
+  return leaders;
+}
+
+/** What the maker said is going away, from a lifecycle table and from its own changelog sentence. */
+function periodRetirements(
+  reading: PeriodReading,
+  arrivedThisPeriod: Set<string>,
+): { retirements: RecapContext["retirements"]; retirementNotes: string[] } {
+  const { classified, period, to } = reading;
   // What the maker said is going away this week, with the date it goes when the notice gives one.
   // A retirement card came off the public wire after five of them; one line a week is the size
   // of it for a reader who does not run the model.
@@ -549,7 +612,6 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
   // it in the same table the day it ships: `gemini-3.8-live` arrived and was said to be retiring in
   // one message on 2026-09-20. A notice with no date is a row, not news, so only a dated one counts
   // -- and a name this same week reports as arrived never appears under "Retiring".
-  const arrivedThisPeriod = new Set([...bySubject.values()].map((arrival) => modelSubject(arrival.name)));
   const retirements = classified
     .filter(
       ({ event, signal }) => (signal === "retirement" || event.stream === "deprecations") && event.stream !== "news",
@@ -606,9 +668,13 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
           .filter((note) => WHEN_WORDS.test(note))
           .filter((note, index, all) => all.indexOf(note) === index)
           .slice(0, 2);
-  // The day's news in three sections: what went wrong or could, what was found, and what else the
-  // labs said. Hacker News is read for the first two only: other people's safety and research
-  // stories are news, other people's opinions are not.
+  return { retirements: period === "week" ? retirements : [], retirementNotes };
+}
+// The day's news in three sections: what went wrong or could, what was found, and what else the
+// labs said. Hacker News is read for the first two only: other people's safety and research
+// stories are news, other people's opinions are not.
+function periodHeadlines(reading: PeriodReading): RecapContext["headlines"] {
+  const { db, classified, carded, period, to } = reading;
   const headlines: RecapContext["headlines"] = [];
   if (period === "news") {
     // A front-page story no pattern placed is still read when Jev judged it about a model, a product
@@ -667,6 +733,16 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
       }
     }
   }
+  return headlines;
+}
+
+/** What the scoreboards did overnight: big climbs, first scores, and boards that are new today. */
+function periodBoards(reading: PeriodReading): {
+  climbers: RecapContext["climbers"];
+  indexed: RecapContext["indexed"];
+  newBoards: RecapContext["newBoards"];
+} {
+  const { db, classified, period } = reading;
   // Big climbs into the top ten and boards that did not exist yesterday: what the scouts' own
   // sightings do not show, told once a morning beside the new leaders.
   const climbers =
@@ -729,6 +805,15 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
         newBoards.push({ board: boardName(board.source, board.category), leader: board.leader });
     }
   }
+  return { climbers, indexed, newBoards };
+}
+
+/** Small companies' models at resellers, and the commits worth a sentence. */
+function periodSightings(reading: PeriodReading): {
+  resellerArrivals: RecapContext["resellerArrivals"];
+  codeNotes: RecapContext["codeNotes"];
+} {
+  const { db, classified, period, from, to } = reading;
   // Small companies' models at resellers: a line each, unless one took off and was a card already.
   const resellerArrivals =
     period !== "day"
@@ -766,34 +851,56 @@ export function recapContext(db: Database, to: string, period: RecapPeriod = "we
           const repo = event.source.split(":")[1]?.split("/").at(-1) ?? event.source;
           return text ? [{ repo: repo.charAt(0).toUpperCase() + repo.slice(1), text }] : [];
         });
+  return { resellerArrivals, codeNotes };
+}
+
+/**
+ * What the scouts actually saw early: something unannounced showing up where it should not be yet.
+ *
+ * Distinct subjects, not events: the arena and the leaderboards are re-read all week, and counting
+ * every observation turns "the scouts saw ten things early" into five figures. A model taking a
+ * place on one more scoreboard is a `codename` by class and is not that.
+ */
+function periodCodenameCount(reading: PeriodReading): number {
+  return new Set(
+    reading.classified
+      .filter(
+        ({ event, signal }) =>
+          signal === "codename" && EARLY_STREAMS.has(event.stream) && !event.source.startsWith("discovery:"),
+      )
+      .map(({ event }) => modelSubject(nameOf(event))),
+  ).size;
+}
+
+/**
+ * One period, as the lines a message is written from.
+ *
+ * Each line is its own function of the same reading, because the lines are independent of each
+ * other and the question "why does the day say this" should be answerable by reading one of them.
+ */
+export function recapContext(db: Database, to: string, period: RecapPeriod = "week"): RecapContext {
+  const reading = periodReading(db, to, period);
+  const { arrivals, arrivalCount, arrived } = periodArrivals(reading);
+  const { retirements, retirementNotes } = periodRetirements(reading, arrived);
+  const { climbers, indexed, newBoards } = periodBoards(reading);
+  const { resellerArrivals, codeNotes } = periodSightings(reading);
   return recapContextSchema.parse({
     period,
     codeNotes,
     resellerArrivals,
-    headlines: headlines.slice(0, HEADLINES),
+    headlines: periodHeadlines(reading).slice(0, HEADLINES),
     climbers,
     newBoards: newBoards.slice(0, 3),
     indexed,
-    leaders,
-    retirements: period === "week" ? retirements : [],
+    leaders: periodLeaders(reading),
+    retirements,
     retirementNotes,
-    from,
+    from: reading.from,
     to,
     arrivals: arrivals.slice(0, ARRIVAL_GROUPS),
-    arrivalCount: ranked.length,
-    priceMoves,
-    // Distinct subjects, not events: the arena and the leaderboards are re-read all week, and
-    // counting every observation turns "the scouts saw ten things early" into five figures.
-    // What the scouts actually saw early: something unannounced showing up where it should not be
-    // yet. A model taking a place on one more scoreboard is a `codename` by class and is not that.
-    codenameCount: new Set(
-      classified
-        .filter(
-          ({ event, signal }) =>
-            signal === "codename" && EARLY_STREAMS.has(event.stream) && !event.source.startsWith("discovery:"),
-        )
-        .map(({ event }) => modelSubject(nameOf(event))),
-    ).size,
+    arrivalCount,
+    priceMoves: periodPriceMoves(reading),
+    codenameCount: periodCodenameCount(reading),
   });
 }
 

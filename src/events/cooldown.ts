@@ -94,7 +94,7 @@ export function deliveryBaseline(
 }
 
 /** Renders the whole move a destination missed, without rewriting the event it came from. */
-export function withBaseline(event: Event, baseline: DeliveryBaseline): Event {
+export function withBaseline<T extends Event>(event: T, baseline: DeliveryBaseline): T {
   return baseline.sinceJson ? { ...event, before_json: baseline.sinceJson } : event;
 }
 

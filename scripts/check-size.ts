@@ -33,9 +33,6 @@ const LIMIT = 80;
  * lines should.
  */
 const BUDGET: Readonly<Record<string, number>> = {
-  "src/recap.ts:recapContext": 350,
-  "src/events/batching.ts:prepareDeliveries": 325,
-  "src/sources/packs/news.ts:newsSources": 325,
   "src/reports/issues.ts:listActionableIssues": 275,
   "src/operations/health.ts:healthOperations": 200,
   "src/delivery.ts:deliverPending": 225,
