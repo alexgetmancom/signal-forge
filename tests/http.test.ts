@@ -3,6 +3,7 @@ import { loadConfig, settingsSchema } from "../src/config.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import type { Collection } from "../src/events/types.js";
 import { createHttpApp } from "../src/http.js";
+import { operations } from "../src/operations.js";
 import { openDatabase } from "../src/storage/database.js";
 
 test("health is public, operational state requires token, MCP lists matching schemas", async () => {
@@ -38,57 +39,25 @@ test("health is public, operational state requires token, MCP lists matching sch
   expect(tools).not.toContain("sync_publications");
   // Sending to subscribers is the operator's call: it is a command, never a tool.
   expect(tools).not.toContain("resend");
-  expect(tools).toEqual([
-    "doctor",
-    "status",
-    "issues",
-    "broken",
-    "capabilities",
-    "keys",
-    "date_integrity",
-    "flaky",
-    "outages",
-    "failures",
-    "timings",
-    "usage",
-    "verify",
-    "memory",
-    "preview",
-    "deliveries",
-    "deliveries_needing_verification",
-    "require_delivery_verification",
-    "resolve_delivery_verification",
-    "suppressions",
-    "destinations",
-    "sent",
-    "publications",
-    "news",
-    "events",
-    "event",
-    "stories",
-    "models",
-    "model",
-    "hypotheses",
-    "hypothesis",
-    "lifecycle_deadlines",
-    "silent_sources",
-    "reactions",
-    "judge_gap",
-    "lead_time",
-    "source_verdicts",
-    "passed_over",
-    "coverage_gaps",
-    "release_audit",
-    "channel_mix",
-    "signal_quality",
-    "deepseek_usage",
-    "credential_circuits",
-    "sql",
-    "schema",
-    "references",
-    "snapshot",
-    "journal",
-  ]);
+  // The list itself is not asserted. It was, as a literal in order, and it cost an edit to this
+  // test for every command added anywhere -- five of them in two days, each reported as a diff of
+  // a thirty-line array. The registry already knows which operations are tools; what is worth
+  // holding is the rule, which a literal cannot state and cannot check for a command written
+  // tomorrow.
+  const registry = operations(db, config);
+  const forAgents = Object.entries(registry)
+    .filter(([, definition]) => definition.agent)
+    .map(([name]) => name);
+  expect(new Set(tools)).toEqual(new Set(forAgents));
+  expect(tools).toHaveLength(new Set(tools).size);
+  // Nothing that writes is a tool unless it is routine delivery work an agent is trusted with.
+  const writesAndIsATool = Object.entries(registry)
+    .filter(([, definition]) => definition.agent && definition.mutates)
+    .map(([name]) => name);
+  expect(writesAndIsATool.sort()).toEqual(["require_delivery_verification", "resolve_delivery_verification"]);
+  // Every tool says what it is for, because an agent chooses from the list before asking anything.
+  for (const [name, definition] of Object.entries(registry))
+    if (definition.agent) expect(definition.summary.length, `${name} has no summary`).toBeGreaterThan(20);
   const batch = await app.request("/api/mcp", {
     method: "POST",
     headers: { Authorization: `Bearer ${config.MCP_TOKEN}`, "content-type": "application/json" },
