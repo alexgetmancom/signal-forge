@@ -9,6 +9,7 @@
  */
 import { resolve } from "node:path";
 import { CHECK_GROUPS, type CheckStep } from "./check-steps.js";
+import { owedLine, required } from "./rehearsalNeeded.js";
 
 const root = resolve(import.meta.dir, "..");
 const parallel = Bun.argv.includes("--parallel");
@@ -35,8 +36,18 @@ for (const group of CHECK_GROUPS) {
   else for (const step of steps) await run(step);
 }
 const skipped = CHECK_GROUPS.flat().length - ran;
+// Printed, never failed on: a rehearsal needs a copy of production and the gate has to run without
+// one. This is the last thing in the working cycle that was a rule to remember rather than a
+// mapping, and a mapping is code.
+const changed = Bun.spawnSync(["git", "status", "--porcelain"], { cwd: root })
+  .stdout.toString()
+  .split("\n")
+  .map((line) => line.slice(3).trim())
+  .filter((file) => file !== "");
+const owed = owedLine(required(changed));
 process.stderr.write(
-  `\nGate passed: ${ran} checks in ${((Date.now() - started) / 1000).toFixed(1)}s` +
+  `${owed ? `\n${owed}\n` : ""}` +
+    `\nGate passed: ${ran} checks in ${((Date.now() - started) / 1000).toFixed(1)}s` +
     `${only.length > 0 ? `, tests narrowed to ${only.join(" ")}` : ""}` +
     `${skipped ? `, ${skipped} left to the push (--fast)` : ""}\n`,
 );

@@ -23,6 +23,7 @@
  *   bun run rehearse --fresh               ignore the cached copy and pull again
  *   bun run rehearse --all                 every phase, including the two that are not about cards
  *   bun run rehearse --only projections    one of them
+ *   bun run rehearse --needed              the ones this branch's diff owes, worked out rather than remembered
  *   bun run rehearse --list                what the phases are
  *   bun run rehearse --prune               throw the copy and everything derived from it away
  *
@@ -38,6 +39,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync } from "node:f
 import { join, resolve } from "node:path";
 import { cacheDir, copy, prodCopy, sweep } from "./prodCopy.js";
 import { appendEntry, type Entry, type Finding, lastAgreement, verdictLine } from "./rehearsalLedger.js";
+import { owedLine, REQUIREMENTS, required } from "./rehearsalNeeded.js";
 
 const root = resolve(import.meta.dir, "..");
 
@@ -131,7 +133,40 @@ const PHASES: Phase[] = [
   },
 ];
 
-const only = argv.includes("--only") ? (argv[argv.indexOf("--only") + 1] ?? "").split(",") : null;
+// The mapping in rehearsalNeeded.ts names phases, and nothing else connects the two lists.
+for (const requirement of REQUIREMENTS)
+  if (!PHASES.some((phase) => phase.name === requirement.phase))
+    throw new Error(`rehearsalNeeded.ts owes a "${requirement.phase}" phase, which rehearse does not have`);
+
+/**
+ * `--needed` is `--only` worked out from the diff rather than typed: which files this branch
+ * touched, and which phases those files owe. Against the base when there is one, and against
+ * everything not yet pushed otherwise, because that is the change about to reach a reader.
+ */
+function changedFiles(): string[] {
+  const against = base ?? (git("rev-parse", "--verify", "--quiet", "@{upstream}") ? "@{upstream}" : "HEAD");
+  return [
+    ...git("diff", "--name-only", against).split("\n"),
+    ...git("status", "--porcelain")
+      .split("\n")
+      .map((line) => line.slice(3)),
+  ].filter((file) => file !== "");
+}
+
+const owed = flags.has("--needed") ? required(changedFiles()) : [];
+const only = argv.includes("--only")
+  ? (argv[argv.indexOf("--only") + 1] ?? "").split(",")
+  : flags.has("--needed")
+    ? owed.map((one) => one.phase)
+    : null;
+if (flags.has("--needed")) {
+  say(
+    owed.length === 0
+      ? "Nothing changed that a rehearsal answers for."
+      : ((owedLine(owed) as string).split("\n")[0] as string),
+  );
+  if (owed.length === 0) process.exit(0);
+}
 const chosen = PHASES.filter((phase) => (only ? only.includes(phase.name) : phase.always || flags.has("--all")));
 
 if (flags.has("--prune")) {
