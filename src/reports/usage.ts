@@ -85,7 +85,15 @@ const COVERED_BY: Readonly<Record<string, string>> = {
   snapshots: "snapshot",
 };
 
-function coveredBy(shape: string): string | null {
+/**
+ * Which command already answers the usual question about the tables this query reads.
+ *
+ * Exported because the useful moment to say it is not here. `usage` reports it days later, to
+ * whoever thinks to ask; `sql` can say it in the same breath as the answer, to the person who just
+ * wrote the query. Over two weeks 38 of 44 `sql` calls on production had one of these, which is to
+ * say the registry was never missing a command -- it was missing at the moment of the question.
+ */
+export function coveredBy(shape: string): string | null {
   const named = [...new Set(shape.replace(/ \(aggregated\)$/, "").split(" + "))]
     .map((table) => COVERED_BY[table])
     .filter((command): command is string => command !== undefined);

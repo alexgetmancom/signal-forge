@@ -7,6 +7,7 @@
  * -- the stale copy -- and get a confident wrong answer.
  *
  *   bun run probe -e 'db.query("SELECT count(*) AS n FROM events").get()'
+ *   bun run probe -e '(await import("../src/reports/broken.js")).brokenReport(db, config).headline'
  *   bun run probe scratch/roster.ts
  *
  * An expression is evaluated in this script's own directory, so a dynamic import inside one reads
@@ -67,8 +68,13 @@ function show(value: unknown): void {
 try {
   if (expression) {
     // `new Function` rather than `eval` so the expression cannot see this file's own scope by
-    // accident: it gets `db` and `config` because they are named here, and nothing else.
-    const run = new Function("db", "config", `return (${expression});`) as (db: Database, config: unknown) => unknown;
+    // accident: it gets `db` and `config` because they are named here, and nothing else. Async,
+    // because the first two things anybody writes here are an `await import(...)` of a report and
+    // an `await` of what it returns, and the synchronous form made both of those a `.then` chain.
+    const AsyncFunction = Object.getPrototypeOf(async () => {}).constructor as new (
+      ...args: string[]
+    ) => (db: Database, config: unknown) => Promise<unknown>;
+    const run = new AsyncFunction("db", "config", `return (${expression});`);
     show(await run(db, config));
   } else {
     const resolved = resolve(root, file as string);

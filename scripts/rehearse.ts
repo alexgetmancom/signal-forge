@@ -24,6 +24,7 @@
  *   bun run rehearse --all                 every phase, including the two that are not about cards
  *   bun run rehearse --only projections    one of them
  *   bun run rehearse --list                what the phases are
+ *   bun run rehearse --prune               throw the copy and everything derived from it away
  *
  * Every phase shares one copy of production and one unpacked base. Three scripts used to pull
  * 377MB each and `git archive` the same tree twice, which is why two of them quietly defaulted to
@@ -35,7 +36,7 @@
  */
 import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { cacheDir, copy, prodCopy } from "./prodCopy.js";
+import { cacheDir, copy, prodCopy, sweep } from "./prodCopy.js";
 import { appendEntry, type Entry, type Finding, lastAgreement, verdictLine } from "./rehearsalLedger.js";
 
 const root = resolve(import.meta.dir, "..");
@@ -133,6 +134,13 @@ const PHASES: Phase[] = [
 const only = argv.includes("--only") ? (argv[argv.indexOf("--only") + 1] ?? "").split(",") : null;
 const chosen = PHASES.filter((phase) => (only ? only.includes(phase.name) : phase.always || flags.has("--all")));
 
+if (flags.has("--prune")) {
+  const swept = sweep(null, true);
+  say(swept.removed.length === 0 ? "Nothing to sweep." : `Swept ${swept.removed.join(", ")}`);
+  say(`${Math.round(swept.freed / 1_000_000)}MB freed. The next rehearsal pulls a fresh copy.`);
+  process.exit(0);
+}
+
 if (flags.has("--list")) {
   for (const phase of PHASES) say(`${phase.always ? " " : "*"} ${phase.name.padEnd(12)} ${phase.what}`);
   say("");
@@ -179,6 +187,11 @@ const entry: Entry = {
   findings,
 };
 const ledger = appendEntry(resolve(cacheDir, "ledger.json"), entry);
+
+// Everything derived from the copy is cheaper to rebuild than to keep, and the base this run used
+// is the one the next run will want. Done after the findings so a failure still leaves its workings.
+const swept = sweep(entry.baseSha || null);
+if (swept.freed > 50_000_000) say(`(swept ${Math.round(swept.freed / 1_000_000)}MB of ${swept.removed.join(", ")})`);
 
 say("");
 say(verdictLine(entry));

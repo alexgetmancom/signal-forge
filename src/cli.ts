@@ -11,8 +11,8 @@ import { asTsv } from "./text.js";
  * mutation come from the registry. The previous chain of branches and its hand-written usage
  * string had already drifted apart, which is the failure this shape cannot have.
  */
-function write(value: unknown, tsv: boolean): void {
-  const table = tsv ? asTsv(value) : null;
+function write(value: unknown, tsv: false | { path?: string }): void {
+  const table = tsv ? asTsv(value, tsv.path) : null;
   process.stdout.write(table === null ? `${JSON.stringify(value, null, 2)}\n` : `${table}\n`);
 }
 
@@ -28,8 +28,11 @@ function usage(defs: OperationMap): string {
   ].join("\n");
 }
 
-const tsv = Bun.argv.includes("--tsv");
-const argvWithoutFlags = Bun.argv.filter((value) => value !== "--tsv");
+// `--tsv` is the largest table in the answer; `--tsv=<path>` is the one named, and the comment
+// line the first form prints is where the paths come from.
+const tsvArgument = Bun.argv.find((value) => value === "--tsv" || value.startsWith("--tsv="));
+const tsv = tsvArgument ? { ...(tsvArgument.includes("=") ? { path: tsvArgument.split("=")[1] } : {}) } : false;
+const argvWithoutFlags = Bun.argv.filter((value) => value !== tsvArgument);
 const config = loadConfig();
 // Outside the container this is a local copy, and a question about what the service saw is almost
 // never a question about it. stderr, so stdout stays parseable.

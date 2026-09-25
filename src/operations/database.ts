@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
 import { tableReferences } from "../reports/references.js";
+import { coveredBy, queryShape } from "../reports/usage.js";
 import { readonlyDatabase } from "../storage/database.js";
 import { readLatestSnapshot } from "../storage/snapshots.js";
 import { count, type OperationMap } from "./definition.js";
@@ -69,7 +70,9 @@ export function databaseOperations(db: Database, config: AppConfig, _all: () => 
       startHere: "a question about the stored data that no command answers",
       note:
         "Read-only: a write fails rather than lands. A gzipped body comes back as text, and any " +
-        "other blob as its size, so `SELECT body FROM snapshots` is readable. Ask `schema` first.",
+        "other blob as its size, so `SELECT body FROM snapshots` is readable. Ask `schema` first. " +
+        "`alreadyAnsweredBy` on the answer names the command that already reads these tables: it is " +
+        "not advice, it is the measurement that 38 of the last 44 queries asked here had one.",
       mutates: false,
       agent: true,
       schema: z.object({ query: z.string().min(1), limit: count(2_000, 200) }),
@@ -86,7 +89,16 @@ export function databaseOperations(db: Database, config: AppConfig, _all: () => 
             rows.push(Object.fromEntries(Object.entries(row).map(([key, value]) => [key, readable(value)])));
             if (rows.length >= input.limit) break;
           }
-          return { rows, count: rows.length, truncated: rows.length >= input.limit };
+          // Said here rather than only in `usage`, which reports it a week later to somebody who
+          // thought to ask. This is the moment the question was asked and the moment it is cheap
+          // to learn that it already had an answer.
+          const answers = coveredBy(queryShape(input.query));
+          return {
+            rows,
+            count: rows.length,
+            truncated: rows.length >= input.limit,
+            ...(answers ? { alreadyAnsweredBy: answers } : {}),
+          };
         } catch (error) {
           throw new Error(teach(connection, input.query, error));
         } finally {

@@ -36,7 +36,7 @@ export type OperationCatalogEntry = {
  */
 const CONVENTIONS = [
   "Any field a command accepts can be given as `--field value` or `--field=value`, spelled in kebab: `--min-confidence` is `minConfidence`. The usage line lists only the positional ones, so `guide <command>` is what says the rest.",
-  "Any command takes `--tsv` and answers in tab-separated rows instead of JSON. Reach for it before parsing JSON out of a terminal by hand.",
+  "Any command takes `--tsv` and answers with the largest table inside its report instead of JSON, naming the tables it passed over. `--tsv=now.issues` picks one of those by path. Reach for it before parsing JSON out of a terminal by hand.",
   "Every call on every surface is journalled, reads included. `usage` says which commands are actually used and which question has been asked by hand often enough to deserve one; `journal` shows only the calls that changed something.",
 ];
 

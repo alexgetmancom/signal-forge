@@ -7,8 +7,8 @@
  *
  * Reads only, on both ends.
  */
-import { existsSync, mkdirSync, statSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
+import { join, resolve } from "node:path";
 
 const ssh = process.env.SIGNAL_FORGE_SSH?.trim() || "vm106";
 const container = process.env.SIGNAL_FORGE_CONTAINER?.trim() || "signal-forge-app-1";
@@ -69,4 +69,40 @@ export async function prodCopy(fresh: boolean, say: (message: string) => void): 
   if (!(await pullSnapshot(copy))) return null;
   say(`Copied ${Math.round(statSync(copy).size / 1_000_000)}MB`);
   return copy;
+}
+
+/** Bytes on disk under a path, following directories. */
+function weigh(path: string): number {
+  if (!existsSync(path)) return 0;
+  const stats = statSync(path);
+  if (!stats.isDirectory()) return stats.size;
+  return readdirSync(path).reduce((total, entry) => total + weigh(join(path, entry)), 0);
+}
+
+/**
+ * What a rehearsal leaves behind that it will not need again.
+ *
+ * `.rehearsal` reached 757MB before anybody looked: a 368MB copy of production, a 376MB working
+ * copy of it that the projection rehearsal never deleted, and one unpacked base tree per commit
+ * ever rehearsed against. The copy is the expensive one to fetch and is kept; everything derived
+ * from it is cheaper to rebuild than to store. `keep` is the base the run just used, because the
+ * next run is usually against the same one.
+ */
+export function sweep(keep: string | null, alsoTheCopy = false): { removed: string[]; freed: number } {
+  const removed: string[] = [];
+  let freed = 0;
+  const drop = (path: string, name: string): void => {
+    const size = weigh(path);
+    if (size === 0 && !existsSync(path)) return;
+    rmSync(path, { recursive: true, force: true });
+    removed.push(name);
+    freed += size;
+  };
+  for (const suffix of ["", "-wal", "-shm"])
+    drop(resolve(cacheDir, `projections.db${suffix}`), `projections.db${suffix}`);
+  const bases = resolve(cacheDir, "base");
+  if (existsSync(bases))
+    for (const sha of readdirSync(bases)) if (sha !== keep) drop(join(bases, sha), `base/${sha.slice(0, 7)}`);
+  if (alsoTheCopy) for (const suffix of ["", "-wal", "-shm"]) drop(`${copy}${suffix}`, `prod.db${suffix}`);
+  return { removed, freed };
 }
