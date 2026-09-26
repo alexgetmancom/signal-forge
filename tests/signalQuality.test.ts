@@ -98,17 +98,16 @@ test("signal quality reports collection outcomes, delivery modes and suppressed 
 
 test("signal quality counts persisted role mentions without another schema table", () => {
   const db = openDatabase(":memory:");
+  // The maker's own newsroom, because only a launch pings now: a reseller listing a model is a
+  // `codename` and the radar's material, and nothing there mentions a role any more.
+  const posts = (records: Collection["records"]): Collection =>
+    registered({ source: "openai-news", stream: "news", url: "https://openai.com/news", raw: records, records });
+  saveCollection(db, posts([{ id: "a", name: "A" }]), [destination], "2026-09-08T00:00:00.000Z");
   saveCollection(
     db,
-    collection("2026-09-08T00:00:00.000Z", [{ id: "a", name: "A" }]),
-    [destination],
-    "2026-09-08T00:00:00.000Z",
-  );
-  saveCollection(
-    db,
-    collection("2026-09-08T00:10:00.000Z", [
+    posts([
       { id: "a", name: "A" },
-      { id: "b", name: "B", maker: "OpenAI" },
+      { id: "b", name: "Introducing GPT-6 Sol" },
     ]),
     [destination],
     "2026-09-08T00:10:00.000Z",
@@ -116,7 +115,7 @@ test("signal quality counts persisted role mentions without another schema table
   );
 
   const source = signalQuality(db, config, 7, Date.parse("2026-09-09T00:00:00.000Z")).sources.find(
-    (entry) => entry.id === "openrouter",
+    (entry) => entry.id === "openai-news",
   );
   expect(source?.rolePings).toBe(1);
   db.close();

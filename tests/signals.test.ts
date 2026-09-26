@@ -230,7 +230,9 @@ test("only an outage the vendor calls severe reaches a reader, and it reaches th
     });
   expect(signalClass(incident("major"))).toBe("launch");
   expect(signalClass(incident("critical"))).toBe("launch");
-  expect(pingWorthy(incident("major"))).toBe(true);
+  // It travels with the launches so a reader sees it, and taps nobody: the promotion to `launch`
+  // used to reach the ping rule, and "Issues with Codex" mentioned @OpenAI on 2026-09-25.
+  expect(pingWorthy(incident("major"))).toBe(false);
   // The Platform health board already shows these, and no destination subscribes to the class.
   expect(signalClass(incident("minor"))).toBe("incident");
   expect(signalClass(incident("none"))).toBe("incident");
@@ -240,9 +242,10 @@ test("only an outage the vendor calls severe reaches a reader, and it reaches th
   expect(signalClass(incident("major", []))).toBe("incident");
 });
 
-test("only the two classes a reader subscribed for carry a role mention", () => {
-  expect(pingWorthy(event({ stream: "openrouter", kind: "new" }))).toBe(true);
-  expect(pingWorthy(event({ stream: "arena", kind: "new", source: "arena" }))).toBe(true);
+test("only what a maker did carries a role mention; a sighting and an outage do not", () => {
+  // A reseller listing a model is a `codename`, which is the radar's feed and no longer pings.
+  expect(pingWorthy(event({ stream: "openrouter", kind: "new" }))).toBe(false);
+  expect(pingWorthy(event({ stream: "arena", kind: "new", source: "arena" }))).toBe(false);
   expect(pingWorthy(event({ stream: "openrouter", kind: "changed" }))).toBe(false);
   expect(pingWorthy(event({ stream: "web", kind: "changed", source: "claude-web" }))).toBe(false);
   expect(pingWorthy(event({ stream: "news", kind: "changed", source: "openai-news" }))).toBe(false);

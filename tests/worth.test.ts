@@ -103,6 +103,60 @@ test("an arena entry that is a known model wired differently is not a sighting",
   db.close();
 });
 
+test("a model answering in a repository under a name we can resolve is not a sighting", () => {
+  const db = openDatabase(":memory:");
+  // Every catalogue carries Haiku 4.5, out since October 2025, and GPT-6 Sol, announced three days
+  // before the sighting below. Both reached the radar on 2026-09-25 headlined "is answering
+  // requests": the first from a stranger's litellm config, the second from an effort setting.
+  const catalogue: Collection = {
+    source: "openrouter",
+    stream: "openrouter",
+    url: "https://openrouter.ai",
+    raw: [],
+    records: [
+      { id: "anthropic/claude-haiku-4.5", name: "Anthropic: Claude Haiku 4.5" },
+      { id: "openai/gpt-6-sol", name: "OpenAI: GPT-6 Sol" },
+      { id: "openai/gpt-6-astra", name: "OpenAI: GPT-6 Astra" },
+    ],
+  };
+  saveCollection(db, catalogue, [wire], "2026-09-25T00:00:00.000Z");
+
+  const served = (model: string): RecordData => ({
+    id: `${model}:served`,
+    model,
+    name: `${model} served`,
+    stage: "served",
+    line: `model_name: ${model}`,
+    url: `https://github.com/BerriAI/litellm/issues/1#${model}`,
+  });
+  const talk: Collection = {
+    source: "github:BerriAI/litellm:talk",
+    stream: "github",
+    url: "https://github.com/BerriAI/litellm",
+    raw: [],
+    records: [served("baseline")],
+  };
+  saveCollection(db, talk, [wire], "2026-09-25T01:00:00.000Z");
+  talk.records.push(
+    served("claude-haiku-4-5-direct-anthropic"),
+    served("gpt-6-sol-medium-fast"),
+    // Somebody else's namespace wrapped around this maker's model: clankermux's own commit says
+    // "Claude Code client's `claude-gpt-6-astra` routes as `gpt-6-astra`".
+    served("claude-gpt-6-astra"),
+    // A name that resolves to nothing we carry is still the earliest word there is.
+    served("minimax-m3.1"),
+  );
+  saveCollection(db, talk, [wire], "2026-09-25T02:00:00.000Z");
+  prepareDeliveries(db, Date.parse("2026-09-25T03:00:00.000Z"));
+
+  const reasons = suppressed(db);
+  expect(reasons["claude-haiku-4-5-direct-anthropic:served"]).toBe("another_serving_of_a_known_model");
+  expect(reasons["gpt-6-sol-medium-fast:served"]).toBe("another_serving_of_a_known_model");
+  expect(reasons["claude-gpt-6-astra:served"]).toBe("another_serving_of_a_known_model");
+  expect(reasons["minimax-m3.1:served"]).toBeUndefined();
+  db.close();
+});
+
 test("an alias row and a retitled row carry no card", () => {
   const db = openDatabase(":memory:");
   const catalogue: Collection = {

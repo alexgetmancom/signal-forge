@@ -140,7 +140,7 @@ test("without a judge, only words about a response make a sighting served", () =
   expect(guessStage("feat: add gpt-6-astra to the model list")).toBe("named");
 });
 
-test("a model named, then served, is told twice; only being served pings; another repo repeats nothing", async () => {
+test("a model named, then served, is told twice; neither pings; another repo repeats nothing", async () => {
   const db = openDatabase(":memory:");
   const keyed = { ...config, DEEPSEEK_API_KEY: "key" };
   let stages = judge({ "gpt-7-nova": "named" });
@@ -175,12 +175,15 @@ test("a model named, then served, is told twice; only being served pings; anothe
   const served = eventsOf(db, "github:d4rken/clankermux:models");
   expect(served.map((e) => e.entity_id)).toEqual(["gpt-7-nova:served"]);
   expect(JSON.parse(served[0]?.after_json ?? "{}")).toMatchObject({ model: "gpt-7-nova", stage: "served" });
-  expect(pingWorthy(served[0] as never)).toBe(true);
+  // A repository sighting is a `codename` at either stage, and the radar carries it without
+  // interrupting anyone: `gpt-6-sol-medium-fast` "answering requests" pinged @OpenAI on 2026-09-25
+  // over an effort setting of a model announced three days earlier.
+  expect(pingWorthy(served[0] as never)).toBe(false);
   expect(stages.calls[0]).toContain("returned as gpt-7-nova");
   db.close();
 });
 
-test("users reporting a model they were served are told; a model they merely name is kept", async () => {
+test("users reporting a model they were served are told without a ping; a model they merely name is kept", async () => {
   const db = openDatabase(":memory:");
   const keyed = { ...config, DEEPSEEK_API_KEY: "key" };
   const watch = { repo: "openai/codex", vendor: "OpenAI", authority: "vendor_owned" as const };
@@ -235,7 +238,9 @@ test("users reporting a model they were served are told; a model they merely nam
     url: "https://github.com/openai/codex/issues/1",
     author: "someone",
   });
-  expect(pingWorthy(told[0] as never)).toBe(true);
+  // Told, because a model answering in a discussion is the earliest word there is; silent, because
+  // a stranger's report is not a reason to tap the vendor's followers.
+  expect(pingWorthy(told[0] as never)).toBe(false);
   expect(second.records.find((r) => r.id === "@since")).toMatchObject({ at: "2026-09-21T12:00:00Z" });
   expect(second.records.map((r) => r.id)).toContain("gpt-6-astra");
   db.close();

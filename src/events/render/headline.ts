@@ -78,8 +78,14 @@ export function mentionSighting(event: Event): boolean {
  */
 export function mentionSentence(record: RecordData): string {
   const line = typeof record.line === "string" && record.line.trim() ? `> ${excerpt(record.line.trim(), 200)}` : null;
+  // "Not in any catalogue" claimed every catalogue there is; what was checked is the ones tracked
+  // here, which is what the fact line beside it has always said ("No other tracked catalogue lists
+  // it yet"). The difference stopped being cosmetic on 2026-09-25, when the phrase went out over
+  // `claude-haiku-4-5-direct-anthropic` -- a routing alias for a model every catalogue carries.
   const lead =
-    record.stage === "served" ? "Not in any catalogue yet." : "Not in any catalogue, not seen answering yet.";
+    record.stage === "served"
+      ? "No tracked catalogue lists it."
+      : "No tracked catalogue lists it, and it has not been seen answering yet.";
   // The quote is the evidence; the commit title under it was grey text the size of the sentence,
   // since Discord draws no small print inside an embed, and the title links to the commit anyway.
   return [lead, line].filter(Boolean).join("\n");

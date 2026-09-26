@@ -705,7 +705,7 @@ test("a single long value is trimmed rather than dropped", () => {
   expect(collapseDetails(["short"])).toEqual(["short"]);
 });
 
-test("a new model pings the role of its vendor and nothing else", async () => {
+test("a maker launching a model pings its role and nothing else", async () => {
   const { prepareDeliveries } = await import("../src/events/batching.js");
   const { saveCollection } = await import("../src/events/pipeline.js");
   const db = openDatabase(":memory:");
@@ -716,8 +716,10 @@ test("a new model pings the role of its vendor and nothing else", async () => {
     signals: ["launch", "codename", "evidence", "change"],
   };
   const roles = { OpenAI: "111", Anthropic: "222" };
+  // The maker's own catalogue, so this is a `launch`. A reseller listing the same model is a
+  // `codename`, which is the radar's material and pings nobody.
   const collection = {
-    source: "openrouter",
+    source: "openai",
     stream: "api-models",
     url: "https://example.test",
     raw: [],

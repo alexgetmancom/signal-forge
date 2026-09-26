@@ -705,17 +705,35 @@ export function signalClass(event: Event): SignalClass {
  * A role mention interrupts a person's day, so it is reserved for the two classes they subscribed
  * for. Numbers moving and raw evidence never ping.
  */
-function isModelSighting(event: Event): boolean {
+export function isModelSighting(event: Event): boolean {
   return event.stream === "github" && /^github:.+:(?:models|talk)$/.test(event.source);
 }
 
+/**
+ * Whether a role is mentioned for this event at all.
+ *
+ * Only what a maker has actually done pings: a launch, a feature, a promised reset. Two classes
+ * that used to ping no longer do.
+ *
+ * A sighting does not, whatever stage it reached. `codename` is the radar's whole feed, and over
+ * 2026-09-24..26 it produced fifteen of the nineteen cards there, every one of them mentioning a
+ * vendor role: @Anthropic for `claude-haiku-4-5-direct-anthropic`, a line in a stranger's litellm
+ * config, and @OpenAI for `gpt-6-sol-medium-fast`, an effort setting of a model announced three
+ * days earlier. A reader who opens the radar is already looking; a reader who is not does not need
+ * to be interrupted by a name somebody wrote in a YAML file. `debut` goes with it: a place on a
+ * scoreboard is a number moving, which this comment already said never pings.
+ *
+ * An outage does not. `signalClass` promotes a severe incident to `launch` so that it travels with
+ * the launches, and that promotion reached the ping rule too: "Issues with Codex" mentioned
+ * @OpenAI on 2026-09-25. The status page is where an outage is read, and a reader who is blocked by
+ * one has already noticed. It still reaches the news channel as a card; it no longer taps anyone.
+ */
 export function pingWorthy(event: Event): boolean {
+  if (event.stream === "incidents") return false;
+  const signal = signalClass(event);
   // A promised reset pings too: "Codex limits reset announced" on 2026-09-22 reached the OpenAI
   // role's readers without a mention, and a reset is the news a Codex subscriber waits for.
-  // A model written into code is coming; one answering people is here. Only the second interrupts.
-  if (isModelSighting(event) && recordFor(event)?.stage !== "served") return false;
-  const signal = signalClass(event);
-  return signal === "launch" || signal === "codename" || signal === "feature" || signal === "debut";
+  return signal === "launch" || signal === "feature";
 }
 
 /**

@@ -14,7 +14,7 @@ import { newsroomVote, readersVote } from "../insights.js";
 import { judgementOf } from "../jev.js";
 import { isScheduledPricingRotation } from "./oscillation.js";
 import { renamedEvents } from "./rename.js";
-import { listsAnotherMakersModel } from "./signals.js";
+import { isModelSighting, listsAnotherMakersModel } from "./signals.js";
 import type { SuppressionReason } from "./suppression.js";
 import type { Event, RecordData } from "./types.js";
 import { displayName } from "./variants.js";
@@ -226,9 +226,15 @@ export function batchViewOf(db: Database, events: readonly Event[]): BatchView {
       .filter((source) => source !== event.source)
       .sort();
   };
-  // Read once per batch: the question is about the event, not about the destination.
+  // Read once per batch: the question is about the event, not about the destination. A repository
+  // sighting asks it too, since `isAnotherServing` reads a model answering in a discussion against
+  // the same catalogues it reads an arena seat against.
   const known = events.some(
-    (event) => ["arena", "web"].includes(event.stream) || event.signal === "article" || event.signal === "business",
+    (event) =>
+      ["arena", "web"].includes(event.stream) ||
+      isModelSighting(event) ||
+      event.signal === "article" ||
+      event.signal === "business",
   )
     ? knownModelNames(db)
     : [];

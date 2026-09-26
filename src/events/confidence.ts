@@ -94,11 +94,11 @@ export function confidenceRank(value: Confidence): number {
  */
 const standings: Record<EvidenceType, string> = {
   api_catalogue: "Listed in the provider's own API.",
-  availability_catalogue: "Seen in a reseller's catalogue, not announced by the maker.",
+  availability_catalogue: "Seen in a reseller's catalogue.",
   official_news: "The maker announced this themselves.",
-  arena_roster: "Spotted on a public arena. Nobody has said what it is yet.",
+  arena_roster: "Spotted on a public arena.",
   leaderboard: "Reported by a public leaderboard.",
-  web_diff: "On the maker's own site. Not announced yet.",
+  web_diff: "On the maker's own site.",
   github_activity: "From the project's repository. Work in progress, not a release.",
   package_release: "Published to the registry. You can install it now.",
   open_weights: "Published to an open-weights registry. The files are downloadable.",
@@ -115,13 +115,34 @@ const fallback: Record<Confidence, string> = {
 };
 
 /**
+ * How long ago the maker said it, in the words a reader would use.
+ *
+ * A sighting of something already announced is the card's most useful fact and the one it used to
+ * get backwards, so it is said first and in days rather than as a timestamp.
+ */
+function announcedAgo(at: string, detectedAt: string): string {
+  const days = Math.floor((Date.parse(detectedAt) - Date.parse(at)) / 86_400_000);
+  if (days >= 2) return `The maker announced this ${days} days ago.`;
+  if (days === 1) return "The maker announced this yesterday.";
+  return "The maker has already announced this.";
+}
+
+/**
  * One sentence about how much weight the observation carries, or null when it adds nothing.
  *
  * Discord cards only. The Telegram renderer's line offsets are read back by `needsSummary`, so an
  * extra line there would quietly move the summarisation threshold for every event, and no Telegram
  * destination is configured to benefit from it.
+ *
+ * These sentences say what the evidence type proves and stop there. Three of them used to append a
+ * claim about the rest of the world -- "Not announced yet", "not announced by the maker", "Nobody
+ * has said what it is yet" -- which no source here establishes and which this service cannot
+ * establish either, since it has only been collecting since 2026-09-08. On 2026-09-25 that put
+ * "On the maker's own site. Not announced yet." under OpenAI's GPT-5.6 Cyber docs page, 45 days
+ * after the press release, the X post and the trade coverage. The negative is gone; the positive
+ * is said whenever `announced` carries an announcement this database actually holds.
  */
-export function readerStanding(event: Event): string | null {
+export function readerStanding(event: Event & { announced?: { at: string } }): string | null {
   // A reset is the one observation here whose weight differs record by record: most are a post by
   // the OpenAI staff member who announces them, and some were only noticed happening. The record
   // says which, so the sentence is read from the record rather than from the stream.
@@ -134,5 +155,6 @@ export function readerStanding(event: Event): string | null {
   }
   const type = eventEvidenceType(event);
   const sentence = standings[type] || fallback[event.confidence ?? "observed"];
-  return sentence || null;
+  const announced = event.announced ? announcedAgo(event.announced.at, event.detected_at) : null;
+  return [sentence, announced].filter(Boolean).join(" ") || null;
 }

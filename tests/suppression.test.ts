@@ -123,13 +123,26 @@ test("a card says how solid it is in words a non-specialist reads", () => {
 
   // The difference between a rumour and a fact used to live in a footer reading
   // "Evidence: arena roster · Confidence: observed".
-  expect(standing("arena", "arena", "arena_roster", "observed")).toBe(
-    "Spotted on a public arena. Nobody has said what it is yet.",
-  );
-  // A reseller listing a model is not the maker announcing it.
+  expect(standing("arena", "arena", "arena_roster", "observed")).toBe("Spotted on a public arena.");
   expect(standing("openrouter", "openrouter", "availability_catalogue", "observed")).toBe(
-    "Seen in a reseller's catalogue, not announced by the maker.",
+    "Seen in a reseller's catalogue.",
   );
+  // A sentence says what its evidence type proves and stops. "Nobody has said what it is yet" and
+  // "not announced by the maker" were claims about the rest of the world that no source here
+  // establishes: on 2026-09-25 the web-diff one put "Not announced yet" under OpenAI's GPT-5.6
+  // Cyber docs page, 45 days after the press release.
+  expect(standing("discovery:docs-openai", "pages", "web_diff", "observed")).toBe("On the maker's own site.");
+  // The positive is said whenever this database actually holds the announcement.
+  expect(
+    readerStanding({
+      source: "discovery:docs-openai",
+      stream: "pages",
+      evidence_type: "web_diff",
+      confidence: "observed",
+      detected_at: "2026-09-25T22:50:38.414Z",
+      announced: { at: "2026-09-11T09:00:00.000Z", source: "openai-news" },
+    } as never),
+  ).toBe("On the maker's own site. The maker announced this 14 days ago.");
   expect(standing("openai-news", "news", "official_news", "supported")).toBe("The maker announced this themselves.");
   expect(standing("npm:x", "packages", "package_release", "shipped")).toBe(
     "Published to the registry. You can install it now.",

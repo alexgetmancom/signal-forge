@@ -146,6 +146,11 @@ export type CardContext = {
   /** Facts about the model the venue itself does not carry, read from a catalogue that does. */
   borrowed?: Record<string, unknown>;
   siblings?: Record<string, unknown>[];
+  /**
+   * The maker's own announcement of this model, when this database holds one from before the
+   * sighting. Absent means none was recorded, never that none was made: see `announcementsBySubject`.
+   */
+  announced?: { at: string; source: string };
 };
 
 /**

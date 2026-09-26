@@ -19,7 +19,13 @@ const only = Bun.argv.slice(2).filter((value) => !value.startsWith("--"));
 
 async function run(step: CheckStep): Promise<void> {
   const narrowed = step.narrowedBy && only.length > 0 ? [...step.narrowedBy, ...only] : null;
-  const child = Bun.spawn(narrowed ?? ["bun", "run", ...step.args], {
+  // `--silent` drops `bun run`'s own two lines -- the `$ <command>` echo before
+  // every step and its `error: script "x" exited with code N` after a failing
+  // one -- and leaves the script's stdout, its stderr and the exit code alone,
+  // which is all this function reads. The echo is not only noise an agent pays
+  // to re-read: it goes to stderr, so a `2>&1` in front of a parser makes it
+  // the first record and the parse fails on it.
+  const child = Bun.spawn(narrowed ?? ["bun", "run", "--silent", ...step.args], {
     cwd: root,
     stdout: "inherit",
     stderr: "inherit",

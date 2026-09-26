@@ -138,6 +138,47 @@ const ANNOUNCEMENT_WINDOW_MS = 3 * 24 * 3_600_000;
  * equivalent of: xAI's release notes, its docs page and its model page each call Grok 4.7 something
  * different. The model the announcement is about is what they share, so that is what is compared.
  */
+/** A maker's own announcement of one model, as this database happens to have recorded it. */
+export type Announcement = { at: string; source: string };
+
+/**
+ * The earliest announcement recorded here for each model, by the key an announcement is keyed on.
+ *
+ * Read once per batch, because a card that says a model is unannounced has to be able to be wrong
+ * about it. What this cannot do is prove the negative: collection here began on 2026-09-08, and
+ * OpenAI had announced GPT-5.6 Cyber on 11 August, so the docs page sighted on 25 September found
+ * no announcement in this table and the card called a model with a press release "not announced
+ * yet". An absent row means this service never saw one, which is why the sentence built from this
+ * map only ever speaks when there is a row.
+ */
+export function announcementsBySubject(db: Database): Map<string, Announcement> {
+  const found = new Map<string, Announcement>();
+  for (const row of db
+    .query<Event, []>("SELECT * FROM events WHERE stream IN ('news','pages','changelog') AND kind='new'")
+    .all()) {
+    const model = announcementModel(row);
+    if (!model) continue;
+    const seen = found.get(model);
+    if (!seen || row.detected_at < seen.at) found.set(model, { at: row.detected_at, source: row.source });
+  }
+  return found;
+}
+
+/** What this database knows about the maker having announced the model an event is about. */
+export function announcementOf(event: Event, announcements: ReadonlyMap<string, Announcement>): Announcement | null {
+  const record = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
+  const names = [record?.name, record?.model, event.entity_id].filter(
+    (value): value is string => typeof value === "string" && value.trim().length > 0,
+  );
+  for (const name of names) {
+    const key = subjectKey(displayName(name.split(":")[0] ?? name));
+    const found = key ? announcements.get(`announce:${key}`) : undefined;
+    // An announcement detected after the sighting is the reveal, not a thing the sighting missed.
+    if (found && found.at < event.detected_at) return found;
+  }
+  return null;
+}
+
 export function announcementTold(
   db: Database,
   model: string,

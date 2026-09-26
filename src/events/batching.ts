@@ -26,9 +26,12 @@ import { sourceFamily } from "./sourceFamily.js";
 import { awaitingJudgement, awaitingSummary, batchViewOf, standingReason } from "./standing.js";
 import type { SuppressionReason } from "./suppression.js";
 import { clearSuppression, recordSuppression } from "./suppression.js";
+import type { Announcement } from "./toldBefore.js";
 import {
   announcedBeforeSighted,
   announcementModel,
+  announcementOf,
+  announcementsBySubject,
   announcementTold,
   firstTelling,
   pageModelsTold,
@@ -305,9 +308,18 @@ function speakingEvents(work: Delivering): BatchEvent[] {
 function withBorrowedContext(work: Delivering, speaking: BatchEvent[]): void {
   const { db, batchView, now } = work;
   const { listings, sighted, elsewhereOf } = batchView;
+  // Only a sighting can be of something the maker has already announced, and only a batch holding
+  // one pays for the reading.
+  const announcements = speaking.some((event) => event.signal === "codename")
+    ? announcementsBySubject(db)
+    : new Map<string, Announcement>();
   for (const event of speaking) {
     const returned = departedAs(db, event, now);
     if (returned) Object.assign(event, { returned });
+    if (event.signal === "codename") {
+      const announced = announcementOf(event, announcements);
+      if (announced) Object.assign(event, { announced });
+    }
     // Every launch, not only a stealth one: Anthropic's own row for Claude Opus 5.5 carried
     // neither a context length nor a price, and the card went out with the bottom of its
     // picture empty while OpenRouter had both.

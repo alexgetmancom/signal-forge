@@ -1,10 +1,10 @@
 import type { Database } from "bun:sqlite";
 import { canonical } from "./canonical.js";
 import { normalizeIdentity } from "./identity.js";
-import { CATALOGUE_MAKER } from "./signals.js";
+import { CATALOGUE_MAKER, isModelSighting } from "./signals.js";
 import type { Event, RecordData } from "./types.js";
 import { isBesideTheRelease, releasedModelSubject } from "./variants.js";
-import { vendorOfName } from "./vendors.js";
+import { vendorOfName, vendorSpelling } from "./vendors.js";
 import { meaningfulWebString, normalizeWebString, tellingWebString } from "./web.js";
 import { subjectKey } from "./witness.js";
 
@@ -73,6 +73,12 @@ const SERVING_WORDS = new Set([
   "medium",
   "low",
   "effort",
+  // Latency, not a model. `gpt-6-sol-medium-fast` answered in a Codex discussion on 2026-09-25,
+  // three days after GPT-6 Sol was announced, and reached the radar as a sighting: `medium` was
+  // already read as wiring and `fast` was not, so the pair together was a name nobody knew.
+  // `flash` stays out: a maker sells Flash as its own model.
+  "fast",
+  "slow",
   // Search Arena lists Claude Opus 5 as `claude-opus-5-search`: the released model with a search
   // tool attached, two of them on 2026-09-18.
   "search",
@@ -89,8 +95,31 @@ function servingTail(words: string[]): boolean {
   return (
     words.length > 0 &&
     !/^\d+$/.test(words[0] ?? "") &&
-    words.every((word) => SERVING_WORDS.has(word) || /^v?\d+$/.test(word))
+    // A maker's own name appended says which account answers, not which model does:
+    // `claude-haiku-4-5-direct-anthropic` is Claude Haiku 4.5 reached on Anthropic's own key.
+    // `vendorSpelling` answers only for a word that is a maker's name, where `vendorOfName` would
+    // read `sol` as OpenAI and swallow half the tails there are.
+    words.every((word) => SERVING_WORDS.has(word) || /^v?\d+$/.test(word) || vendorSpelling(word) !== null)
   );
+}
+
+/**
+ * The words left once somebody else's namespace is taken off the front.
+ *
+ * `claude-gpt-6-astra` and `claude-gpt-6` are two routes a third-party multiplexer publishes to
+ * OpenAI's model, written the way its own client addresses them; both reached the radar on
+ * 2026-09-24 as sightings of models nobody had heard of, three weeks after GPT-6 Astra launched.
+ * The tell is that the front of the name belongs to one maker and the rest to another: a maker
+ * does not file its own model under a competitor's name, so a leading run that names a different
+ * vendor is a namespace rather than part of the model.
+ */
+function withoutForeignNamespace(words: string[]): string[] | null {
+  for (let taken = 1; taken < words.length; taken++) {
+    const front = vendorOfName(words.slice(0, taken).join(" "));
+    const rest = words.slice(taken);
+    if (front !== "Unknown" && vendorOfName(rest.join(" ")) !== front) return rest;
+  }
+  return null;
 }
 
 /** Models something in this database already identifies, as normalized word lists. */
@@ -118,24 +147,40 @@ export function knownModelNames(db: Database): string[][] {
   return [...names].filter((name) => name.split(" ").length >= 2).map((name) => name.split(" "));
 }
 
-/** True when this arena entry is a known model with only its wiring appended. */
+/**
+ * True when this sighting is a known model with only its wiring around it.
+ *
+ * An arena seats one model per wiring and writes the wiring into the entry. A repository does the
+ * same in its own dialect: `claude-haiku-4-5-direct-anthropic` in a litellm discussion and
+ * `gpt-6-sol-medium-fast` in a Codex one are a routing alias and an effort setting, and both
+ * reached the radar on 2026-09-25 headlined "is answering requests" -- one for a model released in
+ * October 2025 that every catalogue carries, the other three days after its model was announced. A
+ * model answering under a name we can already resolve is not a sighting of anything.
+ */
 export function isAnotherServing(event: Event, known: readonly string[][]): boolean {
-  if (event.stream !== "arena" || event.kind !== "new") return false;
+  if (event.kind !== "new") return false;
+  if (event.stream !== "arena" && !isModelSighting(event)) return false;
   const body = record(event);
-  // The wiring is written wherever the arena keeps its own key: `name` is the display name, and
+  // The wiring is written wherever the venue keeps its own key: `name` is the display name, and
   // step-5-preview's two seats differed only in `model`, so reading the name alone saw one model
-  // twice and called it an unidentified sighting.
+  // twice and called it an unidentified sighting. A repository sighting keys the stage into
+  // `entity_id` ("...:served"), which is why the record's own `model` is read beside it.
   const written = [body?.name, body?.model, body?.modelKey, event.entity_id].filter(
     (value): value is string => typeof value === "string" && value.trim().length > 0,
   );
-  return written.some((value) => {
-    const words = normalizeIdentity(value).split(" ").filter(Boolean);
-    return known.some(
+  const servesKnown = (words: string[]): boolean =>
+    known.some(
       (model) =>
         words.length > model.length &&
         model.every((word, index) => words[index] === word) &&
         servingTail(words.slice(model.length)),
     );
+  return written.some((value) => {
+    const words = normalizeIdentity(value).split(" ").filter(Boolean);
+    if (servesKnown(words)) return true;
+    const inner = withoutForeignNamespace(words);
+    // Nothing appended, only the namespace taken off: `claude-gpt-6` is exactly GPT-6.
+    return inner !== null && (servesKnown(inner) || known.some((model) => model.join(" ") === inner.join(" ")));
   });
 }
 
