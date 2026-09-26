@@ -58,4 +58,11 @@ ENV PORT=8080
 
 EXPOSE 8080
 
-CMD ["bun", "dist/src/index.js"]
+# `--smol` tells JSC to collect sooner and grow the heap less, which is the trade this process wants:
+# it spends its time waiting on sockets, and the memory it holds is mostly garbage from parsing one
+# large body. Measured on a copy of production -- boot rebuild, HOT_QUERIES 200 times, then every
+# stored body over 500 KB parsed -- peak RSS was 619-738 MB across three runs without it and
+# 627-630 MB with it, and the heap left at the end fell from 115-203 MB to 115-124 MB: the same
+# peak, reached predictably, and nothing kept afterwards. Boot cost 3% more (1,920 ms to 2,000 ms),
+# which the healthcheck's start_period already covers many times over.
+CMD ["bun", "--smol", "dist/src/index.js"]

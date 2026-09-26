@@ -14,10 +14,18 @@ export function openDatabase(path: string): Database {
   // machine-level crash, and every one of them is a collection that the next poll repeats anyway,
   // because what is collected is a snapshot of an upstream that is still there to be asked again.
   db.exec("PRAGMA synchronous=NORMAL;");
-  // 64 MB of page cache and a 256 MB memory map. The database is 681 MB and the hot tables are a
-  // small fraction of it; the default two megabytes of cache means the same index pages are read
-  // from the filesystem on every poll.
-  db.exec("PRAGMA cache_size=-64000; PRAGMA mmap_size=268435456;");
+  // 64 MB of page cache, and no memory map. The database is 681 MB and the hot tables are a small
+  // fraction of it; the default two megabytes of cache means the same index pages are read from the
+  // filesystem on every poll, so the cache stays.
+  //
+  // The 256 MB map that used to be here was measured on production on 2026-09-26: of a 981 MB RSS,
+  // 267 MB was file-backed and 224 MB of that was private-clean pages of this map. Those pages are
+  // reclaimable, so they are not what a container near its limit is killed for, but they are
+  // counted in `memory.current` and in every number `memory` reports, which is a quarter of the
+  // footprint spent on a cache the operating system already keeps. Running HOT_QUERIES 200 times
+  // over a copy of production took 2,120 ms with the map and 2,140 ms without it: at this size the
+  // map buys no read that `cache_size` and the page cache do not already serve.
+  db.exec("PRAGMA cache_size=-64000; PRAGMA mmap_size=0;");
   runMigrations(db);
   return db;
 }
