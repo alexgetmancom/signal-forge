@@ -141,19 +141,17 @@ async function collectDueSources(
       const job = queue.shift();
       if (!job) return;
       try {
-        // Timed under its own name, so `timings --name source.collect` ranks every collector and
-        // `--since boot` says what a release did to one. What a collection costs was invisible
-        // until now: the most expensive source this service had stored a 387-byte snapshot and
-        // reported 23 records while downloading 103.5 MB, so nothing kept about it was a clue.
-        // Time is the honest proxy -- reading a bundle whole is seconds where a light source is
-        // tenths -- and it is the one measure that works the same for every source.
-        //
         // A heavy source is collected in a child process: what parsing a large body costs is
         // never given back to the operating system, so it is spent somewhere that ends. See
         // src/sources/subprocess.ts.
-        const collected = await measure(db, `source.collect:${job.id}`, () =>
-          job.heavy ? collectInSubprocess(job.id) : job.collector(),
-        );
+        //
+        // Not wrapped in `measure` here, however tempting: the registry already wraps every
+        // definition's collector under `source.collect:<id>`, and the child builds that same
+        // registry against the same database file, so a heavy collection is timed by the child and
+        // a light one in this process. Timing it here as well recorded each collection twice under
+        // one name, which inflates the call count and the total of the very report that is supposed
+        // to catch a collector getting slower.
+        const collected = job.heavy ? await collectInSubprocess(job.id) : await job.collector();
         const collection = { ...collected, authority: job.authority, ...(job.vendor ? { vendor: job.vendor } : {}) };
         const checkedAt = new Date().toISOString();
         const destinations = job.mode === "shadow" ? [] : config.destinations;
