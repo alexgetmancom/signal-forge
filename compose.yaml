@@ -3,11 +3,23 @@ services:
     build: .
     image: ${SIGNAL_FORGE_IMAGE:-signal-forge:latest}
     restart: unless-stopped
-    # Boot rebuilds every projection before the service listens, and the collection cycle runs on
-    # whatever is left. At 512m the boot footprint was 467m and the first cycle was OOM-killed
-    # roughly every fifteen minutes. At 1g an operator `poll` beside the running service was
-    # OOM-killed at 790m RSS on 2026-09-16, and the service's own cycle runs near the same edge.
-    mem_limit: 2g
+    # A limit exists to make a regression loud rather than to be generous: what it buys is that the
+    # next collector to hold a 230 MB body whole is a restart somebody sees, not a gigabyte nobody
+    # notices. The peaks it is set against were 1,467 to 1,525 MB as recently as 2026-09-25.
+    #
+    # History, because the two numbers below are the edges: at 512m the boot footprint was 467m and
+    # the first cycle was OOM-killed roughly every fifteen minutes; at 1g an operator `poll` beside
+    # the running service was OOM-killed at 790m RSS on 2026-09-16.
+    #
+    # 1g fits again because the heavy sources moved out of the process (src/sources/subprocess.ts).
+    # Measured on 2026-09-26 in the worst arrangement there is -- an operator `poll` collecting every
+    # heavy source beside the running service, each in a child -- the whole cgroup peaked at 684 MB,
+    # and the service alone sat at 171 MB and peaked at 300 MB over three minutes at 1 Hz. So this is
+    # 1.5x the measured worst case rather than the 3x it was.
+    #
+    # If this turns out too tight the symptom is `oomKills` in `prod memory`, and the fix is this
+    # line. Raise it rather than reasoning about which process the kernel picked.
+    mem_limit: 1g
     stop_grace_period: 2m
     logging:
       driver: json-file
