@@ -29,9 +29,60 @@ function keep(id: string): boolean {
 
 /** Model ids written into a coding client's bundle, for one maker's spelling of them. */
 export function bundleModelIds(text: string, pattern: RegExp): string[] {
-  const ids = new Set<string>();
+  return sortedIds(collectIds(new Set(), text, pattern));
+}
+
+function collectIds(ids: Set<string>, text: string, pattern: RegExp): Set<string> {
   for (const [, id] of text.matchAll(pattern)) if (id && keep(id)) ids.add(id);
+  return ids;
+}
+
+function sortedIds(ids: Set<string>): string[] {
   return [...ids].sort();
+}
+
+/**
+ * The longest match this scan will look for across a chunk boundary.
+ *
+ * A bundle is read in pieces, and an id written across the join between two of them would be missed
+ * by both. The tail of each piece is therefore carried into the next. 200 bytes is many times the
+ * longest id any of these patterns can match -- `gemini-3.1-pro-preview` is 22 -- and it is the
+ * whole cost of not holding the bundle in memory.
+ */
+const CARRIED_BYTES = 200;
+
+/**
+ * Model ids in a gzipped bundle, read as it arrives.
+ *
+ * The Gemini CLI's tarball is 19.8 MB compressed and 94.1 MB unpacked (measured 2026-09-26, version
+ * 0.61.0). Reading it whole meant three copies at once -- the downloaded bytes, the unpacked bytes
+ * and the string decoded from them, about 208 MB -- to run a regular expression over it and keep a
+ * handful of names. Decompressed in pieces, with the tail of each piece carried into the next, the
+ * peak is a chunk and the names found so far.
+ *
+ * `latin1` decodes a byte to the character of that code, so it never fails and never merges bytes:
+ * a UTF-8 sequence becomes two characters, neither of which any of these patterns can match, and an
+ * id spelled in ASCII reads as itself. Which is the whole of what this needs from a decoder.
+ */
+async function bundleIdsFromStream(
+  body: ReadableStream<ArrayBufferView | ArrayBuffer>,
+  pattern: RegExp,
+): Promise<string[]> {
+  const ids = new Set<string>();
+  let carried = "";
+  const gunzip = new DecompressionStream("gzip");
+  // Written to on one side and read from the other rather than piped through: a decompressor's ends
+  // are typed in terms of any buffer, and a stream of one kind of buffer is not a stream of that
+  // union. A failure on the way in errors the readable side, so the loop below is where it is raised;
+  // catching here is only so that the same failure is not also an unhandled rejection.
+  const piped = body.pipeTo(gunzip.writable).catch(() => {});
+  for await (const chunk of gunzip.readable) {
+    const text = carried + Buffer.from(chunk as Uint8Array).toString("latin1");
+    collectIds(ids, text, pattern);
+    carried = text.slice(-CARRIED_BYTES);
+  }
+  await piped;
+  return sortedIds(ids);
 }
 
 type Bundle = {
@@ -78,8 +129,8 @@ export async function collectCliBundle(bundle: Bundle, request: Fetch = fetch): 
   const name = bundle.package.split("/").at(-1);
   const response = await request(`https://registry.npmjs.org/${bundle.package}/-/${name}-${version}.tgz`);
   if (!response.ok) throw new Error(`${bundle.package} ${version}: HTTP ${response.status}`);
-  const text = Buffer.from(Bun.gunzipSync(new Uint8Array(await response.arrayBuffer()))).toString("latin1");
-  const ids = bundleModelIds(text, bundle.pattern);
+  if (!response.body) throw new Error(`${bundle.package} ${version}: no body`);
+  const ids = await bundleIdsFromStream(response.body, bundle.pattern);
   if (ids.length < bundle.floor) throw new Error(`${bundle.package} ${version} names ${ids.length} models`);
   const collection: Collection = {
     source: bundle.source,
