@@ -4,6 +4,20 @@ import { dirname } from "node:path";
 import { runMigrations } from "./migrationRunner.js";
 
 export function openDatabase(path: string): Database {
+  const db = openWithoutMigrating(path);
+  runMigrations(db);
+  return db;
+}
+
+/**
+ * The same file with the same pragmas, with the schema left alone.
+ *
+ * A heavy collector runs in a process of its own (see src/sources/subprocess.ts) against the
+ * database the service has already migrated. Two processes deciding the schema version of one file
+ * is how a half-applied migration happens, and a child collecting one source has no business
+ * having an opinion about it.
+ */
+export function openWithoutMigrating(path: string): Database {
   if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
   const db = new Database(path, { create: true, strict: true });
   db.exec("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;");
@@ -26,7 +40,6 @@ export function openDatabase(path: string): Database {
   // over a copy of production took 2,120 ms with the map and 2,140 ms without it: at this size the
   // map buys no read that `cache_size` and the page cache do not already serve.
   db.exec("PRAGMA cache_size=-64000; PRAGMA mmap_size=0;");
-  runMigrations(db);
   return db;
 }
 

@@ -8,6 +8,7 @@ import { lockHolder, withActionLock } from "./runtime/actionLock.js";
 import { measure } from "./runtime/metrics.js";
 import { SourceHttpError } from "./sources/http.js";
 import { type SourceDefinition, sourceJobs } from "./sources/registry.js";
+import { collectInSubprocess } from "./sources/subprocess.js";
 import { recordFailureEvidence } from "./storage/failureEvidence.js";
 import { recordSourceShape } from "./storage/sourceShapes.js";
 import { rememberStoryProjection } from "./stories.js";
@@ -123,7 +124,8 @@ async function collectDueSources(
 
   // A source whose response is tens of megabytes holds that, and the objects parsed from it, until
   // it is stored. Two of them at once are what the container's memory peaks are made of, so they
-  // share one lane and take turns; everything else keeps the remaining lanes.
+  // share one lane and take turns; everything else keeps the remaining lanes. Each of them also
+  // runs in a child process, so the lane bounds how many children exist at once.
   const heavy = dueJobs.filter((job) => job.heavy);
   const light = dueJobs.filter((job) => !job.heavy);
   const worker = async (queue: SourceDefinition[]): Promise<void> => {
@@ -139,7 +141,10 @@ async function collectDueSources(
       const job = queue.shift();
       if (!job) return;
       try {
-        const collected = await job.collector();
+        // A heavy source is collected in a child process: what parsing a large body costs is
+        // never given back to the operating system, so it is spent somewhere that ends. See
+        // src/sources/subprocess.ts.
+        const collected = job.heavy ? await collectInSubprocess(job.id) : await job.collector();
         const collection = { ...collected, authority: job.authority, ...(job.vendor ? { vendor: job.vendor } : {}) };
         const checkedAt = new Date().toISOString();
         const destinations = job.mode === "shadow" ? [] : config.destinations;

@@ -53,6 +53,15 @@ USER bun
 ENV NODE_ENV=production
 # Dates a page writes without a zone are parsed as UTC in code; this keeps anything else honest too.
 ENV TZ=UTC
+# A ceiling on how far JSC will let the heap grow before collecting. Left to itself it sizes the
+# heap against the machine's memory, which for a process whose live data is 8 to 94 MB means growing
+# to hundreds of megabytes of headroom it never needs -- and resident memory is never given back, so
+# that headroom becomes the floor. Measured on a copy of production on 2026-09-26, rendering every
+# card over widening windows three times each: 776 MB average resident without it against 521 MB
+# with it, for 4-7% more time. 256 MB is the knee -- 128 MB saved a further 11 MB and cost more
+# time again -- and it leaves roughly triple the headroom over the 53 MB the projections hold. If
+# live data ever outgrows it the symptom is time, not failure: the heap collects harder.
+ENV BUN_JSC_forceRAMSize=268435456
 ENV BIND_HOST=0.0.0.0
 ENV PORT=8080
 
