@@ -2,15 +2,11 @@ import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
 import { openCredentialCircuits } from "../credentials.js";
-import { channelMix } from "../reports/channelMix.js";
 import { coverageGaps } from "../reports/coverageGaps.js";
-import { judgeGap } from "../reports/judgeGap.js";
 import { leadTime } from "../reports/leadTime.js";
-import { passedOver } from "../reports/passedOver.js";
-import { reactionStandings } from "../reports/reactions.js";
 import { releaseAudit } from "../reports/releaseAudit.js";
-import { signalQuality } from "../reports/signalQuality.js";
 import { silentSources } from "../reports/silentSources.js";
+import { sourceKinds } from "../reports/sourceKinds.js";
 import { sourceVerdicts } from "../reports/sourceVerdicts.js";
 import { deepSeekUsage } from "../runtime/deepseekUsage.js";
 import { mentionSource } from "../sources/modelMentions.js";
@@ -79,6 +75,24 @@ export function sourcesOperations(db: Database, config: AppConfig, _all: () => O
         };
       },
     },
+    source_kinds: {
+      section: "sources",
+      summary: "What the registered sources are made of by kind, and which families no kind names yet.",
+      startHere: "how sources are organised, and where adding one is still copy and paste",
+      note:
+        "A kind, in src/sources/kinds.ts, says once what a family of sources shares and why its " +
+        "pace is what it is, so a member is one row that cannot forget a field. `unnamed_families` " +
+        "is the debt: sources sharing an authority, a group and a stream that no kind names. " +
+        "Nothing there is broken, and most of it is already generated from a list -- but the pace " +
+        "has no reason written beside it, and the next entry copied into it inherits whatever the " +
+        "one above it got wrong. The test holds `unnamed` as a ratchet, so it can only go down.",
+      mutates: false,
+      agent: true,
+      schema: z.object({}),
+      cli: {},
+      http: { method: "get", path: "/api/source-kinds" },
+      handler: () => sourceKinds(db, config),
+    },
     silent_sources: {
       section: "sources",
       summary:
@@ -97,36 +111,6 @@ export function sourcesOperations(db: Database, config: AppConfig, _all: () => O
       cli: { args: [{ name: "days", optional: true }] },
       http: { method: "get", path: "/api/silent-sources" },
       handler: (input: { days: number }) => silentSources(db, config, input.days),
-    },
-    reactions: {
-      section: "sources",
-      summary: "The thumbs each source and each kind of card drew, and whether there are enough to calibrate on.",
-      startHere: "what the channel has actually voted for and against",
-      note:
-        "The readers' vote is arithmetic on purpose while the counts are this small. This is where " +
-        "the question of feeding them to Jev gets answered on evidence rather than on appetite.",
-      mutates: false,
-      agent: true,
-      schema: z.object({ days: count(365, 60) }),
-      cli: { args: [{ name: "days", optional: true }] },
-      http: { method: "get", path: "/api/reactions" },
-      handler: (input: { days: number }) => reactionStandings(db, input.days),
-    },
-    judge_gap: {
-      section: "sources",
-      summary: "Events Jev rated highly that a rule held back, and low-rated events that reached a reader.",
-      startHere: "do the routing rules and the classifier agree",
-      mutates: false,
-      agent: true,
-      schema: z.object({ days: count(90, 7), limit: count(200, 25) }),
-      cli: {
-        args: [
-          { name: "days", optional: true },
-          { name: "limit", optional: true },
-        ],
-      },
-      http: { method: "get", path: "/api/judge-gap" },
-      handler: (input: { days: number; limit: number }) => judgeGap(db, input.days, input.limit),
     },
     lead_time: {
       section: "sources",
@@ -149,23 +133,6 @@ export function sourcesOperations(db: Database, config: AppConfig, _all: () => O
       cli: { args: [{ name: "days", optional: true }] },
       http: { method: "get", path: "/api/source-verdicts" },
       handler: (input: { days: number }) => sourceVerdicts(db, config, input.days),
-    },
-    passed_over: {
-      section: "sources",
-      summary:
-        "Subjects ranked by how many unrelated sources recorded them, and whether a reader ever heard: the misses, with the rules that made each one.",
-      startHere: "what did we know about before anyone was told",
-      mutates: false,
-      agent: true,
-      schema: z.object({ days: count(90, 7), limit: count(200, 50) }),
-      cli: {
-        args: [
-          { name: "days", optional: true },
-          { name: "limit", optional: true },
-        ],
-      },
-      http: { method: "get", path: "/api/passed-over" },
-      handler: (input: { days: number; limit: number }) => passedOver(db, input.days, input.limit),
     },
     coverage_gaps: {
       section: "sources",
@@ -190,29 +157,6 @@ export function sourcesOperations(db: Database, config: AppConfig, _all: () => O
       cli: { args: [{ name: "days", optional: true }] },
       http: { method: "get", path: "/api/release-audit" },
       handler: (input: { days: number }) => releaseAudit(db, input.days),
-    },
-    channel_mix: {
-      section: "sources",
-      summary:
-        "What each destination actually carried: signal classes delivered or unrouted, lead-time share and promotions.",
-      startHere: "what the public channel is really full of",
-      mutates: false,
-      agent: true,
-      schema: z.object({ days: count(90, 7) }),
-      cli: { args: [{ name: "days", optional: true }] },
-      http: { method: "get", path: "/api/channel-mix" },
-      handler: (input: { days: number }) => channelMix(db, config, input.days),
-    },
-    signal_quality: {
-      section: "sources",
-      summary: "Source collection, event, delivery and suppression metrics for an operator-selected period.",
-      startHere: "is a source earning its place in the feed",
-      mutates: false,
-      agent: true,
-      schema: z.object({ days: count(90, 7) }),
-      cli: { args: [{ name: "days", optional: true }] },
-      http: { method: "get", path: "/api/signal-quality" },
-      handler: (input: { days: number }) => signalQuality(db, config, input.days),
     },
     deepseek_usage: {
       section: "sources",

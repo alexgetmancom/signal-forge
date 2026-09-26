@@ -7,6 +7,12 @@ export type SourceDefinition = {
   id: string;
   label: string;
   vendor?: string;
+  /**
+   * The family this source belongs to, from src/sources/kinds.ts. Documentation only -- never
+   * stored, never delivered -- but `sources kinds` counts by it, so a source that is nobody's kind
+   * is a source whose family nobody named.
+   */
+  kind?: string;
   authority: SourceAuthority;
   group: string;
   stream: Stream;

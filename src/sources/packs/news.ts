@@ -13,6 +13,7 @@ import {
   collectOpenAIAlignment,
   collectOpenAICodexChangelog,
 } from "../feeds.js";
+import { type SourceKind, sourcesOfKind } from "../kinds.js";
 import { collectLabPages, LAB_PAGE_SOURCES } from "../labPages.js";
 import {
   collectAnthropicNews,
@@ -33,363 +34,208 @@ import {
 } from "../releaseNotes.js";
 import { collectLabSitemap } from "../sitemaps.js";
 
-/** The newsrooms themselves: a lab's own front page, and the one place other people's posts about them are read. */
-function newsroomSources(_context: SourceContext): SourceEntry[] {
-  return [
-    {
-      id: "openai-news",
-      authority: "first_party",
-      vendor: "OpenAI",
-      group: "Official news",
-      stream: "news",
-      intervalSeconds: 900,
-      collector: () => collectOpenAINews(),
-    },
-    {
-      id: "hackernews",
-      authority: "third_party",
-      group: "Official news",
-      stream: "news",
-      intervalSeconds: 1800,
-      collector: () => collectHackerNews(),
-    },
-    {
-      id: "anthropic-news",
-      authority: "first_party",
-      vendor: "Anthropic",
-      group: "Official news",
-      stream: "news",
-      intervalSeconds: 900,
-      collector: () => collectAnthropicNews(),
-    },
-    {
-      id: "claude-blog",
-      authority: "first_party",
-      vendor: "Anthropic",
-      group: "Official news",
-      stream: "news",
-      intervalSeconds: 900,
-      collector: () => collectClaudeBlog(),
-    },
-    {
-      id: "cursor-changelog",
-      authority: "first_party",
-      vendor: "Cursor",
-      group: "Official news",
-      stream: "news",
-      intervalSeconds: 1800,
-      collector: () => collectCursorChangelog(),
-    },
-  ];
-}
+/** A lab's own front page, and the one place other people's posts about them are read. */
+const NEWSROOM: SourceKind = {
+  kind: "newsroom",
+  authority: "first_party",
+  group: "Official news",
+  stream: "news",
+  // Where a launch is announced to everybody at once, so the quarter hour is the shortest pace
+  // anything here is worth: the post is already public when the poll finds it.
+  intervalSeconds: 900,
+};
 
 /** Research and product blogs, where a lab explains something it has already shipped. */
+const LAB_BLOG: SourceKind = {
+  kind: "lab-blog",
+  authority: "first_party",
+  group: "Official news",
+  stream: "news",
+  // Measured 2026-09-17: these answer 304 to a conditional request, or store only parsed entries,
+  // so a poll that finds nothing costs no body and the database grows only when an entry does.
+  intervalSeconds: 900,
+};
+
+/** Release notes and changelogs a lab publishes for its users rather than its developers. */
+const RELEASE_NOTES: SourceKind = {
+  kind: "release-notes",
+  authority: "first_party",
+  group: "Official news",
+  stream: "news",
+  intervalSeconds: 900,
+};
+
+/** API changelogs, SDK releases and the changelogs of the coding tools. */
+const DEVELOPER_FEED: SourceKind = {
+  kind: "developer-feed",
+  authority: "first_party",
+  group: "Official developer feeds",
+  stream: "news",
+  intervalSeconds: 1800,
+};
+
+/** Sitemaps, read for the launch page that is published before anything links to it. */
+const SITEMAP: SourceKind = {
+  kind: "sitemap",
+  authority: "first_party",
+  group: "Official news",
+  stream: "github",
+  // A launch page sits unlinked for hours, and these are multi-megabyte documents; half an hour is
+  // enough. The small ones overrule this below, because the labs serving them announce there first.
+  intervalSeconds: 1800,
+};
+
+/** Single pages from labs that post nowhere else read here, and Anthropic's own route table. */
+const LAB_PAGE: SourceKind = {
+  kind: "lab-page",
+  authority: "first_party",
+  group: "Official news",
+  stream: "github",
+  // Each a few kilobytes, from labs that post nowhere else read here.
+  intervalSeconds: 600,
+};
+
+function newsroomSources(_context: SourceContext): SourceEntry[] {
+  return sourcesOfKind(NEWSROOM, [
+    { id: "openai-news", vendor: "OpenAI", collector: () => collectOpenAINews() },
+    { id: "anthropic-news", vendor: "Anthropic", collector: () => collectAnthropicNews() },
+    { id: "claude-blog", vendor: "Anthropic", collector: () => collectClaudeBlog() },
+    // Not a newsroom and nobody's first party: other people writing about the labs, which is worth
+    // the group it sits in and worth asking half as often.
+    { id: "hackernews", authority: "third_party", intervalSeconds: 1800, collector: () => collectHackerNews() },
+    { id: "cursor-changelog", vendor: "Cursor", intervalSeconds: 1800, collector: () => collectCursorChangelog() },
+  ]);
+}
+
 function labBlogSources({ cache }: SourceContext): SourceEntry[] {
-  return [
-    {
-      id: "google-ai-blog",
-      authority: "first_party",
-      vendor: "Google",
-      group: "Official news",
-      stream: "news",
-      // No validator, measured 2026-09-17; the stored snapshot is the parsed entries, so the database grows
-      // only when an entry does.
-      intervalSeconds: 900,
-      collector: () => collectGoogleAiBlog(fetch, cache),
-    },
-    {
-      id: "gemini-models-blog",
-      authority: "first_party",
-      vendor: "Google",
-      group: "Official news",
-      stream: "news",
-      // Where a Gemini version is announced. Paced with the AI rubric it sits beside.
-      intervalSeconds: 900,
-      collector: () => collectGeminiModelsBlog(fetch, cache),
-    },
+  return sourcesOfKind(LAB_BLOG, [
+    { id: "google-ai-blog", vendor: "Google", collector: () => collectGoogleAiBlog(fetch, cache) },
+    // Where a Gemini version is announced. Paced with the AI rubric it sits beside.
+    { id: "gemini-models-blog", vendor: "Google", collector: () => collectGeminiModelsBlog(fetch, cache) },
     {
       id: "gemini-app-blog",
-      authority: "first_party",
       vendor: "Google",
-      group: "Official news",
-      stream: "news",
       intervalSeconds: 1800,
       collector: () => collectGeminiAppBlog(fetch, cache),
     },
-    {
-      id: "deepmind-blog",
-      authority: "first_party",
-      vendor: "Google",
-      group: "Official news",
-      stream: "news",
-      // Answers 304 to a conditional request, measured 2026-09-17, so a poll that finds nothing costs no body.
-      intervalSeconds: 900,
-      collector: () => collectDeepMindBlog(fetch, cache),
-    },
+    { id: "deepmind-blog", vendor: "Google", collector: () => collectDeepMindBlog(fetch, cache) },
     {
       id: "openai-alignment",
-      authority: "first_party",
       vendor: "OpenAI",
-      group: "Official news",
-      stream: "news",
       intervalSeconds: 1800,
       collector: () => collectOpenAIAlignment(fetch, cache),
     },
     {
       id: "nvidia-developer-blog",
-      authority: "first_party",
       vendor: "NVIDIA",
-      group: "Official news",
-      stream: "news",
       intervalSeconds: 1800,
       collector: () => collectNvidiaDeveloperBlog(fetch, cache),
     },
-  ];
+  ]);
 }
 
-/** Release notes and changelogs a lab publishes for its users rather than its developers. */
 function releaseNoteSources({ db, config, cache }: SourceContext): SourceEntry[] {
-  return [
+  return sourcesOfKind(RELEASE_NOTES, [
     {
       id: "openai-chatgpt-release-notes",
-      authority: "first_party",
       vendor: "OpenAI",
-      group: "Official news",
-      stream: "news",
-      intervalSeconds: 900,
       collector: () => collectOpenAIChatGPTReleaseNotes(fetch, cache, { db, config }),
     },
-    {
-      id: "gemini-api-changelog",
-      authority: "first_party",
-      vendor: "Google",
-      group: "Official news",
-      stream: "news",
-      // No validator, measured 2026-09-17; the stored snapshot is the parsed entries, so the database grows
-      // only when an entry does.
-      intervalSeconds: 900,
-      collector: () => collectGeminiApiChangelog(fetch, cache),
-    },
-    {
-      id: "xai-release-notes",
-      authority: "first_party",
-      vendor: "xAI",
-      group: "Official news",
-      stream: "news",
-      // No validator, measured 2026-09-17; the stored snapshot is the parsed entries, so the database grows
-      // only when an entry does.
-      intervalSeconds: 900,
-      collector: () => collectXaiReleaseNotes(fetch, cache),
-    },
+    { id: "gemini-api-changelog", vendor: "Google", collector: () => collectGeminiApiChangelog(fetch, cache) },
+    { id: "xai-release-notes", vendor: "xAI", collector: () => collectXaiReleaseNotes(fetch, cache) },
     {
       id: "mistral-release-notes",
-      authority: "first_party",
       vendor: "Mistral",
-      group: "Official news",
-      stream: "news",
       intervalSeconds: 3600,
       collector: () => collectMistralReleaseNotes(fetch, cache, { db, config }),
     },
     {
       id: "groq-changelog",
-      authority: "first_party",
       vendor: "Groq",
-      group: "Official news",
-      stream: "news",
       intervalSeconds: 1800,
       collector: () => collectGroqChangelog(fetch, cache),
     },
     {
       id: "deepseek-updates",
-      authority: "first_party",
       vendor: "DeepSeek",
-      group: "Official news",
-      stream: "news",
       intervalSeconds: 3600,
       collector: () => collectDeepSeekUpdates(fetch, cache),
     },
-  ];
+  ]);
 }
 
-/** The `Official developer feeds` group: API changelogs, SDK releases and the changelogs of the coding tools. */
 function developerFeedSources({ cache }: SourceContext): SourceEntry[] {
-  return [
-    {
-      id: "openai-codex-changelog",
-      authority: "first_party",
-      vendor: "OpenAI",
-      group: "Official developer feeds",
-      stream: "news",
-      intervalSeconds: 1800,
-      collector: () => collectOpenAICodexChangelog(fetch, cache),
-    },
+  return sourcesOfKind(DEVELOPER_FEED, [
+    { id: "openai-codex-changelog", vendor: "OpenAI", collector: () => collectOpenAICodexChangelog(fetch, cache) },
+    // Answers 304 to a conditional request, measured 2026-09-17, so a poll that finds nothing costs no body.
     {
       id: "openai-api-changelog",
-      authority: "first_party",
       vendor: "OpenAI",
-      group: "Official developer feeds",
-      stream: "news",
-      // Answers 304 to a conditional request, measured 2026-09-17, so a poll that finds nothing costs no body.
       intervalSeconds: 900,
       collector: () => collectOpenAIApiChangelog(fetch, cache),
     },
-    {
-      id: "claude-code-changelog",
-      authority: "first_party",
-      vendor: "Anthropic",
-      group: "Official developer feeds",
-      stream: "news",
-      intervalSeconds: 1800,
-      collector: () => collectClaudeCodeChangelog(fetch, cache),
-    },
-    {
-      id: "anthropic-sdk-releases",
-      authority: "first_party",
-      vendor: "Anthropic",
-      group: "Official developer feeds",
-      stream: "news",
-      intervalSeconds: 1800,
-      collector: () => collectAnthropicSdkReleases(fetch, cache),
-    },
+    { id: "claude-code-changelog", vendor: "Anthropic", collector: () => collectClaudeCodeChangelog(fetch, cache) },
+    { id: "anthropic-sdk-releases", vendor: "Anthropic", collector: () => collectAnthropicSdkReleases(fetch, cache) },
     {
       id: "huggingface-blog-feed",
       authority: "vendor_owned",
       vendor: "Hugging Face",
-      group: "Official developer feeds",
-      stream: "news",
-      intervalSeconds: 1800,
       collector: () => collectHuggingFaceBlogFeed(fetch, cache),
     },
-    {
-      id: "kimi-code-changelog",
-      authority: "first_party",
-      vendor: "Moonshot",
-      group: "Official developer feeds",
-      stream: "news",
-      intervalSeconds: 1800,
-      collector: () => collectKimiCodeChangelog(fetch, cache),
-    },
-    {
-      id: "minimax-code-changelog",
-      authority: "first_party",
-      vendor: "MiniMax",
-      group: "Official developer feeds",
-      stream: "news",
-      intervalSeconds: 1800,
-      collector: () => collectMiniMaxCodeChangelog(fetch, cache),
-    },
-  ];
+    { id: "kimi-code-changelog", vendor: "Moonshot", collector: () => collectKimiCodeChangelog(fetch, cache) },
+    { id: "minimax-code-changelog", vendor: "MiniMax", collector: () => collectMiniMaxCodeChangelog(fetch, cache) },
+  ]);
 }
 
-/** Sitemaps, read for the launch page that is published before anything links to it. */
 function sitemapSources(_context: SourceContext): SourceEntry[] {
-  return [
-    {
-      id: "openai-sitemap",
-      authority: "first_party",
-      vendor: "OpenAI",
-      group: "Official news",
-      stream: "github",
-      // A launch page sits unlinked for hours; half an hour of a multi-megabyte sitemap is enough.
-      intervalSeconds: 1800,
-      collector: () => collectLabSitemap("openai-sitemap"),
-    },
-    {
-      id: "deepmind-sitemap",
-      authority: "first_party",
-      vendor: "Google",
-      group: "Official news",
-      stream: "github",
-      // A launch page sits unlinked for hours; half an hour of a multi-megabyte sitemap is enough.
-      intervalSeconds: 1800,
-      collector: () => collectLabSitemap("deepmind-sitemap"),
-    },
-    {
-      id: "anthropic-sitemap",
-      authority: "first_party",
-      vendor: "Anthropic",
-      group: "Official news",
-      stream: "github",
-      // A launch page sits unlinked for hours; half an hour of a multi-megabyte sitemap is enough.
-      intervalSeconds: 1800,
-      collector: () => collectLabSitemap("anthropic-sitemap"),
-    },
+  return sourcesOfKind(SITEMAP, [
+    { id: "openai-sitemap", vendor: "OpenAI", collector: () => collectLabSitemap("openai-sitemap") },
+    { id: "deepmind-sitemap", vendor: "Google", collector: () => collectLabSitemap("deepmind-sitemap") },
+    { id: "anthropic-sitemap", vendor: "Anthropic", collector: () => collectLabSitemap("anthropic-sitemap") },
+    // Small pages, and the labs that no feed here reads announce on them first.
     {
       id: "xiaomi-sitemap",
-      authority: "first_party",
       vendor: "Xiaomi",
-      group: "Official news",
-      stream: "github",
-      // A small page, and the labs that no feed here reads announce on it first.
       intervalSeconds: 600,
       collector: () => collectLabSitemap("xiaomi-sitemap"),
     },
-    {
-      id: "zai-sitemap",
-      authority: "first_party",
-      vendor: "Z.ai",
-      group: "Official news",
-      stream: "github",
-      // A small page, and the labs that no feed here reads announce on it first.
-      intervalSeconds: 600,
-      collector: () => collectLabSitemap("zai-sitemap"),
-    },
-    {
-      id: "meta-blog",
-      authority: "first_party",
-      vendor: "Meta",
-      group: "Official news",
-      stream: "github",
-      // A small page, and the labs that no feed here reads announce on it first.
-      intervalSeconds: 600,
-      collector: () => collectLabSitemap("meta-blog"),
-    },
+    { id: "zai-sitemap", vendor: "Z.ai", intervalSeconds: 600, collector: () => collectLabSitemap("zai-sitemap") },
+    { id: "meta-blog", vendor: "Meta", intervalSeconds: 600, collector: () => collectLabSitemap("meta-blog") },
     {
       id: "deepseek-sitemap",
-      authority: "first_party",
       vendor: "DeepSeek",
-      group: "Official news",
-      stream: "github",
       intervalSeconds: 600,
       collector: () => collectLabSitemap("deepseek-sitemap"),
     },
-  ];
+  ]);
 }
 
-/** Single pages from labs that post nowhere else read here, and Anthropic's own route table. */
 function labPageSources(_context: SourceContext): SourceEntry[] {
-  return [
+  return sourcesOfKind(LAB_PAGE, [
     {
       id: "anthropic-routes",
-      authority: "first_party",
       vendor: "Anthropic",
-      group: "Official news",
-      stream: "github",
       // The Opus 5.5 slug was listed for hours, not days; the newsroom's quarter hour could miss it.
       intervalSeconds: 300,
       collector: () => collectAnthropicRoutes(),
     },
-    ...Object.entries(LAB_PAGE_SOURCES).map(
-      ([id, vendor], index): SourceEntry => ({
-        id,
-        authority: "first_party",
-        vendor,
-        group: "Official news",
-        stream: "github",
-        // Each a few kilobytes, from labs that post nowhere else read here.
-        intervalSeconds: 600 + index * 20,
-        collector: () => collectLabPages(id as keyof typeof LAB_PAGE_SOURCES),
-      }),
-    ),
-  ];
+    ...Object.entries(LAB_PAGE_SOURCES).map(([id, vendor], index) => ({
+      id,
+      vendor,
+      // Spread across the minute so the whole family does not land on one tick.
+      intervalSeconds: LAB_PAGE.intervalSeconds + index * 20,
+      collector: () => collectLabPages(id as keyof typeof LAB_PAGE_SOURCES),
+    })),
+  ]);
 }
 
 /**
  * Official vendor newsrooms, blogs, changelogs and release notes.
  *
- * One list, assembled from the kinds of thing it is made of. A source is added to the function whose
- * name describes it, and a reader looking for why a sitemap is polled every ten minutes reads twenty
- * lines rather than three hundred.
+ * One list, assembled from the kinds of thing it is made of. Each kind says once what its members
+ * share and why its pace is what it is; a member says only what differs, and overruling the pace is
+ * how an exception stays visible as an exception. A source is added to the kind whose name describes
+ * it, and a reader looking for why a sitemap is polled every ten minutes reads the kind.
  */
 export function newsSources(context: SourceContext): SourceEntry[] {
   return [
