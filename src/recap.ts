@@ -59,7 +59,14 @@ const PERIODS = {
   // `untold`: only moves no card carried. A week is what moved furthest, told or not; a day is the
   // moves too small for a card of their own, and says so in its footer.
   week: { source: "weekly-recap", ms: 7 * 24 * 3_600_000, signals: ["launch"], untold: false },
-  day: { source: "daily-recap", ms: 24 * 3_600_000, signals: ["codename"], untold: true },
+  // Nobody's since 2026-09-26. The morning list was built from what is easy to count rather than
+  // from what the room could not find out by itself: over 24, 25 and 26 September it spent eleven of
+  // its seventeen lines on one catalogue restating models it had already listed, on a six-week-old
+  // image model and on a roleplaying model, and its three scored lines each named an effort variant
+  // whose number was below the one this database already held for the model -- GLM-5.3 at 34.3 when
+  // (max) had been 44.9 here since 19 September. A room told the wrong number is worse served than a
+  // room told nothing. Kept for the reports, and `recapContext(db, to, "day")` still answers.
+  day: { source: "daily-recap", ms: 24 * 3_600_000, signals: [], untold: true },
   // What the labs published in a day, for the wire: a partnership, an essay, a research result is
   // the vendor talking rather than a model changing, so it is never a card of its own, and on
   // 2026-09-16 "Mistral X Mozilla" and "Claude Cowork and chat are now one Claude" reached nobody.

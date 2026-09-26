@@ -298,7 +298,7 @@ test("a reseller's catalogue speaks for makers this tracker follows", () => {
   expect(context.arrivalCount).toBe(1);
 });
 
-test("the scouts get one morning message about what moved at the top of a board, and nothing else", () => {
+test("the morning message goes to nobody, and the day it would have said still reads", () => {
   const db = openDatabase(":memory:");
   const scouts: Destination = { id: "scouts", platform: "discord", channelId: "2", signals: ["codename"] };
   const board: Collection = {
@@ -321,12 +321,13 @@ test("the scouts get one morning message about what moved at the top of a board,
 
   const now = Date.parse("2026-09-17T07:00:00.000Z");
   expect(lastRecapPeriod(now, "day")).toBe("2026-09-17T06:00:00.000Z");
-  expect(scheduleRecaps(db, { destinations: [scouts] } as never, now)).toEqual(["day"]);
+  // The day carries no class any room asks for, so it is queued for nobody and stored nowhere.
+  expect(scheduleRecaps(db, { destinations: [scouts] } as never, now)).toEqual([]);
   prepareDeliveries(db, now);
-  const body = db.query<{ body: string }, []>("SELECT body FROM deliveries").get()?.body ?? "";
-  expect(body).toContain("📊 What moved");
-  expect(body).toContain("now leads Text Arena");
-  expect(body).not.toContain("<@&");
+  expect(db.query<{ n: number }, []>("SELECT COUNT(*) n FROM deliveries").get()?.n).toBe(0);
+  // The reports still ask the same question of the same day, which is why the period is kept.
+  const context = recapContext(db, lastRecapPeriod(now, "day"), "day");
+  expect(renderRecapLines(context, ["codename"]).join("\n")).toContain("now leads Text Arena");
 });
 
 test("a price that went both ways inside the period is not reported as a move", () => {
@@ -599,7 +600,7 @@ test("a model the catalogues already carried is not this week's arrival", () => 
   expect(named).not.toContain("GLM 5.3");
 });
 
-test("a catalogue restating one model spends one line of the scouts' morning on it", () => {
+test("a catalogue restating one model spends one line of the day the reports read", () => {
   const db = openDatabase(":memory:");
   const listing = (records: { id: string; name: string }[]): Collection => ({
     source: "truefoundry-azure",
