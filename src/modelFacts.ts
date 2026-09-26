@@ -6,6 +6,7 @@ import { vendorOf } from "./events/interpretation.js";
 import { recordFor } from "./events/record.js";
 import { sourceFamily } from "./events/sourceFamily.js";
 import type { Confidence, Event, EvidenceType, RecordData, SourceAuthority } from "./events/types.js";
+import { measure } from "./runtime/metrics.js";
 import { text } from "./text.js";
 
 type ModelFact<T = unknown> = {
@@ -487,13 +488,28 @@ function chunked<T>(values: readonly T[], size = 400): T[][] {
  * close to it: the cross-filters and the aggregate are over a model's whole evidence, and a subset
  * of it would answer a different question. `rehearse-projections` checks that equality against real
  * history rather than trusting this paragraph.
+ *
+ * The two halves are timed apart because the whole was not an answer. `pipeline.model-facts` is
+ * 113 ms on average over 26k calls and peaks at 11.7 s, all of it inside the poller's transaction
+ * and so all of it holding the write lock -- and nothing in that number says whether the cost is
+ * projecting in memory or replacing rows in SQLite, which are different repairs. So the projection,
+ * including the reads it is driven by, is `pipeline.model-facts.project` and the replacement is
+ * `pipeline.model-facts.write`; the enclosing name stays what it was, so the series that raised the
+ * question keeps its ninety days of history to be compared against.
  */
 export function updateModelFacts(db: Database, dirty: FactsDirty): void {
+  const planned = measure(db, "pipeline.model-facts.project", () => projectDirty(db, dirty));
+  if (!planned) return;
+  measure(db, "pipeline.model-facts.write", () => writeModelFacts(db, planned.projection, planned.keys));
+}
+
+/** The models a collection touched and their projection, or null when it touched none. */
+function projectDirty(db: Database, dirty: FactsDirty): { projection: Projected; keys: Set<string> } | null {
   const refs: { kind: "story" | "record"; ref: string }[] = [
     ...dirty.storyIds.map((id) => ({ kind: "story" as const, ref: String(id) })),
     ...dirty.records.map((record) => ({ kind: "record" as const, ref: recordRef(record.source, record.id) })),
   ];
-  if (!refs.length) return;
+  if (!refs.length) return null;
 
   const keys = new Set<string>();
   // The model each changed member used to belong to.
@@ -507,7 +523,7 @@ export function updateModelFacts(db: Database, dirty: FactsDirty): void {
   // And the model it belongs to now, which is only knowable by identifying it again.
   const fresh = projectModelFacts(storyRowsFor(db, dirty.storyIds), recordRowsFor(db, dirty.records));
   for (const member of fresh.members) keys.add(member.key);
-  if (!keys.size) return;
+  if (!keys.size) return null;
 
   // Every member of every affected model, in the full rebuild's order.
   const storyIds = new Set<number>();
@@ -527,7 +543,7 @@ export function updateModelFacts(db: Database, dirty: FactsDirty): void {
   for (const record of dirty.records) records.push(record);
 
   const projection = projectModelFacts(storyRowsFor(db, [...storyIds]), recordRowsFor(db, dedupeRecords(records)));
-  writeModelFacts(db, projection, keys);
+  return { projection, keys };
 }
 
 function dedupeRecords(records: readonly { source: string; id: string }[]): { source: string; id: string }[] {
