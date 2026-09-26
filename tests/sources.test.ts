@@ -736,6 +736,55 @@ test("source redirects retain credentials only on the same origin", async () => 
   ).rejects.toThrow("changed origin");
 });
 
+test("a body is read whatever its chunks and whatever content-length claims", async () => {
+  // A response whose bytes arrive in pieces, with a content-length that is a hint rather than a
+  // promise. The buffer is sized from it and grows when it was short; a multi-byte character split
+  // across two chunks is still one character, because the decode happens once over all the bytes.
+  const streamed = (pieces: readonly Uint8Array[], claimed?: number) =>
+    new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          for (const piece of pieces) controller.enqueue(piece);
+          controller.close();
+        },
+      }),
+      { headers: claimed === undefined ? {} : { "content-length": String(claimed) } },
+    );
+
+  const snowman = new TextEncoder().encode("π \u2603");
+  const split = [snowman.subarray(0, 3), snowman.subarray(3)];
+  expect(await fetchText("https://example.test/a", {}, async () => streamed(split, 2))).toBe("π \u2603");
+  expect(await fetchText("https://example.test/b", {}, async () => streamed(split, 9_000))).toBe("π \u2603");
+  expect(await fetchText("https://example.test/c", {}, async () => streamed(split))).toBe("π \u2603");
+
+  const megabyte = new Uint8Array(1_000_000).fill(0x61);
+  const large = await fetchText("https://example.test/d", {}, async () =>
+    streamed(Array.from({ length: 12 }, () => megabyte)),
+  );
+  expect(large.length).toBe(12_000_000);
+});
+
+test("a source past the size limit is refused rather than held", async () => {
+  const megabyte = new Uint8Array(1_000_000).fill(0x61);
+  await expect(
+    fetchText(
+      "https://example.test/a",
+      {},
+      async () =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              for (let piece = 0; piece < 21; piece++) controller.enqueue(megabyte);
+              controller.close();
+            },
+          }),
+          // A server may also understate wildly; the limit is on what arrives, never on what is said.
+          { headers: { "content-length": "10" } },
+        ),
+    ),
+  ).rejects.toThrow("exceeds 20 MB limit");
+});
+
 test("Codex documentation uses official Markdown and ignores index boilerplate", async () => {
   const { codexPages, markdownParagraphs } = await import("../src/sources/codex.js");
   expect(
