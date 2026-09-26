@@ -1,8 +1,10 @@
 import { z } from "zod";
 import type { Collection } from "../events/types.js";
+import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import type { HttpCache } from "../storage/httpCache.js";
 import { fetchText } from "./http.js";
+import { jsonMembers } from "./jsonMembers.js";
 
 /**
  * Weights and packages usually appear before the announcement: a repository is created while the
@@ -237,9 +239,34 @@ function npmCollection(
   };
 }
 
+/**
+ * The three members of npm's package document this service reads, and the document it keeps.
+ *
+ * `versions` is 15.5 MB of the 15.8 MB `@openai/codex` answers with, and holds the manifest of every
+ * release ever published. Nothing here reads it: a record is a channel pointing at a version, and
+ * the version's publication time is in `time`. Parsing it cost 39 MB of objects, and storing it cost
+ * a `JSON.stringify` and a `Buffer` of the whole body on the way to the snapshot -- about 85 MB
+ * across one collection, on a process whose peak becomes its average.
+ *
+ * So the members are cut out of the text and only they are parsed, and the payload kept as evidence
+ * is the same document without `versions`: 265 KB, every byte of it exactly as npm wrote it. A
+ * snapshot of this source answers what a card rests on -- which channel moved, to what version,
+ * published when -- and no longer carries the manifest of 4,959 releases nobody reads.
+ */
 export function parseNpm(payload: string): Collection {
-  const data = npmPackage.parse(JSON.parse(payload));
-  return npmCollection(data.name, data["dist-tags"], (version) => publishedAt(data.time, data.name, version), payload);
+  const members = jsonMembers(payload, ["name", "dist-tags", "time"]);
+  const read = <T>(key: string): T => {
+    const text = members[key];
+    if (text === undefined) throw new SourceError("protocol", `npm document has no ${key}`);
+    return JSON.parse(text) as T;
+  };
+  const data = npmPackage.parse({ name: read("name"), "dist-tags": read("dist-tags"), time: read("time") });
+  return npmCollection(
+    data.name,
+    data["dist-tags"],
+    (version) => publishedAt(data.time, data.name, version),
+    JSON.stringify(data),
+  );
 }
 
 /** What the last collection said each channel pointed at, and when that version was published. */
@@ -268,20 +295,20 @@ export async function collectNpm(
       request,
     );
     const tags = distTags.parse(JSON.parse(raw));
-    const unchanged = Object.entries(tags)
-      .filter(([tag]) => !PLATFORM_TAG.test(tag))
-      .every(([tag, version]) => known.get(tag)?.version === version);
-    if (unchanged)
-      return npmCollection(
-        name,
-        tags,
-        (version) => {
-          const channel = [...known.values()].find((entry) => entry.version === version);
-          if (!channel) throw new Error(`npm package ${name} has no publication time for ${version}`);
-          return channel.published;
-        },
-        raw,
-      );
+    const channels = Object.entries(tags).filter(([tag]) => !PLATFORM_TAG.test(tag));
+    const unchanged = channels.every(([tag, version]) => known.get(tag)?.version === version);
+    if (unchanged) {
+      const published = (version: string): string => {
+        const channel = [...known.values()].find((entry) => entry.version === version);
+        if (!channel) throw new Error(`npm package ${name} has no publication time for ${version}`);
+        return channel.published;
+      };
+      // The same document the full read keeps, assembled from what is already known: one source
+      // answering with two shapes on alternate polls is a finding `source-shapes` would report, and
+      // this source would have produced it for no reason other than which branch was taken.
+      const time = Object.fromEntries(channels.map(([, version]) => [version, published(version)]));
+      return npmCollection(name, tags, published, JSON.stringify({ name, "dist-tags": tags, time }));
+    }
   }
   const url = `https://registry.npmjs.org/${encoded}`;
   const collection = parseNpm(await fetchText(url, { accept: "application/json" }, request, undefined, cache));
