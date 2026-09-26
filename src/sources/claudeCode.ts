@@ -1,5 +1,6 @@
 import type { Collection } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
+import { type BundleMemory, forgetful } from "./bundleMemory.js";
 import { scanGzipStream } from "./gzipScan.js";
 
 const TAGS = "https://registry.npmjs.org/-/package/@anthropic-ai/claude-code/dist-tags";
@@ -28,13 +29,18 @@ function collectIds(ids: Set<string>, text: string): Set<string> {
  * and it is scanned as it arrives rather than held: 103.5 MB compressed and 230.4 MB unpacked on
  * 2026-09-26, which read whole was the largest single cost this service had.
  */
-let read: { version: string; collection: Collection } | null = null;
-
-export async function collectClaudeCodeModels(request: Fetch = fetch): Promise<Collection> {
+export async function collectClaudeCodeModels(
+  request: Fetch = fetch,
+  memory: BundleMemory = forgetful,
+): Promise<Collection> {
   const tags = (await (await request(TAGS)).json()) as Record<string, string>;
   const version = tags.next ?? tags.latest;
   if (!version) throw new Error("Claude Code has no published version");
-  if (read?.version === version) return read.collection;
+  // The version has not moved, so the 230 MB it would take to learn nothing is not spent.
+  if (memory.lastVersion() === version) {
+    const known = memory.ids();
+    if (known.length) return collection(version, known);
+  }
   const response = await request(`${BINARY}${version}.tgz`);
   if (!response.ok) throw new Error(`Claude Code ${version} binary: HTTP ${response.status}`);
   if (!response.body) throw new Error(`Claude Code ${version} binary: no body`);
@@ -42,13 +48,16 @@ export async function collectClaudeCodeModels(request: Fetch = fetch): Promise<C
   await scanGzipStream(response.body, (text) => collectIds(found, text));
   const ids = [...found].sort();
   if (!ids.length) throw new Error(`Claude Code ${version} names no model`);
-  const collection: Collection = {
+  memory.remember(version);
+  return collection(version, ids);
+}
+
+function collection(version: string, ids: readonly string[]): Collection {
+  return {
     source: "claude-code-models",
     stream: "github",
     url: `https://www.npmjs.com/package/@anthropic-ai/claude-code/v/${version}`,
     raw: ids.join("\n"),
     records: ids.map((id) => ({ id, name: id, maker: "Anthropic" })),
   };
-  read = { version, collection };
-  return collection;
 }

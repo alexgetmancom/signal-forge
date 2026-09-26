@@ -1,5 +1,6 @@
 import type { Collection } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
+import { type BundleMemory, forgetful } from "./bundleMemory.js";
 import { scanGzipStream } from "./gzipScan.js";
 
 /**
@@ -82,30 +83,38 @@ export const CLI_BUNDLES: readonly Bundle[] = [
   },
 ];
 
-/** Only a new version is downloaded; the tarball is read in memory and not kept. */
-const read = new Map<string, { version: string; collection: Collection }>();
-
-export async function collectCliBundle(bundle: Bundle, request: Fetch = fetch): Promise<Collection> {
+export async function collectCliBundle(
+  bundle: Bundle,
+  request: Fetch = fetch,
+  memory: BundleMemory = forgetful,
+): Promise<Collection> {
   const tags = (await (
     await request(`https://registry.npmjs.org/-/package/${bundle.package}/dist-tags`)
   ).json()) as Record<string, string>;
   const version = tags.latest;
   if (!version) throw new Error(`${bundle.package} has no published version`);
-  const seen = read.get(bundle.source);
-  if (seen?.version === version) return seen.collection;
+  // Only a new version is downloaded, and what counts as already read lives in the database rather
+  // than in this process: see src/sources/bundleMemory.ts.
+  if (memory.lastVersion() === version) {
+    const known = memory.ids();
+    if (known.length >= bundle.floor) return collected(bundle, version, known);
+  }
   const name = bundle.package.split("/").at(-1);
   const response = await request(`https://registry.npmjs.org/${bundle.package}/-/${name}-${version}.tgz`);
   if (!response.ok) throw new Error(`${bundle.package} ${version}: HTTP ${response.status}`);
   if (!response.body) throw new Error(`${bundle.package} ${version}: no body`);
   const ids = await bundleIdsFromStream(response.body, bundle.pattern);
   if (ids.length < bundle.floor) throw new Error(`${bundle.package} ${version} names ${ids.length} models`);
-  const collection: Collection = {
+  memory.remember(version);
+  return collected(bundle, version, ids);
+}
+
+function collected(bundle: Bundle, version: string, ids: readonly string[]): Collection {
+  return {
     source: bundle.source,
     stream: "github",
     url: `${bundle.page}/v/${version}`,
     raw: ids.join("\n"),
     records: ids.map((id) => ({ id, name: id, maker: bundle.vendor })),
   };
-  read.set(bundle.source, { version, collection });
-  return collection;
 }

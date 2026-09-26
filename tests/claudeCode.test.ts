@@ -50,6 +50,62 @@ test("the binary is read in pieces, and an id written across the join between tw
   expect(collection.url).toBe("https://www.npmjs.com/package/@anthropic-ai/claude-code/v/2.1.283");
 });
 
+test("a version already read is not downloaded again, by a later process either", async () => {
+  const { collectClaudeCodeModels } = await import("../src/sources/claudeCode.js");
+  const { bundleMemory } = await import("../src/sources/bundleMemory.js");
+  const { openDatabase } = await import("../src/storage/database.js");
+
+  // The 103.5 MB download is skipped when the published version has not moved. That used to be
+  // remembered in this module, which stopped being true the moment heavy collectors moved into a
+  // child process that exits -- so it is remembered in the database, and this asks a *second*
+  // memory over the same database, standing in for the next process.
+  const db = openDatabase(":memory:");
+  const asked: string[] = [];
+  const request = async (url: string | URL | Request) => {
+    asked.push(String(url));
+    if (String(url).endsWith("/dist-tags")) return Response.json({ latest: "2.1.283" });
+    return new Response(Bun.gzipSync(Buffer.from('"claude-opus-4-8" "claude-sonnet-4-5"', "latin1")));
+  };
+
+  const first = await collectClaudeCodeModels(request, bundleMemory(db, "claude-code-models"));
+  expect(first.records.map((record) => record.id)).toEqual(["claude-opus-4-8", "claude-sonnet-4-5"]);
+  expect(asked.filter((url) => url.endsWith(".tgz"))).toHaveLength(1);
+
+  // The records the first read produced are what a later process reads the ids back from.
+  for (const record of first.records)
+    db.query("INSERT INTO records(source,id,body,stream,observed_at) VALUES(?,?,?,?,?)").run(
+      "claude-code-models",
+      record.id,
+      JSON.stringify(record),
+      "github",
+      "2026-09-26T00:00:00.000Z",
+    );
+
+  asked.length = 0;
+  const again = await collectClaudeCodeModels(request, bundleMemory(db, "claude-code-models"));
+  expect(again.records.map((record) => record.id)).toEqual(["claude-opus-4-8", "claude-sonnet-4-5"]);
+  expect(asked.filter((url) => url.endsWith(".tgz"))).toHaveLength(0);
+  expect(again.url).toBe("https://www.npmjs.com/package/@anthropic-ai/claude-code/v/2.1.283");
+});
+
+test("a version that has moved is downloaded however much is remembered", async () => {
+  const { collectClaudeCodeModels } = await import("../src/sources/claudeCode.js");
+  const memory = {
+    lastVersion: () => "2.1.282",
+    ids: () => ["claude-opus-4-8"],
+    remember: () => {},
+  };
+  let downloaded = 0;
+  const request = async (url: string | URL | Request) => {
+    if (String(url).endsWith("/dist-tags")) return Response.json({ latest: "2.1.283" });
+    downloaded++;
+    return new Response(Bun.gzipSync(Buffer.from('"claude-haiku-4-5"', "latin1")));
+  };
+  const collection = await collectClaudeCodeModels(request, memory);
+  expect(downloaded).toBe(1);
+  expect(collection.records.map((record) => record.id)).toEqual(["claude-haiku-4-5"]);
+});
+
 test("a launch page in anthropic.com's route list is read before it is linked", () => {
   const html = String.raw`[\"slug\",\"news\",\"oc\",[\"careers\",\"claude-corps\",\"claude-fable-and-mythos-5-1\",\"claude-opus-5-5\"]] \"/claude-fable-and-mythos-5-1\"`;
   expect(parseAnthropicRoutes(html).records.map((record) => record.id)).toEqual([

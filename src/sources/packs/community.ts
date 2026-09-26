@@ -1,4 +1,5 @@
 import type { AppConfig } from "../../config.js";
+import { bundleMemory } from "../bundleMemory.js";
 import { collectClaudeCodeModels } from "../claudeCode.js";
 import { CLI_BUNDLES, collectCliBundle } from "../cliBundles.js";
 import { collectCodexModels } from "../codex.js";
@@ -81,7 +82,7 @@ export function communitySources({ db, config, cache }: SourceContext): SourceEn
       // A release is a 103.5 MB download unpacking to 230.4 MB, read only when the version moves.
       intervalSeconds: 3600,
       heavy: true,
-      collector: () => collectClaudeCodeModels(fetch),
+      collector: () => collectClaudeCodeModels(fetch, bundleMemory(db, "claude-code-models")),
     },
     /**
      * The coding subscriptions' model lists: small JSON answers, read every two minutes.
@@ -211,7 +212,7 @@ export function communitySources({ db, config, cache }: SourceContext): SourceEn
       // A 20 to 30 MB download, read only when the published version moves.
       intervalSeconds: 3600,
       heavy: true,
-      collector: () => collectCliBundle(bundle, fetch),
+      collector: () => collectCliBundle(bundle, fetch, bundleMemory(db, bundle.source)),
     });
 
   for (const site of PROBE_SITES)
