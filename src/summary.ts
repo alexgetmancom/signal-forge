@@ -5,6 +5,7 @@ import { hasNotificationContent } from "./events/notification.js";
 import { MAX_DETAIL_LINES } from "./events/render/common.js";
 import { renderEvent } from "./events/render/telegram.js";
 import type { Event } from "./events/types.js";
+import { featureEnabled } from "./features.js";
 import type { Fetch } from "./http-client.js";
 import { log } from "./logger.js";
 import {
@@ -373,7 +374,7 @@ export async function summarizeEvents(
   request: Fetch = fetch,
   now = new Date(),
 ): Promise<number> {
-  if (!config.DEEPSEEK_API_KEY) return 0;
+  if (!featureEnabled(config, "deepseek-summaries")) return 0;
   let claimedRollout = 0;
   let written = 0;
   // A rollout is summarised once, before the per-event loop, and every page of it carries that
@@ -524,7 +525,7 @@ export async function summarizeForRecap(
   request: Fetch = fetch,
   now = new Date(),
 ): Promise<string | null> {
-  if (!config.DEEPSEEK_API_KEY) return null;
+  if (!featureEnabled(config, "deepseek-summaries")) return null;
   if (deepSeekAttemptsToday(db, now) >= DEEPSEEK_SUMMARY_DAILY_ATTEMPT_LIMIT) return null;
   const stored = db.query<{ text: string }, [number]>("SELECT text FROM summaries WHERE event_id=?").get(event.id);
   if (stored) return stored.text;

@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { AppConfig } from "./config.js";
+import { featureEnabled } from "./features.js";
 import type { Fetch } from "./http-client.js";
 import { log } from "./logger.js";
 import { type ActionableIssue, type IssueKind, listActionableIssues } from "./reports/issues.js";
@@ -246,7 +247,8 @@ export async function publishAlerts(
   now = Date.now(),
 ): Promise<AlertOutcome> {
   const outcome: AlertOutcome = { down: [], recovered: [], posted: false };
-  if (!config.alertChannelId || !config.DISCORD_BOT_TOKEN) return outcome;
+  if (!config.alertChannelId || !config.DISCORD_BOT_TOKEN || !featureEnabled(config, "operational-alerts"))
+    return outcome;
 
   const issues = listActionableIssues(db, config, now).filter(
     (issue) => alertableKinds.has(issue.kind) && issue.severity !== "warning",

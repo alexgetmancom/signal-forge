@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { AppConfig, Destination } from "./config.js";
+import { featureEnabled } from "./features.js";
 import type { Fetch } from "./http-client.js";
 import { log } from "./logger.js";
 
@@ -137,7 +138,7 @@ export async function promoteVouchedMessages(
 ): Promise<number> {
   const rule = config.promotion;
   const channels = radarAndNews(config);
-  if (!rule || !channels || !config.DISCORD_BOT_TOKEN) return 0;
+  if (!rule || !channels || !config.DISCORD_BOT_TOKEN || !featureEnabled(config, "promotion")) return 0;
   let promoted = 0;
   let seeds = 0;
   // Both channels, because a vote in `news` is the same measurement as a vote in `radar`; only

@@ -4,6 +4,7 @@ import { databaseOperations } from "./operations/database.js";
 import type { OperationMap } from "./operations/definition.js";
 import { deliveryOperations } from "./operations/delivery.js";
 import { evidenceOperations } from "./operations/evidence.js";
+import { featureOperations } from "./operations/features.js";
 import { healthOperations } from "./operations/health.js";
 import { hostOperations } from "./operations/host.js";
 import { sourcesOperations } from "./operations/sources.js";
@@ -19,6 +20,7 @@ export function operations(db: Database, config: AppConfig): OperationMap {
   const all = (): OperationMap => defs;
   const defs: OperationMap = {
     ...healthOperations(db, config, all),
+    ...featureOperations(db, config),
     ...deliveryOperations(db, config, all),
     ...evidenceOperations(db, config, all),
     ...sourcesOperations(db, config, all),

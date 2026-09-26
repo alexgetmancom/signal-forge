@@ -4,6 +4,7 @@ import type { AppConfig, SourceMode } from "./config.js";
 import { INDEPENDENT_SOURCES } from "./events/corroboration.js";
 import { COLLECTION_DEGRADED_PREFIX } from "./events/store.js";
 import type { SourceAuthority } from "./events/types.js";
+import { featureEnabled } from "./features.js";
 import type { Fetch } from "./http-client.js";
 import { log } from "./logger.js";
 import { coverageGaps } from "./reports/coverageGaps.js";
@@ -744,6 +745,6 @@ export async function publishBoard(
 ): Promise<BoardResult> {
   const board = BOARDS[key];
   const channelId = board.channel(config);
-  if (!channelId || !config.DISCORD_BOT_TOKEN) return "skipped";
+  if (!channelId || !config.DISCORD_BOT_TOKEN || !featureEnabled(config, "status-boards")) return "skipped";
   return sendBoard(db, config, key, channelId, board.embed(db, config, now), request, now);
 }

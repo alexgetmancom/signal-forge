@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { AppConfig } from "./config.js";
 import { signalOf } from "./events/classify.js";
 import type { Event } from "./events/types.js";
+import { featureEnabled } from "./features.js";
 import type { Fetch } from "./http-client.js";
 import { log } from "./logger.js";
 import { readState, writeState } from "./storage/appState.js";
@@ -268,7 +269,7 @@ export async function judgeEvents(
   now = new Date(),
   window: { sinceMs?: number; limit?: number } = {},
 ): Promise<number> {
-  if (!config.TYPESAFE_API_KEY) return 0;
+  if (!featureEnabled(config, "jev-verdicts")) return 0;
   const since = new Date(now.getTime() - (window.sinceMs ?? 24 * 3_600_000)).toISOString();
   const streams = [...JUDGED_STREAMS].map(() => "?").join(",");
   const pending = db

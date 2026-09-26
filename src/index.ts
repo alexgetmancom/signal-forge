@@ -4,6 +4,7 @@ import { loadConfig } from "./config.js";
 import { deliverPending, recoverInterruptedDeliveries } from "./delivery.js";
 import { detectBreakouts } from "./events/breakouts.js";
 import { detectCorroborated } from "./events/corroboration.js";
+import { featureEnabled } from "./features.js";
 import { createHttpApp } from "./http.js";
 import { rebuildHypotheses } from "./hypotheses.js";
 import { prepareInsights } from "./insights.js";
@@ -54,7 +55,7 @@ recoverInterruptedDeliveries(db);
 recoverInterruptedAlerts(db);
 const server = Bun.serve({ hostname: config.BIND_HOST, port: config.PORT, fetch: createHttpApp(config, db).fetch });
 const supervisor = new RuntimeSupervisor();
-if (config.SOLO_PUBLISHER_MCP_URL) {
+if (featureEnabled(config, "publications-sync")) {
   supervisor.register(
     startIntervalWorker(db, "publications", 900_000, async () => {
       await syncPublications(db, config);
@@ -65,8 +66,10 @@ supervisor.register(
   startIntervalWorker(db, "lifecycle", 300_000, () => {
     scheduleLifecycleReminders(db, config);
     scheduleRecaps(db, config);
-    detectBreakouts(db, config.destinations);
-    detectCorroborated(db, config.destinations);
+    // Both detectors read stored evidence and speak on their own, so the switch is here: they take
+    // the destinations rather than the config, and a reading nobody asked for is not worth running.
+    if (featureEnabled(config, "breakouts")) detectBreakouts(db, config.destinations);
+    if (featureEnabled(config, "corroboration")) detectCorroborated(db, config.destinations);
   }),
 );
 // Jev's judgements and DeepSeek's recap lines, read ahead of the morning messages that use them.

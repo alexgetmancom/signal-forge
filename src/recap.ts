@@ -28,6 +28,7 @@ import {
 } from "./events/variants.js";
 import { vendorOf, vendorOfName } from "./events/vendors.js";
 import { subjectKey, usageRanks, witnessedSubjects } from "./events/witness.js";
+import { featureEnabled } from "./features.js";
 import { isNewsworthyStory, notableCommits, worthCutoffs } from "./insights.js";
 import { judgementOf } from "./jev.js";
 import { sourceLabel } from "./sources/labels.js";
@@ -58,22 +59,24 @@ import { sourceLabel } from "./sources/labels.js";
 const PERIODS = {
   // `untold`: only moves no card carried. A week is what moved furthest, told or not; a day is the
   // moves too small for a card of their own, and says so in its footer.
-  week: { source: "weekly-recap", ms: 7 * 24 * 3_600_000, signals: ["launch"], untold: false },
-  // Nobody's since 2026-09-26. The morning list was built from what is easy to count rather than
+  week: { source: "weekly-recap", ms: 7 * 24 * 3_600_000, signals: ["launch"], untold: false, feature: "weekly-recap" },
+  // Off since 2026-09-26, and now off in `featureEnabled` rather than by an empty list of classes:
+  // the classes say who would read it, and emptying them made a retired feature look like a broken
+  // one. `features` is where its state is read. The morning list was built from what is easy to count rather than
   // from what the room could not find out by itself: over 24, 25 and 26 September it spent eleven of
   // its seventeen lines on one catalogue restating models it had already listed, on a six-week-old
   // image model and on a roleplaying model, and its three scored lines each named an effort variant
   // whose number was below the one this database already held for the model -- GLM-5.3 at 34.3 when
   // (max) had been 44.9 here since 19 September. A room told the wrong number is worse served than a
   // room told nothing. Kept for the reports, and `recapContext(db, to, "day")` still answers.
-  day: { source: "daily-recap", ms: 24 * 3_600_000, signals: [], untold: true },
+  day: { source: "daily-recap", ms: 24 * 3_600_000, signals: ["codename"], untold: true, feature: "daily-recap" },
   // What the labs published in a day, for the wire: a partnership, an essay, a research result is
   // the vendor talking rather than a model changing, so it is never a card of its own, and on
   // 2026-09-16 "Mistral X Mozilla" and "Claude Cowork and chat are now one Claude" reached nobody.
   // One morning list of headlines carries them without making the wire louder.
-  // Nobody's since 2026-09-22: to a reader on a $20 plan a day of lab posts was filler, and to the
+  // Off since 2026-09-22: to a reader on a $20 plan a day of lab posts was filler, and to the
   // scouts, who came to hear first, it is what everyone already published. Kept for the reports.
-  news: { source: "daily-news", ms: 24 * 3_600_000, signals: [], untold: true },
+  news: { source: "daily-news", ms: 24 * 3_600_000, signals: ["launch"], untold: true, feature: "daily-news" },
 } as const;
 export type RecapPeriod = keyof typeof PERIODS;
 /**
@@ -938,7 +941,8 @@ export function scheduleRecaps(db: Database, config: AppConfig, now = Date.now()
 }
 
 function scheduleRecap(db: Database, config: AppConfig, period: RecapPeriod, now: number): boolean {
-  const { source, signals } = PERIODS[period];
+  const { source, signals, feature } = PERIODS[period];
+  if (!featureEnabled(config, feature)) return false;
   const readyAt = lastRecapPeriod(now, period);
   const targets = (config.destinations as Destination[]).filter((destination) =>
     signals.some((signal) => destination.signals.includes(signal)),

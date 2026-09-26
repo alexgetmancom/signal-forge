@@ -113,6 +113,12 @@ export const settingsSchema = z
     sourceEnabled: z.record(z.string(), z.boolean()).default({}),
     /** A running source may collect evidence without creating subscriber delivery work. */
     sourceMode: z.record(z.string(), sourceModeSchema).default({}),
+    /**
+     * Everything that is not a collector and can still be switched off: see src/features.ts for the
+     * list, its defaults and what each one costs a reader. A key absent means the default, which is
+     * why a retired feature stays in the file as `false` rather than as an edit to the code.
+     */
+    featureEnabled: z.record(z.string(), z.boolean()).default({}),
     destinations: z.array(destinationSchema).default([]),
     /**
      * A role for readers who follow every launch and codename rather than one vendor. It is

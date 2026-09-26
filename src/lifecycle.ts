@@ -5,6 +5,7 @@ import { identityFor } from "./events/identity.js";
 import { recordFor } from "./events/record.js";
 import { type LifecycleReminderContext, lifecycleReminderContextSchema } from "./events/render/lifecycle.js";
 import type { Event, RecordData } from "./events/types.js";
+import { featureEnabled } from "./features.js";
 import { calendarDate } from "./sources/feeds.js";
 import { buildSourceRegistry } from "./sources/registry.js";
 import { text } from "./text.js";
@@ -285,6 +286,7 @@ function eventUrl(event: Event): string {
 
 /** Creates idempotent lifecycle reminder batches and materializes their normal delivery rows. */
 export function scheduleLifecycleReminders(db: Database, config: AppConfig, now = Date.now()): number {
+  if (!featureEnabled(config, "lifecycle-reminders")) return 0;
   return db.transaction(() => {
     const destinations = config.destinations.filter((destination) => destination.signals.includes("reminder"));
     if (!destinations.length) return 0;

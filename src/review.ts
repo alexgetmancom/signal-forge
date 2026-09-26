@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import type { AppConfig } from "./config.js";
+import { featureEnabled } from "./features.js";
 import type { Fetch } from "./http-client.js";
 import { log } from "./logger.js";
 import { DEEPSEEK_SUMMARY_ENDPOINT, DEEPSEEK_SUMMARY_MODEL } from "./runtime/deepseekUsage.js";
@@ -123,6 +124,7 @@ export async function publishMonthlyAudit(
   if (date.getUTCDate() !== 1 || date.getUTCHours() < 7) return false;
   const channel = config.statusChannelId;
   if (!channel || !config.DISCORD_BOT_TOKEN || !config.DEEPSEEK_API_KEY) return false;
+  if (!featureEnabled(config, "review-posts")) return false;
   const key = `${AUDIT_PREFIX}${date.toISOString().slice(0, 7)}`;
   if (readState(db, key) !== null) return false;
   // Claimed before the slow read: a restart mid-audit loses one month's audit, never doubles it.
@@ -211,7 +213,7 @@ export async function publishWeeklyVotes(
   const date = new Date(now);
   if (date.getUTCDay() !== 1 || date.getUTCHours() < 7) return false;
   const channel = config.statusChannelId;
-  if (!channel || !config.DISCORD_BOT_TOKEN) return false;
+  if (!channel || !config.DISCORD_BOT_TOKEN || !featureEnabled(config, "review-posts")) return false;
   const key = `${VOTES_PREFIX}${date.toISOString().slice(0, 10)}`;
   if (readState(db, key) !== null) return false;
   writeState(db, key, "claimed");

@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { AppConfig } from "./config.js";
+import { featureEnabled } from "./features.js";
 import type { Fetch } from "./http-client.js";
 import { log } from "./logger.js";
 
@@ -41,7 +42,7 @@ const emojiOf = (reaction: z.infer<typeof reactionType>) => (reaction.type === "
 /** Reads what changed since the last pass, applies it, and returns how many changes it read. */
 export async function readTelegramReactions(db: Database, config: AppConfig, request: Fetch = fetch): Promise<number> {
   const token = config.TELEGRAM_BOT_TOKEN;
-  if (!token) return 0;
+  if (!token || !featureEnabled(config, "telegram-reactions")) return 0;
   const bot = Number(token.split(":")[0]);
   const offset = db.query<{ next_update: number }, []>("SELECT next_update FROM telegram_cursor WHERE id=1").get();
   const response = await request(`https://api.telegram.org/bot${token}/getUpdates`, {
