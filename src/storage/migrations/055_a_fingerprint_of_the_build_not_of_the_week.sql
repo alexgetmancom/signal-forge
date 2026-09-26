@@ -1,0 +1,16 @@
+-- Which events a fingerprint was taken over, so two boots can be compared at all.
+--
+-- 054 hashed "every event of the last two days", measured from whenever the question was asked. Two
+-- boots two hours apart therefore rendered two different sets of events, and the hash differed
+-- because the news had moved rather than because the build had: the first deploy that used it
+-- reported `caba0a9e -> 4d2f91d0` across boots of the same code. A comparison that cannot fail to
+-- differ says nothing, which is worse than saying nothing, because it looks like an answer.
+--
+-- The corpus is now fixed the first time it is needed -- a lower bound on `detected_at` and an upper
+-- bound on `id` -- and reused by every later boot, so the event set is identical and a difference in
+-- the hash can only come from the code. It is re-anchored when it ages past a month, and rows taken
+-- over a different corpus are simply not compared: the column is what makes that possible. Existing
+-- rows carry NULL and compare against nothing, which is what they were already worth.
+--
+-- No ANALYZE: no index is added, and the read still walks release_renders_recent from 054.
+ALTER TABLE release_renders ADD COLUMN corpus TEXT;
