@@ -154,7 +154,7 @@ test("a section the site stops reading is forgotten, not reported gone or refuse
 
 test("a sitemap cut off mid-transfer is a failed read, not the pages before the cut", () => {
   const cut = `<urlset><url><loc>https://www.anthropic.com/news/one</loc></url><url><loc>https://www.anthropic.com/news/tw`;
-  expect(() => parseSitemap([cut], site)).toThrow("not well-formed");
+  expect(() => parseSitemap([cut], site)).toThrow("ended mid-document");
 });
 
 test("every child sitemap is read, and a page in a new shard of a site already read is news", async () => {
@@ -241,4 +241,23 @@ test("a new page reaches the scouts only when it names a versioned product or is
       ),
     ),
   ).not.toBe("codename");
+});
+
+test("a location is read through its escapes and its CDATA", () => {
+  const collection = parseSitemap(
+    [
+      `<urlset>
+        <url><loc>https://www.anthropic.com/news/a?b=1&amp;c=2</loc></url>
+        <url><loc><![CDATA[https://www.anthropic.com/news/cdata]]></loc></url>
+        <url><loc >  https://www.anthropic.com/news/spaced  </loc ></url>
+      </urlset>`,
+    ],
+    site,
+  );
+  expect(collection.records.map((record) => record.id).sort()).toEqual(["/news/a", "/news/cdata", "/news/spaced"]);
+});
+
+test("a sitemap index is followed, and its own entries are not pages", () => {
+  const index = `<sitemapindex><sitemap><loc>https://www.anthropic.com/sitemap-1.xml</loc></sitemap></sitemapindex>`;
+  expect(() => parseSitemap([index], site)).toThrow("listed no usable pages");
 });

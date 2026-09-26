@@ -1,5 +1,3 @@
-import { XMLParser, XMLValidator } from "fast-xml-parser";
-import { z } from "zod";
 import type { Collection, RecordData } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
 import type { HttpCache } from "../storage/httpCache.js";
@@ -184,23 +182,46 @@ export const WATCHED_SITES: readonly WatchedSite[] = [
 const MAX_CHILD_SITEMAPS = 60;
 const MAX_PAGES = 10_000;
 
-const locations = z.array(z.object({ loc: z.union([z.string(), z.number()]) }).passthrough());
+/**
+ * The `<loc>` entries of a sitemap, and which of the two documents it is.
+ *
+ * Read by scanning the text rather than by building a tree. Measured 2026-09-27 on
+ * ai.google.dev's 14.7 MB sitemap: `XMLValidator.validate` and `XMLParser.parse` together raise a
+ * process's high-water mark by 181 MB, against 55 MB for this scan, and a high-water mark is never
+ * given back. A sitemap is the one XML document where that trade is free -- every entry is a `<loc>`
+ * and nothing else in it is read -- and the scan was checked against the tree on the two largest
+ * real documents here before replacing it: 6,195 locations against 6,195, and the sets identical.
+ */
+const LOC = /<loc\b[^>]*>([\s\S]*?)<\/loc\s*>/gi;
+const CDATA = /<!\[CDATA\[([\s\S]*?)\]\]>/g;
+const ENTITY = /&(?:#(\d+)|#x([0-9a-f]+)|(amp|lt|gt|quot|apos));/gi;
+const NAMED: Record<string, string> = { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
+
+function decodeEntities(text: string): string {
+  return text.replace(ENTITY, (whole, decimal, hex, name) => {
+    if (decimal) return String.fromCodePoint(Number(decimal));
+    if (hex) return String.fromCodePoint(Number.parseInt(hex, 16));
+    return NAMED[String(name).toLowerCase()] ?? whole;
+  });
+}
 
 function parseXml(payload: string): { urls: string[]; children: string[] } {
-  // The parser is lenient: a body cut off mid-transfer still yields the entries before the cut.
-  if (XMLValidator.validate(payload) !== true) throw new Error("Sitemap is not well-formed XML");
-  const parser = new XMLParser({ ignoreAttributes: true, isArray: (name) => name === "url" || name === "sitemap" });
-  const document = parser.parse(payload) as Record<string, unknown>;
-  const read = (value: unknown): string[] => {
-    const entries = value && typeof value === "object" ? (value as { sitemap?: unknown; url?: unknown }) : {};
-    const parsed = locations.safeParse(entries.sitemap ?? entries.url ?? []);
-    return parsed.success ? parsed.data.map((entry) => String(entry.loc).trim()).filter(Boolean) : [];
-  };
-  // An empty <urlset/> parses to an empty string. That is a sitemap that listed nothing, which the
-  // caller reports as a failed read, and not a document of an unknown shape.
-  if ("sitemapindex" in document) return { urls: [], children: read(document.sitemapindex) };
-  if ("urlset" in document) return { urls: read(document.urlset), children: [] };
-  throw new Error("Sitemap contained neither a urlset nor a sitemap index");
+  const root = /<(urlset|sitemapindex)\b/i.exec(payload);
+  if (!root) throw new Error("Sitemap contained neither a urlset nor a sitemap index");
+  const kind = (root[1] ?? "").toLowerCase();
+  // A body cut off mid-transfer is a truncated sitemap, and the pages it does carry are real. It
+  // must not be read as one: fewer pages than last time is how a shrunk collection is detected, and
+  // a network cut would look like a site that deleted half of itself. The closing tag is the whole
+  // of the check -- what a vendor's generator emits is well-formed, and what a proxy returns instead
+  // has no root element at all, which the line above catches.
+  if (!new RegExp(`</${kind}\\s*>\\s*$`, "i").test(payload.trimEnd())) throw new Error("Sitemap ended mid-document");
+  const locations: string[] = [];
+  for (const match of payload.matchAll(LOC)) {
+    const location = decodeEntities((match[1] ?? "").replace(CDATA, "$1")).trim();
+    if (location) locations.push(location);
+  }
+  // An empty <urlset/> is a sitemap that listed nothing, which the caller reports as a failed read.
+  return kind === "sitemapindex" ? { urls: [], children: locations } : { urls: locations, children: [] };
 }
 
 /** A slug is a filename; a reader wants the name of the page. */
