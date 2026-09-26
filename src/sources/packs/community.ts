@@ -78,8 +78,9 @@ export function communitySources({ db, config, cache }: SourceContext): SourceEn
       vendor: "Anthropic",
       group: "GitHub",
       stream: "github",
-      // A release is a 70 MB download, read only when the version moves.
+      // A release is a 103.5 MB download unpacking to 230.4 MB, read only when the version moves.
       intervalSeconds: 3600,
+      heavy: true,
       collector: () => collectClaudeCodeModels(fetch),
     },
     /**

@@ -1,5 +1,6 @@
 import type { Collection } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
+import { scanGzipStream } from "./gzipScan.js";
 
 /**
  * The models Google's and Alibaba's command-line clients ship knowing about.
@@ -41,47 +42,13 @@ function sortedIds(ids: Set<string>): string[] {
   return [...ids].sort();
 }
 
-/**
- * The longest match this scan will look for across a chunk boundary.
- *
- * A bundle is read in pieces, and an id written across the join between two of them would be missed
- * by both. The tail of each piece is therefore carried into the next. 200 bytes is many times the
- * longest id any of these patterns can match -- `gemini-3.1-pro-preview` is 22 -- and it is the
- * whole cost of not holding the bundle in memory.
- */
-const CARRIED_BYTES = 200;
-
-/**
- * Model ids in a gzipped bundle, read as it arrives.
- *
- * The Gemini CLI's tarball is 19.8 MB compressed and 94.1 MB unpacked (measured 2026-09-26, version
- * 0.61.0). Reading it whole meant three copies at once -- the downloaded bytes, the unpacked bytes
- * and the string decoded from them, about 208 MB -- to run a regular expression over it and keep a
- * handful of names. Decompressed in pieces, with the tail of each piece carried into the next, the
- * peak is a chunk and the names found so far.
- *
- * `latin1` decodes a byte to the character of that code, so it never fails and never merges bytes:
- * a UTF-8 sequence becomes two characters, neither of which any of these patterns can match, and an
- * id spelled in ASCII reads as itself. Which is the whole of what this needs from a decoder.
- */
+/** One maker's ids out of a tarball, gathered across the pieces it arrives in. */
 async function bundleIdsFromStream(
   body: ReadableStream<ArrayBufferView | ArrayBuffer>,
   pattern: RegExp,
 ): Promise<string[]> {
   const ids = new Set<string>();
-  let carried = "";
-  const gunzip = new DecompressionStream("gzip");
-  // Written to on one side and read from the other rather than piped through: a decompressor's ends
-  // are typed in terms of any buffer, and a stream of one kind of buffer is not a stream of that
-  // union. A failure on the way in errors the readable side, so the loop below is where it is raised;
-  // catching here is only so that the same failure is not also an unhandled rejection.
-  const piped = body.pipeTo(gunzip.writable).catch(() => {});
-  for await (const chunk of gunzip.readable) {
-    const text = carried + Buffer.from(chunk as Uint8Array).toString("latin1");
-    collectIds(ids, text, pattern);
-    carried = text.slice(-CARRIED_BYTES);
-  }
-  await piped;
+  await scanGzipStream(body, (text) => collectIds(ids, text, pattern));
   return sortedIds(ids);
 }
 

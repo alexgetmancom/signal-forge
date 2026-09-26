@@ -21,6 +21,35 @@ test("the Claude Code binary's model ids, aliases read as their model, tools nam
   ]);
 });
 
+test("the binary is read in pieces, and an id written across the join between two is still found", async () => {
+  const { collectClaudeCodeModels } = await import("../src/sources/claudeCode.js");
+
+  // 103.5 MB compressed and 230.4 MB unpacked on 2026-09-26, so it is scanned as it arrives and
+  // never held whole. The decompressor hands its output back in 16 KB pieces, so two of these names
+  // are written across a join on purpose: without the tail of each piece carried into the next both
+  // are missed, and a binary naming four models instead of six still answers as if it had worked.
+  const names = [
+    "claude-opus-4-8",
+    "claude-sonnet-4-5",
+    "claude-haiku-4-5",
+    "claude-mythos-5-1",
+    "claude-fable-5",
+    "claude-opus-5-5",
+  ];
+  const bytes = Buffer.alloc(49_152, "x");
+  const write = (name: string, at: number) => bytes.write(`"${name}"`, at, "latin1");
+  write(names[0] as string, 16_384 - 9);
+  write(names[1] as string, 32_768 - 4);
+  for (const [index, name] of names.slice(2).entries()) write(name, 2_048 + index * 4_096);
+  const gzipped = Bun.gzipSync(bytes);
+
+  const request = async (url: string | URL | Request) =>
+    String(url).endsWith("/dist-tags") ? Response.json({ latest: "2.1.283" }) : new Response(gzipped);
+  const collection = await collectClaudeCodeModels(request);
+  expect(collection.records.map((record) => record.id)).toEqual([...names].sort());
+  expect(collection.url).toBe("https://www.npmjs.com/package/@anthropic-ai/claude-code/v/2.1.283");
+});
+
 test("a launch page in anthropic.com's route list is read before it is linked", () => {
   const html = String.raw`[\"slug\",\"news\",\"oc\",[\"careers\",\"claude-corps\",\"claude-fable-and-mythos-5-1\",\"claude-opus-5-5\"]] \"/claude-fable-and-mythos-5-1\"`;
   expect(parseAnthropicRoutes(html).records.map((record) => record.id)).toEqual([
