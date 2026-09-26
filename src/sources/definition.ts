@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import type { AppConfig, SourceMode, Stream } from "../config.js";
+import type { AppConfig, CredentialName, SourceMode, Stream } from "../config.js";
 import type { Collection, SourceAuthority } from "../events/types.js";
 import type { HttpCache } from "../storage/httpCache.js";
 
@@ -12,7 +12,7 @@ export type SourceDefinition = {
   stream: Stream;
   intervalSeconds: number;
   capabilityId?: string;
-  requiredCapabilities?: readonly string[];
+  requiredCapabilities?: readonly CredentialName[];
   pace?: { group: string; seconds: number };
   collector: () => Promise<Collection>;
   enabled: boolean;

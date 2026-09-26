@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { AppConfig } from "../config.js";
+import type { AppConfig, CredentialName } from "../config.js";
 import type { Collection, RecordData, SourceAuthority } from "../events/types.js";
 import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
@@ -159,7 +159,7 @@ export type ProviderCatalogue = {
   vendor: string;
   apiUrl: string;
   url: string;
-  key: keyof AppConfig;
+  key: CredentialName;
   authority: SourceAuthority;
   /**
    * The provider fills OpenAI's `created` with when it answered, not when the model appeared, so

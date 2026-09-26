@@ -135,6 +135,5 @@ export function sourceJobs(db: Database, config: AppConfig): SourceDefinition[] 
 }
 
 export function sourceRequirementsReady(definition: SourceDefinition, config: AppConfig): boolean {
-  const values = config as unknown as Record<string, unknown>;
-  return (definition.requiredCapabilities ?? []).every((name) => Boolean(values[name]));
+  return (definition.requiredCapabilities ?? []).every((name) => Boolean(config[name]));
 }

@@ -196,3 +196,18 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   return { ...config, ...settings };
 }
 export type AppConfig = ReturnType<typeof loadConfig>;
+
+/**
+ * A credential this config actually declares, by name.
+ *
+ * `requiredCapabilities` used to be `string[]`, read with `config as unknown as Record<string,
+ * unknown>`, so a misspelled credential was not an error anywhere: the capability simply never
+ * reads as ready, the scheduler never asks for the source, and it appears as a source that has
+ * never been polled -- the exact symptom this repository spent a session learning to name, and the
+ * only one of its three causes that is a bug rather than a missing key. Spelled as a type, the
+ * misspelling is a compile error instead.
+ */
+export type CredentialName = Extract<
+  keyof AppConfig,
+  `${string}_KEY` | `${string}_KEY_ID` | `${string}_TOKEN` | `${string}_SERVICE_ACCOUNT`
+>;
