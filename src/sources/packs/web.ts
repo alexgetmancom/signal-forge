@@ -58,6 +58,7 @@ export function webSources({ db, cache }: SourceContext): SourceEntry[] {
         id: `pages:${site.id}`,
         authority: "first_party",
         vendor: site.vendor,
+        ...(site.heavy ? { heavy: true } : {}),
         group: "Site pages",
         stream: "pages",
         // One collection reads a site's index and its sections in sequence, so the requests are

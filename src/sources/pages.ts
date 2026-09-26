@@ -26,6 +26,8 @@ export type WatchedSite = {
    * segment is always `docs`.
    */
   ignoreSections?: readonly string[];
+  /** A sitemap of megabytes; see `heavy` on a source definition. */
+  heavy?: boolean;
 };
 
 /** The languages Anthropic translates its documentation into, besides English. */
@@ -141,6 +143,9 @@ export const WATCHED_SITES: readonly WatchedSite[] = [
     name: "Claude Support",
     vendor: "Anthropic",
     sitemap: "https://support.claude.com/sitemap.xml",
+    // Twelve locales of every article in one document: 8 MB of XML, the second largest body read
+    // here, and the whole of it parsed to keep the English pages.
+    heavy: true,
     ignoreSections: ["de", "es", "fr", "id", "it", "ja", "ko", "pt", "ru", "zh-CN", "zh-TW"],
   },
   // Mistral's newsroom is where a model and a partnership are announced; its API catalogue says

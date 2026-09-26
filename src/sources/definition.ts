@@ -24,7 +24,15 @@ export type SourceDefinition = {
   enabled: boolean;
   mode: SourceMode;
   restrictedReason?: string;
-  /** Answers with tens of megabytes; collected one at a time with other heavy sources. */
+  /**
+   * Answers with megabytes; collected one at a time with other heavy sources.
+   *
+   * The threshold is what a body costs once it is in memory rather than what it weighs on the
+   * wire: measured on 2026-09-26, parsing a stored body adds about two and a half times its own
+   * size in objects, so the 15 MB npm document is 54 MB and polymarket's three pages are 15 MB of
+   * JSON and 38 MB of objects. Anything over a megabyte of body belongs in this lane; everything
+   * this service reads is either under two megabytes or already here.
+   */
   heavy?: boolean;
 };
 

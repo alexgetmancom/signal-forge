@@ -52,6 +52,9 @@ export function communitySources({ db, config, cache }: SourceContext): SourceEn
     {
       id: "polymarket",
       authority: "third_party",
+      // Three pages of a hundred events each, 15 MB of JSON in one collection and 38 MB of objects
+      // parsed from it; measured 2026-09-26. It was the largest read outside the heavy lane.
+      heavy: true,
       group: "Discovery",
       stream: "markets",
       // Prices move all day and the record only keeps five-point buckets, so a slower poll would
