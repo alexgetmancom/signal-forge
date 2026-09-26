@@ -21,7 +21,7 @@
       "name": "collectors-do-not-deliver",
       "comment": "A collector's whole job is to come back with a catalog or to fail loudly. If it can reach delivery it can also decide to send, and the decision to notify a subscriber would then live in the one place that has no view of snapshots, events or suppression.",
       "from": { "path": "^src/sources/" },
-      "to": { "path": "^src/delivery\\.ts$" }
+      "to": { "path": "^src/delivery(Request|Outcome)?\\.ts$" }
     },
     {
       "name": "collectors-do-not-render",
@@ -39,7 +39,7 @@
       "name": "storage-does-not-speak-transport",
       "comment": "Same transaction, other end: persistence that can call delivery or the HTTP server can send before the commit it is part of has landed, which is how something is delivered twice or announced and then rolled back.",
       "from": { "path": "^src/storage/" },
-      "to": { "path": "^src/(delivery|http)\\.ts$" }
+      "to": { "path": "^src/(delivery(Request|Outcome)?|http)\\.ts$" }
     },
     {
       "name": "event-persistence-does-not-render",
@@ -57,12 +57,12 @@
       "name": "renderers-do-not-deliver",
       "comment": "Rendering produces a payload and hands it back. A renderer that can send is a renderer that can retry, and a delivery with an uncertain outcome must stay ambiguous rather than be retried by whatever was drawing it.",
       "from": { "path": "^src/events/render/" },
-      "to": { "path": "^src/delivery\\.ts$" }
+      "to": { "path": "^src/delivery(Request|Outcome)?\\.ts$" }
     },
     {
       "name": "delivery-does-not-collect",
       "comment": "Delivery works from the jobs the transaction wrote. Collecting at send time would mean the thing being announced is read again, separately, after the evidence for announcing it was already stored.",
-      "from": { "path": "^src/delivery\\.ts$" },
+      "from": { "path": "^src/delivery(Request|Outcome)?\\.ts$" },
       "to": { "path": "^src/sources/" }
     },
     {
