@@ -143,7 +143,12 @@ export function listActionableIssues(db: Database, config: AppConfig, now = Date
         : unobservedAfterCycle
           ? "Inspect why the source was not scheduled or persisted; an enabled source must produce an observation on its first cycle."
           : entry.state === "degraded"
-            ? "Inspect the upstream response before allowing this source to resume; the last known-good records were preserved."
+            ? // The guard refused a short answer and kept what was already stored, so nothing is
+              // lost and nothing resumes on its own either. The way out is one of two commands and
+              // neither was named here: on production the shrink guard refused `arena` sixty-four
+              // times in a week while `accept-shrink` -- which exists for exactly this decision --
+              // had never once been called.
+              "Compare the short answer against the upstream before resuming: the last known-good records were kept. If the smaller collection is real, `accept-shrink <source>` lets the next one through; `failures <source>` says how long it has been refusing and by how much."
             : "Inspect the collector and its upstream response.",
     });
   }
