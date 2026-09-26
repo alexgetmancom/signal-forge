@@ -44,6 +44,11 @@ export const BENCH: Bench[] = [
     when: "A question that is not worth a command, against a copy of production with `db` and `config` already in scope: `bun run probe -e '<expression>'` or `bun run probe <file.ts>`. Read-only.",
   },
   {
+    group: "ask",
+    command: "source-cost",
+    when: "Which sources set the floor this service stands on. RSS is a high-water mark that is never given back, so a source's cost is what it permanently adds the first time it runs, not what it holds while running; this runs each light source alone against a copy of production and names the ones that should be collected in a child process instead. Reach for it after adding a source that reads a whole page, a sitemap or a feed.",
+  },
+  {
     group: "change",
     command: "split-module",
     when: "A module is too long and the parts of it are obvious. Choosing what belongs together is the work; this does the rest, and refuses rather than guesses when it cannot reassemble the file it read.",
