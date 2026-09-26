@@ -39,6 +39,9 @@ export const WATCHED_SITES: readonly WatchedSite[] = [
     name: "OpenAI",
     vendor: "OpenAI",
     sitemap: "https://openai.com/sitemap.xml",
+    // 42 child sitemaps, 14.4 MB of XML between them; +64 MB of permanent high-water on a first
+    // read, second only to `google`. See the note there.
+    heavy: true,
     // `index` is the newsroom, already read through its feed, and `business` and `events` are
     // partner and conference pages. Every new page this site produced in the week to 2026-09-16 sat
     // in one of the three -- eight "Disrupting malicious uses of AI" reports reached the invited
@@ -95,6 +98,11 @@ export const WATCHED_SITES: readonly WatchedSite[] = [
     name: "Google AI for Developers",
     vendor: "Google",
     sitemap: "https://ai.google.dev/sitemap.xml",
+    // One child sitemap of 14.7 MB, the largest XML read here. Measured 2026-09-27: reading it the
+    // first time in a process raises that process's high-water mark by 192 MB -- a third of what the
+    // whole light lane ever claims -- and RSS is never given back, so in a long-lived process that
+    // 192 MB is permanent. Collected in a child, which ends.
+    heavy: true,
     ignoreSections: ["competition", "edu", "responsible-ai", "terms"],
   },
   // Most of this sitemap is the billing console; what is left is the model and pricing pages.

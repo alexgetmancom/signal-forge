@@ -97,7 +97,9 @@ const LAB_PAGE: SourceKind = {
 
 function newsroomSources(_context: SourceContext): SourceEntry[] {
   return sourcesOfKind(NEWSROOM, [
-    { id: "openai-news", vendor: "OpenAI", collector: () => collectOpenAINews() },
+    // +45 MB of permanent high-water on the first read of its 1,230 items; see `heavy` in
+    // src/poller.ts. Measured 2026-09-27.
+    { id: "openai-news", vendor: "OpenAI", heavy: true, collector: () => collectOpenAINews() },
     { id: "anthropic-news", vendor: "Anthropic", collector: () => collectAnthropicNews() },
     { id: "claude-blog", vendor: "Anthropic", collector: () => collectClaudeBlog() },
     // Not a newsroom and nobody's first party: other people writing about the labs, which is worth
@@ -166,7 +168,14 @@ function releaseNoteSources({ db, config, cache }: SourceContext): SourceEntry[]
 
 function developerFeedSources({ cache }: SourceContext): SourceEntry[] {
   return sourcesOfKind(DEVELOPER_FEED, [
-    { id: "openai-codex-changelog", vendor: "OpenAI", collector: () => collectOpenAICodexChangelog(fetch, cache) },
+    // A 1.07 MB feed that claims +48 MB of permanent high-water the first time it is parsed: XML
+    // becomes a tree an order of magnitude larger than its text. Measured 2026-09-27.
+    {
+      id: "openai-codex-changelog",
+      vendor: "OpenAI",
+      heavy: true,
+      collector: () => collectOpenAICodexChangelog(fetch, cache),
+    },
     // Answers 304 to a conditional request, measured 2026-09-17, so a poll that finds nothing costs no body.
     {
       id: "openai-api-changelog",
@@ -210,6 +219,13 @@ function sitemapSources(_context: SourceContext): SourceEntry[] {
   ]);
 }
 
+/**
+ * Lab pages whose first read claims enough memory to be worth a process that ends. Measured
+ * 2026-09-27: `qwen-blog` returns its whole article index as one JSON body, +35 MB of high-water
+ * that a long-lived process never gives back. The rest of the family costs nothing measurable.
+ */
+const HEAVY_LAB_PAGES = new Set(["qwen-blog"]);
+
 function labPageSources(_context: SourceContext): SourceEntry[] {
   return sourcesOfKind(LAB_PAGE, [
     {
@@ -224,6 +240,7 @@ function labPageSources(_context: SourceContext): SourceEntry[] {
       vendor,
       // Spread across the minute so the whole family does not land on one tick.
       intervalSeconds: LAB_PAGE.intervalSeconds + index * 20,
+      ...(HEAVY_LAB_PAGES.has(id) ? { heavy: true as const } : {}),
       collector: () => collectLabPages(id as keyof typeof LAB_PAGE_SOURCES),
     })),
   ]);
