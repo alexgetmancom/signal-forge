@@ -71,7 +71,13 @@ export function sourcesOperations(db: Database, config: AppConfig, _all: () => O
       summary:
         "Enabled sources that have neither collected nor recorded anything lately, with the error each one carries.",
       startHere: "which sources went quiet without anyone noticing",
-      note: "`state` is the repair, and two of the three are not the collector: `went_quiet` worked and stopped, `never_succeeded` was asked and never once worked, `never_polled` was never asked at all -- and for that one `reason` says which capability it waits on, or that it waits on nothing, which makes it the scheduler.",
+      note:
+        "`state` is the repair, and two of the three are not the collector. `went_quiet` worked and " +
+        "then stopped, which is a collector to open. `never_succeeded` was asked and has never once " +
+        "worked, which is usually a credential or an upstream refusing. `never_polled` was never " +
+        "asked at all, so nothing here is evidence about its collector: `reason` says which " +
+        "capability it is waiting on, and when it says it is waiting on nothing, that is the " +
+        "scheduler and it is the only one of the three that is a bug.",
       mutates: false,
       agent: true,
       schema: z.object({ days: count(90, 3) }),

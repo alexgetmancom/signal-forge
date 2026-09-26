@@ -14,7 +14,15 @@
  * budget fails too, with the number to paste: a ratchet that is not tightened is a limit.
  *
  * Comment lines do not count. This repository is deliberately heavily commented and a rule that
- * charges for explaining yourself buys shorter functions with worse ones.
+ * charges for explaining yourself buys shorter functions with worse ones. Neither do the
+ * continuation lines of a concatenated string, for the same reason and against the same mistake:
+ * the operation registry documents itself in `summary` and `note` fields, which are string values
+ * rather than comments, so a command explaining itself in six lines used to cost six. It cost this
+ * repository one, measured: a `note` added to `silent_sources` put `sourcesOperations` over its
+ * budget, and the way out was to fold four sentences onto one 400-character line.
+ *
+ * `--top <n>` prints the longest declarations with their budgets, which is the list of work this
+ * file claims to be and could not be read as until it could be printed.
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
@@ -34,10 +42,10 @@ const LIMIT = 80;
  */
 const BUDGET: Readonly<Record<string, number>> = {
   "src/reports/issues.ts:listActionableIssues": 275,
-  "src/operations/health.ts:healthOperations": 200,
+  "src/operations/health.ts:healthOperations": 175,
   "src/delivery.ts:deliverPending": 225,
   "src/events/store.ts:persistCollection": 225,
-  "src/operations/delivery.ts:deliveryOperations": 225,
+  "src/operations/delivery.ts:deliveryOperations": 200,
   "src/reports/signalQuality.ts:signalQuality": 225,
   "src/events/render/facts.ts:eventFactParts": 200,
   "src/http.ts:createHttpApp": 200,
@@ -47,7 +55,7 @@ const BUDGET: Readonly<Record<string, number>> = {
   "src/events/render/discord.ts:eventEmbed": 175,
   "src/operations/evidence.ts:evidenceOperations": 175,
   "src/events/render/shape.ts:shape": 150,
-  "src/operations/database.ts:databaseOperations": 150,
+  "src/operations/database.ts:databaseOperations": 125,
   "src/reports/sourceVerdicts.ts:sourceVerdicts": 150,
   "src/sources/catalogs.ts:PROVIDER_CATALOGUES": 150,
   "src/summary.ts:summarizeEvents": 150,
@@ -79,9 +87,14 @@ export function budgetFor(size: number): number {
 
 export type Measured = { name: string; size: number };
 
-/** Code lines in a declaration: no blanks, no comments, from the declaration to the end of it. */
+/** A line that is one string and a `+`: the second and later lines of a documented field's text. */
+const CONTINUED_STRING = /^\s*(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')\s*\+\s*$/;
+
+/** Code lines in a declaration: no blanks, no comments, no continued text, from start to end. */
 export function measure(text: string): number {
-  return text.split("\n").filter((line) => line.trim() !== "" && !/^\s*(?:\/\/|\/\*|\*)/.test(line)).length;
+  return text
+    .split("\n")
+    .filter((line) => line.trim() !== "" && !/^\s*(?:\/\/|\/\*|\*)/.test(line) && !CONTINUED_STRING.test(line)).length;
 }
 
 export function tooLong(measured: Measured[], budget: Readonly<Record<string, number>>, limit: number): string[] {
@@ -127,6 +140,16 @@ if (import.meta.main) {
     const body = lines.slice(importBlock(lines).end);
     for (const chunk of chunks(body))
       measured.push({ name: `${relative(root, path)}:${chunk.name}`, size: measure(chunk.text) });
+  }
+  const top = Bun.argv.includes("--top") ? Number(Bun.argv[Bun.argv.indexOf("--top") + 1] ?? 20) : 0;
+  if (top > 0) {
+    const longest = [...measured].sort((left, right) => right.size - left.size).slice(0, top);
+    const width = Math.max(...longest.map((entry) => entry.name.length));
+    for (const { name, size } of longest)
+      process.stdout.write(
+        `${String(size).padStart(4)}  ${name.padEnd(width)}  ${BUDGET[name] ? `budget ${BUDGET[name]}` : `limit ${LIMIT}`}\n`,
+      );
+    process.exit(0);
   }
   const problems = tooLong(measured, BUDGET, LIMIT);
   if (problems.length > 0) {
