@@ -57,20 +57,19 @@ export function silentSources(db: Database, config: AppConfig, days: number, now
   const cutoff = new Date(now.getTime() - days * 86_400_000).toISOString();
   return enabled
     .map(({ id: source }) => {
+      // `checked_at` comes back with the rest of the row rather than in a query of its own: this
+      // report reads every enabled source, so each extra statement here is two hundred statements.
       const state = db
-        .query<{ last_success: string | null; last_error: string | null; failures: number }, [string]>(
-          "SELECT last_success,last_error,failures FROM sources WHERE id=?",
-        )
+        .query<
+          { last_success: string | null; last_error: string | null; failures: number; checked_at: string | null },
+          [string]
+        >("SELECT last_success,last_error,failures,checked_at FROM sources WHERE id=?")
         .get(source);
       const record = db
         .query<{ at: string | null }, [string]>("SELECT MAX(observed_at) at FROM records WHERE source=?")
         .get(source);
       // Attempts, not successes: `checked_at` is stamped by every collection, failed ones included.
-      const attempted = Boolean(
-        db.query<{ checked_at: string | null }, [string]>("SELECT checked_at FROM sources WHERE id=?").get(source)
-          ?.checked_at,
-      );
-      const silence: SilentSource["state"] = !attempted
+      const silence: SilentSource["state"] = !state?.checked_at
         ? "never_polled"
         : state?.last_success
           ? "went_quiet"
