@@ -311,6 +311,7 @@ export function persistCollection(
       .get(c.source, c.stream, id, kind, before, after, now, snapshot, confidence, evidence_type, authority);
     if (!row) throw new Error("Event insert failed");
     emitted.push({
+      signal: null,
       id: row.id,
       source: c.source,
       stream: c.stream,

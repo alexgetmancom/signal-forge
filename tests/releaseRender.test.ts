@@ -61,6 +61,28 @@ describe("what this build renders", () => {
     db.close();
   });
 
+  test("a build that renders one card differently says which one", () => {
+    const db = withEvents(3);
+    recordRuntimeStart(db, NOW - 7_200_000, "boot-one");
+    const first = releaseRender(db, 2, NOW);
+    expect(first?.changed).toBeNull();
+
+    // The corpus is fixed by id, so rewriting an event inside it is indistinguishable from a build
+    // that renders that event differently, which is the case this is here to show.
+    const target = db.query<{ id: number }, []>("SELECT MIN(id) id FROM events").get()?.id as number;
+    db.query("UPDATE events SET after_json=? WHERE id=?").run(
+      JSON.stringify({ id: "model-0", name: "Renamed" }),
+      target,
+    );
+    recordRuntimeStart(db, NOW - 60_000, "boot-two");
+    const second = releaseRender(db, 2, NOW);
+    expect(second?.hash).not.toBe(first?.hash as string);
+    expect(second?.changed?.events).toBe(1);
+    expect(second?.changed?.sample[0]?.eventId).toBe(target);
+    expect(second?.changed?.sample[0]?.entityId).toBe("model-0");
+    db.close();
+  });
+
   test("a process with no recorded start gets no row rather than a row keyed on nothing", () => {
     const db = withEvents(1);
     expect(releaseRender(db, 2, NOW)).toBeNull();

@@ -245,6 +245,7 @@ export function eventFactParts(event: Event & CardContext, summary?: string): Fa
     const terms = (row: Record<string, unknown>) =>
       JSON.stringify(Object.fromEntries(SUBSTANTIVE_FIELDS.map((field) => [field, row[field] ?? null])));
     const moved = eventFactParts({
+      signal: null,
       id: event.id,
       source: event.source,
       stream: event.stream,

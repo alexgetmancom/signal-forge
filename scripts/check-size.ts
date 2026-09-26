@@ -23,6 +23,11 @@
  *
  * `--top <n>` prints the longest declarations with their budgets, which is the list of work this
  * file claims to be and could not be read as until it could be printed.
+ *
+ * BUDGET is closed. It is a record of what was already over the line on the day the ratchet was
+ * built, not a list of exemptions to apply for, and the failure message used to offer adding to it
+ * as one of two equal ways out. The cheaper way out of a rule is the one that gets taken, so the
+ * message now offers one: split it.
  */
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
@@ -106,7 +111,7 @@ export function tooLong(measured: Measured[], budget: Readonly<Record<string, nu
     if (allowed === undefined) {
       if (size > limit)
         problems.push(
-          `${name} is ${size} code lines, over the ${limit} a new declaration gets. Split it, or record it in BUDGET as ${budgetFor(size)} and say why in the commit.`,
+          `${name} is ${size} code lines, over the ${limit} a new declaration gets. Split it: \`bun run check-size --top 20\` shows what that looked like the last twenty times. BUDGET is closed -- it records what was already here when the ratchet was built, and a new line in it is the ratchet turning the wrong way.`,
         );
       continue;
     }

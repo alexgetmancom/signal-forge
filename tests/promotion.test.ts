@@ -3,6 +3,7 @@ import type { AppConfig } from "../src/config.js";
 import { prepareDeliveries } from "../src/events/batching.js";
 import { promoteVouchedMessages } from "../src/promotion.js";
 import { openDatabase } from "../src/storage/database.js";
+import { aBatch, aDelivery } from "./fixtures/build.js";
 
 const config = {
   DISCORD_BOT_TOKEN: "fake",
@@ -14,13 +15,16 @@ const config = {
 } as unknown as AppConfig;
 
 function sighting(db: ReturnType<typeof openDatabase>) {
-  db.query(
-    "INSERT INTO batches(id,source,digest,ready_at,sealed) VALUES(1,'arena',0,'2026-09-08T00:00:00.000Z',1)",
-  ).run();
-  db.query(
-    `INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,status,external_id,updated_at)
-     VALUES(1,1,'radar','{}','{"content":"","embeds":[{"title":"spicy-mayo"}]}',0,'sent','555','2026-09-08T00:00:00.000Z')`,
-  ).run();
+  aBatch(db, { id: 1, readyAt: "2026-09-08T00:00:00.000Z" });
+  aDelivery(db, {
+    id: 1,
+    batchId: 1,
+    destinationId: "radar",
+    destinationJson: "{}",
+    body: '{"content":"","embeds":[{"title":"spicy-mayo"}]}',
+    externalId: "555",
+    updatedAt: "2026-09-08T00:00:00.000Z",
+  });
 }
 
 const answer = (reactions: { name: string; count: number; me?: boolean }[], reactors: string[], put: string[] = []) =>
@@ -130,13 +134,16 @@ test("a recap the readers liked is not carried into the other channel", async ()
   // The morning recap in `radar` drew votes on 2026-09-20 and was reposted whole to `news`, which
   // had received the same lines an hour and a half earlier. A recap is not a card about one thing.
   const db = openDatabase(":memory:");
-  db.query(
-    "INSERT INTO batches(id,source,digest,ready_at,sealed,kind) VALUES(1,'daily-recap',0,'2026-09-08T00:00:00.000Z',1,'weekly_recap')",
-  ).run();
-  db.query(
-    `INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,status,external_id,updated_at)
-     VALUES(1,1,'radar','{}','{"content":"","embeds":[{"title":"WHAT MOVED"}]}',0,'sent','555','2026-09-08T00:00:00.000Z')`,
-  ).run();
+  aBatch(db, { id: 1, source: "daily-recap", readyAt: "2026-09-08T00:00:00.000Z", kind: "weekly_recap" });
+  aDelivery(db, {
+    id: 1,
+    batchId: 1,
+    destinationId: "radar",
+    destinationJson: "{}",
+    body: '{"content":"","embeds":[{"title":"WHAT MOVED"}]}',
+    externalId: "555",
+    updatedAt: "2026-09-08T00:00:00.000Z",
+  });
   expect(await promoteVouchedMessages(db, config, answer([{ name: "👍", count: 5 }], []))).toBe(0);
   expect(db.query("SELECT COUNT(*) c FROM promoted_deliveries").get()).toEqual({ c: 0 });
   // The vote is still recorded: it says the readers wanted that, wherever it can travel.

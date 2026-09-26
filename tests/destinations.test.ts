@@ -2,17 +2,22 @@ import { expect, test } from "bun:test";
 import type { AppConfig } from "../src/config.js";
 import { destinationStandings } from "../src/reports/destinations.js";
 import { openDatabase } from "../src/storage/database.js";
+import { aBatch, aDelivery } from "./fixtures/build.js";
 
 const NOW = new Date("2026-09-25T00:00:00.000Z");
 
 function setup() {
   const db = openDatabase(":memory:");
   const send = (id: number, destination: string, at: string, status = "sent") => {
-    db.exec(`INSERT INTO batches(id,source,digest,ready_at,kind) VALUES(${id},'x',0,'${at}','event')`);
-    db.query(
-      `INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,status,updated_at)
-       VALUES(?,?,?,'{}','body',0,?,?)`,
-    ).run(id, id, destination, status, at);
+    aBatch(db, { id, source: "x", readyAt: at, sealed: false });
+    aDelivery(db, {
+      id,
+      batchId: id,
+      destinationId: destination,
+      destinationJson: "{}",
+      status: status as "sent",
+      updatedAt: at,
+    });
   };
   return { db, send };
 }

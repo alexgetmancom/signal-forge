@@ -160,6 +160,7 @@ function extractCandidates(event: EventRow, canonicalId: string, eventId: number
  */
 function currentEvent(row: CurrentRecordRow): EventRow {
   return {
+    signal: null,
     id: 0,
     source: row.source,
     stream: row.stream,

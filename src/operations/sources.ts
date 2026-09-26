@@ -14,9 +14,23 @@ import { silentSources } from "../reports/silentSources.js";
 import { sourceVerdicts } from "../reports/sourceVerdicts.js";
 import { deepSeekUsage } from "../runtime/deepseekUsage.js";
 import { mentionSource } from "../sources/modelMentions.js";
-import { count, type OperationMap } from "./definition.js";
+import { buildSourceRegistry } from "../sources/registry.js";
+import { count, nearest, type OperationMap } from "./definition.js";
 
 /** The "sources" section of the operation registry; src/operations.ts joins the sections. */
+/**
+ * A source id that has never been collected, answered with the ones that could be.
+ *
+ * The names come from the registry rather than from the table: `sources` keeps a row for every
+ * source that ever ran, and offering a retired one as a suggestion is offering a name that will
+ * fail differently.
+ */
+function mustBeCollected(db: Database, config: AppConfig, source: string): void {
+  if (db.query("SELECT 1 FROM sources WHERE id=?").get(source)) return;
+  const known = buildSourceRegistry(db, config).map((definition) => definition.id);
+  throw new Error(`${source} is not a source that has ever been collected. ${nearest(source, known)}`);
+}
+
 export function sourcesOperations(db: Database, config: AppConfig, _all: () => OperationMap): OperationMap {
   return {
     rescan_repository: {
@@ -55,8 +69,7 @@ export function sourcesOperations(db: Database, config: AppConfig, _all: () => O
       schema: z.object({ source: z.string().min(2) }),
       cli: { args: [{ name: "source" }] },
       handler: (input: { source: string }) => {
-        const known = db.query("SELECT 1 FROM sources WHERE id=?").get(input.source);
-        if (!known) throw new Error(`${input.source} is not a source that has ever been collected`);
+        mustBeCollected(db, config, input.source);
         db.query(
           "UPDATE sources SET accept_shrink=1,failures=0,retry_at=NULL,failure_started_at=NULL,last_error=NULL WHERE id=?",
         ).run(input.source);

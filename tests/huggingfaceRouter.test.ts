@@ -52,6 +52,7 @@ test("a model reaching the router is a sighting and a host joining it is silent"
     providers: ["novita"],
   };
   const event = (kind: Event["kind"], before: object | null, after: object): Event => ({
+    signal: null,
     id: 1,
     source: "huggingface-router",
     stream: "api-models",

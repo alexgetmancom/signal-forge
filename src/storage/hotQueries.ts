@@ -68,8 +68,13 @@ export const HOT_QUERIES: readonly HotQuery[] = [
   },
   {
     name: "the boot before this one, by render fingerprint",
-    sql: "SELECT hash FROM release_renders WHERE booted_at<? AND window_days=? ORDER BY booted_at DESC LIMIT 40",
-    params: ["2026-01-01T00:00:00.000Z", 2],
+    sql: "SELECT hash FROM release_renders WHERE booted_at<? AND corpus=? ORDER BY booted_at DESC",
+    params: ["2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z|1"],
+  },
+  {
+    name: "the cards of one render",
+    sql: "SELECT event_id,hash FROM release_render_cards WHERE boot_id=?",
+    params: ["boot"],
   },
   {
     name: "operator journal, mutations only",

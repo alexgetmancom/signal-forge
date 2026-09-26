@@ -99,3 +99,110 @@ export function aCall(
     fields.outcome ?? "ok",
   );
 }
+
+/**
+ * One source row, which is a health record rather than a definition: the registry is code, and
+ * this table only remembers how the last poll went.
+ */
+export function aSource(
+  db: Database,
+  id: string,
+  fields: {
+    lastSuccess?: string | null;
+    lastError?: string | null;
+    lastErrorKind?: string | null;
+    checkedAt?: string | null;
+    failures?: number;
+    retryAt?: string | null;
+    acceptShrink?: number;
+  } = {},
+): void {
+  db.query(
+    `INSERT INTO sources(id,last_success,last_error,last_error_kind,checked_at,failures,retry_at,accept_shrink)
+     VALUES(?,?,?,?,?,?,?,?)
+     ON CONFLICT(id) DO UPDATE SET
+       last_success=excluded.last_success, last_error=excluded.last_error,
+       last_error_kind=excluded.last_error_kind, checked_at=excluded.checked_at,
+       failures=excluded.failures, retry_at=excluded.retry_at, accept_shrink=excluded.accept_shrink`,
+  ).run(
+    id,
+    fields.lastSuccess ?? null,
+    fields.lastError ?? null,
+    fields.lastErrorKind ?? null,
+    fields.checkedAt === undefined ? anInstant() : fields.checkedAt,
+    fields.failures ?? 0,
+    fields.retryAt ?? null,
+    fields.acceptShrink ?? 0,
+  );
+}
+
+/** One batch, sealed by default: an unsealed batch is still collecting and speaks to nobody. */
+export function aBatch(
+  db: Database,
+  fields: {
+    id?: number;
+    source?: string;
+    digest?: number;
+    readyAt?: string;
+    sealed?: boolean;
+    kind?: "event" | "lifecycle_reminder" | "weekly_recap" | "promotion";
+    contextJson?: string | null;
+  } = {},
+): number {
+  const row = db
+    .query<{ id: number }, (string | number | null)[]>(
+      `INSERT INTO batches(id,source,digest,ready_at,sealed,kind,context_json)
+       VALUES(?,?,?,?,?,?,?) RETURNING id`,
+    )
+    .get(
+      fields.id ?? null,
+      fields.source ?? "arena",
+      fields.digest ?? 0,
+      fields.readyAt ?? anInstant(),
+      fields.sealed === false ? 0 : 1,
+      fields.kind ?? "event",
+      fields.contextJson ?? null,
+    );
+  if (!row) throw new Error("Batch could not be stored");
+  return row.id;
+}
+
+/** One delivery of one batch to one destination. */
+export function aDelivery(
+  db: Database,
+  fields: {
+    id?: number;
+    batchId: number;
+    destinationId?: string;
+    destinationJson?: string;
+    body?: string;
+    part?: number;
+    status?: "pending" | "sending" | "sent" | "failed" | "ambiguous" | "verification_required";
+    externalId?: string | null;
+    error?: string | null;
+    attempts?: number;
+    updatedAt?: string;
+  },
+): number {
+  const row = db
+    .query<{ id: number }, (string | number | null)[]>(
+      `INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,status,external_id,error,
+         attempts,updated_at)
+       VALUES(?,?,?,?,?,?,?,?,?,?,?) RETURNING id`,
+    )
+    .get(
+      fields.id ?? null,
+      fields.batchId,
+      fields.destinationId ?? "discord",
+      fields.destinationJson ?? JSON.stringify({ id: "discord", kind: "discord" }),
+      fields.body ?? "body",
+      fields.part ?? 0,
+      fields.status ?? "sent",
+      fields.externalId ?? null,
+      fields.error ?? null,
+      fields.attempts ?? 0,
+      fields.updatedAt ?? anInstant(),
+    );
+  if (!row) throw new Error("Delivery could not be stored");
+  return row.id;
+}

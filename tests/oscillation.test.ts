@@ -13,6 +13,7 @@ const cheap = { prompt: "0.00000015", completion: "0.0000006", overrides: tiers 
 const dear = { prompt: "0.0000003", completion: "0.0000012", overrides: tiers };
 
 const event = (before: unknown, after: unknown): Event => ({
+  signal: null,
   id: 7,
   source: "openrouter",
   stream: "openrouter",

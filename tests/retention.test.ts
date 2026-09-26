@@ -8,6 +8,7 @@ import {
   pruneSourceCollectionMetrics,
 } from "../src/storage/retention.js";
 import { readSnapshot, storeSnapshot } from "../src/storage/snapshots.js";
+import { aBatch } from "./fixtures/build.js";
 
 const now = Date.parse("2026-09-12T00:00:00.000Z");
 
@@ -158,7 +159,7 @@ test("shadow candidates nobody ever used are dropped, delivered evidence is not"
   const old = event("discovery:github-ai", 40);
   const recent = event("discovery:github-ai", 5);
   const delivered = event("discovery:github-ai", 40);
-  db.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'test','1970-01-01T00:00:00.000Z',1)").run();
+  aBatch(db, { id: 1, source: "test", readyAt: "1970-01-01T00:00:00.000Z" });
   db.query("INSERT INTO batch_events(batch_id,event_id,url) VALUES(1,?,'')").run(delivered?.id ?? 0);
 
   expect(pruneShadowCandidates(db, ["discovery:github-ai"], now)).toBe(1);

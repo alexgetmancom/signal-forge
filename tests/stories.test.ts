@@ -34,6 +34,7 @@ test("an aggregator republishing a catalogue is reporting it, not answering for 
 test("identity keeps Arena codenames unresolved until a canonical source identifies them", () => {
   const leaderboard = identityFor(
     {
+      signal: null,
       id: 1,
       source: "arena-leaderboards",
       stream: "leaderboards",
@@ -53,6 +54,7 @@ test("identity keeps Arena codenames unresolved until a canonical source identif
 
   const catalogue = identityFor(
     {
+      signal: null,
       id: 2,
       source: "openrouter",
       stream: "openrouter",
@@ -440,7 +442,10 @@ test("a Hugging Face derivative does not corroborate the model it was built from
 
 test("a vendor pattern claims its own models and nobody else's", () => {
   const vendor = (maker: string, entity = "x") =>
-    vendorOf({ source: "arena-leaderboards", entity_id: entity } as never, { id: entity, maker } as never);
+    vendorOf(
+      { signal: null, source: "arena-leaderboards", entity_id: entity } as never,
+      { id: entity, maker } as never,
+    );
 
   // Named by the competitor audit and confirmed against a week of production events.
   expect(vendor("Tencent")).toBe("Tencent");
@@ -463,12 +468,14 @@ test("a vendor pattern claims its own models and nobody else's", () => {
   // Somebody else's fine-tune of a PrismML model is not PrismML's news.
   expect(vendor("", "Continuum-AI-Corp/OrcaBonsai-27B-Uncensored")).toBe("Unknown");
   // A cloud that resells a model does not become its maker.
-  expect(vendorOf({ source: "aws-bedrock-lifecycle", entity_id: "claude-sonnet" } as never, null)).toBe("Anthropic");
+  expect(vendorOf({ signal: null, source: "aws-bedrock-lifecycle", entity_id: "claude-sonnet" } as never, null)).toBe(
+    "Anthropic",
+  );
   // Nor does a catalogue that writes its own name into the maker field: Alibaba Model Studio lists
   // Z.ai's GLM 5.3, and the recap of 2026-09-20 filed it under Qwen.
   expect(
     vendorOf(
-      { source: "dashscope", entity_id: "glm-5.3" } as never,
+      { signal: null, source: "dashscope", entity_id: "glm-5.3" } as never,
       {
         id: "glm-5.3",
         name: "glm-5.3",
@@ -479,7 +486,7 @@ test("a vendor pattern claims its own models and nobody else's", () => {
   // The same field still answers for a model whose own name says nothing.
   expect(
     vendorOf(
-      { source: "dashscope", entity_id: "qwen-max" } as never,
+      { signal: null, source: "dashscope", entity_id: "qwen-max" } as never,
       {
         id: "qwen-max",
         name: "qwen-max",

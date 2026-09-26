@@ -31,6 +31,12 @@ describe("what a change owes", () => {
     expect(line).toContain("cards (what a card says: src/events/render/shape.ts +1)");
     expect(line).toContain("rehearse --only cards");
     // Every phase named here has to be one `rehearse` actually has.
-    expect(REQUIREMENTS.map((one) => one.phase).sort()).toEqual(["cards", "migration", "policy", "projections"]);
+    expect(REQUIREMENTS.map((one) => one.phase).sort()).toEqual([
+      "cards",
+      "migration",
+      "policy",
+      "projections",
+      "reports",
+    ]);
   });
 });

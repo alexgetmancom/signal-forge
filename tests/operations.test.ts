@@ -3,6 +3,7 @@ import { loadConfig } from "../src/config.js";
 import { clearCredentialCircuit, openCredentialCircuitIds, recordCredentialRejection } from "../src/credentials.js";
 import { buildOperationsGuide, OPERATION_SECTIONS } from "../src/guide.js";
 import { listOperatorActions, recordOperatorAction } from "../src/journal.js";
+import { nearest } from "../src/operations/definition.js";
 import { callOperation, cliCommand, operationCatalog, operations } from "../src/operations.js";
 import { lockHolder, withActionLock } from "../src/runtime/actionLock.js";
 import { openDatabase } from "../src/storage/database.js";
@@ -289,4 +290,11 @@ test("every positional argument is a field its operation's schema knows", () => 
       });
   }
   db.close();
+});
+
+test("a name that is not there is answered with the names that are", () => {
+  expect(nearest("failurs", ["failures", "issues", "verify"])).toBe("Closest here: failures");
+  // Nothing alike: a short list is its own suggestion.
+  expect(nearest("zzz", ["issues", "verify"])).toBe("Here: issues, verify");
+  expect(nearest("x", [])).toContain("Nothing of that kind exists");
 });

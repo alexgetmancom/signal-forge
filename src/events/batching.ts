@@ -192,14 +192,8 @@ type ReadyBatch = {
   context_json: string | null;
 };
 
-/**
- * An event as a batch carries it: the class it was batched under, and the link the card points at.
- *
- * `signal` is narrowed rather than intersected. On `Event` it is an optional `string | null`, because
- * a stored row may predate classification; a batched one always has one, and an intersection leaves
- * the optionality behind for every object built by spreading one of these.
- */
-type BatchEvent = Omit<Event, "signal"> & { url: string; signal: SignalClass | "" };
+/** An event as a batch carries it: the class it was batched under, and the link the card points at. */
+type BatchEvent = Event & { url: string };
 
 type BatchTarget = { destination_id: string; destination_json: string };
 
@@ -236,69 +230,70 @@ type Delivering = {
 function speakingEvents(work: Delivering): BatchEvent[] {
   const { db, batch, target, destination, events, storyIds, batchView, now } = work;
   const subscribed = new Set<string>(destination.signals);
+  // An unclassified event is subscribed to by nobody: a destination subscribes to classes, and an
+  // event with no class is not in any of them.
+  const wanted = (event: BatchEvent) => event.signal !== null && subscribed.has(event.signal);
   // Every event subscribed to by this destination leaves either a card or a written reason.
   const quiet = (event: Event, reason: SuppressionReason): never[] => {
     recordSuppression(db, event, target.destination_id, batch.id, reason, now);
     return [];
   };
-  const toldPages = events.some((event) => pageModel(event) && subscribed.has(event.signal))
+  const toldPages = events.some((event) => pageModel(event) && wanted(event))
     ? pageModelsTold(db, target.destination_id, batch.id, now)
     : new Set<string>();
   const releases = new Set<string>();
-  const speaking = events
-    .filter((event) => subscribed.has(event.signal))
-    .flatMap((event) => {
-      // A corroboration card is not the event speaking, so the reasons the event was quiet do
-      // not apply to it. Each of them is a verdict about one sighting -- a board move outside
-      // the top three, another serving of a known model -- and every one stays correct; the
-      // card is about the accumulation, which no per-event rule was ever asked about. Without
-      // this the threshold fires into a batch the same rules then silence again, which is what
-      // happened to all four cards raised in the week to 2026-09-20.
-      if (corroborationOfEvent(db, event.id)) return [event];
-      // Routine drift is judged against the last state this destination actually saw, so that
-      // steps too small to report on their own still add up to one card. Only routine drift:
-      // an event the policy already decided is worth interrupting a reader for, such as a
-      // benchmark changing hands at the top, is news every time it happens.
-      const drifting = batch.digest && event.signal === "change" && event.kind === "changed";
-      const baseline = drifting ? deliveryBaseline(db, event, target.destination_id, batch.id, now) : null;
-      const caughtUp = baseline ? { ...event, ...withBaseline(event, baseline) } : event;
-      if (!hasNotificationContent(caughtUp))
-        return quiet(
-          caughtUp,
-          baseline?.sinceJson && hasNotificationContent(event)
-            ? "returned_to_the_delivered_state"
-            : "no_reader_facing_change",
-        );
-      const standing = standingReason(db, event, batchView);
-      if (standing) return quiet(event, standing);
-      const announcement = announcementModel(event);
-      if (announcement && announcementTold(db, announcement, target.destination_id, batch.id, now))
-        return quiet(event, "same_release_on_another_page");
-      const release = releaseKey(event);
-      if (release && (releases.has(release) || releaseTold(db, release, target.destination_id, batch.id, now)))
-        return quiet(event, "same_release_on_another_page");
-      if (isOscillating(db, event, now)) return quiet(event, "oscillating");
-      if (isReappearance(db, event, now)) return quiet(event, "flapping_in_and_out");
-      // A maker's own post about its own model is never a repeat: it is the link the card
-      // could not carry, and a reader who just heard the model exists wants it in the next
-      // minute rather than folded into a message they have already read.
-      if (
-        !isMakersAnnouncement(event) &&
-        repeatsDeliveredStory(db, event, target.destination_id, storyIds.get(event.id), batch.id)
-      )
-        return quiet(event, "already_told_by_another_source");
-      if (!isMakersAnnouncement(event) && retellsToldModels(db, event, target.destination_id))
-        return quiet(event, "names_only_known_models");
-      if (event.signal === "codename" && announcedBeforeSighted(db, event, storyIds.get(event.id), batch.id))
-        return quiet(event, "announced_before_it_was_sighted");
-      // A number that keeps moving waits, then speaks once about the whole move it missed.
-      if (baseline?.hold) return quiet(event, "waiting_for_the_move_to_settle");
-      const model = pageModel(event);
-      if (model && toldPages.has(model)) return quiet(event, "another_page_about_the_same_model");
-      if (model) toldPages.add(model);
-      if (release) releases.add(release);
-      return [caughtUp];
-    });
+  const speaking = events.filter(wanted).flatMap((event) => {
+    // A corroboration card is not the event speaking, so the reasons the event was quiet do
+    // not apply to it. Each of them is a verdict about one sighting -- a board move outside
+    // the top three, another serving of a known model -- and every one stays correct; the
+    // card is about the accumulation, which no per-event rule was ever asked about. Without
+    // this the threshold fires into a batch the same rules then silence again, which is what
+    // happened to all four cards raised in the week to 2026-09-20.
+    if (corroborationOfEvent(db, event.id)) return [event];
+    // Routine drift is judged against the last state this destination actually saw, so that
+    // steps too small to report on their own still add up to one card. Only routine drift:
+    // an event the policy already decided is worth interrupting a reader for, such as a
+    // benchmark changing hands at the top, is news every time it happens.
+    const drifting = batch.digest && event.signal === "change" && event.kind === "changed";
+    const baseline = drifting ? deliveryBaseline(db, event, target.destination_id, batch.id, now) : null;
+    const caughtUp = baseline ? { ...event, ...withBaseline(event, baseline) } : event;
+    if (!hasNotificationContent(caughtUp))
+      return quiet(
+        caughtUp,
+        baseline?.sinceJson && hasNotificationContent(event)
+          ? "returned_to_the_delivered_state"
+          : "no_reader_facing_change",
+      );
+    const standing = standingReason(db, event, batchView);
+    if (standing) return quiet(event, standing);
+    const announcement = announcementModel(event);
+    if (announcement && announcementTold(db, announcement, target.destination_id, batch.id, now))
+      return quiet(event, "same_release_on_another_page");
+    const release = releaseKey(event);
+    if (release && (releases.has(release) || releaseTold(db, release, target.destination_id, batch.id, now)))
+      return quiet(event, "same_release_on_another_page");
+    if (isOscillating(db, event, now)) return quiet(event, "oscillating");
+    if (isReappearance(db, event, now)) return quiet(event, "flapping_in_and_out");
+    // A maker's own post about its own model is never a repeat: it is the link the card
+    // could not carry, and a reader who just heard the model exists wants it in the next
+    // minute rather than folded into a message they have already read.
+    if (
+      !isMakersAnnouncement(event) &&
+      repeatsDeliveredStory(db, event, target.destination_id, storyIds.get(event.id), batch.id)
+    )
+      return quiet(event, "already_told_by_another_source");
+    if (!isMakersAnnouncement(event) && retellsToldModels(db, event, target.destination_id))
+      return quiet(event, "names_only_known_models");
+    if (event.signal === "codename" && announcedBeforeSighted(db, event, storyIds.get(event.id), batch.id))
+      return quiet(event, "announced_before_it_was_sighted");
+    // A number that keeps moving waits, then speaks once about the whole move it missed.
+    if (baseline?.hold) return quiet(event, "waiting_for_the_move_to_settle");
+    const model = pageModel(event);
+    if (model && toldPages.has(model)) return quiet(event, "another_page_about_the_same_model");
+    if (model) toldPages.add(model);
+    if (release) releases.add(release);
+    return [caughtUp];
+  });
   for (const event of speaking) clearSuppression(db, event.id, target.destination_id);
   return speaking;
 }
@@ -650,7 +645,7 @@ function batchReading(
 } | null {
   const events = db
     .query<BatchEvent, [number]>(
-      "SELECT e.*,b.signal,COALESCE(NULLIF(json_extract(e.after_json,'$.url'),''),NULLIF(json_extract(e.before_json,'$.url'),''),b.url) AS url FROM batch_events b JOIN events e ON e.id=b.event_id WHERE b.batch_id=? ORDER BY e.id",
+      "SELECT e.*,NULLIF(b.signal,'') AS signal,COALESCE(NULLIF(json_extract(e.after_json,'$.url'),''),NULLIF(json_extract(e.before_json,'$.url'),''),b.url) AS url FROM batch_events b JOIN events e ON e.id=b.event_id WHERE b.batch_id=? ORDER BY e.id",
     )
     .all(batch.id);
   // An immediate batch is rendered within seconds of the poll that created it, and the message

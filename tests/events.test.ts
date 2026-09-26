@@ -227,6 +227,7 @@ test("message chunks preserve Unicode and platform limits", () => {
 test("Telegram copy displays readable prices and only changed parameters", async () => {
   const { renderEvent } = await import("../src/events/render/telegram.js");
   const event = {
+    signal: null,
     id: 1,
     source: "openrouter",
     stream: "openrouter",
@@ -256,6 +257,7 @@ test("web copy hides routine strings but keeps product signals", async () => {
 
 test("documentation diffs normalize Markdown and suppress boilerplate-only changes", () => {
   const event = {
+    signal: null,
     id: 10,
     source: "codex-docs",
     stream: "web",
@@ -537,6 +539,7 @@ test("a bundle of twelve updates is one message on each platform", () => {
 
 test("timestamps let each platform speak its reader's clock", () => {
   const event = {
+    signal: null,
     id: 7,
     source: "openrouter",
     stream: "openrouter",
@@ -553,6 +556,7 @@ test("timestamps let each platform speak its reader's clock", () => {
 
 test("notifications expose source confidence", () => {
   const event = {
+    signal: null,
     id: 8,
     source: "openai",
     stream: "api-models",
@@ -602,6 +606,7 @@ test("a single Telegram delivery retains the exact source and record link", () =
 
 test("a Discord card leads with the name and says what it means in one line", () => {
   const event = {
+    signal: null,
     id: 12,
     source: "openrouter",
     stream: "openrouter",
@@ -638,6 +643,7 @@ test("a Discord card leads with the name and says what it means in one line", ()
 
 test("Discord labels an AI summary before the raw evidence", () => {
   const event = {
+    signal: null,
     id: 9,
     source: "github:openai/codex:commits",
     stream: "github",
@@ -675,6 +681,7 @@ test("a rewritten record is collapsed to a readable message instead of a wall of
     after[`field${index}`] = "new";
   }
   const event = {
+    signal: null,
     id: 1,
     source: "openrouter",
     stream: "api-models",
@@ -757,6 +764,7 @@ test("a capability edit travels without a ping", async () => {
 
 test("a price move waits for the digest while a new capability does not", () => {
   const event = (before: Record<string, unknown>, after: Record<string, unknown>) => ({
+    signal: null,
     id: 1,
     source: "openrouter",
     stream: "openrouter",
@@ -779,6 +787,7 @@ test("a price move waits for the digest while a new capability does not", () => 
 
 test("entering a board is a sentence, and only a top-ten debut is told at once", () => {
   const event = {
+    signal: null,
     id: 116,
     source: "arena-leaderboards",
     stream: "leaderboards",
@@ -815,6 +824,7 @@ test("entering a board is a sentence, and only a top-ten debut is told at once",
 
 test("a measured arrival with no place leads on the number instead", () => {
   const event = {
+    signal: null,
     id: 39090,
     source: "artificial-analysis",
     stream: "leaderboards" as const,
@@ -837,6 +847,7 @@ test("a measured arrival with no place leads on the number instead", () => {
 test("leaderboard notifications keep the leading places and meaningful movements only", () => {
   const event = (kind: "new" | "changed" | "removed", before: unknown, after: unknown) =>
     ({
+      signal: null,
       id: 116,
       source: "arena-leaderboards",
       stream: "leaderboards",
@@ -995,6 +1006,7 @@ test("catalogue ignores sub-cent drift but keeps meaningful cheap-model changes"
     pricing: { prompt: "0.00000095", completion: "0.00000017", input_cache_read: "0.000000079" },
   };
   const makeEvent = (before: RecordData, after: RecordData): Event => ({
+    signal: null,
     id: 1,
     source: "openrouter",
     stream: "openrouter",
@@ -1015,6 +1027,7 @@ test("catalogue ignores sub-cent drift but keeps meaningful cheap-model changes"
 
 test("catalogue hides a two-cent expensive-model drift but keeps a sub-cent DeepSeek halving", () => {
   const makeEvent = (before: RecordData, after: RecordData, source = "openrouter"): Event => ({
+    signal: null,
     id: 1,
     source,
     stream: source === "deepseek-pricing" ? "api-models" : "openrouter",
@@ -1043,6 +1056,7 @@ test("catalogue hides a two-cent expensive-model drift but keeps a sub-cent Deep
 
 test("parameter-only catalogue churn and prerelease package channels stay out of delivery", () => {
   const parameterEvent: Event = {
+    signal: null,
     id: 1,
     source: "openrouter",
     stream: "openrouter",
@@ -1066,6 +1080,7 @@ test("parameter-only catalogue churn and prerelease package channels stay out of
 
 test("catalogue keeps material token-limit changes and hides small corrections", () => {
   const changedContext = (from: number, to: number): Event => ({
+    signal: null,
     id: 1,
     source: "openrouter",
     stream: "openrouter",
@@ -1168,6 +1183,7 @@ test("the reveal of a codename hangs off the message that reported the sighting"
 
 test("a launch that was sighted under a codename says which one", () => {
   const launch: Event = {
+    signal: null,
     id: 9,
     source: "gemini",
     stream: "api-models",
@@ -1187,6 +1203,7 @@ test("a launch that was sighted under a codename says which one", () => {
 
 test("a card leaves out what is a blank or our own bookkeeping, and says whose name a sighting carries", () => {
   const listing: Event = {
+    signal: null,
     id: 3,
     source: "vercel-gateway",
     stream: "api-models",
@@ -1209,6 +1226,7 @@ test("a card leaves out what is a blank or our own bookkeeping, and says whose n
   expect(lines).toContain("Price: $0.042 in / 1M tokens");
 
   const sighting: Event = {
+    signal: null,
     id: 4,
     source: "arena",
     stream: "arena",
@@ -1330,6 +1348,7 @@ test("a repricing is read as its sharpest rate, with the rest counted", () => {
 test("a reseller row from an untracked maker is titled with its maker", () => {
   const row = { context: null, id: "fish-audio/s1", maker: "fish-audio", name: "S1", output: null, pricing: {} };
   const event = {
+    signal: null,
     id: 1,
     source: "vercel-gateway",
     stream: "api-models",
@@ -1374,6 +1393,7 @@ test("a training run that ends reads as a finished run, not as fields that moved
   const run = { id: "mimo-v2.6-flash", name: "mimo-v2.6-flash", maker: "Xiaomi", started: "2026-09-05T10:00:00.000Z" };
   const embed = eventEmbed(
     {
+      signal: null,
       id: 1,
       source: "mimo-training",
       stream: "training",

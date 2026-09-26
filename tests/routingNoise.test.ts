@@ -11,6 +11,7 @@ import { listedInCatalogue, olderThanKnown } from "../src/sources/mentionStage.j
 import { openDatabase } from "../src/storage/database.js";
 
 const event = (over: Partial<Event> & { record: Record<string, unknown> }): Event => ({
+  signal: null,
   id: 1,
   source: "x",
   stream: "news",
@@ -92,20 +93,34 @@ test("catalogue lookups: a docs slug finds its launched model, an old model know
   );
   const row = { source: "dashscope", stream: "api-models" };
   // A mode of a listed model is a trail; a mode whose base nobody sells is still the first word.
-  expect(classify(db, event({ ...row, entity_id: "glm-5.3-prime", record: { id: "glm-5.3-prime" } }))).toBe("evidence");
-  expect(classify(db, event({ ...row, entity_id: "glm-6-fast", record: { id: "glm-6-fast" } }))).toBe("codename");
+  expect(
+    classify(db, event({ signal: null, ...row, entity_id: "glm-5.3-prime", record: { id: "glm-5.3-prime" } })),
+  ).toBe("evidence");
+  expect(classify(db, event({ signal: null, ...row, entity_id: "glm-6-fast", record: { id: "glm-6-fast" } }))).toBe(
+    "codename",
+  );
   // A docs page for a model already on sale is late; one for a model nobody sells is a sighting.
   const page = { source: "pages:xai-docs", stream: "pages" };
   expect(
     classify(
       db,
-      event({ ...page, entity_id: "/developers/grok-4-7", record: { id: "/developers/grok-4-7", name: "Grok 4 7" } }),
+      event({
+        signal: null,
+        ...page,
+        entity_id: "/developers/grok-4-7",
+        record: { id: "/developers/grok-4-7", name: "Grok 4 7" },
+      }),
     ),
   ).toBe("evidence");
   expect(
     classify(
       db,
-      event({ ...page, entity_id: "/developers/grok-4-8", record: { id: "/developers/grok-4-8", name: "Grok 4 8" } }),
+      event({
+        signal: null,
+        ...page,
+        entity_id: "/developers/grok-4-8",
+        record: { id: "/developers/grok-4-8", name: "Grok 4 8" },
+      }),
     ),
   ).toBe("codename");
   // An old model's context moving is housekeeping; its price moving still travels.
@@ -115,6 +130,7 @@ test("catalogue lookups: a docs slug finds its launched model, an old model know
     classify(
       db,
       event({
+        signal: null,
         ...or,
         entity_id: sonnet.id,
         before_json: JSON.stringify({ ...sonnet, context_length: 1000000 }),
@@ -126,6 +142,7 @@ test("catalogue lookups: a docs slug finds its launched model, an old model know
     classify(
       db,
       event({
+        signal: null,
         ...or,
         entity_id: sonnet.id,
         before_json: JSON.stringify({ ...sonnet, pricing: { prompt: 6 } }),
@@ -138,17 +155,25 @@ test("catalogue lookups: a docs slug finds its launched model, an old model know
 
 test("a docs page joins its model's story by title without the site and by a versioned path", () => {
   const page = event({
+    signal: null,
     source: "pages:xai-docs",
     stream: "pages",
     entity_id: "/developers/grok-4-7",
     record: { id: "/developers/grok-4-7", name: "xAI Docs: Grok 4 7" },
   });
-  const launch = event({ source: "xai", stream: "api-models", entity_id: "grok-4.7", record: { id: "grok-4.7" } });
+  const launch = event({
+    signal: null,
+    source: "xai",
+    stream: "api-models",
+    entity_id: "grok-4.7",
+    record: { id: "grok-4.7" },
+  });
   const terms = (e: Event) => identityTerms(identityFor(e, JSON.parse(e.after_json ?? "{}")));
   expect(terms(page)).toContain("grok 4 7");
   expect(terms(page).some((term) => terms(launch).includes(term))).toBe(true);
   // A blog path is not a model's name.
   const blog = event({
+    signal: null,
     source: "pages:google-devs",
     stream: "pages",
     entity_id: "/gemini-20-deep-dive-code-execution",
@@ -197,7 +222,13 @@ test("a reseller moving only its cache or regional rates is evidence; input and 
   const db = openDatabase(":memory:");
   const flash = { id: "deepseek/deepseek-v4.1-flash", name: "DeepSeek V4.1 Flash" };
   const priced = (pricing: Record<string, unknown>) => ({ ...flash, pricing });
-  const at = { source: "vercel-ai-gateway", stream: "api-models", kind: "changed" as const, entity_id: flash.id };
+  const at = {
+    signal: null,
+    source: "vercel-ai-gateway",
+    stream: "api-models",
+    kind: "changed" as const,
+    entity_id: flash.id,
+  };
   const was = { input: "0.0000002", output: "0.0000008", input_cache_read: "0.00000003", regional: { us: 1 } };
   const side = { ...was, input_cache_read: "0.000000007", regional: { us: 2 } };
   expect(classify(db, event({ ...at, before_json: JSON.stringify(priced(was)), record: priced(side) }))).toBe(

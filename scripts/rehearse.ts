@@ -21,7 +21,7 @@
  *   bun run rehearse 30 discord-signals    including what one channel had already been told
  *   bun run rehearse --base 7e0599f        against the policy as it stood at a commit
  *   bun run rehearse --fresh               ignore the cached copy and pull again
- *   bun run rehearse --all                 every phase, including the two that are not about cards
+ *   bun run rehearse --all                 every phase, including the ones that are not about cards
  *   bun run rehearse --only projections    one of them
  *   bun run rehearse --needed              the ones this branch's diff owes, worked out rather than remembered
  *   bun run rehearse --list                what the phases are
@@ -120,6 +120,15 @@ const PHASES: Phase[] = [
     ],
   },
   {
+    name: "reports",
+    always: false,
+    what: "what the operations answer, which is what a reader of a report decides on",
+    run: (unpacked, resultPath) => [
+      "scripts/replay-reports.ts",
+      ...["--db", copy, "--base", unpacked, "--result", resultPath],
+    ],
+  },
+  {
     name: "projections",
     always: false,
     what: "whether an incremental Model Facts or hypotheses update lands where a rebuild does",
@@ -192,7 +201,8 @@ if ((await prodCopy(flags.has("--fresh"), say)) === null) {
   process.exit(1);
 }
 
-const unpacked = chosen.some((phase) => phase.always) ? unpackBase(base ?? "HEAD") : "";
+const needsBase = chosen.some((phase) => phase.always || phase.name === "reports");
+const unpacked = needsBase ? unpackBase(base ?? "HEAD") : "";
 const findings: Finding[] = [];
 for (const [index, phase] of chosen.entries()) {
   if (index > 0) say("");
@@ -212,12 +222,29 @@ for (const [index, phase] of chosen.entries()) {
   if (code !== 0) break;
 }
 
+/**
+ * The uncommitted change itself, not the fact of one: a tree that can be named is a run that can be
+ * compared against, and every rehearsal worth doing happens before the commit.
+ *
+ * Untracked files are hashed by content and not by name. The first version read `git diff HEAD`,
+ * which says nothing about a file git has never seen, and reported two rehearsals of a new script
+ * as the same tree while the script was being rewritten between them.
+ */
+const status = git("status", "--porcelain");
+const untracked = status
+  .split("\n")
+  .filter((line) => line.startsWith("??"))
+  .map((line) => line.slice(3))
+  .map((file) => `${file}\n${existsSync(resolve(root, file)) ? git("hash-object", file) : ""}`);
+const uncommitted = [status, git("diff", "HEAD"), ...untracked].join("\n").trim();
+
 const entry: Entry = {
   at: new Date().toISOString(),
   base: base ?? "HEAD",
   baseSha: unpacked === "" ? "" : resolveRef(base ?? "HEAD"),
   head: resolveRef("HEAD"),
-  dirty: git("status", "--porcelain").length > 0,
+  dirty: uncommitted !== "",
+  tree: uncommitted === "" ? null : new Bun.CryptoHasher("sha256").update(uncommitted).digest("hex").slice(0, 12),
   days: Number(days),
   findings,
 };
@@ -234,5 +261,10 @@ for (const finding of findings) {
   const agreement = lastAgreement(ledger.slice(0, -1), finding);
   if (agreement) say(`  ${agreement}`);
 }
-if (entry.dirty) say("  (working tree is dirty, so this run is not repeatable from the ledger)");
+if (entry.tree) {
+  const same = ledger.slice(0, -1).filter((seen) => seen.tree === entry.tree).length;
+  say(
+    `  (uncommitted tree ${entry.tree}${same > 0 ? `, rehearsed ${same} time${same === 1 ? "" : "s"} before` : ", not rehearsed before"})`,
+  );
+}
 process.exit(findings.some((finding) => finding.verdict === "failed") ? 1 : 0);

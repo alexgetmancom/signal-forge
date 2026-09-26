@@ -5,6 +5,7 @@ import { loadConfig } from "../src/config.js";
 import { recordCredentialRejection } from "../src/credentials.js";
 import { listActionableIssues } from "../src/reports/issues.js";
 import { openDatabase } from "../src/storage/database.js";
+import { aSource } from "./fixtures/build.js";
 
 const configPath = new URL("./fixtures/config.json", import.meta.url).pathname;
 
@@ -163,4 +164,28 @@ test("a refused credential is one issue, dated from the refusal, not one per sou
     firstSeenAt: openedAt,
   });
   db.close();
+});
+
+test("two sources of one family failing at once are one upstream, not two collectors", () => {
+  const db = openDatabase(":memory:");
+  const config = loadConfig({ CONFIG_PATH: configPath });
+  const now = Date.parse("2026-09-08T12:00:00.000Z");
+  const at = "2026-09-08T11:59:00.000Z";
+  aSource(db, "arena", { lastError: "Public page no longer exposes initialModels", checkedAt: at, failures: 3 });
+  aSource(db, "arena-leaderboards", {
+    lastError: "Public page no longer exposes leaderboards",
+    checkedAt: at,
+    failures: 3,
+  });
+  const issues = listActionableIssues(db, config, now);
+  const arena = issues.find((issue) => issue.id === "arena");
+  expect(arena?.group).toBe("Arena");
+  expect(arena?.groupFailing).toBe(2);
+  expect(arena?.hint).toContain("arena, arena-leaderboards");
+  // A source failing alone carries no share of somebody else's outage.
+  const alone = openDatabase(":memory:");
+  aSource(alone, "arena", { lastError: "Public page no longer exposes initialModels", checkedAt: at, failures: 3 });
+  expect(listActionableIssues(alone, config, now).find((issue) => issue.id === "arena")?.group).toBeUndefined();
+  db.close();
+  alone.close();
 });

@@ -49,6 +49,10 @@ export type ActionableIssue = {
    * whether a red row would clear on its own was to query `sources` by hand.
    */
   retryAt?: string | null;
+  /** The family this source belongs to, on the issues where the family is the story. */
+  group?: string;
+  /** How many of that family are failing at once, which is the difference between one cause and several. */
+  groupFailing?: number;
   message: string;
   hint: string;
 };
@@ -74,6 +78,34 @@ function readJson<T>(value: string, fallback: T): T {
     return JSON.parse(value) as T;
   } catch {
     return fallback;
+  }
+}
+
+/**
+ * Sources of one family failing together, marked as one cause rather than counted as several.
+ *
+ * `arena` and `arena-leaderboards` are two rows in this list and one broken page: both stopped on
+ * 2026-09-24 because the site stopped putting its data in the HTML, and each was reported as a
+ * collector to open. Two collectors were not broken. The registry already groups sources by the
+ * thing they read, so when more than one of a group is failing at the same time that is what the
+ * issue says, and the reader looks at the site once instead of at the collectors twice.
+ */
+function sharedCause(issues: ActionableIssue[], health: readonly { id: string; group: string }[]): void {
+  const groupOf = new Map(health.map((entry) => [entry.id, entry.group]));
+  const size = new Map<string, number>();
+  for (const entry of health) size.set(entry.group, (size.get(entry.group) ?? 0) + 1);
+  const failing = new Map<string, string[]>();
+  for (const issue of issues) {
+    const group = issue.source ? groupOf.get(issue.source) : undefined;
+    if (group && issue.source) failing.set(group, [...(failing.get(group) ?? []), issue.source]);
+  }
+  for (const issue of issues) {
+    const group = issue.source ? groupOf.get(issue.source) : undefined;
+    const peers = group ? (failing.get(group) ?? []) : [];
+    if (!group || peers.length < 2) continue;
+    issue.group = group;
+    issue.groupFailing = peers.length;
+    issue.hint = `${issue.hint} ${peers.length} of the ${size.get(group)} ${group} sources are failing at once (${peers.join(", ")}), so this is one upstream to look at before it is ${peers.length} collectors to open.`;
   }
 }
 
@@ -357,7 +389,7 @@ export function listActionableIssues(db: Database, config: AppConfig, now = Date
         : `Capability ${capability.id} is missing ${capability.missingCount} required credential${capability.missingCount === 1 ? "" : "s"}`,
       hint: rejected
         ? "Rotate the credential and restart the service, then clear-credential-circuit to schedule its sources again."
-        : "Provide the credential for an intentionally enabled integration, then restart the service.",
+        : "Provide the credential, or set `sourceEnabled` false for the sources that want it: an integration nobody intends to run is a configuration decision, not an open issue.",
     });
   }
 
@@ -379,6 +411,7 @@ export function listActionableIssues(db: Database, config: AppConfig, now = Date
   }
 
   const severity = { critical: 0, error: 1, warning: 2 } satisfies Record<IssueSeverity, number>;
+  sharedCause(issues, health);
   return issues.sort(
     (left, right) =>
       severity[left.severity] - severity[right.severity] || right.updatedAt.localeCompare(left.updatedAt),

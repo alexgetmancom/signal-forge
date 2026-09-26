@@ -5,6 +5,7 @@ import { logoFiles } from "../src/events/render/logos.js";
 import type { Event } from "../src/events/types.js";
 
 const model = (id: string, name: string, source = "mimo"): Event & { url: string } => ({
+  signal: null,
   id: 1,
   source,
   stream: "api-models",
@@ -124,6 +125,7 @@ test("a week's arrivals are drawn as one 16:9 poster", async () => {
 
 test("a picture quotes the rates a model is chosen by and keeps the cache sheet in the text", () => {
   const event = {
+    signal: null,
     id: 1,
     source: "openai",
     stream: "api-models",

@@ -35,6 +35,7 @@ test("Hacker News keeps front-page stories that name a followed maker, and never
     },
   ]);
   const event: Event = {
+    signal: null,
     id: 1,
     source: "hackernews",
     stream: "news",

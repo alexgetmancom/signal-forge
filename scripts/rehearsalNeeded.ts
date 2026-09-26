@@ -33,6 +33,11 @@ export const REQUIREMENTS: readonly Requirement[] = [
       /^src\/(events\/(batching|worth|signals|classify|oscillation|rename|variants|witness|breakouts)\.ts|insights\.ts|jev\.ts|delivery\.ts)/,
   },
   {
+    phase: "reports",
+    because: "what a report answers",
+    touches: /^src\/(reports\/|operations\/|operations\.ts|status\.ts|capabilities\.ts)/,
+  },
+  {
     phase: "projections",
     because: "a projection built incrementally",
     touches: /^src\/(modelFacts\.ts|hypotheses\.ts|stories\.ts|events\/store\.ts)/,

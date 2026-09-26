@@ -12,7 +12,7 @@ import {
 } from "../scripts/rehearsalLedger.js";
 
 function anEntry(at: string, base: string, findings: Finding[]): Entry {
-  return { at, base, baseSha: `${base}0000000`, head: "head", dirty: false, days: 30, findings };
+  return { at, base, baseSha: `${base}0000000`, head: "head", dirty: false, tree: null, days: 30, findings };
 }
 const same = (phase: string, fingerprint: string): Finding => ({ phase, verdict: "same", moved: 0, fingerprint });
 

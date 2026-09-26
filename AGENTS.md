@@ -16,4 +16,3 @@ What follows is only the things that are not a command.
 - A new index ships with the read it was for, in `src/storage/hotQueries.ts`, and with `ANALYZE;` in the same migration. 049 shipped five indexes the planner ignored until `sqlite_stat1` was populated, and from outside an unused index and a missing one look identical.
 - Reach for `tests/fixtures/build.ts` before writing an INSERT in a test. `anEvent`, `aSnapshot`, `anAttempt` and `aCall` produce rows that satisfy the CHECK constraints; writing them by hand produced `CHECK constraint failed` instead of a test five times over two sessions.
 - Work on main. Deploy is a push: `git push`, find the run by head SHA, `gh run watch --exit-status`, then `bun run prod verify <symbol>` — the symbol in `/app/dist` is the only one of its four checks that can tell a new image from an old one still running.
-- English only in `src/`, `scripts/`, `tests/` and `docs/`; the gate checks it.

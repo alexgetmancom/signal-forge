@@ -63,7 +63,7 @@ const RELEASE_WINDOW_MS = 7 * 24 * 3_600_000;
  * each entry as `#github-release-<id>` while the repository's releases feed keys the same release by
  * `<id>`, so 0.155.1 reached #signals twice on 2026-09-18.
  */
-export function releaseKey(event: Event & { signal: string }): string | null {
+export function releaseKey(event: Event): string | null {
   // One link per model. Grok 4.7 was announced on 2026-09-21 by xAI's release notes and by two of
   // its own pages within seventy minutes of the catalogue card; a reader needs the first of them.
   const announcement = announcementModel(event);
@@ -82,7 +82,7 @@ export function releaseKey(event: Event & { signal: string }): string | null {
  * The model a maker's own announcement is about, for an event that is one: its post's title, or the
  * slug of the page it published. Null when the event is not an announcement of the maker's own.
  */
-export function announcementModel(event: Event & { signal: string }): string | null {
+export function announcementModel(event: Event): string | null {
   // One stealth model, however many venues list it in the same hour, and under whichever name:
   // OpenCode called it `space-bunny-free` and OpenRouter `stealth/space-bunny-alpha`.
   if (isStealthLaunch(event)) return `stealth:${stealthSubject(event)}`;
@@ -148,7 +148,7 @@ export function announcementTold(
 ): boolean {
   const since = new Date(now - ANNOUNCEMENT_WINDOW_MS).toISOString();
   return db
-    .query<Event & { signal: string }, (string | number)[]>(
+    .query<Event, (string | number)[]>(
       `SELECT e.* FROM batch_events be
        JOIN events e ON e.id=be.event_id
        JOIN deliveries d ON d.batch_id=be.batch_id
@@ -195,7 +195,7 @@ const DEBUT_WINDOW_MS = 24 * 3_600_000;
 
 export function repeatsDeliveredStory(
   db: Database,
-  event: Event & { signal?: string },
+  event: Event,
   destinationId: string,
   storyId: number | undefined,
   batchId: number,

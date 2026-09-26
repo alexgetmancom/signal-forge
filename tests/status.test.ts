@@ -7,6 +7,7 @@ import { PLATFORMS, parsePlatformStatus } from "../src/sources/platforms.js";
 import { activityEmbed, fitEmbed, platformEmbed, publishBoard, sourceHealth, statusEmbed } from "../src/status.js";
 import { openDatabase } from "../src/storage/database.js";
 import { storeSnapshot } from "../src/storage/snapshots.js";
+import { aSource } from "./fixtures/build.js";
 
 const config = loadConfig({
   CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname,
@@ -18,12 +19,11 @@ const withStatus = { ...config, statusChannelId: "99" };
 const now = Date.parse("2026-09-08T12:00:00.000Z");
 
 function seed(db: ReturnType<typeof openDatabase>, id: string, row: Record<string, string | null>): void {
-  db.query("INSERT INTO sources(id,last_success,last_error,checked_at) VALUES(?,?,?,?)").run(
-    id,
-    row.last_success ?? null,
-    row.last_error ?? null,
-    row.checked_at ?? null,
-  );
+  aSource(db, id, {
+    lastSuccess: row.last_success ?? null,
+    lastError: row.last_error ?? null,
+    checkedAt: row.checked_at ?? null,
+  });
 }
 
 test("a rate-limited source waits on upstream instead of reporting a broken collector", () => {
@@ -69,11 +69,11 @@ test("a source that missed three of its own intervals is stale, not failing", ()
 
 test("a suspicious collection shrink is visible as degraded", () => {
   const db = openDatabase(":memory:");
-  db.query("INSERT INTO sources(id,last_error,last_success,checked_at) VALUES('openrouter',?,?,?)").run(
-    "Collection degraded: openrouter retained 4 of 10 records",
-    "2026-09-08T11:00:00.000Z",
-    "2026-09-08T12:00:00.000Z",
-  );
+  aSource(db, "openrouter", {
+    lastError: "Collection degraded: openrouter retained 4 of 10 records",
+    lastSuccess: "2026-09-08T11:00:00.000Z",
+    checkedAt: "2026-09-08T12:00:00.000Z",
+  });
   const health = sourceHealth(db, withStatus, Date.parse("2026-09-08T12:00:00.000Z"));
   expect(health.find((entry) => entry.id === "openrouter")).toMatchObject({
     state: "degraded",
@@ -247,11 +247,7 @@ test("an outage is announced once, and so is the recovery", async () => {
   };
   const now = Date.parse("2026-09-08T12:00:00.000Z");
   const mark = (error: string | null, success: string | null) =>
-    db
-      .query(
-        "INSERT INTO sources(id,last_error,last_success,checked_at) VALUES('openrouter',?,?,?) ON CONFLICT(id) DO UPDATE SET last_error=excluded.last_error,last_success=excluded.last_success,checked_at=excluded.checked_at",
-      )
-      .run(error, success, new Date(now).toISOString());
+    aSource(db, "openrouter", { lastError: error, lastSuccess: success, checkedAt: new Date(now).toISOString() });
 
   mark("Source returned HTTP 500", null);
   // The first failed check is not an alert: today's outages lasted minutes and cleared themselves.
@@ -286,11 +282,7 @@ test("a source that keeps flapping pays one more confirmation for each interrupt
   };
   const now = Date.parse("2026-09-08T12:00:00.000Z");
   const mark = (error: string | null, success: string | null) =>
-    db
-      .query(
-        "INSERT INTO sources(id,last_error,last_success,checked_at) VALUES('openrouter',?,?,?) ON CONFLICT(id) DO UPDATE SET last_error=excluded.last_error,last_success=excluded.last_success,checked_at=excluded.checked_at",
-      )
-      .run(error, success, new Date(now).toISOString());
+    aSource(db, "openrouter", { lastError: error, lastSuccess: success, checkedAt: new Date(now).toISOString() });
   const readings = async (times: number) => {
     for (let reading = 0; reading < times; reading++) await publishAlerts(db, config, request, now);
   };
@@ -323,9 +315,7 @@ test("an alert that cannot be delivered is retried, not forgotten", async () => 
     return new Response("{}", { status: 403 });
   };
   const now = Date.parse("2026-09-08T12:00:00.000Z");
-  db.query("INSERT INTO sources(id,last_error,checked_at) VALUES('openrouter','boom',?)").run(
-    new Date(now).toISOString(),
-  );
+  aSource(db, "openrouter", { lastError: "boom", checkedAt: new Date(now).toISOString() });
   // Two checks to confirm the outage, then every later check retries the undelivered alert.
   await publishAlerts(db, config, failing, now);
   await publishAlerts(db, config, failing, now);
@@ -342,9 +332,7 @@ test("an unknown alert outcome is durably settled and never retried", async () =
   };
   let attempts = 0;
   const now = Date.parse("2026-09-08T12:00:00.000Z");
-  db.query("INSERT INTO sources(id,last_error,checked_at) VALUES('openrouter','gone',?)").run(
-    new Date(now).toISOString(),
-  );
+  aSource(db, "openrouter", { lastError: "gone", checkedAt: new Date(now).toISOString() });
   const request = async () => {
     attempts += 1;
     throw new Error("network failed after send");
@@ -365,9 +353,7 @@ test("interrupted alert sends become ambiguous before the next cycle", async () 
     alertChannelId: "999",
   };
   const now = Date.parse("2026-09-08T12:00:00.000Z");
-  db.query("INSERT INTO sources(id,last_error,checked_at) VALUES('openrouter','gone',?)").run(
-    new Date(now).toISOString(),
-  );
+  aSource(db, "openrouter", { lastError: "gone", checkedAt: new Date(now).toISOString() });
   db.query("INSERT INTO app_state(key,value) VALUES('alert_strikes',?)").run('{"openrouter":2}');
   db.query(
     "INSERT INTO alert_attempts(state_version,from_state_json,to_state_json,body,status,attempts,created_at,updated_at) VALUES(1,'[]','[\"openrouter\"]','{}','sending',1,?,?)",
@@ -396,9 +382,7 @@ test("an interrupted alert advances the durable state before a changed next cycl
     alertChannelId: "999",
   };
   const now = Date.parse("2026-09-08T12:00:00.000Z");
-  db.query("INSERT INTO sources(id,last_error,checked_at) VALUES('openrouter','gone',?)").run(
-    new Date(now).toISOString(),
-  );
+  aSource(db, "openrouter", { lastError: "gone", checkedAt: new Date(now).toISOString() });
   db.query("INSERT INTO app_state(key,value) VALUES('alert_strikes',?)").run('{"openrouter":2}');
   db.query(
     "INSERT INTO alert_attempts(state_version,from_state_json,to_state_json,body,status,attempts,created_at,updated_at) VALUES(1,'[]','[\"openrouter\"]','{}','sending',1,?,?)",
@@ -562,7 +546,7 @@ test("many collectors failing together is reported as one shared path", async ()
   };
   const now = Date.parse("2026-09-08T12:00:00.000Z");
   for (const id of ["openrouter", "openai-news", "anthropic-news", "arena", "arena-leaderboards"])
-    db.query("INSERT INTO sources(id,last_error,checked_at) VALUES(?,'gone',?)").run(id, new Date(now).toISOString());
+    aSource(db, id, { lastError: "gone", checkedAt: new Date(now).toISOString() });
 
   await publishAlerts(db, config, request, now);
   await publishAlerts(db, config, request, now);

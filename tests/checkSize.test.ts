@@ -29,8 +29,9 @@ describe("the declaration size ratchet", () => {
       80,
     );
     expect(problem).toContain("src/b.ts:new is 140 code lines");
-    // The number to paste, so recording a new one is a decision rather than an arithmetic problem.
-    expect(problem).toContain("record it in BUDGET as 150");
+    // One way out is offered, and it is not the one that makes the file longer.
+    expect(problem).toContain("Split it");
+    expect(problem).toContain("BUDGET is closed");
   });
 
   test("growing past a budget fails, and so does leaving a budget behind after shrinking", () => {

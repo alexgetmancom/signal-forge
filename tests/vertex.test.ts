@@ -155,6 +155,7 @@ test("no publisher answering with models is a failed read", async () => {
 });
 
 const event = (source: string, kind: Event["kind"], before: object | null, after: object | null): Event => ({
+  signal: null,
   id: 1,
   source,
   stream: "api-models",

@@ -31,6 +31,15 @@ export type Entry = {
   head: string;
   /** Whether the working tree had uncommitted changes, which is what makes a run unrepeatable. */
   dirty: boolean;
+  /**
+   * A hash of those changes, or null when there were none.
+   *
+   * A rehearsal is wanted at exactly one moment -- before the commit -- and at that moment the tree
+   * is always dirty, so "not repeatable" described every run anybody actually did. It is repeatable
+   * if the tree can be named: two runs with the same `tree` rehearsed the same code, whether or not
+   * either was ever committed.
+   */
+  tree: string | null;
   days: number;
   findings: Finding[];
 };

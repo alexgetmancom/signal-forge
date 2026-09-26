@@ -1,36 +1,11 @@
 import { text } from "../text.js";
 import { incidentIsSevere, incidentTouchesSubscribers } from "./incidents.js";
 import { recordFor } from "./record.js";
-import type { Event, RecordData } from "./types.js";
+import type { Event, RecordData, SignalClass } from "./types.js";
 import { vendorOfName } from "./vendors.js";
 import { meaningfulWebString, tellingWebString } from "./web.js";
 
-/**
- * What a reader came for, which is a different question from how solid the evidence is.
- *
- * Confidence says how much the source can be trusted. A signal class says whether a person who
- * subscribed to hear about new things wants this message at all. An unnamed codename on an arena
- * is the weakest evidence in the system and the most interesting thing in it; a first-party
- * retirement date shift is the strongest evidence and the least interesting.
- */
-export const SIGNAL_CLASSES = [
-  "launch",
-  "codename",
-  "release",
-  "article",
-  "evidence",
-  "rank",
-  "change",
-  "incident",
-  "reminder",
-  "retirement",
-  "feature",
-  "safety",
-  "research",
-  "business",
-  "debut",
-] as const;
-export type SignalClass = (typeof SIGNAL_CLASSES)[number];
+export { SIGNAL_CLASSES, type SignalClass } from "./types.js";
 
 /**
  * The class of an event, derived from the same evidence the card is rendered from.

@@ -107,6 +107,7 @@ test("a short or empty history is a failed read, never a history without resets"
 
 function resetEvent(kind: "new" | "changed", record: Record<string, unknown>) {
   return {
+    signal: null,
     id: 1,
     source: "codex-resets",
     stream: "resets",
@@ -130,6 +131,7 @@ test("a reset travels with the launches", () => {
 
 test("the card says how solid a reset is from the record, not from the stream", () => {
   const event = (announcement: string) => ({
+    signal: null,
     id: 1,
     source: "codex-resets",
     stream: "resets",

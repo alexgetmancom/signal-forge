@@ -79,6 +79,7 @@ test("a sitemap index is followed one level and merged without duplicates", asyn
 
 test("a page appearing is a codename signal; a page leaving is only evidence", () => {
   const event = (kind: Event["kind"]): Event => ({
+    signal: null,
     id: 1,
     source: "pages:anthropic",
     stream: "pages",
@@ -179,6 +180,7 @@ test("every child sitemap is read, and a page in a new shard of a site already r
 
 test("a new page reaches the scouts only when it names a versioned product or is a model page", () => {
   const page = (source: string, id: string, name: string): Event => ({
+    signal: null,
     id: 1,
     source,
     stream: "pages",

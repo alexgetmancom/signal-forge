@@ -6,6 +6,7 @@ const event = (
   overrides: Partial<Event> & { stream: Event["stream"]; kind: Event["kind"] },
   record: RecordData | null = null,
 ): Event => ({
+  signal: null,
   id: 1,
   source: "openrouter",
   entity_id: "model",
@@ -69,7 +70,7 @@ test("a platform listing another maker's model is a sighting, whoever owns the p
   // The collector stamps the platform as the maker of every row, so the name has to answer.
   const onDashScope = (id: string) =>
     event(
-      { stream: "api-models", kind: "new", source: "dashscope", authority: "first_party", entity_id: id },
+      { signal: null, stream: "api-models", kind: "new", source: "dashscope", authority: "first_party", entity_id: id },
       { id, name: id, maker: "Alibaba Model Studio", owner: "system" },
     );
   expect(signalClass(onDashScope("glm-5.3"))).toBe("codename");
@@ -80,7 +81,7 @@ test("a platform listing another maker's model is a sighting, whoever owns the p
   expect(
     signalClass(
       event(
-        { stream: "api-models", kind: "new", source: "openai", entity_id: "whisper-2" },
+        { signal: null, stream: "api-models", kind: "new", source: "openai", entity_id: "whisper-2" },
         { id: "whisper-2", name: "whisper-2" },
       ),
     ),
@@ -88,6 +89,7 @@ test("a platform listing another maker's model is a sighting, whoever owns the p
   // The gateway is recorded as vendor-owned and sells twenty-six makers' models.
   const gateway = event(
     {
+      signal: null,
       stream: "api-models",
       kind: "new",
       source: "vercel-gateway",
@@ -248,6 +250,7 @@ test("only the two classes a reader subscribed for carry a role mention", () => 
 
 test("a listed entry becoming selectable is a sighting on an arena and a launch in its maker's catalogue", () => {
   const flip = (source: string, stream: string, name: string): Event => ({
+    signal: null,
     id: 1,
     source,
     stream,
@@ -398,7 +401,7 @@ test("a voice or an embedding in a maker's own catalogue is a sighting, not a la
   expect(
     signalClass(
       event(
-        { ...google, entity_id: "gemini-3.8-flash-tts" },
+        { signal: null, ...google, entity_id: "gemini-3.8-flash-tts" },
         { id: "gemini-3.8-flash-tts", name: "gemini-3.8-flash-tts" },
       ),
     ),
@@ -406,14 +409,17 @@ test("a voice or an embedding in a maker's own catalogue is a sighting, not a la
   expect(
     signalClass(
       event(
-        { ...google, entity_id: "gemini-embedding-002" },
+        { signal: null, ...google, entity_id: "gemini-embedding-002" },
         { id: "gemini-embedding-002", name: "gemini-embedding-002" },
       ),
     ),
   ).toBe("codename");
   expect(
     signalClass(
-      event({ ...google, entity_id: "gemini-3.8-flash" }, { id: "gemini-3.8-flash", name: "gemini-3.8-flash" }),
+      event(
+        { signal: null, ...google, entity_id: "gemini-3.8-flash" },
+        { id: "gemini-3.8-flash", name: "gemini-3.8-flash" },
+      ),
     ),
   ).toBe("launch");
 });
@@ -422,7 +428,7 @@ test("a consumer app's release notes are evidence at Mistral as they are at Chat
   const entry = (source: string, name: string, audience?: string) =>
     signalClass(
       event(
-        { stream: "news", kind: "new", source, entity_id: name },
+        { signal: null, stream: "news", kind: "new", source, entity_id: name },
         { id: name, name, ...(audience ? { audience } : {}) },
       ),
     );
@@ -434,6 +440,7 @@ test("a consumer app's release notes are evidence at Mistral as they are at Chat
 test("a page about making pictures or speech is a trail, not news", () => {
   const page = (path: string) =>
     ({
+      signal: null,
       id: 1,
       source: "pages:google",
       stream: "pages",

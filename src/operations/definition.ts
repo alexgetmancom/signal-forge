@@ -71,8 +71,29 @@ export function operationCatalog(defs: OperationMap): OperationCatalogEntry[] {
  */
 export function callOperation(defs: OperationMap, name: string, input: unknown = {}): unknown {
   const definition = defs[name];
-  if (!definition) throw new Error(`Unknown operation: ${name}`);
+  if (!definition) throw new Error(`Unknown operation: ${name}. ${nearest(name, Object.keys(defs))}`);
   return (definition.handler as (value: unknown) => unknown)(definition.schema.parse(input));
+}
+
+/**
+ * A name that was not found, answered with the names that were there.
+ *
+ * `sql` learned this first and it paid for itself the same day: "no such column: summary" is true
+ * and useless, and the version that lists the columns turned five round trips to production into
+ * one. Every other "not found" in this repository had the same shape and none of them had the
+ * same answer, so this is that lesson as a function: what was asked for, then what exists, closest
+ * first. A caller with two hundred known names gets the ones that look like the guess; a caller
+ * with eight gets all eight, because a short list is its own suggestion.
+ */
+export function nearest(asked: string, known: readonly string[], limit = 8): string {
+  if (known.length === 0) return "Nothing of that kind exists here yet.";
+  const lower = asked.toLowerCase();
+  const alike = known.filter((name) => {
+    const other = name.toLowerCase();
+    return other.includes(lower) || lower.includes(other) || other.slice(0, 3) === lower.slice(0, 3);
+  });
+  const offer = (alike.length ? alike : known).slice(0, limit);
+  return `${alike.length ? "Closest here" : "Here"}: ${offer.join(", ")}${(alike.length ? alike : known).length > limit ? ", ..." : ""}`;
 }
 
 /** Query strings and shell arguments arrive as text; MCP sends JSON. Both parse with coercion. */

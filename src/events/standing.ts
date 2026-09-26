@@ -14,7 +14,6 @@ import { newsroomVote, readersVote } from "../insights.js";
 import { judgementOf } from "../jev.js";
 import { isScheduledPricingRotation } from "./oscillation.js";
 import { renamedEvents } from "./rename.js";
-import type { SignalClass } from "./signals.js";
 import { listsAnotherMakersModel } from "./signals.js";
 import type { SuppressionReason } from "./suppression.js";
 import type { Event, RecordData } from "./types.js";
@@ -88,11 +87,7 @@ const JUDGEMENT_GRACE_MS = 180_000;
  * that is down -- has judged nothing in a day and waits for nothing, so a card is never stranded
  * on a reader that is never coming.
  */
-export function awaitingJudgement(
-  db: Database,
-  events: readonly (Event & { signal: SignalClass | "" })[],
-  now: number,
-): boolean {
+export function awaitingJudgement(db: Database, events: readonly Event[], now: number): boolean {
   const posts = events.filter(
     (event) => event.stream === "news" && (event.signal === "article" || event.signal === "business"),
   );
@@ -124,11 +119,7 @@ export type BatchView = {
  * told stay with the destination. The order is the order reasons are recorded in: the first that
  * applies is the one a reader sees.
  */
-export function standingReason(
-  db: Database,
-  event: Event & { signal: SignalClass | "" },
-  view: BatchView,
-): SuppressionReason | null {
+export function standingReason(db: Database, event: Event, view: BatchView): SuppressionReason | null {
   if (view.renamed.has(event.id)) return "renamed_by_the_source";
   if (isMinorBoardMove(event)) return "below_the_top_of_the_board";
   if (isAnotherServing(event, view.known)) return "another_serving_of_a_known_model";
@@ -173,7 +164,7 @@ export function standingReason(
 }
 
 /** Everything the standing judgement reads about a batch, built once and shared by its destinations. */
-export function batchViewOf(db: Database, events: readonly (Event & { signal: SignalClass | "" })[]): BatchView {
+export function batchViewOf(db: Database, events: readonly Event[]): BatchView {
   // A re-keyed catalogue speaks once per row, twice: the row that left and the identical row that
   // arrived. Found once per batch, because the answer does not depend on the destination.
   const renamed = renamedEvents(db, events);

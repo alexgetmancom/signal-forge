@@ -10,6 +10,7 @@ const incident = (
   name = "OpenAI: Elevated errors",
 ): Event =>
   ({
+    signal: null,
     id: 1,
     source: "status:openai",
     stream: "incidents",
@@ -62,6 +63,7 @@ test("a severe incident speaks when it starts and not once more", () => {
   // OpenAI's 01M2KQNE5C42NEZPX6V01NHH5W was graded major, so every Statuspage edit reached the
   // public channel: three messages about one outage inside forty-seven minutes on 2026-09-16.
   const major = (stage: string, next: string) => ({
+    signal: null,
     id: 1,
     source: "status:openai",
     stream: "incidents" as const,

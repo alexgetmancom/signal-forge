@@ -5,6 +5,7 @@ import type { Collection } from "../src/events/types.js";
 import { createHttpApp } from "../src/http.js";
 import { operations } from "../src/operations.js";
 import { openDatabase } from "../src/storage/database.js";
+import { aBatch, aDelivery } from "./fixtures/build.js";
 
 test("health is public, operational state requires token, MCP lists matching schemas", async () => {
   const db = openDatabase(":memory:"),
@@ -77,21 +78,20 @@ test("health is public, operational state requires token, MCP lists matching sch
   expect((await app.request("/api/deliveries", { headers: auth })).status).toBe(200);
   expect((await app.request("/api/deliveries/verification", { headers: auth })).status).toBe(200);
   const resolutionDb = openDatabase(":memory:");
-  resolutionDb
-    .query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(7,'test','1970-01-01T00:00:00.000Z',1)")
-    .run();
-  resolutionDb
-    .query(
-      "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,status,updated_at) VALUES(7,7,'dc',?,'body',0,'ambiguous','1970-01-01T00:00:00.000Z')",
-    )
-    .run(
-      JSON.stringify({
-        id: "dc",
-        platform: "discord",
-        channelId: "1",
-        signals: ["launch", "codename", "evidence", "change"],
-      }),
-    );
+  aBatch(resolutionDb, { id: 7, source: "test", readyAt: "1970-01-01T00:00:00.000Z" });
+  aDelivery(resolutionDb, {
+    id: 7,
+    batchId: 7,
+    destinationId: "dc",
+    destinationJson: JSON.stringify({
+      id: "dc",
+      platform: "discord",
+      channelId: "1",
+      signals: ["launch", "codename", "evidence", "change"],
+    }),
+    status: "ambiguous",
+    updatedAt: "1970-01-01T00:00:00.000Z",
+  });
   const resolutionApp = createHttpApp(config, resolutionDb);
   const resolution = await resolutionApp.request("/api/deliveries/7/verification/resolve", {
     method: "POST",
