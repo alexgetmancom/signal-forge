@@ -171,3 +171,60 @@ export function tierBase(name: string): string | null {
   const trimmed = name.trim();
   return TIER_WORD.test(trimmed) ? modelSubject(trimmed.replace(TIER_WORD, "")) : null;
 }
+
+export type CataloguedArrival = { name: string; reseller: string; maker: string };
+
+/**
+ * A name with the catalogue's date on it taken off, for a line a reader reads.
+ *
+ * `MAI-Image-2e-2026-04-09` reached the digest as "MAI Image 2e 2026 04 09" on 2026-09-22, which is
+ * a deployment date read as part of a model's name. The date is how the catalogue tells one build of
+ * a model from another; it is never what the model is called.
+ */
+function withoutSnapshotDate(name: string): string {
+  return name.trim().replace(DATED_SNAPSHOT, "");
+}
+
+/**
+ * One line per model, rather than one line per row a catalogue wrote about it.
+ *
+ * TrueFoundry listed MAI Image 2.6 on 2026-09-25 as four entries -- the model, a dated snapshot of
+ * it, its Flash tier and a dated snapshot of that -- and the day's digest spent five of its eight
+ * lines on one catalogue restating itself. `modelSubject` already knows those are one release seen
+ * several ways; this is that knowledge applied to a list of arrivals.
+ *
+ * A second shop listing the same model is not a variant of it: Ember 1 reached the Vercel gateway
+ * and OpenRouter the same day and read as two launches by one maker. So the extra rows are counted
+ * against the shops -- one row per shop is the model arriving there, and anything beyond that is
+ * the catalogue's own bookkeeping, said as a count rather than repeated as a name.
+ *
+ * The name kept is the one the catalogue wrote plainest: a row that is not a variant if there is
+ * one, then the shortest, so a group is never named by its dated snapshot.
+ */
+export function oneLinePerModel(
+  rows: readonly CataloguedArrival[],
+): (CataloguedArrival & { alsoOn: string[]; variants: number })[] {
+  const groups = new Map<string, CataloguedArrival[]>();
+  for (const row of rows) {
+    const key = modelSubject(row.name) || normalizeIdentity(row.name);
+    groups.set(key, [...(groups.get(key) ?? []), row]);
+  }
+  return [...groups.values()].map((group) => {
+    const named = [...group].sort(
+      (left, right) =>
+        Number(isModelVariant(left.name)) - Number(isModelVariant(right.name)) ||
+        left.name.length - right.name.length ||
+        left.name.localeCompare(right.name),
+    );
+    const resellers = [...new Set(group.map((row) => row.reseller))];
+    const first = named[0] as CataloguedArrival;
+    return {
+      ...first,
+      name: withoutSnapshotDate(first.name),
+      // The shop that named it plainest leads, and the others follow in the order they were read.
+      reseller: first.reseller,
+      alsoOn: resellers.filter((reseller) => reseller !== first.reseller),
+      variants: group.length - resellers.length,
+    };
+  });
+}

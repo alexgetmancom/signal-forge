@@ -6,6 +6,7 @@ import {
   isRepublished,
   isTrainingArtefact,
   modelSubject,
+  oneLinePerModel,
 } from "../src/events/variants.js";
 
 test("a tier, an alias and a snapshot are not releases", () => {
@@ -54,4 +55,36 @@ test("a numbered row and a training checkpoint are not releases", () => {
   // A tier is a product; only the stages of making one are excluded.
   expect(isTrainingArtefact("deepseek-ai/DeepSeek-V4.1-Flash")).toBe(false);
   expect(isTrainingArtefact("gpt-image-2.5-flare")).toBe(false);
+});
+
+test("a catalogue restating one model is one line", () => {
+  // TrueFoundry's four rows for MAI Image 2.6 on 2026-09-25: the model, a dated snapshot of it, its
+  // Flash tier and a snapshot of that. Flash is a model somebody chose to sell; the dates are not.
+  const collapsed = oneLinePerModel([
+    { name: "MAI-Image-2.6", reseller: "TrueFoundry", maker: "Microsoft" },
+    { name: "MAI-Image-2.6-2026-07-31", reseller: "TrueFoundry", maker: "Microsoft" },
+    { name: "MAI-Image-2.6-Flash", reseller: "TrueFoundry", maker: "Microsoft" },
+    { name: "MAI-Image-2.6-Flash-2026-07-31", reseller: "TrueFoundry", maker: "Microsoft" },
+  ]);
+  expect(collapsed.map((entry) => [entry.name, entry.variants, entry.alsoOn])).toEqual([
+    ["MAI-Image-2.6", 1, []],
+    ["MAI-Image-2.6-Flash", 1, []],
+  ]);
+});
+
+test("a second shop listing one model is one line naming both, not a variant of it", () => {
+  const collapsed = oneLinePerModel([
+    { name: "Ember 1", reseller: "Vercel AI Gateway", maker: "fireworks" },
+    { name: "Fireworks: Ember-1", reseller: "OpenRouter", maker: "fireworks" },
+  ]);
+  expect(collapsed).toHaveLength(1);
+  expect(collapsed[0]?.variants).toBe(0);
+  expect(collapsed[0]?.alsoOn).toEqual(["OpenRouter"]);
+});
+
+test("a dated snapshot is named by the model it is a build of", () => {
+  // The base was listed in April and only the snapshot arrived, so the group has nothing plainer to
+  // be named by: "MAI Image 2e 2026 04 09" is a deployment date read as part of a model's name.
+  const collapsed = oneLinePerModel([{ name: "MAI-Image-2e-2026-04-09", reseller: "TrueFoundry", maker: "Microsoft" }]);
+  expect(collapsed[0]?.name).toBe("MAI-Image-2e");
 });

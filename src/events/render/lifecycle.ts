@@ -176,7 +176,11 @@ export function renderRecapLines(context: RecapContext, signals: readonly string
                 `🆕 New board: ${boardName(board.board)}${board.leader ? ` · led by ${withoutMakerPrefix(board.leader)}` : ""}`,
             ),
             ...context.resellerArrivals.map(
-              (entry) => `🆕 ${entry.name}${entry.maker ? ` · ${entry.maker}` : ""} — now on ${entry.reseller}`,
+              (entry) =>
+                `🆕 ${entry.name}${entry.maker ? ` · ${entry.maker}` : ""} — now on ${[entry.reseller, ...entry.alsoOn].join(", ")}` +
+                // What the catalogue said about this model beyond listing it once per shop, counted
+                // rather than repeated: four rows for MAI Image 2.6 was five of eight lines.
+                (entry.variants ? ` · +${entry.variants} variant${entry.variants === 1 ? "" : "s"}` : ""),
             ),
             ...context.codeNotes.map((note) => `🔧 ${note.repo}: ${note.text}`),
           ]

@@ -598,3 +598,37 @@ test("a model the catalogues already carried is not this week's arrival", () => 
   expect(named).toContain("GLM 5.4");
   expect(named).not.toContain("GLM 5.3");
 });
+
+test("a catalogue restating one model spends one line of the scouts' morning on it", () => {
+  const db = openDatabase(":memory:");
+  const listing = (records: { id: string; name: string }[]): Collection => ({
+    source: "truefoundry-azure",
+    stream: "api-models",
+    url: "https://github.com/truefoundry/models",
+    raw: [],
+    records: records.map((record) => ({ ...record, provider: "azure-ai-foundry", maker: "Microsoft" })),
+  });
+  saveCollection(db, listing([{ id: "azure-ai-foundry/baseline", name: "Baseline" }]), [], "2026-09-15T00:00:00.000Z");
+  // The four rows TrueFoundry wrote about MAI Image 2.6 on 2026-09-25, and one about another model.
+  saveCollection(
+    db,
+    listing([
+      { id: "azure-ai-foundry/baseline", name: "Baseline" },
+      { id: "azure-ai-foundry/MAI-Image-2.6", name: "MAI-Image-2.6" },
+      { id: "azure-ai-foundry/MAI-Image-2.6-2026-07-31", name: "MAI-Image-2.6-2026-07-31" },
+      { id: "azure-ai-foundry/MAI-Image-2.6-Flash", name: "MAI-Image-2.6-Flash" },
+      { id: "azure-ai-foundry/MAI-Image-2.6-Flash-2026-07-31", name: "MAI-Image-2.6-Flash-2026-07-31" },
+      { id: "azure-ai-foundry/Inkling-Small", name: "Inkling-Small" },
+    ]),
+    [],
+    "2026-09-16T12:00:00.000Z",
+  );
+  const context = recapContext(db, lastRecapPeriod(Date.parse("2026-09-17T07:00:00.000Z"), "day"), "day");
+  const lines = renderRecapLines(context, ["codename"]);
+  expect(lines.filter((line) => line.startsWith("🆕"))).toEqual([
+    "🆕 MAI Image 2.6 · Microsoft — now on TrueFoundry · +1 variant",
+    // A tier somebody chose to sell is a model; only the catalogue's dates are counted away.
+    "🆕 MAI Image 2.6 Flash · Microsoft — now on TrueFoundry · +1 variant",
+    "🆕 Inkling Small · Microsoft — now on TrueFoundry",
+  ]);
+});

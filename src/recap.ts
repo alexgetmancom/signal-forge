@@ -23,6 +23,7 @@ import {
   isRepublished,
   isTrainingArtefact,
   modelSubject,
+  oneLinePerModel,
   tierBase,
 } from "./events/variants.js";
 import { vendorOf, vendorOfName } from "./events/vendors.js";
@@ -182,6 +183,12 @@ export const recapContextSchema = z.object({
         reseller: z.string(),
         // Who made it, when the catalogue says. Absent before the line named anyone but the shop.
         maker: z.string().default(""),
+        // The other shops that listed the same model the same day. Absent before one line covered
+        // them all, when a second shop read as a second launch.
+        alsoOn: z.array(z.string()).default([]),
+        // Rows this line stands for beyond one per shop: the dated snapshots and billing tiers the
+        // catalogue wrote about a model it had already written about.
+        variants: z.number().int().nonnegative().default(0),
       }),
     )
     .default([]),
@@ -832,15 +839,23 @@ function periodSightings(reading: PeriodReading): {
             const record = recordOf(event);
             const maker = vendorOf(event, record);
             return {
-              name: readableName(nameOf(event)),
+              // The name as the catalogue wrote it. `readableName` is applied after the grouping
+              // below and not before it: it turns `MAI-Image-2.6-2026-07-31` into
+              // `MAI Image 2.6 2026 07 31`, and a dated snapshot with its hyphens spaced out is a
+              // snapshot no rule here can recognise any more.
+              name: nameOf(event),
               reseller: sourceLabel(event.source).split(" · ")[0] ?? event.source,
               // The catalogue writes itself into `maker` often enough that its own name is no
               // answer: "Toast 1 · mixedbread" is worth a line, "Granite · Hugging Face" is not.
               maker: maker !== "Unknown" ? maker : String(record?.maker ?? "").replace(/^hugging ?face$/i, ""),
             };
           })
-          .filter((entry, index, all) => all.findIndex((other) => other.name === entry.name) === index)
-          .slice(0, 8);
+          .filter((entry, index, all) => all.findIndex((other) => other.name === entry.name) === index);
+  // Collapsed after the day is read rather than while it is: eight lines was eight rows, and a
+  // catalogue restating one model filled the digest before a second model got a line.
+  const collapsed = oneLinePerModel(resellerArrivals)
+    .slice(0, 8)
+    .map((entry) => ({ ...entry, name: readableName(entry.name) }));
   const codeNotes =
     period !== "day"
       ? []
@@ -851,7 +866,7 @@ function periodSightings(reading: PeriodReading): {
           const repo = event.source.split(":")[1]?.split("/").at(-1) ?? event.source;
           return text ? [{ repo: repo.charAt(0).toUpperCase() + repo.slice(1), text }] : [];
         });
-  return { resellerArrivals, codeNotes };
+  return { resellerArrivals: collapsed, codeNotes };
 }
 
 /**
