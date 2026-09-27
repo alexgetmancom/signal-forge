@@ -2,7 +2,7 @@ import { loadConfig } from "./config.js";
 import { recordOperatorAction } from "./journal.js";
 import { cliInput } from "./operations/cliInput.js";
 import { cliCommand, type OperationMap, operationCatalog, operations } from "./operations.js";
-import { measure } from "./runtime/metrics.js";
+import { measure } from "./runtime/metricRecording.js";
 import { openDatabase } from "./storage/database.js";
 import { asTsv } from "./text.js";
 

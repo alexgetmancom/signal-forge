@@ -5,7 +5,7 @@ import { saveCollection } from "./events/pipeline.js";
 import { classifyFailure } from "./failureDiagnosis.js";
 import { log } from "./logger.js";
 import { lockHolder, withActionLock } from "./runtime/actionLock.js";
-import { measure } from "./runtime/metrics.js";
+import { measure } from "./runtime/metricRecording.js";
 import { SourceHttpError } from "./sources/http.js";
 import { type SourceDefinition, sourceJobs } from "./sources/registry.js";
 import { collectInSubprocess } from "./sources/subprocess.js";

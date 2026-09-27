@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { codeAnalytics, measure, recordCodeMetric } from "../src/runtime/metrics.js";
+import { measure, recordCodeMetric } from "../src/runtime/metricRecording.js";
+import { codeAnalytics } from "../src/runtime/metricReport.js";
 import { openDatabase } from "../src/storage/database.js";
 
 test("code analytics aggregates execution counts, failures, durations and timeline", () => {

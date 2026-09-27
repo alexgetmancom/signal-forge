@@ -13,7 +13,7 @@ import { releaseCheck } from "../reports/release.js";
 import { sourceFailures } from "../reports/sourceFailures.js";
 import { statusReport } from "../reports/statusReport.js";
 import { usageReport } from "../reports/usage.js";
-import { codeAnalytics } from "../runtime/metrics.js";
+import { codeAnalytics } from "../runtime/metricReport.js";
 import { memoryReport } from "../runtime/observability.js";
 import { dateIntegrity } from "../storage/dateIntegrity.js";
 import { count, flag, type OperationMap, operationCatalog } from "./definition.js";

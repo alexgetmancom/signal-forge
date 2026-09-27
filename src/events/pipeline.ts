@@ -3,7 +3,7 @@ import type { Destination } from "../config.js";
 import { updateHypotheses } from "../hypotheses.js";
 import { rebuildLifecycleDeadlines } from "../lifecycle.js";
 import { type FactsDirty, updateModelFacts } from "../modelFacts.js";
-import { measure } from "../runtime/metrics.js";
+import { measure } from "../runtime/metricRecording.js";
 import { rememberStoryProjection, type StoryProjection, updateStories } from "../stories.js";
 import { markNovelWeights } from "../weights.js";
 import { prepareDeliveries } from "./batching.js";

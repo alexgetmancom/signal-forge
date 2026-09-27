@@ -9,7 +9,7 @@ import type { EvidenceType } from "./events/types.js";
 import { recordOperatorAction } from "./journal.js";
 import { redact, redactExternalSecrets } from "./logger.js";
 import { operations } from "./operations.js";
-import { measure } from "./runtime/metrics.js";
+import { measure } from "./runtime/metricRecording.js";
 
 function metricRoute(path: string): string {
   if (path.startsWith("/api/models/") && path !== "/api/models/") return "/api/models/:canonicalId";

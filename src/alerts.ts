@@ -5,7 +5,7 @@ import { featureEnabled } from "./features.js";
 import type { Fetch } from "./http-client.js";
 import { log } from "./logger.js";
 import { type ActionableIssue, type IssueKind, listActionableIssues } from "./reports/issues.js";
-import { measure } from "./runtime/metrics.js";
+import { measure } from "./runtime/metricRecording.js";
 import { readState, writeState } from "./storage/appState.js";
 import { clip } from "./text.js";
 

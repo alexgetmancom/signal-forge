@@ -16,7 +16,7 @@ import { pollSources } from "./poller.js";
 import { promoteVouchedMessages } from "./promotion.js";
 import { syncPublications } from "./publications.js";
 import { scheduleRecaps } from "./recapSchedule.js";
-import { measure, pruneCodeMetrics } from "./runtime/metrics.js";
+import { measure, pruneCodeMetrics } from "./runtime/metricRecording.js";
 import { logMemoryUsage, recordRuntimeStart, recordRuntimeStop, sampleMemory } from "./runtime/observability.js";
 import { stopServerGracefully } from "./runtime/shutdown.js";
 import { RuntimeSupervisor } from "./runtime/supervisor.js";

@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import type { AppConfig } from "../config.js";
 import { openCredentialCircuitIds } from "../credentials.js";
 import { SOURCE_AUTHORITIES } from "../events/confidence.js";
-import { measure } from "../runtime/metrics.js";
+import { measure } from "../runtime/metricRecording.js";
 import { HttpCache } from "../storage/httpCache.js";
 import type { SourceDefinition, SourceEntry } from "./definition.js";
 import { GITHUB_DISCOVERY_QUERIES } from "./discovery.js";

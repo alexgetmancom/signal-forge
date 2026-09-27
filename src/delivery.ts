@@ -7,7 +7,7 @@ import { prepareDeliveries } from "./events/batching.js";
 import { releaseSettledMoves } from "./events/cooldown.js";
 import type { Fetch } from "./http-client.js";
 import { log } from "./logger.js";
-import { measure } from "./runtime/metrics.js";
+import { measure } from "./runtime/metricRecording.js";
 import { fillSummaries } from "./summary.js";
 
 /** Retry clocks and send times are stored as instants, like everything else in this database. */

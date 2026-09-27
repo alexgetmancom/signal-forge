@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { loadConfig } from "../src/config.js";
 import { collectionCost } from "../src/reports/collectionCost.js";
-import { recordCodeMetric } from "../src/runtime/metrics.js";
+import { recordCodeMetric } from "../src/runtime/metricRecording.js";
 import { openDatabase } from "../src/storage/database.js";
 
 const config = loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname });

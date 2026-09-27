@@ -6,7 +6,7 @@ import { vendorOf } from "./events/interpretation.js";
 import { recordFor } from "./events/record.js";
 import { sourceFamily } from "./events/sourceFamily.js";
 import type { Confidence, Event, EvidenceType, RecordData, SourceAuthority } from "./events/types.js";
-import { measure } from "./runtime/metrics.js";
+import { measure } from "./runtime/metricRecording.js";
 import { text } from "./text.js";
 
 export type ModelFactConflict = {

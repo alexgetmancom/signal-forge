@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Collection } from "../events/types.js";
 import { type FailureKind, SourceError } from "../failure.js";
-import { measure } from "../runtime/metrics.js";
+import { measure } from "../runtime/metricRecording.js";
 import { SourceHttpError } from "./http.js";
 
 /**

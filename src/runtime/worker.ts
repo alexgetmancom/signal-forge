@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { log } from "../logger.js";
 import { writeState } from "../storage/appState.js";
-import { measure } from "./metrics.js";
+import { measure } from "./metricRecording.js";
 
 export type WorkerHandle = {
   stop: () => Promise<void>;
