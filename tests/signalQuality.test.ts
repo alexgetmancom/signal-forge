@@ -6,6 +6,7 @@ import { saveCollection } from "../src/events/pipeline.js";
 import type { Collection } from "../src/events/types.js";
 import { signalQuality } from "../src/reports/signalQuality.js";
 import { openDatabase } from "../src/storage/database.js";
+import { anEvent } from "./fixtures/build.js";
 import { registered } from "./registered.js";
 
 const config = loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname });
@@ -280,5 +281,24 @@ test("signal quality counts suppressed shadow events without delivery batches", 
   ).sources.find((entry) => entry.id === "discovery:github-ai");
   expect(source).toMatchObject({ eventsCreated: 1, suppressedEvents: 1, immediateDeliveries: 0, digestDeliveries: 0 });
   expect(db.query("SELECT COUNT(*) AS count FROM batch_events").get()).toEqual({ count: 0 });
+  db.close();
+});
+
+test("suppressed events are counted from the verdict the store recorded, and rows without one are kept apart", () => {
+  const db = openDatabase(":memory:");
+  const at = "2026-09-10T09:00:00.000Z";
+  // The report used to read every body of the window back and run the notification policy again --
+  // 105 MB of a floor that is never given back on a copy of production -- to arrive at these three
+  // numbers. They are a `GROUP BY` over the column the store writes now.
+  anEvent(db, { source: "openrouter", detectedAt: at, speaks: true });
+  anEvent(db, { source: "openrouter", detectedAt: at, speaks: false });
+  anEvent(db, { source: "openrouter", detectedAt: at, speaks: false });
+  // A row stored before migration 059. Counting it as quiet would say this source produced noise it
+  // did not, and counting it as speaking would hide it: it is neither, and says so.
+  anEvent(db, { source: "openrouter", detectedAt: at, speaks: null });
+  const source = signalQuality(db, config, 7, Date.parse("2026-09-10T11:00:00.000Z")).sources.find(
+    (entry) => entry.id === "openrouter",
+  );
+  expect(source).toMatchObject({ suppressedEvents: 2, eventsWithoutAVerdict: 1 });
   db.close();
 });

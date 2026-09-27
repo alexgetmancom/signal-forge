@@ -7,6 +7,7 @@ import { canonical } from "./canonical.js";
 import { classify } from "./classify.js";
 import { confidenceFor, evidenceTypeFor } from "./confidence.js";
 import { isRoutine } from "./interpretation.js";
+import { hasNotificationContent } from "./notification.js";
 import { isStealthLaunch, type SignalClass } from "./signals.js";
 import type { Collection, Event } from "./types.js";
 
@@ -418,9 +419,19 @@ export function persistCollection(
   }
 
   // Every record is saved by now, so a rule asking what the catalogues list sees this collection too.
+  //
+  // `speaks` is written in the same pass for the same reason the class is: the store has the event in
+  // hand and has to decide anyway, and a reader that asks the question again has to read the body
+  // back to answer it -- 105 MB of a floor that is never given back for one report, measured on a
+  // copy of production. It is the verdict that was acted on, which is what a report about what this
+  // service did should be counting, rather than what today's rules would say about last week's event.
   for (const event of emitted) {
     event.signal = classify(db, event);
-    db.query("UPDATE events SET signal=? WHERE id=?").run(event.signal, event.id);
+    db.query("UPDATE events SET signal=?,speaks=? WHERE id=?").run(
+      event.signal,
+      hasNotificationContent(event) ? 1 : 0,
+      event.id,
+    );
   }
   for (const pace of ["now", "held", "hourly"] as const) {
     const digest = pace === "hourly";

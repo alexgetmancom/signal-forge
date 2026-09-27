@@ -1,0 +1,22 @@
+-- Whether an event had anything a subscriber would repeat, kept on the event.
+--
+-- The verdict is policy over the whole record -- which keys moved, whether a price moved far enough,
+-- what is left once the noise fields are dropped -- so it is the one flag a report cannot reduce to a
+-- key. It was computed twice: once by the store, which has the event in hand and needs the answer to
+-- decide whether to speak, and again by `signal_quality`, which read every body of the window back
+-- to ask the same question. Measured on a copy of production 2026-09-27 that second pass claimed
+-- 105 MB of a floor that is never given back to add up 1,341 numbers, and paging it changed nothing:
+-- the cost is not the rows held but the garbage the policy makes, and a high-water mark counts
+-- garbage exactly as it counts what is kept.
+--
+-- So the store writes its answer here, the way migration 045 did for the routing class and for the
+-- same reason -- two computations of one thing drift, and this one had already drifted into being
+-- expensive. It is also the more honest number for a report about what this service did: the verdict
+-- recorded is the verdict that was acted on, not what today's rules would say about last week's
+-- event.
+--
+-- Rows from before stay NULL, which is a third state and reported as one: `signal_quality` counts
+-- them as awaiting a verdict rather than as speaking, because a quiet event and an event nobody
+-- asked about are not the same thing. A seven-day window is free of them a week after this ships.
+
+ALTER TABLE events ADD COLUMN speaks INTEGER CHECK(speaks IS NULL OR speaks IN (0,1));

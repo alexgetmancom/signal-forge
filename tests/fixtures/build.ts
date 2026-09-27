@@ -43,6 +43,13 @@ export type EventFields = {
   confidence?: "observed" | "supported" | "confirmed" | "shipped";
   evidenceType?: "arena_roster" | "leaderboard" | "official_news" | "api_catalogue" | "unknown";
   authority?: "first_party" | "vendor_owned" | "third_party";
+  /**
+   * The store's verdict on whether this event says anything to a subscriber, which the store writes
+   * beside the routing class and `signal_quality` counts. `true` by default, because an event that
+   * speaks is the ordinary row; `false` is a quiet one, and `null` is a row from before migration 059,
+   * which is a third state every reader of it has to answer for.
+   */
+  speaks?: boolean | null;
 };
 
 export function anEvent(db: Database, fields: EventFields = {}): number {
@@ -52,8 +59,8 @@ export function anEvent(db: Database, fields: EventFields = {}): number {
   const row = db
     .query<{ id: number }, (string | number | null)[]>(
       `INSERT INTO events(source,stream,entity_id,kind,before_json,after_json,detected_at,snapshot_id,
-         confidence,evidence_type,authority)
-       VALUES(?,?,?,?,?,?,?,?,?,?,?) RETURNING id`,
+         confidence,evidence_type,authority,speaks)
+       VALUES(?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id`,
     )
     .get(
       source,
@@ -67,6 +74,7 @@ export function anEvent(db: Database, fields: EventFields = {}): number {
       fields.confidence ?? "observed",
       fields.evidenceType ?? "arena_roster",
       fields.authority ?? "third_party",
+      fields.speaks === null ? null : (fields.speaks ?? true) ? 1 : 0,
     );
   if (!row) throw new Error("Event could not be stored");
   return row.id;

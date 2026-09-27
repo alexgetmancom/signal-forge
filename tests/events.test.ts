@@ -1416,3 +1416,25 @@ test("a training run that ends reads as a finished run, not as fields that moved
     "Ran for: 14 days",
   ]);
 });
+
+test("the store records whether an event said anything to a reader", () => {
+  const db = openDatabase(":memory:");
+  const listing = (rank: number): Collection => ({
+    source: "arena-leaderboards",
+    stream: "leaderboards",
+    url: "https://example.test/board",
+    raw: [],
+    records: [{ id: "model-x", name: "Model X", rank }],
+  });
+  // A place shuffling outside the top three says nothing a reader would repeat; the same model
+  // reaching first place does. Both are stored as evidence, and the verdict is kept beside the event
+  // rather than recomputed from the body by every report that wants to count them.
+  saveCollection(db, listing(9), [], "2026-09-10T09:00:00.000Z");
+  saveCollection(db, listing(8), [], "2026-09-10T10:00:00.000Z");
+  saveCollection(db, listing(1), [], "2026-09-10T11:00:00.000Z");
+  expect(db.query("SELECT id,speaks FROM events ORDER BY id").all()).toEqual([
+    { id: 1, speaks: 0 },
+    { id: 2, speaks: 1 },
+  ]);
+  db.close();
+});

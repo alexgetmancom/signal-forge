@@ -1,9 +1,8 @@
 import type { Database } from "bun:sqlite";
 import type { AppConfig, SourceMode } from "../config.js";
 import { CONFIDENCE_LEVELS } from "../events/confidence.js";
-import { hasNotificationContent } from "../events/notification.js";
 import { type IndependenceEvidence, sourceIndependenceFamily } from "../events/sourceFamily.js";
-import type { Confidence, Event } from "../events/types.js";
+import type { Confidence } from "../events/types.js";
 import { median } from "../numbers.js";
 import { sourceJobs } from "../sources/registry.js";
 
@@ -25,6 +24,8 @@ type SignalQualitySource = {
   failedDeliveries: number;
   ambiguousDeliveries: number;
   suppressedEvents: number;
+  /** Events of the window stored before the verdict was kept, and so counted as neither. */
+  eventsWithoutAVerdict: number;
   sourceFailureRate: number;
   averageEventsPerCollection: number;
   storyCount: number;
@@ -71,8 +72,27 @@ type DeliveryAggregate = {
 };
 
 type StoryAggregate = { source: string; story_id: number | null; event_id: number };
+/**
+ * What the store decided about the events of the window, as SQL counts them.
+ *
+ * `speaks` is the verdict the store recorded when it wrote the event, so this is arithmetic over a
+ * column rather than the policy run again over every body: that second pass claimed 105 MB of a floor
+ * that is never given back to produce these counts, measured on a copy of production 2026-09-27.
+ * `undecided` is the third state -- an event stored before migration 059 -- kept apart from the quiet
+ * ones, because an event nobody asked about is not an event that said nothing.
+ */
+type VerdictAggregate = { source: string; quiet: number; undecided: number };
 
-type RenderableEvent = Event & { url: string };
+/**
+ * One piece of a story's evidence as the lead time reads it: the columns independence and
+ * confirmation are judged from, and no body.
+ *
+ * `sourceIndependenceFamily` wants the source, the stream, the authority and the vendor the registry
+ * declares; confirmation wants the confidence and the instant. None of that is in a record, and this
+ * read selected `before_json` and `after_json` for every event of every story that began in the
+ * window to keep exactly these seven fields.
+ */
+type StoryEvidence = IndependenceEvidence & { id: number; confidence: Confidence; detected_at: string };
 type LeadTime = { source: string; leadTimeSeconds: number };
 
 const rounded = (value: number, digits = 2): number => {
@@ -215,9 +235,8 @@ export function signalQuality(db: Database, config: AppConfig, days = 7, now = D
     .all(since, new Date(now).toISOString());
   for (const story of firstSeenStories) {
     const events = db
-      .query<IndependenceEvidence & Event & { confidence: Confidence }, [number]>(
-        `SELECT e.id,e.source,e.stream,e.entity_id,e.kind,e.before_json,e.after_json,e.detected_at,
-                e.confidence,e.evidence_type,e.authority,src.vendor
+      .query<StoryEvidence, [number]>(
+        `SELECT e.id,e.source,e.stream,e.detected_at,e.confidence,e.authority,src.vendor
          FROM story_events se JOIN events e ON e.id=se.event_id LEFT JOIN sources src ON src.id=e.source
          WHERE se.story_id=? ORDER BY e.detected_at,e.id`,
       )
@@ -242,18 +261,19 @@ export function signalQuality(db: Database, config: AppConfig, days = 7, now = D
     leadTimes.push({ source: first.source, leadTimeSeconds });
   }
 
-  const suppressed = new Map<string, number>();
-  const changedEvents = db
-    .query<RenderableEvent, [string]>(
-      `SELECT e.id,e.source,e.stream,e.entity_id,e.kind,e.before_json,e.after_json,e.detected_at,e.evidence_type,
-              COALESCE(NULLIF(json_extract(e.after_json,'$.url'),''),NULLIF(json_extract(e.before_json,'$.url'),''),'') AS url
-       FROM events e
-       WHERE e.detected_at>=?`,
-    )
-    .all(since);
-  for (const event of changedEvents) {
-    if (!hasNotificationContent(event)) suppressed.set(event.source, (suppressed.get(event.source) ?? 0) + 1);
-  }
+  const verdicts = new Map(
+    db
+      .query<VerdictAggregate, [string]>(
+        `SELECT source,
+                SUM(CASE WHEN speaks=0 THEN 1 ELSE 0 END) AS quiet,
+                SUM(CASE WHEN speaks IS NULL THEN 1 ELSE 0 END) AS undecided
+         FROM events
+         WHERE detected_at>=?
+         GROUP BY source`,
+      )
+      .all(since)
+      .map((row) => [row.source, row] as const),
+  );
 
   const sources = sourceJobs(db, config).map<SignalQualitySource>((job) => {
     const row = collections.get(job.id);
@@ -281,7 +301,8 @@ export function signalQuality(db: Database, config: AppConfig, days = 7, now = D
       rolePings: rolePings.get(job.id) ?? 0,
       failedDeliveries: counts.failed,
       ambiguousDeliveries: counts.ambiguous,
-      suppressedEvents: suppressed.get(job.id) ?? 0,
+      suppressedEvents: verdicts.get(job.id)?.quiet ?? 0,
+      eventsWithoutAVerdict: verdicts.get(job.id)?.undecided ?? 0,
       sourceFailureRate: total ? rounded((row?.failed ?? 0) / total, 3) : 0,
       averageEventsPerCollection: successful ? rounded((row?.events ?? 0) / successful) : 0,
       storyCount: storyKeys.size,

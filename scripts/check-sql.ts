@@ -123,10 +123,6 @@ const MAY_READ_BODIES: Readonly<Record<string, string>> = {
   "src/reports/news.ts": "the story cards are rendered from their events",
   "src/reports/releaseAudit.ts": "it renders every card of the window to audit them",
   "src/reports/releaseRender.ts": "the fingerprint is the rendered cards, in a child that ends",
-  // This one is work, not an answer: 36 MB to answer with 110 KB, because `hasNotificationContent`
-  // and the independence family each need a record. Measured 2026-09-27; the reads above it on that
-  // list have been rewritten and this is the last of the four.
-  "src/reports/signalQuality.ts": "not yet rewritten: it needs a record per event to decide two flags",
 };
 
 const db = new Database(":memory:");

@@ -89,6 +89,12 @@ export function calibrationOperations(db: Database, config: AppConfig, _all: () 
       section: "sources",
       summary: "Source collection, event, delivery and suppression metrics for an operator-selected period.",
       startHere: "is a source earning its place in the feed",
+      note:
+        "`suppressedEvents` is the verdict the store recorded when it wrote the event, not the " +
+        "policy run again today: it counts what this service actually stayed quiet about. Events " +
+        "stored before that verdict was kept are `eventsWithoutAVerdict` rather than either, so a " +
+        "window reaching back before 2026-09-27 reports fewer suppressions than it had -- a " +
+        "seven-day window is clear of them a week after that date.",
       mutates: false,
       agent: true,
       schema: z.object({ days: count(90, 7) }),
