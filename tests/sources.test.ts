@@ -55,9 +55,16 @@ test("Arena accepts models without internal name but requires valid public field
     userSelectable: false,
     capabilities: { inputCapabilities: { text: true }, outputCapabilities: { text: true } },
   };
-  expect(parseArena(nextPage({ initialModels: [model] })).records[0]?.model).toBe("Public");
-  expect(() => parseArena("<html>Challenge</html>")).toThrow("no longer exposes");
-  expect(() => parseArena(nextPage({ initialModels: [{ id: "one" }] }))).toThrow();
+  const arenas = ["text", "code", "text-to-image", "search", "text-to-video", "document"];
+  const catalog = (models: unknown[], complete = true) =>
+    JSON.stringify(arenas.map((arena) => ({ arena, complete, models })));
+  expect(parseArena(catalog([model])).records).toHaveLength(1);
+  expect(parseArena(catalog([model])).records[0]?.model).toBe("Public");
+  expect(() => parseArena(catalog([model], false))).toThrow("complete");
+  expect(() => parseArena(JSON.stringify([{ arena: "text", complete: true, models: [model] }]))).toThrow(
+    "missing or duplicating",
+  );
+  expect(() => parseArena(catalog([{ id: "one" }]))).toThrow("did not match the schema");
 });
 test("leaderboard keeps rank for the leading places and drops it below them", () => {
   const board = {
@@ -76,7 +83,7 @@ test("leaderboard keeps rank for the leading places and drops it below them", ()
       { modelKey: "z", modelDisplayName: "Z", modelOrganization: "Maker", rank: 44 },
     ],
   };
-  const parsed = parseLeaderboards(nextPage({ leaderboards: [board] }));
+  const parsed = parseLeaderboards([{ path: "text", html: nextPage({ leaderboard: board }) }]);
   expect(parsed.appendOnly).toBeUndefined();
   expect(parsed.records[0]).toMatchObject({ id: "text:overall:a", rank: 1, score: 1400.25, votes: 123, modelKey: "a" });
   // Deep in a board the order churns daily; storing it would buy events and no news.
@@ -84,7 +91,7 @@ test("leaderboard keeps rank for the leading places and drops it below them", ()
 });
 test("leaderboard preserves dynamic agent metrics as a keyed object", () => {
   const board = {
-    arenaSlug: "agent",
+    arenaSlug: "text",
     leaderboardSlug: "overall",
     entries: [
       {
@@ -99,7 +106,7 @@ test("leaderboard preserves dynamic agent metrics as a keyed object", () => {
       },
     ],
   };
-  expect(parseLeaderboards(nextPage({ leaderboards: [board] })).records[0]).toMatchObject({
+  expect(parseLeaderboards([{ path: "text", html: nextPage({ leaderboard: board }) }]).records[0]).toMatchObject({
     metrics: { recovery: 0.7, steerability: 0.8, tool_hallucination: 0.1 },
   });
 });
@@ -121,7 +128,7 @@ test("a board position never becomes a dynamic metric, whatever the board calls 
       },
     ],
   };
-  const record = parseLeaderboards(nextPage({ leaderboards: [board] })).records[0] as {
+  const record = parseLeaderboards([{ path: "text", html: nextPage({ leaderboard: board }) }]).records[0] as {
     rank?: number;
     metrics?: Record<string, number>;
   };
@@ -130,6 +137,30 @@ test("a board position never becomes a dynamic metric, whatever the board calls 
   // is and were 188 of 877 change events on production in a week.
   expect(record.rank).toBe(1);
   expect(record.metrics).toEqual({ inputPricePerMillion: 0.5, tool_hallucination: 0.1 });
+});
+test("a leaderboard page cannot silently substitute another board or an empty table", () => {
+  const board = {
+    arenaSlug: "code",
+    leaderboardSlug: "overall",
+    entries: [{ modelKey: "a", modelDisplayName: "A", modelOrganization: "Maker", rank: 1 }],
+  };
+  expect(() => parseLeaderboards([{ path: "text", html: nextPage({ leaderboard: board }) }])).toThrow("wrong category");
+  expect(() =>
+    parseLeaderboards([{ path: "code/webdev", html: nextPage({ leaderboard: { ...board, entries: [] } }) }]),
+  ).toThrow("did not match the schema");
+});
+test("a deeper text table does not announce previously unobserved old rows", () => {
+  const entries = Array.from({ length: 201 }, (_, index) => ({
+    modelKey: `model-${index}`,
+    modelDisplayName: `Model ${index}`,
+    modelOrganization: "Maker",
+    rank: index + 1,
+  }));
+  const parsed = parseLeaderboards([
+    { path: "text", html: nextPage({ leaderboard: { arenaSlug: "text", leaderboardSlug: "overall", entries } }) },
+  ]);
+  expect(parsed.records).toHaveLength(200);
+  expect(parsed.records.some((record) => record.id === "text:overall:model-200")).toBe(false);
 });
 test("RSS parses escaped titles and preserves article dates", () => {
   const c = parseOpenAINews(

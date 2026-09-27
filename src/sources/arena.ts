@@ -1,9 +1,17 @@
 import { z } from "zod";
 import type { Collection } from "../events/types.js";
+import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { nextData } from "./html.js";
 import { fetchText } from "./http.js";
 import { parseEachEntry } from "./schema.js";
+
+const arenaCatalog = z.object({
+  arena: z.string(),
+  complete: z.literal(true),
+  models: z.array(z.unknown()).min(1),
+});
+const REQUIRED_ARENAS = ["text", "code", "text-to-image", "search", "text-to-video", "document"];
 
 const arenaModel = z.object({
   id: z.string().min(1),
@@ -17,49 +25,63 @@ const arenaModel = z.object({
     outputCapabilities: z.record(z.string(), z.unknown()),
   }),
 });
-export function parseArena(html: string): Collection {
-  const raw = nextData(html, "initialModels"),
-    models = parseEachEntry(arenaModel, raw, "arena models");
+export function parseArena(payload: string): Collection {
+  const catalogs = parseEachEntry(arenaCatalog, JSON.parse(payload), "arena catalog");
+  const arenas = new Set(catalogs.map((catalog) => catalog.arena));
+  if (arenas.size !== catalogs.length || REQUIRED_ARENAS.some((arena) => !arenas.has(arena)))
+    throw new SourceError("schema", "Arena model catalog is missing or duplicating an arena");
+  const models = parseEachEntry(
+    arenaModel,
+    catalogs.flatMap((catalog) => catalog.models),
+    "arena models",
+  );
+  // The same model appears in several arenas; only its rank differs between those copies.
+  const unique = [...new Map(models.map((model) => [model.id, model])).values()];
+  const records = unique.map((m) => ({
+    id: m.id,
+    name: m.displayName,
+    model: m.name ?? m.displayName,
+    maker: m.organization ?? null,
+    provider: m.provider ?? null,
+    selectable: m.userSelectable,
+    input: m.capabilities.inputCapabilities,
+    output: m.capabilities.outputCapabilities,
+  }));
   return {
     source: "arena",
     stream: "arena",
     url: "https://arena.ai",
-    raw,
-    records: models.map((m) => ({
-      id: m.id,
-      name: m.displayName,
-      model: m.name ?? m.displayName,
-      maker: m.organization ?? null,
-      provider: m.provider ?? null,
-      selectable: m.userSelectable,
-      input: m.capabilities.inputCapabilities,
-      output: m.capabilities.outputCapabilities,
-    })),
+    raw: records,
+    records,
   };
 }
 export async function collectArena(request: Fetch = fetch): Promise<Collection> {
-  return parseArena(await fetchText("https://arena.ai", {}, request));
+  return parseArena(
+    await fetchText("https://arena.ai/nextjs-api/model-catalog", { accept: "application/json" }, request),
+  );
 }
 const leaderboardBoard = z.object({
   arenaSlug: z.string(),
   leaderboardSlug: z.string(),
   voteCutoffISOString: z.string().datetime({ offset: true }).nullish(),
-  entries: z.array(
-    z
-      .object({
-        modelKey: z.string(),
-        modelDisplayName: z.string(),
-        modelOrganization: z.string().nullable(),
-        rank: z.number(),
-        rating: z.number().nullish(),
-        ratingUpper: z.number().nullish(),
-        ratingLower: z.number().nullish(),
-        votes: z.number().int().nonnegative().nullish(),
-        modelUrl: z.string().url().nullish(),
-        license: z.string().nullish(),
-      })
-      .passthrough(),
-  ),
+  entries: z
+    .array(
+      z
+        .object({
+          modelKey: z.string(),
+          modelDisplayName: z.string(),
+          modelOrganization: z.string().nullable(),
+          rank: z.number(),
+          rating: z.number().nullish(),
+          ratingUpper: z.number().nullish(),
+          ratingLower: z.number().nullish(),
+          votes: z.number().int().nonnegative().nullish(),
+          modelUrl: z.string().url().nullish(),
+          license: z.string().nullish(),
+        })
+        .passthrough(),
+    )
+    .min(1),
 });
 type LeaderboardBoard = z.infer<typeof leaderboardBoard>;
 
@@ -114,41 +136,70 @@ function dynamicMetrics(entry: Record<string, unknown>): Record<string, number> 
   return Object.fromEntries(Object.entries(metrics).sort(([left], [right]) => left.localeCompare(right)));
 }
 
+/** The old summary carried the first 200 places; deeper rows have never been sightings here. */
+const MAX_BOARD_ENTRIES = 200;
+
 function recordsFromBoards(data: LeaderboardBoard[]): Collection["records"] {
   return data.flatMap((b) =>
-    b.entries.map((m) => {
-      const metrics = dynamicMetrics(m);
-      return {
-        id: `${b.arenaSlug}:${b.leaderboardSlug}:${m.modelKey}`,
-        name: m.modelDisplayName,
-        category: `${b.arenaSlug}/${b.leaderboardSlug}`,
-        modelKey: m.modelKey,
-        ...(m.rank <= RANKED_PLACES ? { rank: m.rank } : {}),
-        ...(m.rating !== null && m.rating !== undefined ? { score: m.rating } : {}),
-        ...(m.ratingUpper !== null && m.ratingUpper !== undefined ? { scoreUpper: m.ratingUpper } : {}),
-        ...(m.ratingLower !== null && m.ratingLower !== undefined ? { scoreLower: m.ratingLower } : {}),
-        ...(m.votes !== null && m.votes !== undefined ? { votes: m.votes } : {}),
-        ...(m.modelUrl ? { url: m.modelUrl } : {}),
-        ...(m.license ? { license: m.license } : {}),
-        ...(b.voteCutoffISOString ? { sampledAt: b.voteCutoffISOString } : {}),
-        ...(Object.keys(metrics).length ? { metrics } : {}),
-        maker: m.modelOrganization,
-      };
-    }),
+    [...b.entries]
+      .sort((left, right) => left.rank - right.rank)
+      .slice(0, MAX_BOARD_ENTRIES)
+      .map((m) => {
+        const metrics = dynamicMetrics(m);
+        return {
+          id: `${b.arenaSlug}:${b.leaderboardSlug}:${m.modelKey}`,
+          name: m.modelDisplayName,
+          category: `${b.arenaSlug}/${b.leaderboardSlug}`,
+          modelKey: m.modelKey,
+          ...(m.rank <= RANKED_PLACES ? { rank: m.rank } : {}),
+          ...(m.rating !== null && m.rating !== undefined ? { score: m.rating } : {}),
+          ...(m.ratingUpper !== null && m.ratingUpper !== undefined ? { scoreUpper: m.ratingUpper } : {}),
+          ...(m.ratingLower !== null && m.ratingLower !== undefined ? { scoreLower: m.ratingLower } : {}),
+          ...(m.votes !== null && m.votes !== undefined ? { votes: m.votes } : {}),
+          ...(m.modelUrl ? { url: m.modelUrl } : {}),
+          ...(m.license ? { license: m.license } : {}),
+          ...(b.voteCutoffISOString ? { sampledAt: b.voteCutoffISOString } : {}),
+          ...(Object.keys(metrics).length ? { metrics } : {}),
+          maker: m.modelOrganization,
+        };
+      }),
   );
 }
 
 /** How far down a board a movement is still worth a message. */
 const RANKED_PLACES = 20;
 
-export function parseLeaderboards(html: string): Collection {
-  const raw = nextData(html, "leaderboards"),
-    data = parseEachEntry(leaderboardBoard, raw, "arena leaderboards");
+const BOARD_PAGES = [
+  ["text", "text/overall"],
+  ["code/webdev", "code/overall"],
+  ["code/image-to-webdev", "image-to-code/overall"],
+  ["document", "document/overall"],
+  ["image-edit", "image-edit/overall"],
+  ["image-to-video", "image-to-video/overall"],
+  ["search", "search/overall"],
+  ["text-to-image", "text-to-image/overall"],
+  ["text-to-video", "text-to-video/overall"],
+  ["video-edit", "video-to-video/overall"],
+  ["vision", "vision/overall"],
+] as const;
+
+export function parseLeaderboards(pages: readonly { path: string; html: string }[]): Collection {
+  const data = parseEachEntry(
+    leaderboardBoard,
+    pages.map((page) => nextData(page.html, "leaderboard")),
+    "arena leaderboards",
+  );
+  for (const [index, board] of data.entries()) {
+    const expected = BOARD_PAGES.find(([path]) => path === pages[index]?.path)?.[1];
+    if (!expected || `${board.arenaSlug}/${board.leaderboardSlug}` !== expected)
+      throw new SourceError("schema", "Arena leaderboard page returned the wrong category");
+  }
+  const records = recordsFromBoards(data);
   return {
     source: "arena-leaderboards",
     stream: "leaderboards",
     url: "https://arena.ai/leaderboard",
-    raw,
+    raw: records,
     // The rank is the only field that moves, and it was parsed but never stored, so a climb or a
     // fall was invisible. Tracking it is what makes "up two places" reportable at all.
     //
@@ -158,9 +209,12 @@ export function parseLeaderboards(html: string): Collection {
     // source returns a complete snapshot, so a model missing from two successful snapshots is
     // treated as having left the board.
     trackChanges: true,
-    records: recordsFromBoards(data),
+    records,
   };
 }
 export async function collectLeaderboards(request: Fetch = fetch): Promise<Collection> {
-  return parseLeaderboards(await fetchText("https://arena.ai/leaderboard", {}, request));
+  const pages: { path: string; html: string }[] = [];
+  for (const [path] of BOARD_PAGES)
+    pages.push({ path, html: await fetchText(`https://arena.ai/leaderboard/${path}`, {}, request) });
+  return parseLeaderboards(pages);
 }

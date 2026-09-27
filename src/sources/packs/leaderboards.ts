@@ -21,6 +21,7 @@ export function leaderboardsSources({ config, cache }: SourceContext): SourceEnt
       ...arenaSite,
       stream: "leaderboards",
       intervalSeconds: 1800,
+      heavy: true,
       collector: () => collectLeaderboards(),
     },
     ...DESIGNARENA_CATEGORIES.map(
