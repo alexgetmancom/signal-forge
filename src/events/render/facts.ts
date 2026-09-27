@@ -3,7 +3,7 @@ import { canonical } from "../canonical.js";
 import { identityFor, normalizeIdentity } from "../identity.js";
 import { readableName } from "../naming.js";
 import { SUBSTANTIVE_FIELDS } from "../oscillation.js";
-import { isStealthLaunch } from "../signals.js";
+import { isStealthLaunch } from "../resellers.js";
 import type { Event, RecordData } from "../types.js";
 import { vendorOfName } from "../vendors.js";
 import { tellingWebString } from "../web.js";

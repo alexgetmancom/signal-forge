@@ -2,13 +2,8 @@ import type { Database } from "bun:sqlite";
 import { listedInCatalogue, olderThanKnown } from "../sources/mentionStage.js";
 import { isLearnedMaker } from "./breakouts.js";
 import { recordFor } from "./record.js";
-import {
-  isUnfollowedMakerAtAReseller,
-  resellerMaker,
-  type SignalClass,
-  sellsAnotherMakersModel,
-  signalClass,
-} from "./signals.js";
+import { isUnfollowedMakerAtAReseller, resellerMaker, sellsAnotherMakersModel } from "./resellers.js";
+import { type SignalClass, signalClass } from "./signals.js";
 import type { Event } from "./types.js";
 
 /**

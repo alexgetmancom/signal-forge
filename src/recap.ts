@@ -1,19 +1,14 @@
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
+import { boardPlace, DEBUT_PLACES, isMainBoard } from "./events/boardSignals.js";
 import { breakoutOf } from "./events/breakouts.js";
 import { signalOf } from "./events/classify.js";
 import { readableName } from "./events/naming.js";
 import { isScheduledPricingRotation } from "./events/oscillation.js";
 import { renamedEvents } from "./events/rename.js";
 import { priceMoveRatio, pricePair, significantPriceChange } from "./events/render/common.js";
-import {
-  ANNOUNCEMENT_STREAMS,
-  boardPlace,
-  DEBUT_PLACES,
-  isMainBoard,
-  isUnfollowedMakerAtAReseller,
-  type SignalClass,
-} from "./events/signals.js";
+import { isUnfollowedMakerAtAReseller } from "./events/resellers.js";
+import { ANNOUNCEMENT_STREAMS, type SignalClass } from "./events/signals.js";
 import type { Event, RecordData } from "./events/types.js";
 import {
   arrivalWeight,

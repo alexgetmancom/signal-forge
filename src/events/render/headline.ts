@@ -7,8 +7,8 @@
  * sizes, which is why they are one module. Moved out of discord.ts unchanged.
  */
 import { sourceLabel } from "../../sources/labels.js";
+import { boardPlace, DEBUT_PLACES, scoredDebutIndex } from "../boardSignals.js";
 import { readableName } from "../naming.js";
-import { boardPlace, DEBUT_PLACES, scoredDebutIndex } from "../signals.js";
 import type { Event, RecordData } from "../types.js";
 import { excerpt, pageName, place } from "./words.js";
 

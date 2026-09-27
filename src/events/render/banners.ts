@@ -7,8 +7,8 @@
  * without its filename, which the card assembles. Moved out of discord.ts unchanged.
  */
 import { sourceLabel } from "../../sources/labels.js";
+import { boardPlace, DEBUT_PLACES } from "../boardSignals.js";
 import { displayTitle } from "../naming.js";
-import { boardPlace, DEBUT_PLACES } from "../signals.js";
 import type { Event, RecordData } from "../types.js";
 import type { Banner } from "./banner.js";
 import { describe, type Fact } from "./common.js";

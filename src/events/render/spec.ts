@@ -6,7 +6,7 @@
  * about the model, and which numbers may be borrowed from another catalogue when the maker's own
  * row carries neither. Moved out of discord.ts unchanged.
  */
-import { isStealthLaunch, listsAnotherMakersModel, stealthSubject } from "../signals.js";
+import { isStealthLaunch, listsAnotherMakersModel, stealthSubject } from "../resellers.js";
 import type { Event } from "../types.js";
 import { type Fact, prices } from "./common.js";
 import type { CardContext } from "./facts.js";

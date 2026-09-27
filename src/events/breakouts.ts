@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { Destination } from "../config.js";
 import { readState, writeState } from "../storage/appState.js";
-import { isUnfollowedMakerAtAReseller, resellerMaker } from "./signals.js";
+import { isUnfollowedMakerAtAReseller, resellerMaker } from "./resellers.js";
 import type { Event } from "./types.js";
 import { wasReleasedLongBefore } from "./worth.js";
 

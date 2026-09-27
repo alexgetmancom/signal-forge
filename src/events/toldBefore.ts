@@ -10,7 +10,8 @@
 
 import type { Database } from "bun:sqlite";
 import { CONFIDENCE_LEVELS } from "./confidence.js";
-import { isMakersAnnouncement, isStealthLaunch, stealthSubject } from "./signals.js";
+import { isStealthLaunch, stealthSubject } from "./resellers.js";
+import { isMakersAnnouncement } from "./signals.js";
 import { sourceFamily } from "./sourceFamily.js";
 import type { Event, RecordData } from "./types.js";
 import { displayName } from "./variants.js";

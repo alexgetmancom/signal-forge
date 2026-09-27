@@ -8,7 +8,8 @@ import { classify } from "./classify.js";
 import { confidenceFor, evidenceTypeFor } from "./confidence.js";
 import { isRoutine } from "./interpretation.js";
 import { hasNotificationContent } from "./notification.js";
-import { isStealthLaunch, type SignalClass } from "./signals.js";
+import { isStealthLaunch } from "./resellers.js";
+import type { SignalClass } from "./signals.js";
 import type { Collection, Event } from "./types.js";
 
 export const COLLECTION_DEGRADED_PREFIX = "Collection degraded:";

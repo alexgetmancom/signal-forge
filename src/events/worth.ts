@@ -1,7 +1,8 @@
 import type { Database } from "bun:sqlite";
 import { canonical } from "./canonical.js";
 import { normalizeIdentity } from "./identity.js";
-import { CATALOGUE_MAKER, isModelSighting } from "./signals.js";
+import { CATALOGUE_MAKER } from "./resellers.js";
+import { isModelSighting } from "./signals.js";
 import type { Event, RecordData } from "./types.js";
 import { isBesideTheRelease, releasedModelSubject } from "./variants.js";
 import { vendorOfName, vendorSpelling } from "./vendors.js";

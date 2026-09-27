@@ -10,7 +10,7 @@
 import { sourceLabel } from "../../sources/labels.js";
 import { vendorOf } from "../interpretation.js";
 import { displayTitle } from "../naming.js";
-import { isStealthLaunch } from "../signals.js";
+import { isStealthLaunch } from "../resellers.js";
 import type { Event, RecordData } from "../types.js";
 import type { Banner } from "./banner.js";
 import {

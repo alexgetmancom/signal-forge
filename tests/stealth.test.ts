@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { eventEmbed } from "../src/events/render/discord.js";
-import { isStealthLaunch, signalClass, stealthSubject } from "../src/events/signals.js";
+import { isStealthLaunch, stealthSubject } from "../src/events/resellers.js";
+import { signalClass } from "../src/events/signals.js";
 import type { Event } from "../src/events/types.js";
 
 const venue = (source: string, record: object, stream = "api-models"): Event =>
