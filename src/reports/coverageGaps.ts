@@ -61,55 +61,122 @@ function unjudgeable(title: string, words: Set<string>): boolean {
 const AROUND_MS = 7 * 24 * 3_600_000;
 const AFTER_MS = 2 * 24 * 3_600_000;
 
+/**
+ * One key of the record an event carries, as a column, so the body it lives in is never selected.
+ *
+ * This report claimed 62 MB of a floor that is never given back to answer with 8.5 KB, measured on
+ * a copy of production 2026-09-27, and all of it was the two reads below: they selected
+ * `after_json` and `before_json` whole for every event of fourteen days -- the week asked about and
+ * the week of context around it -- to keep a URL and two short strings of each. The same mistake
+ * `listStories` made, and the same fix: ask SQLite for what the answer is derived from.
+ *
+ * `json_valid` guards a body that is not JSON, which `json_extract` answers with an error where
+ * `JSON.parse` answered by failing the whole report. `json_type` keeps only a scalar: an object
+ * arrives from `json_extract` as its own JSON text, where `String()` produced `[object Object]`,
+ * and a headline shares no significant word with either -- the two disagree only where neither is
+ * a name.
+ */
+function keyColumn(body: string, key: string): string {
+  const scalar = `json_valid(${body}) AND json_type(${body},'$.${key}') IN ('text','integer','real')`;
+  return `CASE WHEN ${scalar} THEN json_extract(${body},'$.${key}') END AS ${key}`;
+}
+
+/** The keys of a Hacker News story this report reads, and nothing else it holds. */
+const STORY_KEYS = ["name", "url", "discussion"] as const;
+/** The keys of any other event, which are only ever reduced to a link and a set of words. */
+const OTHER_KEYS = ["name", "id", "url"] as const;
+
+type StoryRow = { [Key in (typeof STORY_KEYS)[number]]: unknown } & { detected_at: string };
+type OtherRow = { [Key in (typeof OTHER_KEYS)[number]]: unknown } & { detected_at: string };
+
+/**
+ * Everything the other sources recorded around the window, as what the matcher asks of it.
+ *
+ * A word to the events that used it, rather than an event to its words. Both answer the same
+ * question and the inverted one is the smaller half by a long way: a `Set` of words per event
+ * stored "qwen" and "3.8" once for every event that mentioned them and paid a `Set`'s own overhead
+ * fifteen thousand times over, which was 14 MB of a floor that is never given back for a read that
+ * answers with 8.5 KB. Here each word is one string and one array of the positions that hold it.
+ *
+ * `at` is parallel to those positions and holds the only other thing the matcher needs, which is
+ * when. Nothing else about an event survives building this.
+ */
+type Context = { at: number[]; links: Set<string>; byWord: Map<string, number[]> };
+
+function contextAround(db: Database, since: string): Context {
+  // `COALESCE` picks the body rather than the key, as identity does: a name from the new record
+  // beside an id from the old one describes a record neither side ever held.
+  const columns = OTHER_KEYS.map((key) => keyColumn("COALESCE(after_json,before_json)", key)).join(",");
+  const rows = db
+    .query<OtherRow, [string]>(
+      `SELECT ${columns},detected_at FROM events WHERE source<>'hackernews' AND detected_at>=?`,
+    )
+    .iterate(since) as IterableIterator<OtherRow>;
+  const context: Context = { at: [], links: new Set(), byWord: new Map() };
+  for (const row of rows) {
+    const index = context.at.push(Date.parse(row.detected_at)) - 1;
+    const url = normalisedUrl(row.url);
+    if (url) context.links.add(url);
+    const subject = `${String(row.name ?? "")} ${String(row.id ?? "")}`.replaceAll(/[-_/]/g, " ");
+    for (const word of significant(subject)) {
+      const holding = context.byWord.get(word);
+      if (holding) holding.push(index);
+      else context.byWord.set(word, [index]);
+    }
+  }
+  return context;
+}
+
+/**
+ * Whether anything else recorded, in the days around this story, something whose name shares two
+ * significant words with the headline. The same predicate the scan over every event answered, asked
+ * only of the events that hold one of the words: a headline shares nothing with most of the week.
+ */
+function corroborated(context: Context, words: Set<string>, at: number): boolean {
+  const shared = new Map<number, number>();
+  for (const word of words)
+    for (const index of context.byWord.get(word) ?? []) {
+      const when = context.at[index] as number;
+      if (when < at - AROUND_MS || when > at + AFTER_MS) continue;
+      const count = (shared.get(index) ?? 0) + 1;
+      if (count >= 2) return true;
+      shared.set(index, count);
+    }
+  return false;
+}
+
 export function coverageGaps(
   db: Database,
   days = 7,
   now = Date.now(),
 ): { since: string; stories: number; covered: number; unjudged: number; gaps: CoverageGap[] } {
   const since = new Date(now - days * 24 * 3_600_000).toISOString();
+  // A story is always a `new` event, so its record is `after_json` and the old code read that
+  // column and no other. Widening it to the older body here would answer about a different record.
+  const storyColumns = STORY_KEYS.map((key) => keyColumn("after_json", key)).join(",");
   const discussed = db
-    .query<{ after_json: string; detected_at: string }, [string]>(
-      "SELECT after_json, detected_at FROM events WHERE source='hackernews' AND kind='new' AND detected_at>=? ORDER BY id",
+    .query<StoryRow, [string]>(
+      `SELECT ${storyColumns},detected_at
+       FROM events WHERE source='hackernews' AND kind='new' AND detected_at>=? ORDER BY id`,
     )
     .all(since);
-  const others = db
-    .query<{ after_json: string | null; before_json: string | null; detected_at: string }, [string]>(
-      "SELECT after_json, before_json, detected_at FROM events WHERE source<>'hackernews' AND detected_at>=?",
-    )
-    .all(new Date(Date.parse(since) - AROUND_MS).toISOString())
-    .map((row) => {
-      const record = JSON.parse(row.after_json ?? row.before_json ?? "{}") as Record<string, unknown>;
-      return {
-        at: Date.parse(row.detected_at),
-        url: normalisedUrl(record.url),
-        words: significant(`${String(record.name ?? "")} ${String(record.id ?? "")}`.replaceAll(/[-_/]/g, " ")),
-      };
-    });
-  const links = new Set(others.map((other) => other.url).filter(Boolean));
+  const context = contextAround(db, new Date(Date.parse(since) - AROUND_MS).toISOString());
   const gaps: CoverageGap[] = [];
   let unjudged = 0;
   for (const row of discussed) {
-    const story = JSON.parse(row.after_json) as Record<string, unknown>;
-    const title = String(story.name ?? "");
-    const url = normalisedUrl(story.url);
-    if (url && links.has(url)) continue;
-    const at = Date.parse(row.detected_at);
+    const title = String(row.name ?? "");
+    const url = normalisedUrl(row.url);
+    if (url && context.links.has(url)) continue;
     const words = significant(title);
     if (unjudgeable(title, words)) {
       unjudged++;
       continue;
     }
-    const seen = others.some((other) => {
-      if (other.at < at - AROUND_MS || other.at > at + AFTER_MS) return false;
-      let shared = 0;
-      for (const word of words) if (other.words.has(word) && ++shared >= 2) return true;
-      return false;
-    });
-    if (!seen)
+    if (!corroborated(context, words, Date.parse(row.detected_at)))
       gaps.push({
         title,
-        url: typeof story.url === "string" ? story.url : null,
-        discussion: typeof story.discussion === "string" ? story.discussion : null,
+        url: typeof row.url === "string" ? row.url : null,
+        discussion: typeof row.discussion === "string" ? row.discussion : null,
         seenAt: row.detected_at,
       });
   }

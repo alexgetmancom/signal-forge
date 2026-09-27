@@ -76,11 +76,11 @@ function symbolInBuild(name: string, directory: string): string[] {
   return found;
 }
 
-export function releaseCheck(
+export async function releaseCheck(
   db: Database,
   config: AppConfig,
   input: { symbol?: string | undefined; directory?: string | undefined; cardDays?: number | undefined },
-): ReleaseCheck {
+): Promise<ReleaseCheck> {
   const applied = db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version ?? 0;
   const present = new Set(
     db
@@ -126,6 +126,6 @@ export function releaseCheck(
     sinceBoot: { bootedAt, failedOperations, failedCollections },
     issues,
     retiredFailing: failing.length - issues,
-    cards: releaseRender(db, input.cardDays ?? 2),
+    cards: await releaseRender(db, input.cardDays ?? 2),
   };
 }

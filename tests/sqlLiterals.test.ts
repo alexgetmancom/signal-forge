@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { literals, STARTS } from "../scripts/sqlLiterals.js";
+import { literals, readsEventBodies, STARTS } from "../scripts/sqlLiterals.js";
 
 const sql = (text: string) =>
   literals(text)
@@ -33,5 +33,42 @@ describe("the SQL written in a file", () => {
     // The scanner does not judge; `select` at the start of a comment-like string reaches the
     // parser, fails to parse, and is counted as assembled rather than reported as a wrong name.
     expect(sql('const note = "select the newest first";')).toEqual(["select the newest first"]);
+  });
+});
+
+/**
+ * The rule `check-sql` enforces with this: a read that carries event bodies is one of the reads
+ * listed as carrying them. Every shape below is one the repository actually writes, and the pair
+ * that matters is the first two -- the same question asked expensively and cheaply.
+ */
+describe("a read that takes event bodies", () => {
+  test("selecting a body is one, extracting a key from it is not", () => {
+    expect(readsEventBodies("SELECT after_json,detected_at FROM events WHERE detected_at>=?")).toBe(true);
+    expect(
+      readsEventBodies("SELECT json_extract(after_json,'$.name') AS name,detected_at FROM events WHERE detected_at>=?"),
+    ).toBe(false);
+    // The shape `identityColumns` generates, which is what the story list reads instead of 27.6 MB.
+    expect(
+      readsEventBodies(
+        "SELECT CASE WHEN json_valid(COALESCE(e.after_json,e.before_json)) THEN " +
+          "json_extract(COALESCE(e.after_json,e.before_json),'$.name') END AS ident_name FROM events e WHERE e.id<=?",
+      ),
+    ).toBe(false);
+  });
+
+  test("`*` from events is one, because it carries both bodies", () => {
+    expect(readsEventBodies("SELECT * FROM events WHERE detected_at>=? ORDER BY id")).toBe(true);
+    expect(readsEventBodies("SELECT e.*,be.url FROM batch_events be JOIN events e ON e.id=be.event_id")).toBe(true);
+    expect(readsEventBodies("SELECT COUNT(*) n FROM events WHERE detected_at>=?")).toBe(false);
+  });
+
+  test("one event by its id is not one: a single body is not a floor", () => {
+    expect(readsEventBodies("SELECT * FROM events WHERE id=?")).toBe(false);
+    expect(readsEventBodies("SELECT id,source,before_json,after_json FROM events WHERE id=?")).toBe(false);
+  });
+
+  test("a write is not a read", () => {
+    expect(readsEventBodies("INSERT INTO events(source,after_json) VALUES(?,?)")).toBe(false);
+    expect(readsEventBodies("UPDATE events SET after_json=? WHERE id=?")).toBe(false);
   });
 });

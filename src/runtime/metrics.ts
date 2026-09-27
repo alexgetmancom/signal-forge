@@ -23,14 +23,20 @@ type StoredMetric = {
   last_error_type: string | null;
 };
 
-type MetricAggregate = {
+/**
+ * One section's numbers as SQL adds them up: a row per name, not a row per name and hour.
+ *
+ * Named after the columns rather than after the table, because nothing here is a stored row any
+ * more -- `minDurationMs` is the smallest of the window and `lastErrorType` the newest failure in
+ * it, neither of which any single row holds.
+ */
+type SectionTotals = {
   name: string;
   calls: number;
   failures: number;
   totalDurationMs: number;
   minDurationMs: number;
   maxDurationMs: number;
-  durationBuckets: number[];
   lastCalledAt: string;
   lastErrorAt: string | null;
   lastErrorType: string | null;
@@ -214,40 +220,6 @@ export function measure<T>(db: Database, name: string, operation: () => T | Prom
   }
 }
 
-function aggregateRows(rows: StoredMetric[]): Map<string, MetricAggregate> {
-  const result = new Map<string, MetricAggregate>();
-  for (const row of rows) {
-    const current =
-      result.get(row.name) ??
-      ({
-        name: row.name,
-        calls: 0,
-        failures: 0,
-        totalDurationMs: 0,
-        minDurationMs: Number.POSITIVE_INFINITY,
-        maxDurationMs: 0,
-        durationBuckets: emptyBuckets(),
-        lastCalledAt: row.last_called_at,
-        lastErrorAt: null,
-        lastErrorType: null,
-      } satisfies MetricAggregate);
-    current.calls += row.calls;
-    current.failures += row.failures;
-    current.totalDurationMs += row.total_duration_ms;
-    current.minDurationMs = Math.min(current.minDurationMs, row.min_duration_ms);
-    current.maxDurationMs = Math.max(current.maxDurationMs, row.max_duration_ms);
-    const rowBuckets = readBuckets(row.duration_buckets_json);
-    current.durationBuckets = current.durationBuckets.map((count, index) => count + (rowBuckets[index] ?? 0));
-    if (row.last_called_at > current.lastCalledAt) current.lastCalledAt = row.last_called_at;
-    if (row.last_error_at && (!current.lastErrorAt || row.last_error_at > current.lastErrorAt)) {
-      current.lastErrorAt = row.last_error_at;
-      current.lastErrorType = row.last_error_type;
-    }
-    result.set(row.name, current);
-  }
-  return result;
-}
-
 function percentile(buckets: number[], percentileValue: number): number {
   const total = buckets.reduce((sum, count) => sum + count, 0);
   if (!total) return 0;
@@ -260,7 +232,7 @@ function percentile(buckets: number[], percentileValue: number): number {
   return DURATION_BUCKET_LIMITS_MS[DURATION_BUCKET_LIMITS_MS.length - 1] ?? 0;
 }
 
-function sectionReport(metric: MetricAggregate): CodeAnalyticsSection {
+function sectionReport(metric: SectionTotals, buckets: number[]): CodeAnalyticsSection {
   return {
     name: metric.name,
     calls: metric.calls,
@@ -269,10 +241,10 @@ function sectionReport(metric: MetricAggregate): CodeAnalyticsSection {
     failureRate: metric.calls ? round(metric.failures / metric.calls, 4) : 0,
     totalDurationMs: metric.totalDurationMs,
     averageDurationMs: metric.calls ? round(metric.totalDurationMs / metric.calls, 2) : 0,
-    minDurationMs: Number.isFinite(metric.minDurationMs) ? metric.minDurationMs : 0,
+    minDurationMs: metric.minDurationMs,
     maxDurationMs: metric.maxDurationMs,
-    p50DurationMs: percentile(metric.durationBuckets, 0.5),
-    p95DurationMs: percentile(metric.durationBuckets, 0.95),
+    p50DurationMs: percentile(buckets, 0.5),
+    p95DurationMs: percentile(buckets, 0.95),
     lastCalledAt: metric.lastCalledAt,
     lastErrorAt: metric.lastErrorAt,
     lastErrorType: metric.lastErrorType,
@@ -312,6 +284,118 @@ function askedFrom(db: Database, value: string, now: number): number {
   return at;
 }
 
+/**
+ * The window a report covers and the name it was narrowed to, as the three parameters every query
+ * below takes. `wanted` is empty for "every section", which is a condition SQL can carry rather
+ * than a filter this process applies to rows it already built.
+ *
+ * The queries number their parameters -- `?1` is the window's start wherever it appears -- because
+ * each of them names the same value more than once, and a positional list that has to be read
+ * against the order the placeholders happen to appear in is a list somebody gets wrong. Named
+ * parameters are not the way out: only a handle opened `strict` matches them by bare name, and this
+ * report is asked through read-only handles that are not, where a name that matches nothing binds
+ * null and answers about an empty window instead of failing.
+ */
+type Window = { from: string; to: string; wanted: string };
+
+/** A window as the queries below take it. */
+function bounds(window: Window): [string, string, string] {
+  return [window.from, window.to, window.wanted];
+}
+
+/**
+ * A section's numbers, added up by SQLite.
+ *
+ * `timings` claimed 57 MB of a floor that is never given back to answer with 6.8 KB, measured on a
+ * copy of production 2026-09-27. It selected every row of the window -- most of 109,784, each
+ * carrying an 18-slot JSON histogram -- and folded them into one entry per name here. `code_metrics`
+ * gains a row per hour per instrumented section, so that read grew with the archive rather than
+ * with the answer, faster than anything else this service stores.
+ *
+ * `lastErrorType` is the type of the newest failure in the window, which is what the loop that used
+ * to do this kept. The subquery reproduces its tie-break as well: it walked buckets in order and
+ * replaced the type only on a strictly newer failure, so where two buckets carry the same instant
+ * the older bucket's type is the one that survives.
+ */
+const SECTION_TOTALS = `
+  SELECT m.name AS name,
+         SUM(m.calls) AS calls,
+         SUM(m.failures) AS failures,
+         SUM(m.total_duration_ms) AS totalDurationMs,
+         MIN(m.min_duration_ms) AS minDurationMs,
+         MAX(m.max_duration_ms) AS maxDurationMs,
+         MAX(m.last_called_at) AS lastCalledAt,
+         MAX(m.last_error_at) AS lastErrorAt,
+         (SELECT f.last_error_type FROM code_metrics f
+           WHERE f.name=m.name AND f.bucket_start>=?1 AND f.bucket_start<=?2 AND f.last_error_at IS NOT NULL
+           ORDER BY f.last_error_at DESC, f.bucket_start LIMIT 1) AS lastErrorType
+  FROM code_metrics m
+  WHERE m.bucket_start>=?1 AND m.bucket_start<=?2 AND (?3='' OR instr(lower(m.name),?3)>0)
+  GROUP BY m.name`;
+
+/**
+ * A stored histogram, or an empty one where the row does not carry the shape `percentile` reads.
+ *
+ * `readBuckets` answered a malformed or wrong-length body with all zeroes, so a row like that
+ * contributed nothing; `json_each` answers it by raising, which would fail the report instead. The
+ * two `CASE`s are nested rather than joined with `AND` because only nesting is documented to leave
+ * the length check unevaluated when the body is not JSON at all.
+ */
+const HISTOGRAM_JSON = `CASE WHEN json_valid(m.duration_buckets_json)
+     THEN (CASE WHEN json_array_length(m.duration_buckets_json)=${DURATION_BUCKET_LIMITS_MS.length}
+             THEN m.duration_buckets_json ELSE '[]' END)
+     ELSE '[]' END`;
+
+/**
+ * The slots of the sections asked for, summed across the window.
+ *
+ * Only the sections the answer keeps: p50 and p95 are all a histogram is for, and `--limit` throws
+ * most of them away. `slot.type` and the sign keep `readBuckets`'s rule that a slot is a
+ * non-negative integer or nothing.
+ */
+function histograms(db: Database, window: Window, names: string[]): Map<string, number[]> {
+  const result = new Map<string, number[]>();
+  if (names.length === 0) return result;
+  const rows = db
+    .query<{ name: string; slot: number; calls: number }, [string, string, string, string]>(
+      `SELECT m.name AS name,slot.key AS slot,SUM(slot.value) AS calls
+       FROM code_metrics m,json_each(${HISTOGRAM_JSON}) AS slot
+       WHERE m.bucket_start>=?1 AND m.bucket_start<=?2
+         AND m.name IN (SELECT value FROM json_each(?4))
+         AND slot.type='integer' AND slot.value>=0
+       GROUP BY m.name,slot.key`,
+    )
+    .all(...bounds(window), JSON.stringify(names));
+  for (const row of rows) {
+    const buckets = result.get(row.name) ?? emptyBuckets();
+    buckets[row.slot] = (buckets[row.slot] ?? 0) + row.calls;
+    result.set(row.name, buckets);
+  }
+  return result;
+}
+
+/**
+ * The per-hour series, asked for only when it is wanted.
+ *
+ * Narrowed by the same `wanted` as the totals: a name filter whose two halves describe different
+ * sections is a report that contradicts itself.
+ */
+function timelineOf(db: Database, window: Window): CodeAnalyticsReport["timeline"] {
+  return db
+    .query<{ bucketStart: string; calls: number; failures: number; totalDurationMs: number }, [string, string, string]>(
+      `SELECT bucket_start AS bucketStart,SUM(calls) AS calls,SUM(failures) AS failures,
+              SUM(total_duration_ms) AS totalDurationMs
+       FROM code_metrics
+       WHERE bucket_start>=?1 AND bucket_start<=?2 AND (?3='' OR instr(lower(name),?3)>0)
+       GROUP BY bucket_start ORDER BY bucket_start`,
+    )
+    .all(...bounds(window))
+    .map((row) => ({
+      ...row,
+      averageDurationMs: row.calls ? round(row.totalDurationMs / row.calls, 2) : 0,
+    }));
+}
+
 export function codeAnalytics(db: Database, days = 7, now = Date.now(), query: TimingsQuery = {}): CodeAnalyticsReport {
   if (!Number.isInteger(days) || days < 1 || days > 90) throw new Error("Code analytics days must be between 1 and 90");
   const until = new Date(now).toISOString();
@@ -323,16 +407,10 @@ export function codeAnalytics(db: Database, days = 7, now = Date.now(), query: T
   const straddled = asked === null || opens === asked ? null : bucketStart(asked);
   const since = new Date(asked ?? opens).toISOString();
   const firstBucket = asked === null ? bucketStart(opens) : new Date(opens).toISOString();
-  const rows = db
-    .query<StoredMetric, [string, string]>(
-      `SELECT name,bucket_start,calls,failures,total_duration_ms,min_duration_ms,max_duration_ms,
-              duration_buckets_json,last_called_at,last_error_at,last_error_type
-       FROM code_metrics WHERE bucket_start>=? AND bucket_start<=? ORDER BY bucket_start,name`,
-    )
-    .all(firstBucket, until);
-  const wanted = query.name?.toLowerCase();
-  const metrics = [...aggregateRows(rows).values()]
-    .filter((metric) => (wanted ? metric.name.toLowerCase().includes(wanted) : true))
+  const window: Window = { from: firstBucket, to: until, wanted: query.name?.toLowerCase() ?? "" };
+  const metrics = db
+    .query<SectionTotals, [string, string, string]>(SECTION_TOTALS)
+    .all(...bounds(window))
     .sort((left, right) => {
       if (right.totalDurationMs !== left.totalDurationMs) return right.totalDurationMs - left.totalDurationMs;
       return left.name.localeCompare(right.name);
@@ -340,17 +418,12 @@ export function codeAnalytics(db: Database, days = 7, now = Date.now(), query: T
   const calls = metrics.reduce((sum, metric) => sum + metric.calls, 0);
   const failures = metrics.reduce((sum, metric) => sum + metric.failures, 0);
   const totalDurationMs = metrics.reduce((sum, metric) => sum + metric.totalDurationMs, 0);
-  const timeline = new Map<string, { calls: number; failures: number; totalDurationMs: number }>();
-  for (const row of rows) {
-    // The series has to describe the same sections the totals do, or a name filter produces a
-    // report whose two halves are about different things.
-    if (wanted && !row.name.toLowerCase().includes(wanted)) continue;
-    const current = timeline.get(row.bucket_start) ?? { calls: 0, failures: 0, totalDurationMs: 0 };
-    current.calls += row.calls;
-    current.failures += row.failures;
-    current.totalDurationMs += row.total_duration_ms;
-    timeline.set(row.bucket_start, current);
-  }
+  const answered = query.limit ? metrics.slice(0, query.limit) : metrics;
+  const buckets = histograms(
+    db,
+    window,
+    answered.map((metric) => metric.name),
+  );
   return {
     since,
     until,
@@ -366,14 +439,8 @@ export function codeAnalytics(db: Database, days = 7, now = Date.now(), query: T
       totalDurationMs,
       averageDurationMs: calls ? round(totalDurationMs / calls, 2) : 0,
     },
-    sections: (query.limit ? metrics.slice(0, query.limit) : metrics).map(sectionReport),
-    timeline: query.timeline
-      ? [...timeline.entries()].map(([bucketStartValue, value]) => ({
-          bucketStart: bucketStartValue,
-          ...value,
-          averageDurationMs: value.calls ? round(value.totalDurationMs / value.calls, 2) : 0,
-        }))
-      : [],
+    sections: answered.map((metric) => sectionReport(metric, buckets.get(metric.name) ?? emptyBuckets())),
+    timeline: query.timeline ? timelineOf(db, window) : [],
   };
 }
 

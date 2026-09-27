@@ -18,9 +18,9 @@ afterAll(() => rmSync(BUILD, { recursive: true, force: true }));
 const configPath = new URL("./fixtures/config.json", import.meta.url).pathname;
 const CONFIG = loadConfig({ CONFIG_PATH: configPath });
 
-test("a fresh database is at the schema version this build expects, with its hot-path indexes", () => {
+test("a fresh database is at the schema version this build expects, with its hot-path indexes", async () => {
   const db = openDatabase(":memory:");
-  const check = releaseCheck(db, CONFIG, {});
+  const check = await releaseCheck(db, CONFIG, {});
   expect(check.schema).toEqual({ expected: CURRENT_SCHEMA_VERSION, applied: CURRENT_SCHEMA_VERSION, ok: true });
   // 049 shipped indexes that the planner ignored until ANALYZE ran; missing and unanalysed are
   // different failures and only one of them is visible in sqlite_master.
@@ -30,57 +30,57 @@ test("a fresh database is at the schema version this build expects, with its hot
   db.close();
 });
 
-test("a symbol the release added is looked for in the built code, not in the database", () => {
+test("a symbol the release added is looked for in the built code, not in the database", async () => {
   const db = openDatabase(":memory:");
   // Every database check can pass while the container runs last week's image.
-  const found = releaseCheck(db, CONFIG, { symbol: "releaseCheck", directory: BUILD });
+  const found = await releaseCheck(db, CONFIG, { symbol: "releaseCheck", directory: BUILD });
   expect(found.symbol.found).toBe(true);
   expect(found.symbol.files).toEqual(["sub/a.js"]);
   expect(found.ok).toBe(true);
 
-  const missing = releaseCheck(db, CONFIG, { symbol: "notInThisBuild", directory: BUILD });
+  const missing = await releaseCheck(db, CONFIG, { symbol: "notInThisBuild", directory: BUILD });
   expect(missing.symbol.found).toBe(false);
   expect(missing.ok).toBe(false);
   db.close();
 });
 
-test("a build directory that is not there is a failed check, not a crash", () => {
+test("a build directory that is not there is a failed check, not a crash", async () => {
   const db = openDatabase(":memory:");
-  const check = releaseCheck(db, CONFIG, { symbol: "releaseCheck", directory: "/nonexistent/dist" });
+  const check = await releaseCheck(db, CONFIG, { symbol: "releaseCheck", directory: "/nonexistent/dist" });
   expect(check.symbol.found).toBe(false);
   expect(check.ok).toBe(false);
   db.close();
 });
 
-test("an operator's mistyped query does not count against the release", () => {
+test("an operator's mistyped query does not count against the release", async () => {
   const db = openDatabase(":memory:");
   db.query(
     "INSERT INTO operator_journal(recorded_at,surface,operation,input_json,outcome,detail,mutates) VALUES(?,?,?,?,?,?,0)",
   ).run(new Date().toISOString(), "cli", "sql", "{}", "failed", "no such column: total_ms");
-  const check = releaseCheck(db, CONFIG, {});
+  const check = await releaseCheck(db, CONFIG, {});
   // The count is worth seeing; it is not a verdict on the image that was deployed.
   expect(check.sinceBoot.failedOperations).toBe(1);
   expect(check.ok).toBe(true);
   db.close();
 });
 
-test("an index dropped after the migration ran is reported missing", () => {
+test("an index dropped after the migration ran is reported missing", async () => {
   const db = openDatabase(":memory:");
   db.exec("DROP INDEX events_detected_at");
-  const check = releaseCheck(db, CONFIG, {});
+  const check = await releaseCheck(db, CONFIG, {});
   expect(check.indexes.missing).toEqual(["events_detected_at"]);
   expect(check.ok).toBe(false);
   db.close();
 });
 
-test("a failing row that belongs to no registered source is counted apart from the ones that do", () => {
+test("a failing row that belongs to no registered source is counted apart from the ones that do", async () => {
   const db = openDatabase(":memory:");
   const registered = buildSourceRegistry(db, CONFIG)[0]?.id as string;
   const row = db.query("INSERT INTO sources(id,failures,checked_at) VALUES(?,1,?)");
   row.run(registered, "2026-09-25T12:00:00.000Z");
   // Four designarena boards frozen on 2026-09-09 look exactly like this, and used to be counted.
   row.run("designarena:logo", "2026-09-09T21:14:05.106Z");
-  const check = releaseCheck(db, CONFIG, {});
+  const check = await releaseCheck(db, CONFIG, {});
   expect(check.issues).toBe(1);
   expect(check.retiredFailing).toBe(1);
   db.close();

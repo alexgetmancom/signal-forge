@@ -1,5 +1,8 @@
 import type { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
+import { unlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { eventEmbed } from "../events/render/discord.js";
 import type { Event } from "../events/types.js";
 import { readRuntime } from "../runtime/observability.js";
@@ -47,7 +50,7 @@ const SAMPLE = 5;
 const CORPUS_MAX_AGE_MS = 30 * 24 * 3_600_000;
 
 /** The events a fingerprint is taken over: everything since `since`, up to and including `maxId`. */
-type Corpus = { since: string; maxId: number; windowDays: number };
+export type Corpus = { since: string; maxId: number; windowDays: number };
 
 /** `corpus` as stored on a row, so two rows are only ever compared when they hashed the same events. */
 function corpusId(corpus: Corpus): string {
@@ -177,21 +180,85 @@ type Row = {
   corpus: string | null;
 };
 
+/** How long the child gets before it is killed. The rendering it does takes half a second. */
+const FINGERPRINT_TIMEOUT_MS = 120_000;
+
+/** Where the child lives, beside this module's own compiled form rather than at a guessed path. */
+function entry(): string {
+  const name = import.meta.url.endsWith(".ts") ? "../fingerprintOne.ts" : "../fingerprintOne.js";
+  return new URL(name, import.meta.url).pathname;
+}
+
+/** What the child writes down, which is `Fingerprint` with its map spelled out as pairs. */
+type WireFingerprint =
+  | { ok: true; hash: string; cards: number; tookMs: number; byEvent: [number, string][] }
+  | { ok: false; failed: string };
+
+/**
+ * The fingerprint, computed in a process that ends.
+ *
+ * Every other read this service answers was made cheap by asking SQL for what the answer keeps.
+ * This one cannot be: the cards have to be built to be hashed, and building every event of two days
+ * at both detail levels claimed 56 MB on a copy of production 2026-09-27. In the long-lived process
+ * that is 56 MB of floor for the rest of the boot, paid once by whoever watches a deploy; in a child
+ * it dies with the child, which is what src/sources/subprocess.ts does for a heavy collector and for
+ * the same reason. The 300 ms of startup is nothing against a read asked once per boot.
+ *
+ * A failure is reported rather than quietly computed here instead. A fallback would be invisible --
+ * the answer is the same either way, and the floor it was meant to hold down would be back.
+ */
+async function fingerprintThatEnds(db: Database, corpus: Corpus): Promise<Fingerprint> {
+  // No file is a test or a probe against `:memory:`, where there is nothing to hand a child and no
+  // long-lived process whose floor this protects.
+  if (!db.filename || db.filename === ":memory:") return renderFingerprint(db, corpus);
+  const answerPath = join(tmpdir(), `signal-forge-fingerprint-${Bun.nanoseconds()}.json`);
+  const child = Bun.spawn([process.execPath, "--smol", entry(), db.filename, JSON.stringify(corpus), answerPath], {
+    stdout: "inherit",
+    stderr: "inherit",
+  });
+  const timer = setTimeout(() => child.kill(), FINGERPRINT_TIMEOUT_MS);
+  try {
+    const code = await child.exited;
+    const file = Bun.file(answerPath);
+    const answer = (await file.exists()) ? (JSON.parse(await file.text()) as WireFingerprint) : null;
+    // What a runtime prints when it dies is not something to store or to publish, so a child that
+    // did not answer is described by how it ended, as `readAnswer` describes a collector's.
+    if (!answer)
+      throw new Error(
+        `The cards were not rendered: the child ${code === null ? "was killed" : `exited with code ${code}`} without answering`,
+      );
+    if (!answer.ok) throw new Error(`The cards were not rendered: the child raised ${answer.failed}`);
+    return {
+      hash: answer.hash,
+      cards: answer.cards,
+      tookMs: answer.tookMs,
+      byEvent: new Map(answer.byEvent),
+    };
+  } finally {
+    clearTimeout(timer);
+    try {
+      unlinkSync(answerPath);
+    } catch {
+      // The child may never have written it, and a temporary file left behind is not a failure.
+    }
+  }
+}
+
 /**
  * This boot's numbers: read back if it already rendered this corpus, computed and stored if not.
  *
  * `byEvent` is null on the read-back path because the cards are already a table; the diff reads
  * them from there rather than rendering nine hundred embeds to learn what it wrote down last time.
  */
-function thisBoot(
+async function thisBoot(
   db: Database,
   runtime: { bootId: string; bootedAt: string },
   corpus: Corpus,
   stored: Row | null,
   now: number,
-): { hash: string; cards: number; tookMs: number; byEvent: Map<number, string> | null } {
+): Promise<{ hash: string; cards: number; tookMs: number; byEvent: Map<number, string> | null }> {
   if (stored) return { hash: stored.hash, cards: stored.cards, tookMs: stored.took_ms, byEvent: null };
-  const fresh = renderFingerprint(db, corpus);
+  const fresh = await fingerprintThatEnds(db, corpus);
   db.query(
     `INSERT INTO release_renders(boot_id,computed_at,booted_at,hash,cards,window_days,took_ms,corpus)
      VALUES (?,?,?,?,?,?,?,?)
@@ -219,13 +286,13 @@ function thisBoot(
  * poller. A boot with no recorded start time is a process that has not finished starting, and gets
  * no row rather than a row keyed on nothing.
  */
-export function releaseRender(db: Database, windowDays = 2, now = Date.now()): RenderFingerprint | null {
+export async function releaseRender(db: Database, windowDays = 2, now = Date.now()): Promise<RenderFingerprint | null> {
   const runtime = readRuntime(db);
   if (!runtime) return null;
   const corpus = releaseCorpus(db, windowDays, now);
   const id = corpusId(corpus);
   const row = db.query<Row, [string]>("SELECT * FROM release_renders WHERE boot_id=?").get(runtime.bootId);
-  const current = thisBoot(db, runtime, corpus, row && row.corpus === id ? row : null, now);
+  const current = await thisBoot(db, runtime, corpus, row && row.corpus === id ? row : null, now);
 
   // Only boots that hashed the same events. A row taken over another corpus is not a disagreement
   // and is not an agreement either; it is a different question, and answering with it is what the

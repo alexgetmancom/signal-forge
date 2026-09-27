@@ -75,3 +75,42 @@ export function tablesNamed(sql: string): string[] {
     ),
   ];
 }
+
+/** A statement with every `json_...()` call cut out, so what is left is what a row actually carries. */
+function withoutJsonCalls(sql: string): string {
+  let out = "";
+  for (let at = 0; at < sql.length; at += 1) {
+    const call = /^json_(?:extract|type|valid|array_length|each|quote|group_array)\s*\(/i.exec(sql.slice(at));
+    if (!call) {
+      out += sql[at];
+      continue;
+    }
+    let depth = 0;
+    let index = at + call[0].length - 1;
+    for (; index < sql.length; index += 1) {
+      if (sql[index] === "(") depth += 1;
+      else if (sql[index] === ")") {
+        depth -= 1;
+        if (depth === 0) break;
+      }
+    }
+    at = index;
+  }
+  return out;
+}
+
+/**
+ * Whether a statement takes the body of more than one event.
+ *
+ * `*` counts: `SELECT e.*` from `events` carries both bodies and is how most of the reads below ask
+ * for them. A lookup keyed on an event's id does not: it answers about one event, which is the
+ * shape `event` and `preview` use and the only shape that cannot grow with the archive.
+ */
+export function readsEventBodies(sql: string): boolean {
+  if (!/^\s*(?:select|with)\b/i.test(sql)) return false;
+  const bare = withoutJsonCalls(sql);
+  const names = /\b(?:before_json|after_json)\b/.test(bare);
+  const everything = /\b(?:select|,)\s*(?:[a-z]\w*\.)?\*/i.test(bare) && /\b(?:from|join)\s+events\b/i.test(bare);
+  if (!names && !everything) return false;
+  return !/\bwhere\s+(?:[a-z]\w*\.)?id\s*=\s*\?/i.test(bare);
+}
