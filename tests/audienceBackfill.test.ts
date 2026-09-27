@@ -154,3 +154,57 @@ test("the hold-off is per source: one broken judge does not silence the others",
   );
   db.close();
 });
+
+/** A judge that stops in the middle of the object it was writing, as a runaway answer does. */
+function truncating(answered: number) {
+  const asked: string[][] = [];
+  let ceiling = 0;
+  const request = async (_url: string, init?: RequestInit): Promise<Response> => {
+    const body = JSON.parse(String(init?.body ?? "{}")) as {
+      messages: { content: string }[];
+      max_tokens: number;
+    };
+    ceiling = body.max_tokens;
+    const ids = [...String(body.messages[1]?.content ?? "").matchAll(/^ID: (.+)$/gm)].map((m) => m[1] as string);
+    asked.push(ids);
+    const pairs = ids.slice(0, answered).map((id) => `"${id}": "builders"`);
+    // No closing brace: this is a prefix of the object, not the object.
+    return Response.json({
+      choices: [{ message: { content: `{${pairs.join(", ")}` }, finish_reason: "length" }],
+    });
+  };
+  return { asked, ceiling: () => ceiling, request: request as unknown as typeof fetch };
+}
+
+test("an answer that stopped in the middle is worth the verdicts it did contain", async () => {
+  const db = openDatabase(":memory:");
+  const records = Array.from({ length: 4 }, (_, index) => ({ id: `n${index}`, name: `Note ${index}`, summary: "s" }));
+  const partial = truncating(3);
+  const judged = await withAudience(db, config, partial.request, "openai-chatgpt-release-notes", records);
+  expect(judged.filter((record) => record.audience).map((record) => record.id)).toEqual(["n0", "n1", "n2"]);
+  // Throwing the batch away is what made a runaway recur: this counts as an answer.
+  expect(db.query<{ o: string }, []>("SELECT outcome o FROM deepseek_usage").get()?.o).toBe("summarized");
+  db.close();
+});
+
+test("an answer that named nobody is no answer, and says it ran out of room", async () => {
+  const db = openDatabase(":memory:");
+  const records = [{ id: "a", name: "Note a", summary: "s" }];
+  const empty = truncating(0);
+  const judged = await withAudience(db, config, empty.request, "openai-chatgpt-release-notes", records);
+  expect(judged[0]?.audience).toBeUndefined();
+  expect(
+    db.query<{ o: string; e: string }, []>("SELECT outcome o,error_type e FROM deepseek_usage").get(),
+  ).toMatchObject({ o: "invalid", e: "TruncatedAnswer" });
+  db.close();
+});
+
+test("the room one answer gets is sized to the batch, not to what a runaway would spend", async () => {
+  const db = openDatabase(":memory:");
+  const records = Array.from({ length: 12 }, (_, index) => ({ id: `n${index}`, name: `Note ${index}`, summary: "s" }));
+  const partial = truncating(12);
+  await withAudience(db, config, partial.request, "openai-chatgpt-release-notes", records);
+  // 12 verdicts at ~20 tokens each, ten times over: far under the flat 6,000 that every runaway spent.
+  expect(partial.ceiling()).toBe(2_400);
+  db.close();
+});

@@ -32,7 +32,9 @@ const PROMPT =
   "of existing features. Reply with a JSON object mapping every entry ID to its audience and nothing else.";
 
 const answerSchema = z.object({
-  choices: z.array(z.object({ message: z.object({ content: z.string().nullable() }) })).min(1),
+  choices: z
+    .array(z.object({ message: z.object({ content: z.string().nullable() }), finish_reason: z.string().nullish() }))
+    .min(1),
   usage: z
     .object({
       prompt_tokens: z.number().nullish(),
@@ -43,9 +45,42 @@ const answerSchema = z.object({
     })
     .nullish(),
 });
-const verdictSchema = z.record(z.string(), z.enum(["builders", "consumers"]));
 
 const JUDGE_OPERATION = "audience.judge";
+
+/**
+ * How much room one answer gets, and why it is not a round number chosen upwards.
+ *
+ * Across 221 unusable answers from this judge and the mention judge, every single one stopped at
+ * exactly the ceiling and no usable answer ever came close to it: the mention judge's answers
+ * average 535 completion tokens, this one's 3,211 at 40 entries. An answer either arrives with room
+ * to spare or it does not stop at all, so the ceiling has never been what a long answer needs -- it
+ * is only what a runaway costs. Raising it from 2,000 to 6,000 tripled the price of the same
+ * failure and fixed nothing, and shrinking the batch under it did not help either: a 3,895-character
+ * question still spent all 6,000.
+ *
+ * So it is sized to the answer instead. A verdict is an ID and one word, about 20 tokens; ten times
+ * that is room no real answer needs and a quarter of what a runaway used to cost.
+ */
+function ceilingFor(entryCount: number): number {
+  return Math.max(400, Math.min(6_000, entryCount * 200));
+}
+
+/**
+ * The verdicts an answer contained, including one that stopped in the middle.
+ *
+ * `JSON.parse` on a truncated object throws, and throwing discarded every verdict that did arrive:
+ * that is what made a runaway recur rather than merely fail, because the entries stayed unjudged and
+ * the next poll asked about them again. 219 calls in three days learned nothing for that reason. A
+ * prefix of a valid object still names most of its entries, so the pairs are read directly and the
+ * batch drains by whatever part of it was answered.
+ */
+function verdictsIn(content: string): Map<string, Audience> {
+  const found = new Map<string, Audience>();
+  for (const [, id, audience] of content.matchAll(/"([^"]+)"\s*:\s*"(builders|consumers)"/g))
+    if (id && audience) found.set(id, audience as Audience);
+  return found;
+}
 
 /**
  * How many unusable answers in a row stop the question being asked, and for how long.
@@ -59,6 +94,74 @@ const JUDGE_OPERATION = "audience.judge";
  */
 const JUDGE_UNUSABLE_RUN_LIMIT = 3;
 const JUDGE_BACKOFF_MS = 6 * 3_600_000;
+
+function ask(config: AppConfig, request: Fetch, input: string, entryCount: number): Promise<Response> {
+  return request(DEEPSEEK_SUMMARY_ENDPOINT, {
+    method: "POST",
+    headers: { "content-type": "application/json", Authorization: `Bearer ${config.DEEPSEEK_API_KEY}` },
+    signal: AbortSignal.timeout(60_000),
+    body: JSON.stringify({
+      model: DEEPSEEK_SUMMARY_MODEL,
+      max_tokens: ceilingFor(entryCount),
+      temperature: 0,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: PROMPT },
+        { role: "user", content: input },
+      ],
+    }),
+  });
+}
+
+/** What a reached judge said, settled in the ledger as one of an answer, a part of one, or none. */
+async function readAnswer(
+  response: Response,
+  entries: readonly { id: string }[],
+  settle: (result: DeepSeekAttemptResult) => void,
+): Promise<Map<string, Audience>> {
+  let usage: DeepSeekAttemptResult["usage"] = null;
+  try {
+    const answer = answerSchema.parse(await response.json());
+    const u = answer.usage;
+    usage = u
+      ? {
+          promptTokens: u.prompt_tokens ?? null,
+          completionTokens: u.completion_tokens ?? null,
+          totalTokens: u.total_tokens ?? null,
+          promptCacheHitTokens: u.prompt_cache_hit_tokens ?? null,
+          promptCacheMissTokens: u.prompt_cache_miss_tokens ?? null,
+        }
+      : null;
+    const ranOut = answer.choices[0]?.finish_reason === "length";
+    const verdicts = verdictsIn(answer.choices[0]?.message.content ?? "");
+    const answered = new Map(
+      entries.flatMap((entry) => {
+        const audience = verdicts.get(entry.id);
+        return audience ? [[entry.id, audience] as const] : [];
+      }),
+    );
+    // An answer that named nobody is no answer, however it ended; one that named somebody is worth
+    // what it named even if it stopped early, and the hold-off counts only the former.
+    if (answered.size === 0) {
+      settle({
+        outcome: "invalid",
+        responseStatus: response.status,
+        usage,
+        errorType: ranOut ? "TruncatedAnswer" : "NoVerdicts",
+      });
+      log("warn", "Audience judge answered nothing", { ranOut });
+      return new Map();
+    }
+    settle({ outcome: "summarized", responseStatus: response.status, usage, errorType: null });
+    if (answered.size < entries.length)
+      log("warn", "Audience judge answered in part", { asked: entries.length, answered: answered.size, ranOut });
+    return answered;
+  } catch (error) {
+    settle({ outcome: "invalid", responseStatus: response.status, usage, errorType: safeErrorType(error) });
+    log("warn", "Audience judge failed", { error: safeErrorType(error) });
+    return new Map();
+  }
+}
 
 async function judgeAudience(
   config: AppConfig,
@@ -88,22 +191,7 @@ async function judgeAudience(
   };
   let response: Response;
   try {
-    response = await request(DEEPSEEK_SUMMARY_ENDPOINT, {
-      method: "POST",
-      headers: { "content-type": "application/json", Authorization: `Bearer ${config.DEEPSEEK_API_KEY}` },
-      signal: AbortSignal.timeout(60_000),
-      body: JSON.stringify({
-        model: DEEPSEEK_SUMMARY_MODEL,
-        // The model reasons before it answers; the mention judge ran out of room at 2,000 tokens.
-        max_tokens: 6_000,
-        temperature: 0,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: PROMPT },
-          { role: "user", content: input },
-        ],
-      }),
-    });
+    response = await ask(config, request, input, entries.length);
   } catch (error) {
     settle({ outcome: "failed", responseStatus: null, usage: null, errorType: safeErrorType(error) });
     log("warn", "Audience judge failed", { error: safeErrorType(error) });
@@ -115,30 +203,7 @@ async function judgeAudience(
     log("warn", "Audience judge rejected", { status: response.status });
     return new Map();
   }
-  let usage: DeepSeekAttemptResult["usage"] = null;
-  try {
-    const answer = answerSchema.parse(await response.json());
-    const u = answer.usage;
-    usage = u
-      ? {
-          promptTokens: u.prompt_tokens ?? null,
-          completionTokens: u.completion_tokens ?? null,
-          totalTokens: u.total_tokens ?? null,
-          promptCacheHitTokens: u.prompt_cache_hit_tokens ?? null,
-          promptCacheMissTokens: u.prompt_cache_miss_tokens ?? null,
-        }
-      : null;
-    const content = answer.choices[0]?.message.content ?? "";
-    const verdicts = verdictSchema.parse(JSON.parse(content.replace(/^```(?:json)?\s*|\s*```$/g, "")));
-    settle({ outcome: "summarized", responseStatus: response.status, usage, errorType: null });
-    return new Map(
-      entries.flatMap((entry) => (verdicts[entry.id] ? [[entry.id, verdicts[entry.id] as Audience] as const] : [])),
-    );
-  } catch (error) {
-    settle({ outcome: "invalid", responseStatus: response.status, usage, errorType: safeErrorType(error) });
-    log("warn", "Audience judge failed", { error: safeErrorType(error) });
-    return new Map();
-  }
+  return readAnswer(response, entries, settle);
 }
 
 /**
