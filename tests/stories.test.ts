@@ -22,7 +22,9 @@ test("confidence labels follow source semantics instead of presentation guesses"
   expect(confidenceFor("arena", "arena", "third_party")).toBe("observed");
   expect(confidenceFor("openai", "api-models", "first_party")).toBe("confirmed");
   expect(confidenceFor("openai-news", "news", "first_party")).toBe("supported");
-  expect(confidenceFor("github:openai/codex:releases", "github", "third_party")).toBe("shipped");
+  // A release is the maker answering for its own product, which is `confirmed`; that it is out is
+  // `lifecycleState`, not a rung above confirmation.
+  expect(confidenceFor("github:openai/codex:releases", "github", "third_party")).toBe("confirmed");
 });
 
 test("an aggregator republishing a catalogue is reporting it, not answering for it", () => {
@@ -231,7 +233,7 @@ test("GitHub repository events stay separate unless their entity identity is the
   const stories = listStories(db, { vendor: "OpenAI", limit: 20 });
   expect(stories).toHaveLength(3);
   expect(stories.every((story) => story.eventIds.length === 1)).toBe(true);
-  expect(stories.find((story) => story.sources[0]?.endsWith(":releases"))).toMatchObject({ confidence: "shipped" });
+  expect(stories.find((story) => story.sources[0]?.endsWith(":releases"))).toMatchObject({ confidence: "confirmed" });
   expect(
     stories.filter((story) => story.sources[0]?.endsWith(":commits")).every((story) => story.confidence === "observed"),
   ).toBe(true);

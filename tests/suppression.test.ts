@@ -144,7 +144,7 @@ test("a card says how solid it is in words a non-specialist reads", () => {
     } as never),
   ).toBe("On the maker's own site. The maker announced this 14 days ago.");
   expect(standing("openai-news", "news", "official_news", "supported")).toBe("The maker announced this themselves.");
-  expect(standing("npm:x", "packages", "package_release", "shipped")).toBe(
+  expect(standing("npm:x", "packages", "package_release", "confirmed")).toBe(
     "Published to the registry. You can install it now.",
   );
   // An unrecognised evidence type still says something rather than nothing.

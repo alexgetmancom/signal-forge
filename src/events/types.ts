@@ -27,7 +27,22 @@ export type SignalClass = (typeof SIGNAL_CLASSES)[number];
 
 export type RecordData = { id: string; name: string; [key: string]: unknown };
 
-export type Confidence = "observed" | "supported" | "confirmed" | "shipped";
+/**
+ * How well the evidence holds, and nothing about where the subject is in its life.
+ *
+ * There used to be a fourth level, `shipped`, above `confirmed`. A package release is not better
+ * evidence than a vendor's own documentation -- both are the maker answering for its own product --
+ * so the scale was ranking two things at once and `confidenceRank` put a registry entry above the
+ * announcement it implements. What `shipped` actually said is a product state, and product state is
+ * a pure function of the evidence type and the stream: `lifecycleState` in ./lifecycleState.ts.
+ */
+export type Confidence = "observed" | "supported" | "confirmed";
+
+/**
+ * What state of its life the subject is in, derived rather than stored; see ./lifecycleState.ts for
+ * why it has no column and why `null` is a real answer for most of what this service sees.
+ */
+export type LifecycleState = "rumored" | "previewed" | "announced" | "available" | "shipped" | "deprecated" | "retired";
 
 export type SourceAuthority = "first_party" | "vendor_owned" | "third_party";
 

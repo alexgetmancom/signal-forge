@@ -1,6 +1,6 @@
 import type { Confidence, Event, EvidenceType, SourceAuthority } from "./types.js";
 
-export const CONFIDENCE_LEVELS: readonly Confidence[] = ["observed", "supported", "confirmed", "shipped"];
+export const CONFIDENCE_LEVELS: readonly Confidence[] = ["observed", "supported", "confirmed"];
 
 export const SOURCE_AUTHORITIES: readonly SourceAuthority[] = ["first_party", "vendor_owned", "third_party"];
 
@@ -25,12 +25,16 @@ const evidenceLabels: Record<EvidenceType, string> = {
  * A catalogue is `confirmed` because the vendor is answering for its own product. An aggregator
  * republishing that catalogue is reporting, however faithfully, so authority decides rather than a
  * list of the aggregators known so far.
+ *
+ * A registry release, a store listing and a vendor's own catalogue are all `confirmed` and differ
+ * only in `lifecycleState`. They used to be separated here as `shipped`, which read as stronger
+ * evidence and was only ever a stronger claim about the product.
  */
 export function confidenceFor(source: string, stream: string, authority: SourceAuthority): Confidence {
-  if (source.startsWith("github:") && source.endsWith(":releases")) return "shipped";
-  if (source.startsWith("npm:") || source.startsWith("pypi:")) return "shipped";
-  if (source === "cursor-changelog") return "shipped";
-  if (stream === "apps") return "shipped";
+  if (source.startsWith("github:") && source.endsWith(":releases")) return "confirmed";
+  if (source.startsWith("npm:") || source.startsWith("pypi:")) return "confirmed";
+  if (source === "cursor-changelog") return "confirmed";
+  if (stream === "apps") return "confirmed";
   if (source.startsWith("huggingface:") || source.startsWith("modelscope:")) return "supported";
   if (source.startsWith("status:")) return "confirmed";
   if (stream === "api-models") return authority === "third_party" ? "observed" : "confirmed";
@@ -78,7 +82,7 @@ export function evidenceLabel(type: EvidenceType): string {
   return evidenceLabels[type];
 }
 
-/** Where a confidence label sits on the `observed` -> `shipped` scale. */
+/** Where a confidence label sits on the `observed` -> `confirmed` scale. */
 export function confidenceRank(value: Confidence): number {
   return CONFIDENCE_LEVELS.indexOf(value);
 }
@@ -86,7 +90,7 @@ export function confidenceRank(value: Confidence): number {
 /**
  * How solid this is, in the words someone who does not work here would use.
  *
- * `observed`, `supported`, `confirmed` and `shipped` are accurate and mean nothing to a reader:
+ * `observed`, `supported` and `confirmed` are accurate and mean nothing to a reader:
  * the difference between a rumour and a fact was carried in a footer that read
  * "Evidence: arena roster · Confidence: observed". The sentence is keyed on the evidence type
  * because that is a source contract rather than a judgement, and it never claims more than the
@@ -111,7 +115,6 @@ const fallback: Record<Confidence, string> = {
   observed: "Seen by one source, unconfirmed.",
   supported: "Backed by the maker's own words.",
   confirmed: "Confirmed by the provider directly.",
-  shipped: "Out now.",
 };
 
 /**

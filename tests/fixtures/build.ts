@@ -40,7 +40,7 @@ export type EventFields = {
   beforeJson?: string | null;
   detectedAt?: string;
   snapshotId?: number;
-  confidence?: "observed" | "supported" | "confirmed" | "shipped";
+  confidence?: "observed" | "supported" | "confirmed";
   evidenceType?: "arena_roster" | "leaderboard" | "official_news" | "api_catalogue" | "unknown";
   authority?: "first_party" | "vendor_owned" | "third_party";
   /**

@@ -29,7 +29,6 @@ export const TRUST: Record<string, string> = {
   observed: "unconfirmed",
   supported: "the maker's own words",
   confirmed: "confirmed by the provider",
-  shipped: "out now",
 };
 
 /** A catalogue's name without its section: "Alibaba Model Studio API", "OpenRouter", "PyPI". */

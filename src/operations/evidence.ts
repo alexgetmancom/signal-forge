@@ -1,6 +1,8 @@
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
+import { lifecycleState } from "../events/lifecycleState.js";
+import type { Event } from "../events/types.js";
 import { getHypothesis, listHypotheses } from "../hypotheses.js";
 import { listLifecycleDeadlines } from "../lifecycle.js";
 import { getModelFacts, listModelFacts } from "../modelFactsView.js";
@@ -8,6 +10,11 @@ import { listPublications } from "../publications.js";
 import { isSignalClass, news } from "../reports/news.js";
 import { listStories } from "../storiesView.js";
 import { count, identifier, type OperationMap } from "./definition.js";
+
+type EventRow = Pick<
+  Event,
+  "id" | "source" | "stream" | "entity_id" | "kind" | "confidence" | "evidence_type" | "authority" | "detected_at"
+>;
 
 /** The "evidence" section of the operation registry; src/operations.ts joins the sections. */
 export function evidenceOperations(db: Database, config: AppConfig, _all: () => OperationMap): OperationMap {
@@ -49,18 +56,22 @@ export function evidenceOperations(db: Database, config: AppConfig, _all: () => 
     },
     events: {
       section: "evidence",
-      summary: "Recent detected changes, including before and after evidence.",
+      summary: "Recent detected changes, with the lifecycle state each one implies beside how well it holds.",
       mutates: false,
       agent: true,
       schema: z.object({ limit: count(100, 20) }),
       cli: { args: [{ name: "limit", optional: true }] },
       http: { method: "get", path: "/api/events" },
+      // `lifecycle` is derived here rather than stored: it is a pure function of columns already on
+      // the row, and `confidence` answers a different question -- how well the evidence holds, not
+      // whether the subject is out. It is null for the events that are not about a product's life.
       handler: (input: { limit: number }) =>
         db
-          .query(
+          .query<EventRow, [number]>(
             "SELECT id,source,stream,entity_id,kind,confidence,evidence_type,authority,detected_at FROM events ORDER BY id DESC LIMIT ?",
           )
-          .all(input.limit),
+          .all(input.limit)
+          .map((row) => ({ ...row, lifecycle: lifecycleState(row) })),
     },
     event: {
       section: "evidence",
@@ -82,7 +93,7 @@ export function evidenceOperations(db: Database, config: AppConfig, _all: () => 
       agent: true,
       schema: z.object({
         since: z.string().datetime({ offset: true }).optional(),
-        minConfidence: z.enum(["observed", "supported", "confirmed", "shipped"]).default("observed"),
+        minConfidence: z.enum(["observed", "supported", "confirmed"]).default("observed"),
         vendor: z.string().min(1).optional(),
         limit: count(100, 50),
       }),
@@ -90,7 +101,7 @@ export function evidenceOperations(db: Database, config: AppConfig, _all: () => 
       http: { method: "get", path: "/api/stories" },
       handler: (input: {
         since?: string | undefined;
-        minConfidence: "observed" | "supported" | "confirmed" | "shipped";
+        minConfidence: "observed" | "supported" | "confirmed";
         vendor?: string | undefined;
         limit: number;
       }) => listStories(db, input),
