@@ -710,3 +710,41 @@ test("a modality of a family, a handle on a registry and a router are not the we
   expect(context.arrivals).toEqual([{ vendor: "Anthropic", names: ["Claude Opus 5.5"] }]);
   expect(context.arrivalCount).toBe(1);
 });
+
+test("a maker's own announcement dates its own model, hyphens and all", () => {
+  const db = openDatabase(":memory:");
+  const registry: Collection = {
+    source: "huggingface:deepseek-ai",
+    stream: "weights",
+    url: "https://huggingface.co/deepseek-ai",
+    raw: [],
+    records: [{ id: "deepseek-ai/Baseline-1", name: "deepseek-ai/Baseline-1" }],
+  };
+  saveCollection(db, registry, [wire], "2026-09-01T10:00:00.000Z");
+  // 10 September 2026: weights with no creation date, then the maker's own post 15 minutes later.
+  // The post writes the name the way makers do, with hyphens, and `readableName` writes it with
+  // spaces -- so loosening only the model's side left DeepSeek's own release undated and out of the
+  // week, while the unannounced GLM 5.3 in the same registry is still nothing anyone dated.
+  registry.records.push(
+    { id: "deepseek-ai/DeepSeek-V4.1-Flash", name: "deepseek-ai/DeepSeek-V4.1-Flash" },
+    { id: "zai-org/GLM-5.3", name: "zai-org/GLM-5.3" },
+  );
+  saveCollection(db, registry, [wire], "2026-09-10T06:00:00.000Z");
+  const news: Collection = {
+    source: "deepseek-updates",
+    stream: "news",
+    url: "https://api-docs.deepseek.com/updates",
+    raw: [],
+    records: [{ id: "older", name: "API Rate Limits", url: "https://api-docs.deepseek.com/updates#rate" }],
+  };
+  saveCollection(db, news, [wire], "2026-09-01T10:00:00.000Z");
+  news.records.push({
+    id: "v4.1-flash",
+    name: "DeepSeek-V4.1-Flash Release",
+    url: "https://api-docs.deepseek.com/updates#v41",
+  });
+  saveCollection(db, news, [wire], "2026-09-10T06:15:00.000Z");
+  const context = recapContext(db, "2026-09-13T18:00:00.000Z");
+  expect(context.arrivals).toEqual([{ vendor: "DeepSeek", names: ["DeepSeek V4.1 Flash"] }]);
+  expect(context.arrivalCount).toBe(1);
+});

@@ -22,6 +22,25 @@ function escapeForPattern(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/**
+ * Does something a maker published name this model?
+ *
+ * Both sides are read with their separators loosened, because a maker writes `DeepSeek-V4.1-Flash`
+ * where `readableName` writes `DeepSeek V4.1 Flash`, and a comparison that loosened only the
+ * model's side rejected DeepSeek's own announcement of its own model 15 minutes after the weights.
+ * The word boundary stays, or a substring dates the wrong model: xAI's "Grok Voice Transcribe 2.0"
+ * is not a word about Grok Voice, and "GLM 5.3" is not a word about GLM 5.
+ */
+function namesModel(announced: string, readable: string): boolean {
+  if (readable.length < 5) return false;
+  const pattern = readable
+    .split(/[\s\-_]+/)
+    .filter(Boolean)
+    .map(escapeForPattern)
+    .join("[\\s\\-_]+");
+  return new RegExp(`(?<!\\w)(?<!\\d\\.)${pattern}(?!\\w)(?!\\.\\d)`, "i").test(announced);
+}
+
 const CATALOGUE_STREAMS = new Set(["api-models", "openrouter", "weights"]);
 
 /**
@@ -127,8 +146,7 @@ export function periodArrivals(reading: PeriodReading): {
     if (alreadyNamed.has(subject)) continue;
     // Dated to this period by a catalogue, or named in something a maker published in it. A
     // catalogue row with no date behind it says only that the catalogue has the model today.
-    const readable = readableName(name).toLowerCase();
-    if (!datedThisPeriod.has(subject) && !(readable.length >= 5 && announced.includes(readable))) continue;
+    if (!datedThisPeriod.has(subject) && !namesModel(announced, readableName(name))) continue;
     // A tier is not a model. "MiniMax M3 Fast" and "Jev 1.13 Free" are ways of billing something
     // already here, and only the catalogue's own words say so -- so the trailing word only folds
     // away when the thing it is a tier of is something we have seen. A tier of something named
