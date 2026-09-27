@@ -1,6 +1,7 @@
 import { XMLParser, XMLValidator } from "fast-xml-parser";
 import { z } from "zod";
 import type { Collection, RecordData } from "../events/types.js";
+import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { log } from "../logger.js";
 import type { HttpCache } from "../storage/httpCache.js";
@@ -56,7 +57,7 @@ type FeedOptions = {
 
 function textValue(value: unknown, field: string, required = false): string {
   if (value === undefined || value === null) {
-    if (required) throw new Error(`Official feed item has no ${field}`);
+    if (required) throw new SourceError("schema", `Official feed item has no ${field}`);
     return "";
   }
   if (Array.isArray(value)) {
@@ -64,13 +65,13 @@ function textValue(value: unknown, field: string, required = false): string {
       .map((entry) => textValue(entry, field))
       .filter(Boolean)
       .join(" ");
-    if (required && !text.trim()) throw new Error(`Official feed item has no ${field}`);
+    if (required && !text.trim()) throw new SourceError("schema", `Official feed item has no ${field}`);
     return text;
   }
   const parsed = xmlTextSchema.safeParse(value);
-  if (!parsed.success) throw new Error(`Official feed item has invalid ${field}`);
+  if (!parsed.success) throw new SourceError("schema", `Official feed item has invalid ${field}`);
   const text = typeof parsed.data === "string" ? parsed.data : parsed.data["#text"];
-  if (required && !text.trim()) throw new Error(`Official feed item has no ${field}`);
+  if (required && !text.trim()) throw new SourceError("schema", `Official feed item has no ${field}`);
   return text;
 }
 
@@ -87,7 +88,7 @@ function feedLink(value: unknown): string {
     const href = (value as Record<string, unknown>)["@_href"];
     if (typeof href === "string") return href;
   }
-  throw new Error("Official feed item has no valid link");
+  throw new SourceError("schema", "Official feed item has no valid link");
 }
 
 const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
@@ -120,7 +121,7 @@ export function calendarDate(value: string): Date | null {
 
 function publishedDate(value: string): string {
   const date = calendarDate(value);
-  if (!date) throw new Error(`Official feed item has invalid publication date: ${value}`);
+  if (!date) throw new SourceError("schema", "Official feed item has invalid publication date");
   return date.toISOString();
 }
 
@@ -164,14 +165,15 @@ export function parseOfficialFeed(text: string, options: FeedOptions): Collectio
   // later post from being read until the item was fixed; it is skipped and named instead, and only a
   // feed in which nothing parses is a failed read.
   let rejected = 0;
-  const records = items.flatMap((unknownItem) => {
+  const records = items.flatMap((unknownItem, index) => {
     try {
       return [feedRecord(unknownItem, options)];
     } catch (error) {
       rejected++;
       log("warn", "Feed item skipped", {
         source: options.source,
-        reason: error instanceof Error ? error.message.slice(0, 120) : "unknown",
+        index,
+        reason: error instanceof SourceError ? error.message : "Feed item parser error",
       });
       return [];
     }
@@ -184,24 +186,26 @@ export function parseOfficialFeed(text: string, options: FeedOptions): Collectio
 }
 
 function feedRecord(unknownItem: unknown, options: FeedOptions): RecordData & { name: string } {
-  {
-    const item = feedItemSchema.passthrough().parse(unknownItem);
-    const title = textValue(item.title, "title", true).trim();
-    const encoded = item.encoded === undefined ? "" : textValue(item.encoded, "description");
-    const description = encoded.trim()
-      ? markdownText(htmlText(encoded))
-      : htmlText(textValue(item.description ?? item.summary, "description"));
-    const url = z.url().parse(feedLink(item.link ?? item.guid ?? item.id));
-    const date = textValue(item.pubDate ?? item.published ?? item.updated, "publication date", true);
-    return {
-      id: url,
-      name: title,
-      url,
-      maker: options.maker,
-      published: publishedDate(date),
-      description: description.slice(0, 1_200),
-    } satisfies RecordData;
-  }
+  const parsed = feedItemSchema.passthrough().safeParse(unknownItem);
+  if (!parsed.success) throw new SourceError("schema", "Official feed item has invalid structure");
+  const item = parsed.data;
+  const title = textValue(item.title, "title", true).trim();
+  const encoded = item.encoded === undefined ? "" : textValue(item.encoded, "description");
+  const description = encoded.trim()
+    ? markdownText(htmlText(encoded))
+    : htmlText(textValue(item.description ?? item.summary, "description"));
+  const parsedUrl = z.url().safeParse(feedLink(item.link ?? item.guid ?? item.id));
+  if (!parsedUrl.success) throw new SourceError("schema", "Official feed item has invalid link");
+  const url = parsedUrl.data;
+  const date = textValue(item.pubDate ?? item.published ?? item.updated, "publication date", true);
+  return {
+    id: url,
+    name: title,
+    url,
+    maker: options.maker,
+    published: publishedDate(date),
+    description: description.slice(0, 1_200),
+  } satisfies RecordData;
 }
 
 function markdownText(value: string): string {
