@@ -21,10 +21,12 @@
  *
  * Read-only. The copy is opened `readonly` and production is never touched.
  */
-import { Database } from "bun:sqlite";
+
+import type { Database } from "bun:sqlite";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { loadConfig } from "../src/config.js";
+import { readonlyDatabase } from "../src/storage/database.js";
 import { prodCopy } from "./prodCopy.js";
 
 const root = resolve(import.meta.dir, "..");
@@ -51,7 +53,9 @@ if (path === null) {
   process.exit(1);
 }
 
-const db = new Database(path, { readonly: true });
+// Through the app's own opener rather than `new Database`: a probe that binds a named parameter on
+// a connection that is not `strict` is answered with zero rows instead of an error.
+const db = readonlyDatabase(path);
 const config = loadConfig();
 
 /** Printed the way a terminal wants it: a table if it is rows, JSON if it is anything else. */

@@ -41,6 +41,19 @@ export function calibrationOperations(db: Database, config: AppConfig, _all: () 
       section: "sources",
       summary: "Events Jev rated highly that a rule held back, and low-rated events that reached a reader.",
       startHere: "do the routing rules and the classifier agree",
+      note:
+        "Four tables, and only two of them are bounded by `limit`. `heldBack` and `spoke` are the " +
+        "cases themselves, newest and most extreme first, and they are read when the question is " +
+        "which rule to change. `streams` and `reasons` count every disagreement in the window " +
+        "whatever `limit` left room to print, and they are the shape of it: `judged` is what each " +
+        "stream's two numbers are a share of, and `reasons` names the rule behind every held-back " +
+        "event, stream by stream -- `--tsv=reasons`. Counting a truncated list instead is how the " +
+        "fourteen-day question came out wrong: it hit the ceiling at 200 and read as calibration. " +
+        "An event held back at two destinations is one event in `streams` and appears under each " +
+        "of its rules in `reasons`, so the reason column sums higher than the stream column. Only " +
+        "judgements at the current prompt version count anywhere here, because a worth is a " +
+        "property of the question that was asked: the day after a version bump all four are thin, " +
+        "and they fill up as the backfill runs.",
       mutates: false,
       agent: true,
       schema: z.object({ days: count(90, 7), limit: count(200, 25) }),

@@ -56,9 +56,14 @@ export function openWithoutMigrating(path: string): Database {
  * A bare `new Database(path, {readonly: true})` carries no busy timeout, so a reader that happens to
  * arrive during a write is refused with SQLITE_BUSY instead of waiting the moment out. Scripts that
  * only look are the ones this matters to: they run against the live file by definition.
+ *
+ * `strict` is here for a worse reason than the timeout. Without it a named parameter -- `.all({
+ * since })` -- binds nothing and the statement answers zero rows, where the writing connection,
+ * which has always been `strict`, answers correctly. A report read one way in the service and
+ * another way under `probe` and `rehearse`, and the reading that was wrong was the silent one.
  */
 export function readonlyDatabase(path: string): Database {
-  const db = new Database(path, { readonly: true });
+  const db = new Database(path, { readonly: true, strict: true });
   db.exec("PRAGMA busy_timeout=5000;");
   return db;
 }
