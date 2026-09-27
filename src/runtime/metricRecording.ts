@@ -158,6 +158,8 @@ export function recordCodeMetric(
  * safe direction -- it names a suspect rather than clearing one -- and it is why the boot phases are
  * measured in sequence inside one transaction, where the numbers are each section's alone.
  */
+export function measure<T>(db: Database, name: string, operation: () => T): T;
+export function measure<T>(db: Database, name: string, operation: () => Promise<T>): Promise<T>;
 export function measure<T>(db: Database, name: string, operation: () => T | Promise<T>): T | Promise<T> {
   const started = Date.now();
   const peakBefore = peakKb();
