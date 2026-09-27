@@ -204,6 +204,16 @@ export function healthOperations(db: Database, config: AppConfig, all: () => Ope
       section: "health",
       summary: "Memory by day: typical and worst use, time near the container limit, restarts and OOM kills.",
       startHere: "how much memory does this use, and has it been killed for it",
+      note:
+        "Three numbers, and reading two of them as one nearly bought a bigger limit for a warm page " +
+        "cache. `maxAnonMb` is what an OOM kill is decided by and what a limit is sized from; " +
+        "`samplesAbovePressure` counts anon past 85% of `limitMb`. `maxContainerMb` and " +
+        "`peakContainerMb` include the cache, which here is mostly app.db, and the kernel drops it " +
+        "rather than kill for it -- a container total at the limit beside a small `maxAnonMb` says the " +
+        "database is cached, nothing more. `peakContainerMb` is the kernel's own mark: it catches what " +
+        "falls between five-minute samples, so it exceeds `maxContainerMb`, and only recreating the " +
+        "container resets it, so it can be older than the day it appears on. The answer repeats this in " +
+        "`reading`. Rows stored before 057 have no anon and fall back to rss.",
       mutates: false,
       agent: true,
       schema: z.object({ days: count(90, 7) }),

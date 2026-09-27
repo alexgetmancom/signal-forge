@@ -114,7 +114,7 @@ test("three surfaces of one vendor are one voice, not three sources", () => {
 test("passed-over ranks the silent subjects by how much agreement they gathered", () => {
   const { db, add } = setup();
   add("models-dev", "api-models", "third_party", { name: "Step 5 Preview" }, "2026-09-20T05:31:00.165Z");
-  const before = passedOver(db, 7);
+  const before = passedOver(db, 7, 50, now);
   expect(before.threshold).toBe(3);
   expect(before.overThresholdAndSilent).toBe(1);
   const story = before.stories[0];
@@ -126,7 +126,7 @@ test("passed-over ranks the silent subjects by how much agreement they gathered"
   detectCorroborated(db, [scouts], now);
   // The subject is still silent until a delivery goes out, but the report now shows why it will not
   // stay that way: the rule has claimed it.
-  expect(passedOver(db, 7).stories[0]?.cardedByCorroboration).toBe(3);
+  expect(passedOver(db, 7, 50, now).stories[0]?.cardedByCorroboration).toBe(3);
 });
 
 test("passed-over names the rules that kept a subject quiet", () => {
@@ -141,7 +141,7 @@ test("passed-over names the rules that kept a subject quiet", () => {
       `INSERT INTO suppressions(event_id,destination_id,batch_id,reason,detail,recorded_at)
        VALUES(?,'scouts',9,?,'','2026-09-20T05:00:00.000Z')`,
     ).run(event, reason);
-  expect(passedOver(db, 7).stories[0]?.reasons).toEqual([
+  expect(passedOver(db, 7, 50, now).stories[0]?.reasons).toEqual([
     { reason: "below_the_top_of_the_board", count: 1 },
     { reason: "trending_from_an_unfollowed_lab", count: 1 },
   ]);

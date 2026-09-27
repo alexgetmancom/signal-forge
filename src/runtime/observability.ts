@@ -64,22 +64,47 @@ function cgroupNumber(name: string): number | null {
   }
 }
 
+/**
+ * One field of cgroup v2 `memory.stat`, which is where the number that decides an OOM kill lives.
+ *
+ * `memory.current` and `memory.peak` count the page cache, and on this deployment the page cache is
+ * the database: 472 MB of app.db, read once, left the recorded peak at 1,009 MB of a 1,024 MB limit
+ * on 2026-09-27 while the service held 174 MB of anonymous pages, and 15 MB of apparent headroom
+ * nearly bought a bigger limit. The kernel reclaims cache before it kills anything -- at 00:38Z that
+ * day `memory.current` fell 822 -> 385 MB inside one boot for one major fault -- so `anon` is what a
+ * limit is sized from, and `file` is read beside it so a large total can be told from a large service.
+ */
+function cgroupStat(field: string): number | null {
+  try {
+    const match = new RegExp(`^${field} (\\d+)$`, "m").exec(readFileSync("/sys/fs/cgroup/memory.stat", "utf8"));
+    const value = match?.[1] ? Number(match[1]) : null;
+    return value !== null && Number.isSafeInteger(value) ? value : null;
+  } catch {
+    return null;
+  }
+}
+
 const megabytes = (bytes: number | null): number | null =>
   bytes === null ? null : Math.round((bytes / 1024 / 1024) * 10) / 10;
 
 export function logMemoryUsage(): void {
   const memory = process.memoryUsage();
   const limit = cgroupNumber("memory.max");
+  const anon = cgroupStat("anon");
   const details = {
     rssMb: megabytes(memory.rss),
     heapUsedMb: megabytes(memory.heapUsed),
     heapTotalMb: megabytes(memory.heapTotal),
     externalMb: megabytes(memory.external),
+    anonMb: megabytes(anon),
+    fileMb: megabytes(cgroupStat("file")),
     cgroupCurrentMb: megabytes(cgroupNumber("memory.current")),
     cgroupPeakMb: megabytes(cgroupNumber("memory.peak")),
     cgroupLimitMb: megabytes(limit),
   };
-  const pressure = limit !== null && memory.rss >= limit * 0.85;
+  // Against anon, not the container total: the total is mostly this service's own database in the
+  // page cache, and warning on it warns every hour for something the kernel drops for free.
+  const pressure = limit !== null && (anon ?? memory.rss) >= limit * PRESSURE_SHARE;
   log(pressure ? "warn" : "info", pressure ? "Process memory pressure" : "Process memory usage", details);
 }
 
@@ -109,8 +134,8 @@ export function sampleMemory(db: Database, now = Date.now()): void {
   if (kills !== null && previous?.oom_kills != null && kills > previous.oom_kills)
     log("error", "Container killed for memory since the last sample", { kills: kills - previous.oom_kills });
   db.query(
-    `INSERT OR REPLACE INTO memory_samples(sampled_at,boot_id,rss_mb,heap_used_mb,cgroup_current_mb,cgroup_peak_mb,cgroup_limit_mb,oom_kills)
-     VALUES(?,?,?,?,?,?,?,?)`,
+    `INSERT OR REPLACE INTO memory_samples(sampled_at,boot_id,rss_mb,heap_used_mb,cgroup_current_mb,cgroup_peak_mb,cgroup_limit_mb,oom_kills,anon_mb,file_mb)
+     VALUES(?,?,?,?,?,?,?,?,?,?)`,
   ).run(
     new Date(now).toISOString(),
     readRuntime(db)?.bootId ?? null,
@@ -120,6 +145,8 @@ export function sampleMemory(db: Database, now = Date.now()): void {
     megabytes(cgroupNumber("memory.peak")),
     megabytes(cgroupNumber("memory.max")),
     kills,
+    megabytes(cgroupStat("anon")),
+    megabytes(cgroupStat("file")),
   );
   db.query("DELETE FROM memory_samples WHERE sampled_at < ?").run(
     new Date(now - MEMORY_SAMPLE_RETENTION_DAYS * 86_400_000).toISOString(),
@@ -131,7 +158,9 @@ type MemoryDay = {
   samples: number;
   averageRssMb: number;
   maxRssMb: number;
+  maxAnonMb: number | null;
   maxContainerMb: number | null;
+  peakContainerMb: number | null;
   limitMb: number | null;
   samplesAbovePressure: number;
   oomKills: number;
@@ -141,10 +170,57 @@ type MemoryDay = {
 export type MemoryReport = {
   since: string;
   until: string;
+  reading: string;
   days: MemoryDay[];
-  peak: { at: string; rssMb: number; containerMb: number | null } | null;
+  peak: { at: string; rssMb: number; anonMb: number | null; containerMb: number | null } | null;
   oomKills: number;
 };
+
+type Sample = {
+  sampled_at: string;
+  boot_id: string | null;
+  rss_mb: number;
+  anon_mb: number | null;
+  cgroup_current_mb: number | null;
+  cgroup_peak_mb: number | null;
+  cgroup_limit_mb: number | null;
+  oom_kills: number | null;
+};
+
+/** How to read the three numbers, said in the answer because reading two of them as one cost a day. */
+const READING =
+  "maxAnonMb is what an OOM kill is decided by; samplesAbovePressure counts samples whose anon passed " +
+  "85% of limitMb, and falls back to rss for rows stored before anon was sampled. maxContainerMb and " +
+  "peakContainerMb include the page cache, which on this deployment is mostly app.db and which the " +
+  "kernel drops rather than kill for: a container total near the limit with a small maxAnonMb is a " +
+  "warm cache, not a service about to die. peakContainerMb is the kernel's own high-water mark, which " +
+  "catches what falls between five-minute samples and is only reset by recreating the container, so it " +
+  "can exceed maxContainerMb and can be older than the day it is reported on.";
+
+const highest = (values: readonly (number | null)[]): number | null => {
+  const known = values.filter((value): value is number => value !== null);
+  return known.length ? Math.max(...known) : null;
+};
+
+/** One day of samples, folded. Kills are counted by the caller, which carries the running counter. */
+function memoryDay(day: string, rows: readonly Sample[], kills: number): MemoryDay {
+  const limit = rows.at(-1)?.cgroup_limit_mb ?? null;
+  return {
+    day,
+    samples: rows.length,
+    averageRssMb: Math.round((rows.reduce((sum, row) => sum + row.rss_mb, 0) / rows.length) * 10) / 10,
+    maxRssMb: Math.max(...rows.map((row) => row.rss_mb)),
+    maxAnonMb: highest(rows.map((row) => row.anon_mb)),
+    maxContainerMb: highest(rows.map((row) => row.cgroup_current_mb)),
+    peakContainerMb: highest(rows.map((row) => row.cgroup_peak_mb)),
+    limitMb: limit,
+    samplesAbovePressure: rows.filter(
+      (row) => row.cgroup_limit_mb !== null && (row.anon_mb ?? row.rss_mb) >= row.cgroup_limit_mb * PRESSURE_SHARE,
+    ).length,
+    oomKills: kills,
+    boots: new Set(rows.map((row) => row.boot_id).filter(Boolean)).size,
+  };
+}
 
 /** Memory by day over a period: typical and worst use, time spent near the limit, and OOM kills. */
 export function memoryReport(db: Database, days = 7, now = Date.now()): MemoryReport {
@@ -152,21 +228,11 @@ export function memoryReport(db: Database, days = 7, now = Date.now()): MemoryRe
   const until = new Date(now).toISOString();
   const since = new Date(now - days * 86_400_000).toISOString();
   const samples = db
-    .query<
-      {
-        sampled_at: string;
-        boot_id: string | null;
-        rss_mb: number;
-        cgroup_current_mb: number | null;
-        cgroup_limit_mb: number | null;
-        oom_kills: number | null;
-      },
-      [string, string]
-    >(
-      "SELECT sampled_at,boot_id,rss_mb,cgroup_current_mb,cgroup_limit_mb,oom_kills FROM memory_samples WHERE sampled_at>=? AND sampled_at<=? ORDER BY sampled_at",
+    .query<Sample, [string, string]>(
+      "SELECT sampled_at,boot_id,rss_mb,anon_mb,cgroup_current_mb,cgroup_peak_mb,cgroup_limit_mb,oom_kills FROM memory_samples WHERE sampled_at>=? AND sampled_at<=? ORDER BY sampled_at",
     )
     .all(since, until);
-  const byDay = new Map<string, typeof samples>();
+  const byDay = new Map<string, Sample[]>();
   for (const sample of samples) {
     const day = sample.sampled_at.slice(0, 10);
     byDay.set(day, [...(byDay.get(day) ?? []), sample]);
@@ -180,32 +246,22 @@ export function memoryReport(db: Database, days = 7, now = Date.now()): MemoryRe
       if (row.oom_kills !== null) lastKills = row.oom_kills;
     }
     totalKills += kills;
-    const containers = rows.map((row) => row.cgroup_current_mb).filter((value): value is number => value !== null);
-    const limit = rows.at(-1)?.cgroup_limit_mb ?? null;
-    return {
-      day,
-      samples: rows.length,
-      averageRssMb: Math.round((rows.reduce((sum, row) => sum + row.rss_mb, 0) / rows.length) * 10) / 10,
-      maxRssMb: Math.max(...rows.map((row) => row.rss_mb)),
-      maxContainerMb: containers.length ? Math.max(...containers) : null,
-      limitMb: limit,
-      samplesAbovePressure: rows.filter(
-        (row) =>
-          row.cgroup_limit_mb !== null && (row.cgroup_current_mb ?? row.rss_mb) >= row.cgroup_limit_mb * PRESSURE_SHARE,
-      ).length,
-      oomKills: kills,
-      boots: new Set(rows.map((row) => row.boot_id).filter(Boolean)).size,
-    };
+    return memoryDay(day, rows, kills);
   });
-  const worst = samples.reduce<(typeof samples)[number] | null>(
-    (best, row) => (!best || row.rss_mb > best.rss_mb ? row : best),
+  // The worst sample is the one holding the most anonymous memory, not the most resident: RSS counts
+  // file pages the kernel can take back, and picking by it named a warm cache as the peak.
+  const worst = samples.reduce<Sample | null>(
+    (best, row) => (!best || (row.anon_mb ?? row.rss_mb) > (best.anon_mb ?? best.rss_mb) ? row : best),
     null,
   );
   return {
     since,
     until,
+    reading: READING,
     days: report,
-    peak: worst ? { at: worst.sampled_at, rssMb: worst.rss_mb, containerMb: worst.cgroup_current_mb } : null,
+    peak: worst
+      ? { at: worst.sampled_at, rssMb: worst.rss_mb, anonMb: worst.anon_mb, containerMb: worst.cgroup_current_mb }
+      : null,
     oomKills: totalKills,
   };
 }

@@ -95,8 +95,10 @@ function rows(db: Database, since: string): Row[] {
  * Subjects that spoke are kept rather than filtered: a report that only lists misses cannot show
  * that the rule is now catching them, and an operator comparing the two is the point.
  */
-export function passedOver(db: Database, days = 7, limit = 50): PassedOverReport {
-  const since = new Date(Date.now() - days * 24 * 3_600_000).toISOString();
+export function passedOver(db: Database, days = 7, limit = 50, now = Date.now()): PassedOverReport {
+  // The instant is an argument because it was read off the clock: three tests wrote fixed detection
+  // times inside the default window, and passed until the day the window moved past them.
+  const since = new Date(now - days * 24 * 3_600_000).toISOString();
   const grouped = new Map<number, Row[]>();
   for (const row of rows(db, since)) grouped.set(row.story_id, [...(grouped.get(row.story_id) ?? []), row]);
 
