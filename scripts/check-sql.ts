@@ -27,7 +27,7 @@ import { Database } from "bun:sqlite";
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { extname, join, relative, resolve } from "node:path";
 import { readMigrations, splitStatements } from "../src/storage/migrations.js";
-import { literals, readsEventBodies, STARTS, tablesNamed } from "./sqlLiterals.js";
+import { literals, readsEventBodies, readsEventsUnbounded, STARTS, tablesNamed } from "./sqlLiterals.js";
 
 const root = resolve(import.meta.dir, "..");
 const roots = ["src", "scripts"];
@@ -125,6 +125,36 @@ const MAY_READ_BODIES: Readonly<Record<string, string>> = {
   "src/reports/releaseRender.ts": "the fingerprint is the rendered cards, in a child that ends",
 };
 
+/**
+ * The fourth rule: a read of `events` is bounded by something, or it is one of the reads that cannot
+ * be.
+ *
+ * Nothing deletes an event. A read of this table with no window, no key, no aggregate and no limit
+ * therefore costs whatever the archive has grown to, and it grows on its own: the read is cheap the
+ * day it is written, it is never edited again, and no report says which read the rising floor belongs
+ * to. `announcementsBySubject` was exactly that -- every newsroom `new` event ever recorded, to
+ * answer whether one model had been announced -- and it was found by reading the code, not by any
+ * check.
+ *
+ * `readsEventsUnbounded` says what counts as bounded, and the four ways are generous on purpose: the
+ * point is to make the cheap shape the easy one, not to collect exceptions. The six below are the
+ * reads that genuinely cannot be bounded, and they divide into two kinds. A projection is over all of
+ * history by definition -- it is rebuilt from every event there has ever been, which is why the three
+ * of them are rebuilt in pages or streamed row by row rather than materialised. The others are bounded
+ * by a small table they are driven from, or aggregated by SQLite into a row per subject.
+ *
+ * As with `MAY_READ_BODIES`, an entry that no longer matches anything fails: a list of the reads that
+ * cannot be bounded is only worth having if it is the list of reads that cannot be bounded.
+ */
+const MAY_READ_EVERY_EVENT: Readonly<Record<string, string>> = {
+  "src/stories.ts": "the story projection is every event in `detected_at` order, read a page at a time",
+  "src/modelFacts.ts": "Model Facts is a projection of every event of every story, streamed one story at a time",
+  "src/hypotheses.ts": "a hypothesis is derived from a story's whole evidence, and a rebuild is over every story",
+  "src/lifecycle.ts": "every deadline this service has ever been told about is re-read on a boot",
+  "src/events/cooldown.ts": "driven from the suppressions still holding a move, which is a handful of rows",
+  "src/events/witness.ts": "the witness index is one row per subject, grouped by SQLite rather than here",
+};
+
 const db = new Database(":memory:");
 for (const migration of readMigrations()) for (const statement of splitStatements(migration.sql)) db.exec(statement);
 
@@ -190,6 +220,23 @@ for (const file of Object.keys(MAY_READ_BODIES).sort())
   if (!bodyReaders.has(file))
     findings.push(`${file}: listed in MAY_READ_BODIES and no longer reads an event body -- delete the line.`);
 
+const wholeArchiveReaders = new Set(
+  statements
+    .filter((statement) => statement.file.startsWith("src/") && readsEventsUnbounded(statement.sql))
+    .map((statement) => statement.file),
+);
+for (const file of [...wholeArchiveReaders].sort())
+  if (!(file in MAY_READ_EVERY_EVENT))
+    findings.push(
+      `${file}: reads \`events\` with no window, no key, no aggregate and no limit, so what it costs is ` +
+        "whatever the archive has grown to and it grows on its own. Bound it by a window over a timestamp or by " +
+        "the key the caller already has -- or, if the read really is over all of history, add the file to " +
+        "MAY_READ_EVERY_EVENT in this script with the reason.",
+    );
+for (const file of Object.keys(MAY_READ_EVERY_EVENT).sort())
+  if (!wholeArchiveReaders.has(file))
+    findings.push(`${file}: listed in MAY_READ_EVERY_EVENT and no longer reads every event -- delete the line.`);
+
 if (findings.length) {
   console.error(`SQL the gate refuses:\n${findings.map((finding) => `- ${finding}`).join("\n")}`);
   process.exit(1);
@@ -198,6 +245,8 @@ if (findings.length) {
 console.log(
   `SQL check passed: ${statements.length} statements name only tables and columns the migrations create, ` +
     "every read of `sources` goes through the registry, and every read of an event body is one of the " +
-    `${Object.keys(MAY_READ_BODIES).length} that answer with one` +
+    `${Object.keys(MAY_READ_BODIES).length} that answer with one, and every read of \`events\` is bounded by a ` +
+    `window, a key, an aggregate or a limit apart from the ${Object.keys(MAY_READ_EVERY_EVENT).length} that are ` +
+    "projections of all of it" +
     `${unparsed ? ` (${unparsed} assembled at run time and not parsed)` : ""}.`,
 );

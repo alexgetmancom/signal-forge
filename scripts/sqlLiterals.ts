@@ -114,3 +114,32 @@ export function readsEventBodies(sql: string): boolean {
   if (!names && !everything) return false;
   return !/\bwhere\s+(?:[a-z]\w*\.)?id\s*=\s*\?/i.test(bare);
 }
+
+/**
+ * Whether a statement reads `events` with nothing to stop it growing with the archive.
+ *
+ * Nothing deletes an event, so a read of this table costs whatever the archive has grown to unless
+ * something bounds it: a window over a timestamp, a key handed in, an aggregate SQLite answers with
+ * one row, or a `LIMIT`. A read with none of those is cheap on the day it is written and there is no
+ * moment at which it stops being -- `announcementsBySubject` read every newsroom `new` event ever
+ * recorded, 381 rows the day it was found, and one more every time a lab posts.
+ *
+ * The four ways of being bounded are deliberately generous, because the shapes that are bounded are
+ * the shapes to encourage. A window on a story's `updated_at` bounds the events joined to it; a key
+ * of any kind -- `se.story_id=?`, `e.id>?` -- bounds the read to what the caller already named.
+ */
+export function readsEventsUnbounded(sql: string): boolean {
+  if (!/^\s*(?:select|with)\b/i.test(sql)) return false;
+  const bare = sql.replace(/--[^\n]*/g, " ");
+  if (!/\b(?:from|join)\s+events\b/i.test(bare)) return false;
+  // A window over any timestamp in the statement, including one on a table the events are joined to.
+  if (/\b[a-z_]*_at\s*(?:>=?|<=?)\s*\?/i.test(bare)) return false;
+  if (/\b[a-z_]*_at\s+between\s+\?/i.test(bare)) return false;
+  // One row out of SQLite rather than the rows that produced it.
+  if (/^\s*select\s+(?:max|min|count)\s*\(/i.test(bare)) return false;
+  // A key the caller handed in, which is the whole of what the read then costs.
+  if (/\b(?:[a-z]\w*\.)?[a-z_]*id\s*(?:=|>=?|<=?)\s*\?/i.test(bare)) return false;
+  if (/\b(?:[a-z]\w*\.)?[a-z_]*id\s+in\s*\(\s*\?/i.test(bare)) return false;
+  if (/\blimit\b/i.test(bare)) return false;
+  return true;
+}
