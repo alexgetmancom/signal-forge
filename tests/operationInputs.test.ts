@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { loadConfig } from "../src/config.js";
 import { eventAttachment } from "../src/events/render/attachment.js";
 import type { Event } from "../src/events/types.js";
+import { cliFieldName } from "../src/guide.js";
 import { cliInput } from "../src/operations/cliInput.js";
 import { flag } from "../src/operations/definition.js";
 import { operations } from "../src/operations.js";
@@ -54,12 +55,10 @@ test("every field an operation accepts can be set from the command line", () => 
   const registry = operations(db, config);
   for (const [name, definition] of Object.entries(registry)) {
     if (!definition.cli) continue;
-    const shape = (definition.schema as unknown as { _zod?: { def?: { shape?: object } } })._zod?.def?.shape;
-    if (!shape) continue;
-    for (const field of Object.keys(shape)) {
+    for (const field of Object.keys(definition.schema.shape)) {
       // Either a position in the usage line, or a `--field` the parser turns into that field.
       const positional = (definition.cli.args ?? []).some((argument) => argument.name === field);
-      const flagged = cliInput(registry, name, [`--${field}`, "x"]);
+      const flagged = cliInput(registry, name, [`--${cliFieldName(field)}`, "x"]);
       if (!positional && !(field in flagged)) unreachable.push(`${name}.${field}`);
     }
   }
@@ -67,5 +66,31 @@ test("every field an operation accepts can be set from the command line", () => 
   // the CLI used to hand over a list, so nine filters across five commands were unreachable from
   // the surface this repository is actually operated from, with no error to say so.
   expect(unreachable).toEqual([]);
+  db.close();
+});
+
+test("the operator CLI rejects input it would previously ignore or misread", () => {
+  const db = openDatabase(":memory:");
+  const registry = operations(
+    db,
+    loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname }),
+  );
+
+  expect(() => cliInput(registry, "news", ["12", "launch", "extra"])).toThrow("Unexpected argument: extra");
+  expect(() => cliInput(registry, "guide", ["--al"])).toThrow("Unknown option --al");
+  expect(() => cliInput(registry, "stories", ["--minConfidence", "shipped"])).toThrow("Unknown option --minConfidence");
+  expect(() => cliInput(registry, "news", ["--hours"])).toThrow("Option --hours needs a value");
+  expect(() => cliInput(registry, "news", ["--hours", "12", "--hours", "24"])).toThrow("given twice");
+  expect(() => cliInput(registry, "sent", ["12", "--hours", "24"])).toThrow("given both positionally and as an option");
+
+  expect(cliInput(registry, "guide", ["--all", "health"])).toEqual({ all: true, section: "health" });
+  expect(cliInput(registry, "guide", ["--all=false", "health"])).toEqual({ all: "false", section: "health" });
+  expect(cliInput(registry, "news", ["--signal", "launch", "--hours", "12"])).toEqual({
+    hours: "12",
+    signal: "launch",
+  });
+  expect(cliInput(registry, "sql", ["--", "-- a query beginning with a comment"])).toEqual({
+    query: "-- a query beginning with a comment",
+  });
   db.close();
 });

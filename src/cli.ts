@@ -63,15 +63,23 @@ try {
     process.exitCode = command === "help" || command === "--help" ? 0 : 1;
   } else {
     const definition = defs[name];
-    const input = definition.schema.safeParse(cliInput(defs, name, argvWithoutFlags.slice(3)));
-    if (!input.success) {
+    let input: ReturnType<typeof definition.schema.safeParse> | undefined;
+    let argumentError: string | undefined;
+    try {
+      input = definition.schema.safeParse(cliInput(defs, name, argvWithoutFlags.slice(3)));
+    } catch (error) {
+      argumentError = error instanceof Error ? error.message : String(error);
+    }
+    if (!input?.success) {
       // With the usage line, because the commonest rejection is a missing positional and the schema
       // can only say `expected string, received undefined`: `failures` with no source said that and
       // nothing about there being a source to give it.
       const line = operationCatalog(defs).find((entry) => entry.name === command)?.usage;
       process.stderr.write(
         `${[
-          ...input.error.issues.map((issue) => `${issue.path.join(".") || "input"}: ${issue.message}`),
+          ...(argumentError
+            ? [argumentError]
+            : (input?.error.issues.map((issue) => `${issue.path.join(".") || "input"}: ${issue.message}`) ?? [])),
           ...(line
             ? [`Usage: ${line}`, `\`guide ${command}\` says what this answers and what the other fields are.`]
             : []),

@@ -31,7 +31,7 @@ type OperationDefinition = {
   note?: string;
   mutates: boolean;
   agent: boolean;
-  schema: z.ZodType;
+  schema: z.ZodObject<Record<string, z.ZodType>>;
   /** Absent means the operation is not on the CLI. */
   cli?: { args?: readonly CliArgument[] };
   /** Absent means the operation is not on the HTTP API. */

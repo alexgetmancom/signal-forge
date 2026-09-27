@@ -35,7 +35,7 @@ export type OperationCatalogEntry = {
  * positional arguments. Written once here rather than in each summary.
  */
 const CONVENTIONS = [
-  "Any field a command accepts can be given as `--field value` or `--field=value`, spelled in kebab: `--min-confidence` is `minConfidence`. The usage line lists only the positional ones, so `guide <command>` is what says the rest.",
+  "Any field a command accepts can be given as `--field value` or `--field=value`, spelled in kebab: `--min-confidence` is `minConfidence`. The usage line lists only the positional ones; they keep their slots when mixed with flags. `guide <command>` says the rest.",
   "Any command takes `--tsv` and answers with the largest table inside its report instead of JSON, naming the tables it passed over. `--tsv=now.issues` picks one of those by path. Reach for it before parsing JSON out of a terminal by hand.",
   "Every call on every surface is journalled, reads included. `usage` says which commands are actually used and which question has been asked by hand often enough to deserve one; `journal` shows only the calls that changed something.",
 ];
@@ -93,6 +93,13 @@ export function buildOperationsGuide(
 
 /** The usage line a surface prints, written from the arguments the command actually takes. */
 export function usageLine(command: string, args: readonly { name: string; optional?: boolean }[]): string {
-  const kebab = (name: string) => name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
-  return [command, ...args.map((arg) => (arg.optional ? `[${kebab(arg.name)}]` : `<${kebab(arg.name)}>`))].join(" ");
+  return [
+    command,
+    ...args.map((arg) => (arg.optional ? `[${cliFieldName(arg.name)}]` : `<${cliFieldName(arg.name)}>`)),
+  ].join(" ");
+}
+
+/** One shell spelling for each schema field. */
+export function cliFieldName(name: string): string {
+  return name.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
 }
