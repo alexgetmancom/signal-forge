@@ -33,17 +33,7 @@ test("an aggregator republishing a catalogue is reporting it, not answering for 
 
 test("identity keeps Arena codenames unresolved until a canonical source identifies them", () => {
   const leaderboard = identityFor(
-    {
-      signal: null,
-      id: 1,
-      source: "arena-leaderboards",
-      stream: "leaderboards",
-      entity_id: "text:overall:secret-key",
-      kind: "new",
-      before_json: null,
-      after_json: null,
-      detected_at: "2026-09-08T00:00:00.000Z",
-    },
+    { source: "arena-leaderboards", stream: "leaderboards", entity_id: "text:overall:secret-key" },
     { id: "text:overall:secret-key", name: "GPT-6 preview", modelKey: "secret-key" },
   );
   expect(leaderboard).toMatchObject({
@@ -53,18 +43,8 @@ test("identity keeps Arena codenames unresolved until a canonical source identif
   });
 
   const catalogue = identityFor(
-    {
-      signal: null,
-      id: 2,
-      source: "openrouter",
-      stream: "openrouter",
-      entity_id: "openai/gpt-6",
-      kind: "new",
-      before_json: null,
-      after_json: null,
-      detected_at: "2026-09-08T00:00:00.000Z",
-    },
-    { id: "openai/gpt-6", name: "GPT-6", maker: "OpenAI" },
+    { source: "openrouter", stream: "openrouter", entity_id: "openai/gpt-6" },
+    { id: "openai/gpt-6", name: "GPT-6" },
   );
   expect(catalogue).toMatchObject({ canonicalId: "openai/gpt-6", status: "canonical", aliases: ["GPT-6"] });
 });
@@ -164,6 +144,22 @@ test("stories expose independent evidence coverage without rewriting event autho
     { authority: "third_party" },
     { authority: "first_party" },
   ]);
+  db.close();
+});
+
+test("a story merely touched in the window did not begin in it", () => {
+  const db = openDatabase(":memory:");
+  const source = collection("test", "api-models", [{ id: "gpt", name: "GPT", context: 1 }]);
+  saveCollection(db, source, [], "2026-09-07T00:00:00.000Z");
+  source.records = [{ id: "gpt", name: "GPT", context: 2 }];
+  saveCollection(db, source, [], "2026-09-08T00:00:00.000Z");
+  source.records = [{ id: "gpt", name: "GPT", context: 3 }];
+  saveCollection(db, source, [], "2026-09-09T10:00:00.000Z");
+  const window = "2026-09-09T00:00:00.000Z";
+  // The catalogue re-read an old model, so the story was updated in the window and is not news in it.
+  expect(listStories(db, { since: window, limit: 10 })).toHaveLength(1);
+  expect(listStories(db, { since: window, startedSince: window, limit: 10 })).toHaveLength(0);
+  expect(listStories(db, { startedSince: "2026-09-08T00:00:00.000Z", limit: 10 })).toHaveLength(1);
   db.close();
 });
 

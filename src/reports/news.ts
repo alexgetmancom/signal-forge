@@ -155,17 +155,15 @@ export function news(
 
   // A story counts as news when it began in the window. One that was merely touched -- a catalogue
   // re-reading ninety old models after a key was replaced -- would fill the list with nothing new.
-  const stories = listStories(db, { since, limit: 100 })
-    .filter((story) => story.firstSeenAt >= since)
-    .map((story) => ({
-      id: story.id,
-      title: story.title,
-      vendor: story.vendor,
-      confidence: story.confidence,
-      sources: story.sources,
-      firstSeenAt: story.firstSeenAt,
-      updatedAt: story.updatedAt,
-    }));
+  const stories = listStories(db, { since, limit: 100, startedSince: since }).map((story) => ({
+    id: story.id,
+    title: story.title,
+    vendor: story.vendor,
+    confidence: story.confidence,
+    sources: story.sources,
+    firstSeenAt: story.firstSeenAt,
+    updatedAt: story.updatedAt,
+  }));
 
   const classRows = [...classes.entries()]
     .filter(([signal]) => !wanted || signal === wanted)

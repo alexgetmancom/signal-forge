@@ -49,6 +49,11 @@ export const BENCH: Bench[] = [
     when: "Which sources set the floor this service stands on. RSS is a high-water mark that is never given back, so a source's cost is what it permanently adds the first time it runs, not what it holds while running; this runs each light source alone against a copy of production and names the ones that should be collected in a child process instead. Reach for it after adding a source that reads a whole page, a sitemap or a feed.",
   },
   {
+    group: "ask",
+    command: "read-cost",
+    when: "Which reads set the floor this service stands on, the other half of `source-cost`. A read answered by `prod <command>` costs nothing lasting, but the same read over HTTP or MCP is answered inside the long-lived service and raises its floor for as long as it lives; this asks every read that needs no argument, twice, against a copy of production, and names the ones that claim more than a heavy collector does. Reach for it after adding a report or widening what one reads.",
+  },
+  {
     group: "change",
     command: "split-module",
     when: "A module is too long and the parts of it are obvious. Choosing what belongs together is the work; this does the rest, and refuses rather than guesses when it cannot reassemble the file it read.",

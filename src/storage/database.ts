@@ -39,7 +39,14 @@ export function openWithoutMigrating(path: string): Database {
   // footprint spent on a cache the operating system already keeps. Running HOT_QUERIES 200 times
   // over a copy of production took 2,120 ms with the map and 2,140 ms without it: at this size the
   // map buys no read that `cache_size` and the page cache do not already serve.
-  db.exec("PRAGMA cache_size=-64000; PRAGMA mmap_size=0;");
+  // 16 MB of page cache, not 64. SQLite's cache is anonymous memory -- the kind a container is
+  // killed for -- and it caches the same pages the kernel already holds as reclaimable file cache
+  // with `mmap_size=0`. Measured 2026-09-27 on a copy of production: HOT_QUERIES 200 times took
+  // 2,254 ms at 16 MB against 2,263 at 64, so the 48 MB bought no read; at 8 MB it took 2,813 and
+  // the cache started missing. The ceiling is what matters rather than the steady state, because a
+  // process that once filled 64 MB of cache never gives the mark back, and each heavy collector
+  // runs in a child that would have paid the same ceiling for one collection.
+  db.exec("PRAGMA cache_size=-16000; PRAGMA mmap_size=0;");
   return db;
 }
 

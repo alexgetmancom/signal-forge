@@ -1,5 +1,5 @@
 import { text } from "../text.js";
-import type { Event, RecordData } from "./types.js";
+import type { Event } from "./types.js";
 
 type IdentityStatus = "canonical" | "alias" | "codename" | "unconfirmed" | "unknown";
 
@@ -53,11 +53,66 @@ function unique(values: (string | null)[]): string[] {
   return [...new Set(values.filter((value): value is string => Boolean(value)))];
 }
 
-function displayName(event: Event, record: RecordData | null): string {
+/**
+ * The record keys identity is derived from, and the only ones a reader of it needs to fetch.
+ *
+ * `listStories` used to select `before_json` and `after_json` whole to answer with seven fields per
+ * event: 27.6 MB of bodies for a hundred stories, which took 170 MB of a floor that is never given
+ * back, measured 2026-09-27. It selects these keys instead. The list is a constant rather than a
+ * comment because the SQL that fetches them is generated from it, and `IdentityRecord` below is what
+ * makes reading an eighth key here a compile error instead of a silently empty column.
+ */
+const IDENTITY_KEYS = ["name", "model", "modelKey", "canonical_id", "canonicalId", "modelId", "id"] as const;
+
+/** A record narrowed to what identity reads. `RecordData` satisfies it, so a full record still fits. */
+export type IdentityRecord = { [Key in (typeof IDENTITY_KEYS)[number]]?: unknown };
+
+/** The event columns identity reads. An event satisfies it; so does a row that left the bodies behind. */
+export type IdentitySubject = Pick<Event, "stream" | "source" | "entity_id">;
+
+/**
+ * What the identity columns are named, which `IdentityColumnRow` repeats as a literal type because
+ * a template literal type cannot read a constant. The two are checked against each other below.
+ */
+const IDENTITY_COLUMN_PREFIX = "ident_";
+
+/**
+ * The seven keys as SQL columns, read off the same body `recordFor` would have parsed. The row they
+ * come from must alias `events` as `e`, which is how every caller already writes it.
+ *
+ * `COALESCE` picks the body, not the key: taking `name` from the new record and `id` from the old one
+ * where only one of them carries each would invent a record neither side ever held. `json_valid`
+ * guards a malformed body, which `json_extract` answers with an error where `recordFor` answers with
+ * null, and `json_type` keeps the equivalence with `text()`, which reads a string and nothing else --
+ * an object arrives from `json_extract` as its own JSON text and would pass for a name.
+ */
+export function identityColumns(): string {
+  const body = "COALESCE(e.after_json,e.before_json)";
+  return IDENTITY_KEYS.map(
+    (key) =>
+      `CASE WHEN json_valid(${body}) AND json_type(${body},'$.${key}')='text' THEN json_extract(${body},'$.${key}') END AS ${IDENTITY_COLUMN_PREFIX}${key}`,
+  ).join(",");
+}
+
+/** The row those columns make, so a query that forgets one of them does not compile. */
+export type IdentityColumnRow = { [Key in (typeof IDENTITY_KEYS)[number] as `ident_${Key}`]: unknown };
+
+/** The record those columns stand for, or null when the row carried none of them. */
+export function identityRecordOf(row: IdentityColumnRow): IdentityRecord | null {
+  const values = row as Record<string, unknown>;
+  const record: Record<string, unknown> = {};
+  for (const key of IDENTITY_KEYS) {
+    const value = values[`${IDENTITY_COLUMN_PREFIX}${key}`];
+    if (value !== null && value !== undefined) record[key] = value;
+  }
+  return Object.keys(record).length ? (record as IdentityRecord) : null;
+}
+
+function displayName(event: IdentitySubject, record: IdentityRecord | null): string {
   return text(record?.name) ?? text(record?.model) ?? event.entity_id;
 }
 
-function stableId(record: RecordData | null, event: Event): string | null {
+function stableId(record: IdentityRecord | null, event: IdentitySubject): string | null {
   const explicit = text(record?.canonical_id) ?? text(record?.canonicalId);
   if (explicit) return explicit;
   const id = text(record?.id) ?? event.entity_id;
@@ -68,7 +123,7 @@ function stableId(record: RecordData | null, event: Event): string | null {
  * Derives identity only from evidence already present in the record. A leaderboard key is never
  * promoted to a canonical model ID: it remains a codename until another source identifies it.
  */
-export function identityFor(event: Event, record: RecordData | null): ModelIdentity {
+export function identityFor(event: IdentitySubject, record: IdentityRecord | null): ModelIdentity {
   const name = displayName(event, record);
   const id = stableId(record, event);
   const model = text(record?.model);

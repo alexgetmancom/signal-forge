@@ -40,6 +40,7 @@
     "split-module": "bun scripts/split-module.ts",
     "probe": "bun scripts/probe.ts",
     "source-cost": "bun scripts/source-cost.ts",
+    "read-cost": "bun scripts/read-cost.ts",
     "guide": "bun scripts/workbench.ts"
   },
   "dependencies": {

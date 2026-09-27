@@ -81,7 +81,7 @@ const BUDGET: Readonly<Record<string, number>> = {
   "src/sources/lifecycle.ts:parseTableRecords": 100,
   "src/sources/modelMentions.ts:collectModelMentions": 100,
   "src/status.ts:sendBoard": 100,
-  "src/stories.ts:listStories": 100,
+  "src/stories.ts:listStories": 75,
   "src/telegramReactions.ts:readTelegramReactions": 100,
 };
 
