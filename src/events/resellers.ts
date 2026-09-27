@@ -121,6 +121,20 @@ const NOT_FOR_THIS_READER = new Set([
   "Perplexity",
   "Groq",
   "Baidu",
+  // Added when the vendor table learned to spell them, on 2026-09-27. Until then they were Unknown
+  // and reached this answer by the other branch, so naming them here is what keeps the routing the
+  // same: being spellable is attribution, and attribution is not the same claim as being followed.
+  // An embedding house, a rerankers house, an inference provider, an edge-model lab and two
+  // national programmes -- none of them what a reader on a coding subscription calls.
+  "Mixedbread",
+  "Quiver AI",
+  "Perceptron",
+  "Inference.net",
+  "Fireworks",
+  "Liquid AI",
+  "IBM",
+  "AI Singapore",
+  "Swiss AI",
 ]);
 
 export function isUnfollowedMakerAtAReseller(event: Event): boolean {

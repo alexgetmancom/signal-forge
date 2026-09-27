@@ -626,7 +626,7 @@ test("a catalogue restating one model spends one line of the day the reports rea
       { id: "azure-ai-foundry/MAI-Image-2.6-2026-07-31", name: "MAI-Image-2.6-2026-07-31" },
       { id: "azure-ai-foundry/MAI-Image-2.6-Flash", name: "MAI-Image-2.6-Flash" },
       { id: "azure-ai-foundry/MAI-Image-2.6-Flash-2026-07-31", name: "MAI-Image-2.6-Flash-2026-07-31" },
-      { id: "azure-ai-foundry/Inkling-Small", name: "Inkling-Small" },
+      { id: "azure-ai-foundry/Toast-1", name: "Toast-1" },
     ]),
     [],
     "2026-09-16T12:00:00.000Z",
@@ -637,7 +637,9 @@ test("a catalogue restating one model spends one line of the day the reports rea
     "🆕 MAI Image 2.6 · Microsoft — now on TrueFoundry · +1 variant",
     // A tier somebody chose to sell is a model; only the catalogue's dates are counted away.
     "🆕 MAI Image 2.6 Flash · Microsoft — now on TrueFoundry · +1 variant",
-    "🆕 Inkling Small · Microsoft — now on TrueFoundry",
+    // The maker is read off the model's own name: the catalogue stamped "Microsoft" on this row
+    // too, and a small maker's line is worth having only when it names the small maker.
+    "🆕 Toast 1 · Mixedbread — now on TrueFoundry",
   ]);
 });
 

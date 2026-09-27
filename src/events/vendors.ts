@@ -12,19 +12,28 @@ import type { Event, RecordData } from "./types.js";
 const VENDORS: [RegExp, string][] = [
   [/openai|gpt|codex|chatgpt|sora/i, "OpenAI"],
   [/anthropic|claude/i, "Anthropic"],
-  [/google|gemini|deepmind|lyria|imagen|veo/i, "Google"],
+  // AI Singapore before Google, for the reason Anthropic comes before Bedrock: `sea-lion` is
+  // published as `aisingapore/Gemma-SEA-LION-v4-27B-IT`, and whoever tuned a model is its maker.
+  [/aisingapore|sea-?lion/i, "AI Singapore"],
+  // `gemma` was missing until 2026-09-27, and eleven Gemma 4 listings in one month carried no maker
+  // on their cards because of it -- the failure a missing pattern has, which is silence.
+  [/google|gemini|gemma|deepmind|lyria|imagen|veo/i, "Google"],
   [/\bx-ai\b|\bxai\b|grok/i, "xAI"],
   [/deepseek/i, "DeepSeek"],
   [/qwen|alibaba/i, "Qwen"],
-  [/meta-llama|llama|\bmeta\b|muse[\s-]spark/i, "Meta"],
-  [/mistral/i, "Mistral"],
+  [/meta-llama|llama|\bmeta\b|muse[\s-](?:spark|glimmer)/i, "Meta"],
+  // The families Mistral does not put its own name on. Pixtral Large and Devstral 2 were the two
+  // largest Unknown handles of September by event count, at 35 listings between them.
+  [/mistral|\bpixtral\b|\bdevstral\b/i, "Mistral"],
   [/groq/i, "Groq"],
   [/moonshot|kimi/i, "Moonshot"],
   [/minimax/i, "MiniMax"],
   [/z-ai|\bzai\b|zhipu|glm/i, "Z.ai"],
-  [/cohere/i, "Cohere"],
+  // Command A+ reaches us from catalogues that leave `maker` empty, and the word "cohere" is
+  // nowhere in the name. Only the lettered families count: `command-code-models` is a source id.
+  [/cohere|\bcommand[\s-]?(?:a\+|[ar])\b/i, "Cohere"],
   [/perplexity/i, "Perplexity"],
-  [/tencent|hunyuan/i, "Tencent"],
+  [/tencent|hunyuan|\bhy\d/i, "Tencent"],
   [/bytedance|doubao/i, "ByteDance"],
   [/xiaomi|\bmimo\b/i, "Xiaomi"],
   [/baidu|ernie/i, "Baidu"],
@@ -44,6 +53,26 @@ const VENDORS: [RegExp, string][] = [
   [/inclusionai|\bling-3\b|\bbailing\b/i, "inclusionAI"],
   [/inception\b|\bmercury-\d/i, "Inception"],
   [/nvidia|nemotron/i, "NVIDIA"],
+  // Thinky is the brand, Thinking Machines is the lab, Inkling is the model, and the three
+  // catalogues that list it use one each.
+  [/thinking[\s-]?machines|\bthinky\b|\binkling\b/i, "Thinking Machines"],
+  [/nex-?agi|\bnex[\s-]?n\d/i, "Nex AGI"],
+  [/meituan|\blongcat\b/i, "Meituan"],
+  [/kwaipilot|\bkat-coder/i, "Kwaipilot"],
+  [/ibm-granite|\bibm\b|\bgranite[\s-]?\d/i, "IBM"],
+  [/liquid-?ai|\blfm\d/i, "Liquid AI"],
+  [/swiss-ai|\bapertus\b/i, "Swiss AI"],
+  [/inference\.net|\bschematron\b/i, "Inference.net"],
+  [/perceptron/i, "Perceptron"],
+  // `ember` is also the tail of two month names, which is why the digit and the boundary are both
+  // required: without them every September newsroom URL was a Fireworks release.
+  [/fireworks|\bember[\s-]\d/i, "Fireworks"],
+  // Known to us only by a model name that is an ordinary word, because the catalogues that carry
+  // the maker are outnumbered by the ones that do not. After every laboratory that signs its own
+  // models and before the clouds, for the reason the whole list is ordered that way: TrueFoundry
+  // publishes Toast 1 as `azure-ai-foundry/Toast-1`, and a host's namespace is not a maker.
+  [/quiverai|\barrow[\s-]?\d/i, "Quiver AI"],
+  [/mixedbread|\btoast[\s-]?\d/i, "Mixedbread"],
   [/microsoft|azure|\bphi-\d/i, "Microsoft"],
   [/amazon|\baws\b|bedrock/i, "Amazon"],
   [/poolside/i, "Poolside"],
