@@ -9,6 +9,7 @@ import { featureOperations } from "./operations/features.js";
 import { healthOperations } from "./operations/health.js";
 import { hostOperations } from "./operations/host.js";
 import { sourcesOperations } from "./operations/sources.js";
+import { vendorTableOperations } from "./operations/vendorTable.js";
 
 export { callOperation, cliCommand, type OperationMap, operationCatalog } from "./operations/definition.js";
 
@@ -25,6 +26,7 @@ export function operations(db: Database, config: AppConfig): OperationMap {
     ...deliveryOperations(db, config, all),
     ...evidenceOperations(db, config, all),
     ...sourcesOperations(db, config, all),
+    ...vendorTableOperations(db, config),
     ...calibrationOperations(db, config, all),
     ...databaseOperations(db, config, all),
     ...hostOperations(db, config, all),

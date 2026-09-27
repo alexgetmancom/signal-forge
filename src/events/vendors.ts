@@ -1,3 +1,4 @@
+import { text } from "../text.js";
 import type { Event, RecordData } from "./types.js";
 
 /**
@@ -89,17 +90,45 @@ export function vendorOfName(text: string): string {
   return VENDORS.find(([pattern]) => pattern.test(text))?.[1] ?? "Unknown";
 }
 
-/** The vendor an event is about, for role pings and presentation labels. */
-export function vendorOf(event: Event, record: RecordData | null): string {
+/**
+ * The fields a maker's identity can be read off, in the order they are trusted.
+ *
+ * `vendorOf` reads them from one event; `unknown-makers` reads the same four columns for a window
+ * of events without lifting the record bodies. They are one function so that the report measures
+ * the rule the channel runs on rather than a second copy of it that drifts a release later.
+ */
+export type VendorEvidence = {
+  name?: string | null;
+  entityId?: string | null;
+  maker?: string | null;
+  provider?: string | null;
+  owner?: string | null;
+  source?: string | null;
+};
+
+/** The maker the recorded fields name, or Unknown when they name none of the ones we track. */
+export function vendorOfEvidence(evidence: VendorEvidence): string {
   // What the model calls itself, before who is hosting it. `maker` is filled in by whatever
   // catalogue was read, and a catalogue often writes its own name there: Alibaba Model Studio
   // lists GLM 5.3, and reading `maker` first filed Z.ai's model under Qwen in the weekly recap.
   // A name is the one field the maker controls, so it answers first and the host answers after.
-  const named = [record?.name, event.entity_id].filter((value) => typeof value === "string").join(" ");
+  const named = [evidence.name, evidence.entityId].filter((value) => typeof value === "string").join(" ");
   const byName = named ? vendorOfName(named) : "Unknown";
   if (byName !== "Unknown") return byName;
-  const haystack = [record?.maker, record?.provider, record?.owner, event.source]
+  const haystack = [evidence.maker, evidence.provider, evidence.owner, evidence.source]
     .filter((value) => typeof value === "string")
     .join(" ");
   return VENDORS.find(([pattern]) => pattern.test(haystack))?.[1] ?? "Unknown";
+}
+
+/** The vendor an event is about, for role pings and presentation labels. */
+export function vendorOf(event: Event, record: RecordData | null): string {
+  return vendorOfEvidence({
+    name: text(record?.name),
+    entityId: event.entity_id,
+    maker: text(record?.maker),
+    provider: text(record?.provider),
+    owner: text(record?.owner),
+    source: event.source,
+  });
 }
