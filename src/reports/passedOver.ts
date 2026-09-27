@@ -48,6 +48,16 @@ type PassedOverStory = {
   spoke: boolean;
   /** Whether the corroboration rule sent it, and with how many sources when it did. */
   cardedByCorroboration: number | null;
+  /** The date the subject itself came out, when a catalogue claimed one. Null is no claim. */
+  releasedAt: string | null;
+  /**
+   * Days between the subject coming out and this deployment first seeing it, when both are known.
+   *
+   * This is the number the report could not produce before migration 061, and the one an operator
+   * actually wants: a subject we met three weeks after its release was never ours to break. Null
+   * when no catalogue dated it, which is most rows and is not evidence of either answer.
+   */
+  lateByDays: number | null;
 };
 
 export type PassedOverReport = {
@@ -64,6 +74,17 @@ export type PassedOverReport = {
    * June that no reader was waiting for.
    */
   overThresholdAndSilent: number;
+  /**
+   * Silent subjects this deployment met more than a month after they came out: the other half of
+   * the question, and the half that is not near-zero by construction.
+   *
+   * `overThresholdAndSilent` can only be non-zero in the narrow band where a subject has the sources
+   * but has not yet been carded, because the rule fires the moment it qualifies. That makes it a
+   * good alarm and a poor measure. Lateness is the measure: it counts subjects the world already had
+   * while we were still reading about them, which is a coverage problem rather than a threshold one,
+   * and it is answered from the stored release date rather than from a human with a search engine.
+   */
+  lateAndSilent: number;
   stories: PassedOverStory[];
 };
 
@@ -73,6 +94,7 @@ type Row = {
   vendor: string | null;
   first_seen_at: string;
   updated_at: string;
+  released_at: string | null;
   event_id: number;
   kind: string;
   source: string;
@@ -93,7 +115,7 @@ type Row = {
 function rows(db: Database, since: string): Row[] {
   return db
     .query<Row, [string]>(
-      `SELECT s.id AS story_id,s.title,s.vendor,s.first_seen_at,s.updated_at,
+      `SELECT s.id AS story_id,s.title,s.vendor,s.first_seen_at,s.updated_at,s.released_at,
               e.id AS event_id,e.kind,e.source,e.stream,e.authority,src.vendor AS source_vendor,
               EXISTS(SELECT 1 FROM batch_events be JOIN deliveries d ON d.batch_id=be.batch_id
                      WHERE be.event_id=e.id) AS delivered,
@@ -116,6 +138,24 @@ function rows(db: Database, since: string): Row[] {
  * Subjects that spoke are kept rather than filtered: a report that only lists misses cannot show
  * that the rule is now catching them, and an operator comparing the two is the point.
  */
+/**
+ * How long after a subject came out this deployment first saw it, in whole days.
+ *
+ * Negative when we saw it first, which is the good case and is reported as 0 rather than as a
+ * negative lateness: being early is not a degree of being late, and the distinction an operator
+ * wants here is only "how far behind".
+ */
+function lateByDays(releasedAt: string | null, firstSeenAt: string): number | null {
+  if (!releasedAt) return null;
+  const released = Date.parse(releasedAt);
+  const seen = Date.parse(firstSeenAt);
+  if (!Number.isFinite(released) || !Number.isFinite(seen)) return null;
+  return Math.max(0, Math.floor((seen - released) / (24 * 3_600_000)));
+}
+
+/** Past this, meeting a subject is catching up with a release rather than carrying one. */
+const LATE_DAYS = 30;
+
 export function passedOver(db: Database, days = 7, limit = 50, now = Date.now()): PassedOverReport {
   // The instant is an argument because it was read off the clock: three tests wrote fixed detection
   // times inside the default window, and passed until the day the window moved past them.
@@ -155,6 +195,8 @@ export function passedOver(db: Database, days = 7, limit = 50, now = Date.now())
         .sort((left, right) => right.count - left.count || left.reason.localeCompare(right.reason)),
       firstSeenAt: first.first_seen_at,
       updatedAt: first.updated_at,
+      releasedAt: first.released_at,
+      lateByDays: lateByDays(first.released_at, first.first_seen_at),
       spoke: events.some((event) => event.delivered === 1),
       cardedByCorroboration: carded ? carded.families.length : null,
     });
@@ -176,6 +218,8 @@ export function passedOver(db: Database, days = 7, limit = 50, now = Date.now())
     days,
     threshold: INDEPENDENT_SOURCES,
     overThresholdAndSilent: stories.filter((story) => !story.spoke && story.arrivalSourceCount >= INDEPENDENT_SOURCES)
+      .length,
+    lateAndSilent: stories.filter((story) => !story.spoke && story.lateByDays !== null && story.lateByDays > LATE_DAYS)
       .length,
     stories: stories.slice(0, limit),
   };

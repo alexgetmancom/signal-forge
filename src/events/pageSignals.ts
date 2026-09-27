@@ -19,7 +19,7 @@ import type { Event, SignalClass } from "./types.js";
  * the invited room as sightings on 2026-09-15, and a reader who came to hear about models cannot
  * do anything with either. A developer blog is a blog, and its posts are what the vendor said.
  */
-export const HELP_CENTRES = new Set(["pages:claude-support"]);
+const HELP_CENTRES = new Set(["pages:claude-support"]);
 
 /**
  * A new page is a sighting only when it names a versioned product or sits among the model pages.
@@ -31,12 +31,12 @@ export const HELP_CENTRES = new Set(["pages:claude-support"]);
 const PRODUCT_WITH_VERSION =
   /\b(?:claude|opus|sonnet|haiku|fable|mythos|gpt|gemini|gemma|grok|codex|llama|qwen|deepseek|kimi|glm|mistral|minimax|mimo|imagen|veo|lyria|sora|astra)\b(?:[\s-]+[a-z]+){0,3}[\s-]+v?\d/i;
 const MODEL_PAGE_PATH = /\/(?:models?|model-cards)\//i;
-export function pageNamesAProduct(record: Record<string, unknown> | null | undefined): boolean {
+function pageNamesAProduct(record: Record<string, unknown> | null | undefined): boolean {
   const path = text(record?.id) ?? "";
   const words = `${text(record?.name) ?? ""} ${path.replaceAll(/[/_-]+/g, " ")}`;
   return MODEL_PAGE_PATH.test(path) || NAMES_A_MODEL.test(words) || PRODUCT_WITH_VERSION.test(words);
 }
-export const PAGE_BLOGS = new Set(["pages:google-devs"]);
+const PAGE_BLOGS = new Set(["pages:google-devs"]);
 
 /** What a page appearing on, or changing on, a watched site is. */
 export function pageClass(event: Event): SignalClass {

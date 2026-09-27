@@ -207,3 +207,32 @@ test("a catalogue rewriting its rows is no third source, and a model seen before
   );
   expect(detectCorroborated(db, [scouts], now)).toEqual([]);
 });
+
+test("a subject the catalogue dates to weeks before we met it is late, not missed", () => {
+  const { db, add } = setup();
+  // Gemini 3.8 Flash: Google shipped it on 2 September and our first sighting was on the 19th.
+  // Three sources, never carded, and not a miss -- nobody was still waiting to be told.
+  db.query("UPDATE stories SET title='Gemini 3.8 Flash' WHERE id=1").run();
+  add(
+    "models-dev",
+    "api-models",
+    "third_party",
+    { name: "Gemini 3.8 Flash", created: "2026-09-02T00:00:00.000Z" },
+    "2026-09-20T05:31:00.165Z",
+  );
+  db.query("UPDATE stories SET released_at='2026-09-02T00:00:00.000Z' WHERE id=1").run();
+
+  const report = passedOver(db, 7, 50, now);
+  const story = report.stories[0];
+  expect(story?.releasedAt).toBe("2026-09-02T00:00:00.000Z");
+  expect(story?.lateByDays).toBe(17);
+  expect(report.lateAndSilent).toBe(0);
+});
+
+test("a release date nobody claimed is no claim, not a fresh release", () => {
+  const { db } = setup();
+  const story = passedOver(db, 7, 50, now).stories[0];
+  expect(story?.releasedAt).toBeNull();
+  expect(story?.lateByDays).toBeNull();
+  expect(passedOver(db, 7, 50, now).lateAndSilent).toBe(0);
+});

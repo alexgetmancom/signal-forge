@@ -37,7 +37,7 @@ export const NEWSROOMS = new Set([
  * in a week when the public channel carried two models. The title has to say it is an arrival and
  * name a maker's model; a customer story naming GPT is neither.
  */
-export const ANNOUNCES =
+const ANNOUNCES =
   /\b(introducing|announcing|meet|launch(?:es|ing)?|now available|available (?:now|today)|releas(?:e|es|ing))\b/i;
 export const NAMES_A_MODEL =
   /\b(?:claude|opus|sonnet|haiku|fable|mythos|gpt|o\d|gemini|gemma|grok|codex|llama|qwen|deepseek|kimi|glm|mistral|minimax)[\s-]?\d/i;
@@ -59,7 +59,7 @@ export function patchBuild(record: Record<string, unknown> | null | undefined): 
   return PATCH_BUILD.test(`${text(record?.version) ?? ""} ${text(record?.name) ?? ""}`);
 }
 
-export const TOOL_CHANGELOGS = new Set([
+const TOOL_CHANGELOGS = new Set([
   "claude-code-changelog",
   "openai-codex-changelog",
   "cursor-changelog",
@@ -78,7 +78,7 @@ export const TOOL_CHANGELOGS = new Set([
  * public channel beside a Codex reset. A Mistral *model* release still speaks -- it is the same
  * page, and the same question answers both.
  */
-export const CONSUMER_APP_NOTES = new Set(["openai-chatgpt-release-notes", "mistral-release-notes"]);
+const CONSUMER_APP_NOTES = new Set(["openai-chatgpt-release-notes", "mistral-release-notes"]);
 
 /**
  * ChatGPT's release notes are mostly consumer features. "Credit scores in Finances" reached the
@@ -86,7 +86,7 @@ export const CONSUMER_APP_NOTES = new Set(["openai-chatgpt-release-notes", "mist
  * tools they build with. The collector asks a judge who each entry is for (`audience`); this word list
  * decides only when the judge could not be asked.
  */
-export const FOR_BUILDERS =
+const FOR_BUILDERS =
   /\b(?:claude|opus|sonnet|haiku|gpt|o\d|gemini|grok|codex|model|models|api|developers?|agents?|apps sdk|mcp|connectors?|reasoning|context window)\b[\s-]?\d?/i;
 
 /**
@@ -98,15 +98,14 @@ export const FOR_BUILDERS =
  * "we're retiring automatic switching from Instant to Thinking" changes what a ChatGPT subscriber
  * gets as surely as a model leaving the picker does.
  */
-export const RETIREMENT_WORDS =
-  /\b(retire[sd]?|retirement|retiring|deprecat\w*|sunset\w*|end of life|discontinu\w*)\b/i;
+const RETIREMENT_WORDS = /\b(retire[sd]?|retirement|retiring|deprecat\w*|sunset\w*|end of life|discontinu\w*)\b/i;
 
 /**
  * A preview replaced by the next preview. "Released antigravity-preview-09-2026, which replaces and
  * deprecates antigravity-preview-05-2026" reached the public channel as a retirement on 2026-09-17:
  * nothing a reader runs goes away, the preview string moves on.
  */
-export const PREVIEW_SUCCESSION = /\bpreview\S*[^.]*\b(?:replac|supersed|deprecat)\w*[^.]*\bpreview\b/i;
+const PREVIEW_SUCCESSION = /\bpreview\S*[^.]*\b(?:replac|supersed|deprecat)\w*[^.]*\bpreview\b/i;
 
 /**
  * How old a dated entry may be when it is first seen or edited and still be news. OpenAI rewrote its
@@ -117,7 +116,7 @@ export const PREVIEW_SUCCESSION = /\bpreview\S*[^.]*\b(?:replac|supersed|depreca
  */
 const NEWS_FOR_MS = 7 * 24 * 3_600_000;
 
-export function publishedLongAgo(event: Event, published: unknown): boolean {
+function publishedLongAgo(event: Event, published: unknown): boolean {
   const at = Date.parse(text(published) ?? "");
   return Number.isFinite(at) && Date.parse(event.detected_at) - at > NEWS_FOR_MS;
 }
@@ -128,7 +127,7 @@ export function publishedLongAgo(event: Event, published: unknown): boolean {
  * not. "Claude Cowork and chat are now one Claude" on 2026-09-16 is the case it exists for.
  */
 export const PRODUCT_BLOGS = new Set(["claude-blog"]);
-export const SHIPS =
+const SHIPS =
   /\b(introducing|announcing|launch(?:es|ing)?|is now|are now|now (?:available|supports?)|generally available|new in|redesigned)\b/i;
 
 /**
@@ -183,7 +182,7 @@ export function articleTopic(event: Event): "feature" | "safety" | "research" | 
 const TERMINAL_TOOL = /\b(cli|tui|terminal|command[\s-]line|shell|keybinds?|keybindings?|ncurses)\b/i;
 const SHIPS_SOMETHING = /\b(model|models|pricing|price|limits?|quota|context|agent|agents|subscription|plan|plans)\b/i;
 
-export function isAboutTheTerminal(event: Event, record: RecordData | null): boolean {
+function isAboutTheTerminal(event: Event, record: RecordData | null): boolean {
   if (event.kind !== "new") return false;
   const words = `${text(record?.name) ?? ""} ${text(record?.summary) ?? ""} ${text(record?.description) ?? ""}`;
   return TERMINAL_TOOL.test(words) && !SHIPS_SOMETHING.test(words);

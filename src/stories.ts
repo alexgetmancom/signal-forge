@@ -11,6 +11,7 @@ import {
 } from "./events/identity.js";
 import { vendorOf } from "./events/interpretation.js";
 import { recordFor } from "./events/record.js";
+import { recordReleaseDate } from "./events/releaseDate.js";
 import { sourceFamily } from "./events/sourceFamily.js";
 import type { Confidence, Event, RecordData, SourceAuthority } from "./events/types.js";
 
@@ -49,6 +50,12 @@ type StoryGroup = {
   signatures: ModelSignature[];
   /** Set for sources that correlate only with themselves; see `isolatedCandidate`. */
   candidate: boolean;
+  /**
+   * The earliest date any of the group's records put on the model itself, or null when none
+   * did. A number rather than the record it came from: the group deliberately keeps no bodies, and
+   * this is the one fact about them a report cannot recompute once they are gone.
+   */
+  releasedAt: number | null;
   storyId?: number;
 };
 
@@ -362,6 +369,7 @@ function projectEvent(projection: StoryProjection, event: StoryEvent): StoryGrou
       familyIdentity: new Map(),
       signatures,
       candidate,
+      releasedAt: recordReleaseDate(record),
     };
     rememberFamilyIdentity(group, family, canonical, terms);
     projection.groups.push(group);
@@ -372,6 +380,10 @@ function projectEvent(projection: StoryProjection, event: StoryEvent): StoryGrou
   }
   previous.last = latestOf(event, record);
   previous.lastTime = Date.parse(event.detected_at);
+  // A model is released once; a later catalogue carrying an older date is the better witness.
+  const released = recordReleaseDate(record);
+  if (released !== null && (previous.releasedAt === null || released < previous.releasedAt))
+    previous.releasedAt = released;
   previous.identity = mergeIdentities(previous.identity, identity);
   rememberFamilyIdentity(previous, family, canonical, terms);
   for (const signature of signatures)
@@ -415,12 +427,15 @@ function storyTitle(group: StoryGroup): string {
 function writeGroup(db: Database, group: StoryGroup): number {
   const status = group.last.kind === "removed" ? "removed" : "active";
   const story = db
-    .query<{ id: number }, [string, string, string, string, string, string, string, string]>(
-      `INSERT INTO stories(stable_key,title,normalized_subject,vendor,first_seen_at,updated_at,confidence,current_status)
-       VALUES(?,?,?,?,?,?,?,?)
+    .query<{ id: number }, [string, string, string, string, string, string, string, string, string | null]>(
+      `INSERT INTO stories(stable_key,title,normalized_subject,vendor,first_seen_at,updated_at,confidence,current_status,released_at)
+       VALUES(?,?,?,?,?,?,?,?,?)
        ON CONFLICT(stable_key) DO UPDATE SET title=excluded.title,normalized_subject=excluded.normalized_subject,
          vendor=excluded.vendor,first_seen_at=excluded.first_seen_at,updated_at=excluded.updated_at,
-         confidence=excluded.confidence,current_status=excluded.current_status
+         confidence=excluded.confidence,current_status=excluded.current_status,
+         -- A date already on the row outranks none, and the earlier of two claims wins: a model is
+         -- released once, and a catalogue carrying an older date is the better witness.
+         released_at=MIN(COALESCE(excluded.released_at,stories.released_at),COALESCE(stories.released_at,excluded.released_at))
        RETURNING id`,
     )
     .get(
@@ -432,6 +447,7 @@ function writeGroup(db: Database, group: StoryGroup): number {
       group.last.detectedAt,
       group.last.confidence,
       status,
+      group.releasedAt === null ? null : new Date(group.releasedAt).toISOString(),
     );
   if (!story) throw new Error(`Story ${storyKey(group)} could not be stored`);
   group.storyId = story.id;
