@@ -247,3 +247,51 @@ test("a judge answering unusably on a loop is an issue, not a silent bill", () =
   expect(listActionableIssues(db, config, now).some((entry) => entry.kind === "judge_unusable")).toBe(false);
   db.close();
 });
+
+test("one failed worker cycle is a blink, and the second one is a break", () => {
+  const db = openDatabase(":memory:");
+  const config = loadConfig({ CONFIG_PATH: configPath });
+  const now = Date.parse("2026-09-27T16:25:00.000Z");
+  const state = (cycles: number) =>
+    JSON.stringify({
+      state: "failed",
+      lastStartedAt: "2026-09-27T16:19:00.000Z",
+      lastFinishedAt: "2026-09-27T16:19:02.000Z",
+      lastError: "socket connection was closed unexpectedly",
+      consecutiveFailures: cycles,
+    });
+  // worker:promotion on 2026-09-27: one closed socket reading Discord reactions, whole on the next
+  // cycle, and it was listed at the same severity as a leaderboard dead for three days.
+  db.query("INSERT INTO app_state(key,value) VALUES('worker:promotion',?)").run(state(1));
+  const blink = listActionableIssues(db, config, now).find((issue) => issue.id === "worker:promotion");
+  expect(blink).toMatchObject({ kind: "worker_failed", severity: "warning", consecutiveFailures: 1 });
+  expect(blink?.message).toContain("has not run since");
+  expect(blink?.message).toContain("socket connection was closed unexpectedly");
+
+  db.query("UPDATE app_state SET value=? WHERE key='worker:promotion'").run(state(3));
+  const broken = listActionableIssues(db, config, now).find((issue) => issue.id === "worker:promotion");
+  expect(broken).toMatchObject({ kind: "worker_failed", severity: "error", consecutiveFailures: 3 });
+  expect(broken?.message).toContain("failed 3 cycles in a row");
+  db.close();
+});
+
+test("a repeatedly checked thing carries how many checks in a row have failed, and the rest carry none", () => {
+  const db = openDatabase(":memory:");
+  const config = loadConfig({ CONFIG_PATH: configPath });
+  const now = Date.parse("2026-09-27T16:25:00.000Z");
+  aSource(db, "openrouter", {
+    lastError: "HTTP 500",
+    checkedAt: "2026-09-27T16:24:00.000Z",
+    failures: 4,
+  });
+  db.exec(
+    "INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'openrouter','1970-01-01T00:00:00.000Z',1);" +
+      "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,status,updated_at) VALUES(7,1,'dc','{}','body',0,'failed','2026-09-27T16:00:00.000Z')",
+  );
+  const issues = listActionableIssues(db, config, now);
+  expect(issues.find((issue) => issue.id === "openrouter")?.consecutiveFailures).toBe(4);
+  // A delivery that failed for good is not a check that can pass next time; counting it would say
+  // nothing but how long nobody has acted.
+  expect(issues.find((issue) => issue.id === "delivery:7")?.consecutiveFailures).toBeUndefined();
+  db.close();
+});

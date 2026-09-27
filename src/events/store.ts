@@ -494,8 +494,11 @@ export function persistCollection(
     emitted.filter((event) => event.kind === "removed").length,
   );
   db.query(
-    "INSERT INTO sources(id,last_success,checked_at,authority,vendor) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET last_success=excluded.last_success,checked_at=excluded.checked_at,last_error=NULL,authority=excluded.authority,vendor=excluded.vendor",
-  ).run(c.source, now, now, authority, c.vendor ?? null);
+    // `first_observed_at` is written once and never moved: it is the instant from which a miss on
+    // this source is ours, and a catalogue that hands us ten years of history on its first call is
+    // not late by any of it. See migration 062 and `passedOver`.
+    "INSERT INTO sources(id,last_success,checked_at,authority,vendor,first_observed_at) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET last_success=excluded.last_success,checked_at=excluded.checked_at,last_error=NULL,authority=excluded.authority,vendor=excluded.vendor,first_observed_at=COALESCE(sources.first_observed_at,excluded.first_observed_at)",
+  ).run(c.source, now, now, authority, c.vendor ?? null, now);
   db.query(
     "DELETE FROM snapshots WHERE source=? AND id NOT IN (SELECT snapshot_id FROM events) AND id NOT IN (SELECT id FROM snapshots WHERE source=? ORDER BY id DESC LIMIT 2)",
   ).run(c.source, c.source);

@@ -61,6 +61,15 @@ export function healthOperations(db: Database, config: AppConfig, all: () => Ope
       section: "health",
       summary: "Current source, delivery, worker, restart, backup and capability problems requiring attention.",
       startHere: "something is wrong and I do not know what",
+      note:
+        "Read `consecutiveFailures` before the message. It is how many checks of the thing in a row " +
+        "have failed, in the unit the thing is checked in: polls for a source, cycles for a worker, " +
+        "unusable answers for a judge. One is a blink and is reported as a warning -- a closed " +
+        "socket on a single Discord read used to arrive at the same severity as a leaderboard that " +
+        "had been dead for three days -- and the same issue comes back as an error if the next check " +
+        "fails too, which is also when the alert channel speaks. The field is absent on the issues " +
+        "that are not repeated checks: a failed delivery, a refused destination, a frozen board, a " +
+        "stale backup and a missing credential stay until somebody acts on them.",
       mutates: false,
       agent: true,
       schema: z.object({}),

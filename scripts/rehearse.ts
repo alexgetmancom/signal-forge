@@ -45,13 +45,12 @@ const root = resolve(import.meta.dir, "..");
 
 const argv = process.argv.slice(2);
 const flags = new Set(argv.filter((value) => value.startsWith("--")));
-/** `--base <ref>` names the policy to compare against; everything else is positional. */
+/** `--base <ref>` names the policy to compare against. */
 const baseAt = argv.indexOf("--base");
 const base = baseAt >= 0 ? argv[baseAt + 1] : undefined;
-// `baseAt + 1` is 0 when there is no `--base`, which dropped the first positional: every
-// `rehearse 60` since this was written replayed 30 days and said so in a line nobody read against
-// what they had typed.
-const positional = argv.filter((value, index) => !value.startsWith("--") && !(baseAt >= 0 && index === baseAt + 1));
+const positional = argv.filter(
+  (value, index) => !value.startsWith("--") && !["--base", "--only"].includes(argv[index - 1] ?? ""),
+);
 const days = positional[0] ?? "30";
 const destination = positional[1];
 

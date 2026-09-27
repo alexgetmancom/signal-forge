@@ -177,6 +177,27 @@ describe("startIntervalWorker", () => {
     await worker.stop();
   });
 
+  test("consecutive failed cycles are counted, and one good cycle clears the count", async () => {
+    const db = openDatabase(":memory:");
+    let fail = true;
+    const worker = startIntervalWorker(db, "flaky", 5, () => {
+      if (fail) throw new Error("socket connection was closed unexpectedly");
+    });
+    const failures = (): number => {
+      const row = db.query<{ value: string }, [string]>("SELECT value FROM app_state WHERE key=?").get("worker:flaky");
+      return JSON.parse(row?.value ?? "{}").consecutiveFailures;
+    };
+    // A blink and a break are the same row -- `state: failed` with a message -- until they are counted.
+    await Bun.sleep(40);
+    expect(failures()).toBeGreaterThan(1);
+    fail = false;
+    await Bun.sleep(20);
+    expect(failures()).toBe(0);
+    await worker.stop();
+    expect(failures()).toBe(0);
+    db.close();
+  });
+
   test("runs the first cycle immediately", async () => {
     const db = openDatabase(":memory:");
     let runs = 0;

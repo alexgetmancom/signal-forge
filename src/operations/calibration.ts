@@ -66,11 +66,15 @@ export function calibrationOperations(db: Database, config: AppConfig, _all: () 
         "`overThresholdAndSilent` and the ordering use. A subject high on the first and zero on the " +
         "second is a catalogue rewriting rows for a model that is already out -- Gemini 3.8 Flash " +
         "and GLM 5.2 Fast both read that way on 2026-09-27 -- and is not something a reader was " +
-        "waiting to hear. `lateAndSilent` counts the other half: silent subjects whose own release " +
-        "date, where a catalogue wrote one, is more than a month before we first saw them. That is " +
-        "a coverage problem rather than a threshold one, and unlike `overThresholdAndSilent` it is " +
-        "not near-zero by construction. `releasedAt` is null on the roughly two thirds of subjects " +
-        "no catalogue dates, and null there means no claim, never a fresh release.",
+        "waiting to hear. `lateAndSilent` counts the other half: silent subjects we met more than a " +
+        "month after they were there to be met, where lateness starts at the release or at the day " +
+        "we began reading a source that carried the subject, whichever is later. Read it beside " +
+        "`historyImportsAndSilent`, which counts the subjects that were already out before we were " +
+        "on any of their sources: those are a catalogue handing us its history on the first call, " +
+        "not misses, and they are what the first version of `lateAndSilent` was entirely made of -- " +
+        "32 rows on 2026-09-27, DeepSeek V3 at 623 days among them. `watchedSince` and " +
+        "`historyImport` say which a row is. `releasedAt` is null on the roughly two thirds of " +
+        "subjects no catalogue dates, and null there means no claim, never a fresh release.",
       mutates: false,
       agent: true,
       schema: z.object({ days: count(90, 7), limit: count(200, 50) }),

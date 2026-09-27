@@ -78,7 +78,7 @@ export function promptContent(text: string, context?: SummaryContext): string {
   return `${contextBlock ? `${contextBlock}\n\n` : ""}${text}`.slice(0, DEEPSEEK_SUMMARY_MAX_INPUT_CHARS);
 }
 
-export function result(
+function result(
   outcome: SummaryResult["outcome"],
   inputChars: number,
   text: string | null = null,

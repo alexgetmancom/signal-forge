@@ -8,6 +8,7 @@ import {
 } from "../src/events/corroboration.js";
 import { passedOver } from "../src/reports/passedOver.js";
 import { openDatabase } from "../src/storage/database.js";
+import { aSource } from "./fixtures/build.js";
 
 const scouts = { id: "scouts", type: "discord", signals: ["codename"] } as unknown as Destination;
 const now = Date.parse("2026-09-20T06:00:00.000Z");
@@ -235,4 +236,69 @@ test("a release date nobody claimed is no claim, not a fresh release", () => {
   expect(story?.releasedAt).toBeNull();
   expect(story?.lateByDays).toBeNull();
   expect(passedOver(db, 7, 50, now).lateAndSilent).toBe(0);
+});
+
+/** Since when each of the subject's sources has been read, which is when a miss becomes ours. */
+function watching(db: ReturnType<typeof openDatabase>, since: string): void {
+  for (const source of ["artificial-analysis", "vercel-gateway", "models-dev"])
+    aSource(db, source, { firstObservedAt: since });
+}
+
+test("a model released before we read any of its sources is an import of history, not a miss", () => {
+  const { db, add } = setup();
+  // DeepSeek V3 as it actually arrived: released in February 2024, handed to us by the OpenRouter
+  // catalogue on the first call we ever made to it. 623 days "late" by the release alone, and
+  // nobody could have carried it sooner, because we were not there.
+  add(
+    "models-dev",
+    "api-models",
+    "third_party",
+    { name: "DeepSeek V3", created: "2024-02-04T00:00:00.000Z" },
+    "2026-09-20T05:31:00.165Z",
+  );
+  db.query("UPDATE stories SET title='DeepSeek V3',released_at='2024-02-04T00:00:00.000Z' WHERE id=1").run();
+  watching(db, "2026-09-18T00:00:00.000Z");
+
+  const report = passedOver(db, 7, 50, now);
+  const story = report.stories[0];
+  expect(story?.lateByDays).toBe(958);
+  expect(story?.watchedSince).toBe("2026-09-18T00:00:00.000Z");
+  expect(story?.historyImport).toBe(true);
+  // One day from the day we began reading it to the day we saw it, which is the honest number.
+  expect(story?.lateAfterWatchingDays).toBe(1);
+  expect(report.lateAndSilent).toBe(0);
+  expect(report.historyImportsAndSilent).toBe(1);
+  db.close();
+});
+
+test("lateness is counted from the day we began reading a source that could have carried it", () => {
+  const { db, add } = setup();
+  add(
+    "models-dev",
+    "api-models",
+    "third_party",
+    { name: "Step 5 Preview", created: "2026-08-01T00:00:00.000Z" },
+    "2026-09-20T05:31:00.165Z",
+  );
+  db.query("UPDATE stories SET released_at='2026-08-01T00:00:00.000Z' WHERE id=1").run();
+  // Reading these sources since July: the model came out under our noses and we met it seven weeks on.
+  watching(db, "2026-07-01T00:00:00.000Z");
+
+  const report = passedOver(db, 7, 50, now);
+  expect(report.stories[0]?.historyImport).toBe(false);
+  expect(report.stories[0]?.lateAfterWatchingDays).toBe(49);
+  expect(report.lateAndSilent).toBe(1);
+  expect(report.historyImportsAndSilent).toBe(0);
+  db.close();
+});
+
+test("a source with no collection on record dates nothing, and the release date stands alone", () => {
+  const { db } = setup();
+  db.query("UPDATE stories SET released_at='2024-02-04T00:00:00.000Z' WHERE id=1").run();
+  const story = passedOver(db, 7, 50, now).stories[0];
+  expect(story?.watchedSince).toBeNull();
+  expect(story?.historyImport).toBe(false);
+  expect(story?.lateAfterWatchingDays).toBeNull();
+  expect(story?.lateByDays).toBe(958);
+  db.close();
 });

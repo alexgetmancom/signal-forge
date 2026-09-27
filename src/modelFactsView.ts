@@ -1,6 +1,4 @@
 /**
- * 6 declarations moved out of modelFacts.ts unchanged.
- *
  * Every read of the model_facts tables: the shape a caller gets back, and the queries that build it.
  * The projector and its writes stay in modelFacts.ts, and nothing here writes.
  */

@@ -1,7 +1,6 @@
 /**
- * 8 declarations moved out of delivery.ts unchanged.
- *
- * Say here what they have in common, because that is the only reason this file exists.
+ * Prepare a delivery for its destination: validate the target and build the HTTP request, including
+ * the card's text and attachments. Sending and interpreting the response happen elsewhere.
  */
 import { type AppConfig, type Destination, destinationSchema } from "./config.js";
 import { type Banner, bannerPng } from "./events/render/banner.js";

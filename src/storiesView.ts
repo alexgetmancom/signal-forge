@@ -1,6 +1,4 @@
 /**
- * 6 declarations moved out of stories.ts unchanged.
- *
  * Every read of the stories tables: the view a caller gets back, the query that names which stories,
  * and the evidence each one carries. The correlation projector and its writes stay in stories.ts.
  */

@@ -105,7 +105,8 @@ function readsSourcesAsAList(sql: string): boolean {
  * reads that carry bodies is only worth having if it is the list of reads that carry bodies.
  */
 const MAY_READ_BODIES: Readonly<Record<string, string>> = {
-  "src/recap.ts": "the weekly recap renders every event of the week it summarises",
+  "src/recap/reading.ts": "the weekly recap renders every event of the week it summarises",
+  "src/summary.ts": "a summary uses the full observation, not the shortened card",
   "src/insights.ts": "insights are derived from what the records say, commit messages and headlines",
   "src/lifecycle.ts": "a deadline is read off the record that announced it",
   "src/modelFacts.ts": "Model Facts is a projection of the records themselves",

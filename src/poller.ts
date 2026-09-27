@@ -204,11 +204,12 @@ async function collectDueSources(
           // The first failure of a run stamps when the outage began; later ones leave it alone, so
           // the duration is measured from the start rather than from the latest confirmation.
           db.query(
-            `INSERT INTO sources(id,last_error,last_error_kind,checked_at,failures,retry_at,failure_started_at) VALUES(?,?,?,?,1,?,?)
+            `INSERT INTO sources(id,last_error,last_error_kind,checked_at,failures,retry_at,failure_started_at,first_observed_at) VALUES(?,?,?,?,1,?,?,?)
            ON CONFLICT(id) DO UPDATE SET last_error=excluded.last_error,last_error_kind=excluded.last_error_kind,checked_at=excluded.checked_at,
              failures=MIN(sources.failures+1,6),retry_at=excluded.retry_at,
-             failure_started_at=COALESCE(sources.failure_started_at,excluded.failure_started_at)`,
-          ).run(job.id, message, diagnosis.kind, checkedAt, retryAt, checkedAt);
+             failure_started_at=COALESCE(sources.failure_started_at,excluded.failure_started_at),
+             first_observed_at=COALESCE(sources.first_observed_at,excluded.first_observed_at)`,
+          ).run(job.id, message, diagnosis.kind, checkedAt, retryAt, checkedAt, checkedAt);
           db.query(
             "INSERT INTO source_collection_metrics(source,collected_at,success,error,failure_kind) VALUES(?,?,0,?,?)",
           ).run(job.id, checkedAt, message, diagnosis.kind);

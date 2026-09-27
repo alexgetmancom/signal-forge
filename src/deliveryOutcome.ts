@@ -1,7 +1,6 @@
 /**
- * 17 declarations moved out of delivery.ts unchanged.
- *
- * Say here what they have in common, because that is the only reason this file exists.
+ * Interpret a platform response as one delivery settlement: sent, retryable, failed or ambiguous.
+ * The caller records that settlement; this file sends no request.
  */
 
 import type { Database } from "bun:sqlite";

@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { log } from "../logger.js";
-import { writeState } from "../storage/appState.js";
+import { readState, writeState } from "../storage/appState.js";
 import { measure } from "./metricRecording.js";
 
 export type WorkerHandle = {
@@ -27,7 +27,35 @@ type WorkerState = {
   lastError: string | null;
   lastHeartbeatAt: string;
   heartbeatIntervalMs: number;
+  /**
+   * How many cycles in a row have ended badly, zero once one succeeds.
+   *
+   * A cycle that failed once and a worker that cannot run are the same row here -- `state: failed`
+   * with a message -- and `issues` reported both as an error. On 2026-09-27 a closed socket on one
+   * Discord read put `worker:promotion` beside a leaderboard that had been structurally dead for
+   * three days, at the same severity, and a list that cannot tell a blink from a break teaches its
+   * reader to skip it. The count is what tells them apart, and it is counted here because a cycle is
+   * the only unit that means anything: `issues` is read every few minutes and a worker that runs
+   * hourly would otherwise report one failure as twelve.
+   *
+   * Carried across a restart by reading the stored state, so a crash loop does not reset its own
+   * count to one each time.
+   */
+  consecutiveFailures: number;
 };
+
+/** The failure count of the last process, so that a restart continues a run rather than starting one. */
+function storedConsecutiveFailures(db: Database, name: string): number {
+  const stored = readState(db, `worker:${name}`);
+  if (!stored) return 0;
+  try {
+    const value: unknown = JSON.parse(stored);
+    const count = (value as { consecutiveFailures?: unknown }).consecutiveFailures;
+    return typeof count === "number" && Number.isInteger(count) && count >= 0 ? count : 0;
+  } catch {
+    return 0;
+  }
+}
 
 function storeState(db: Database, name: string, state: WorkerState): void {
   try {
@@ -36,6 +64,32 @@ function storeState(db: Database, name: string, state: WorkerState): void {
   } catch (error) {
     log("warn", "Worker state could not be stored", { worker: name, error });
   }
+}
+
+/**
+ * The row that says a cycle is alive: written when it starts and again on every heartbeat.
+ *
+ * The two writes are the same row with a different instant on it, and the only thing they carry
+ * forward is the failure count of the cycles before this one, which must survive a cycle that is
+ * merely running.
+ */
+function storeRunning(
+  db: Database,
+  name: string,
+  lastStartedAt: string,
+  heartbeatAt: string,
+  consecutiveFailures: number,
+): void {
+  storeState(db, name, {
+    state: "running",
+    lastStartedAt,
+    lastFinishedAt: null,
+    durationMs: null,
+    lastError: null,
+    lastHeartbeatAt: heartbeatAt,
+    heartbeatIntervalMs: WORKER_HEARTBEAT_INTERVAL_MS,
+    consecutiveFailures,
+  });
 }
 
 export function startIntervalWorker(
@@ -54,32 +108,26 @@ export function startIntervalWorker(
   let currentRun: Promise<void> = Promise.resolve();
   let stopPromise: Promise<void> | undefined;
   let lastStartedAt = new Date().toISOString();
+  let consecutiveFailures = storedConsecutiveFailures(db, name);
 
   const run = async (): Promise<void> => {
     if (stopped) return;
     const started = Date.now();
     lastStartedAt = new Date(started).toISOString();
-    storeState(db, name, {
-      state: "running",
-      lastStartedAt,
-      lastFinishedAt: null,
-      durationMs: null,
-      lastError: null,
-      lastHeartbeatAt: lastStartedAt,
-      heartbeatIntervalMs: WORKER_HEARTBEAT_INTERVAL_MS,
-    });
+    // A cycle counts once however many ways it ends badly: a stall aborts the task, and the abort
+    // then arrives in the catch below as an error from the same cycle.
+    let counted = false;
+    const countFailure = (): number => {
+      if (!counted) {
+        counted = true;
+        consecutiveFailures += 1;
+      }
+      return consecutiveFailures;
+    };
+    storeRunning(db, name, lastStartedAt, lastStartedAt, consecutiveFailures);
     const heartbeatTimer = setInterval(() => {
       if (stopped) return;
-      const heartbeat = new Date().toISOString();
-      storeState(db, name, {
-        state: "running",
-        lastStartedAt,
-        lastFinishedAt: null,
-        durationMs: null,
-        lastError: null,
-        lastHeartbeatAt: heartbeat,
-        heartbeatIntervalMs: WORKER_HEARTBEAT_INTERVAL_MS,
-      });
+      storeRunning(db, name, lastStartedAt, new Date().toISOString(), consecutiveFailures);
     }, WORKER_HEARTBEAT_INTERVAL_MS);
     const deadline = options.stallAfterMs ?? stallAfter(intervalMs);
     const abort = new AbortController();
@@ -99,6 +147,7 @@ export function startIntervalWorker(
         lastError: `Cycle still running after ${Math.round(deadline / 1000)}s`,
         lastHeartbeatAt: new Date().toISOString(),
         heartbeatIntervalMs: WORKER_HEARTBEAT_INTERVAL_MS,
+        consecutiveFailures: countFailure(),
       });
       log("error", "Worker cycle is stalled", { worker: name, afterMs: deadline });
     }, deadline);
@@ -112,6 +161,7 @@ export function startIntervalWorker(
         return;
       }
       const finishedAt = new Date().toISOString();
+      consecutiveFailures = 0;
       storeState(db, name, {
         state: "idle",
         lastStartedAt,
@@ -120,6 +170,7 @@ export function startIntervalWorker(
         lastError: null,
         lastHeartbeatAt: finishedAt,
         heartbeatIntervalMs: WORKER_HEARTBEAT_INTERVAL_MS,
+        consecutiveFailures,
       });
       log("debug", "Worker cycle completed", { worker: name });
     } catch (error) {
@@ -131,6 +182,7 @@ export function startIntervalWorker(
         lastError: error instanceof Error ? error.message : String(error),
         lastHeartbeatAt: new Date().toISOString(),
         heartbeatIntervalMs: WORKER_HEARTBEAT_INTERVAL_MS,
+        consecutiveFailures: countFailure(),
       });
       log("error", "Worker cycle failed", { worker: name, error });
     } finally {
@@ -161,6 +213,7 @@ export function startIntervalWorker(
           lastError: null,
           lastHeartbeatAt: new Date().toISOString(),
           heartbeatIntervalMs: WORKER_HEARTBEAT_INTERVAL_MS,
+          consecutiveFailures,
         });
         log("info", "Worker stopped", { worker: name });
       });

@@ -58,6 +58,31 @@ type PassedOverStory = {
    * when no catalogue dated it, which is most rows and is not evidence of either answer.
    */
   lateByDays: number | null;
+  /**
+   * The earliest instant any source that recorded this subject was first collected from.
+   *
+   * Null when none of them has a first collection on record, which is a source registered and never
+   * yet asked, and is read as no claim rather than as "since forever".
+   */
+  watchedSince: string | null;
+  /**
+   * Whether the subject came out before we were reading any source that recorded it.
+   *
+   * A catalogue hands over its whole history on the first call, so the first week of `lateByDays`
+   * was DeepSeek V3 at 623 days and Qwen3 30B A3B at 497: models nobody could have carried, because
+   * we were not on that source in 2024. This is an import of history, not a miss, and it is a
+   * separate fact rather than a null so that the volume of it stays visible.
+   */
+  historyImport: boolean;
+  /**
+   * The lateness that is actually ours: days from whichever came later -- the release or the start
+   * of our watch on its sources -- to our first sighting.
+   *
+   * Zero on a history import that arrived on the first collection, which is the correct answer and
+   * the one `lateByDays` cannot give. Null when no catalogue dated the subject or no source of it
+   * has a first collection on record.
+   */
+  lateAfterWatchingDays: number | null;
 };
 
 export type PassedOverReport = {
@@ -85,6 +110,15 @@ export type PassedOverReport = {
    * and it is answered from the stored release date rather than from a human with a search engine.
    */
   lateAndSilent: number;
+  /**
+   * Silent subjects that were already out before we were reading any source that recorded them.
+   *
+   * This is what `lateAndSilent` counted when it was measured from the release date alone, and all 32
+   * of its rows on 2026-09-27 were this: an import of a catalogue's history, on the day we first
+   * read it. Kept as its own number because the volume is worth seeing and because it is the
+   * denominator that says whether the lateness above is measuring anything.
+   */
+  historyImportsAndSilent: number;
   stories: PassedOverStory[];
 };
 
@@ -101,6 +135,7 @@ type Row = {
   stream: string;
   authority: SourceAuthority;
   source_vendor: string | null;
+  source_first_observed_at: string | null;
   delivered: number;
   suppressions: number;
   reasons: string | null;
@@ -117,6 +152,7 @@ function rows(db: Database, since: string): Row[] {
     .query<Row, [string]>(
       `SELECT s.id AS story_id,s.title,s.vendor,s.first_seen_at,s.updated_at,s.released_at,
               e.id AS event_id,e.kind,e.source,e.stream,e.authority,src.vendor AS source_vendor,
+              src.first_observed_at AS source_first_observed_at,
               EXISTS(SELECT 1 FROM batch_events be JOIN deliveries d ON d.batch_id=be.batch_id
                      WHERE be.event_id=e.id) AS delivered,
               (SELECT COUNT(*) FROM suppressions sup WHERE sup.event_id=e.id) AS suppressions,
@@ -153,6 +189,27 @@ function lateByDays(releasedAt: string | null, firstSeenAt: string): number | nu
   return Math.max(0, Math.floor((seen - released) / (24 * 3_600_000)));
 }
 
+/**
+ * The same arithmetic from the later of the two starts: the release, or the day we began reading a
+ * source that could have brought it.
+ *
+ * The first measure of lateness took the release date alone, and on its first week every row was a
+ * catalogue's back catalogue rather than a miss. A subject released before we arrived on its sources
+ * was never ours to be late with; from the moment we were reading one of them, it was.
+ */
+function lateAfterWatchingDays(
+  releasedAt: string | null,
+  watchedSince: string | null,
+  firstSeenAt: string,
+): number | null {
+  if (!releasedAt || !watchedSince) return null;
+  const released = Date.parse(releasedAt);
+  const watched = Date.parse(watchedSince);
+  const seen = Date.parse(firstSeenAt);
+  if (!Number.isFinite(released) || !Number.isFinite(watched) || !Number.isFinite(seen)) return null;
+  return Math.max(0, Math.floor((seen - Math.max(released, watched)) / (24 * 3_600_000)));
+}
+
 /** Past this, meeting a subject is catching up with a release rather than carrying one. */
 const LATE_DAYS = 30;
 
@@ -181,6 +238,13 @@ export function passedOver(db: Database, days = 7, limit = 50, now = Date.now())
       for (const reason of (event.reasons ?? "").split(",").filter(Boolean))
         tally.set(reason, (tally.get(reason) ?? 0) + 1);
     const carded = corroborationOf(db, storyId);
+    // The earliest watch among the sources that recorded it: the first moment any of them could have
+    // brought this subject to us.
+    const watchedSince =
+      events
+        .map((event) => event.source_first_observed_at)
+        .filter((instant): instant is string => Boolean(instant) && Number.isFinite(Date.parse(instant ?? "")))
+        .sort()[0] ?? null;
     stories.push({
       storyId,
       title: first.title,
@@ -197,6 +261,11 @@ export function passedOver(db: Database, days = 7, limit = 50, now = Date.now())
       updatedAt: first.updated_at,
       releasedAt: first.released_at,
       lateByDays: lateByDays(first.released_at, first.first_seen_at),
+      watchedSince,
+      historyImport: Boolean(
+        first.released_at && watchedSince && Date.parse(first.released_at) < Date.parse(watchedSince),
+      ),
+      lateAfterWatchingDays: lateAfterWatchingDays(first.released_at, watchedSince, first.first_seen_at),
       spoke: events.some((event) => event.delivered === 1),
       cardedByCorroboration: carded ? carded.families.length : null,
     });
@@ -209,6 +278,9 @@ export function passedOver(db: Database, days = 7, limit = 50, now = Date.now())
   stories.sort(
     (left, right) =>
       Number(left.spoke) - Number(right.spoke) ||
+      // An import of history is not a miss, whatever it scores: three unrelated sources agreeing
+      // about a model released in 2024 is three catalogues holding the same old row.
+      Number(left.historyImport) - Number(right.historyImport) ||
       right.arrivalSourceCount - left.arrivalSourceCount ||
       right.independentSourceCount - left.independentSourceCount ||
       right.suppressedCount - left.suppressedCount ||
@@ -219,8 +291,10 @@ export function passedOver(db: Database, days = 7, limit = 50, now = Date.now())
     threshold: INDEPENDENT_SOURCES,
     overThresholdAndSilent: stories.filter((story) => !story.spoke && story.arrivalSourceCount >= INDEPENDENT_SOURCES)
       .length,
-    lateAndSilent: stories.filter((story) => !story.spoke && story.lateByDays !== null && story.lateByDays > LATE_DAYS)
-      .length,
+    lateAndSilent: stories.filter(
+      (story) => !story.spoke && story.lateAfterWatchingDays !== null && story.lateAfterWatchingDays > LATE_DAYS,
+    ).length,
+    historyImportsAndSilent: stories.filter((story) => !story.spoke && story.historyImport).length,
     stories: stories.slice(0, limit),
   };
 }

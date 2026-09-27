@@ -56,6 +56,22 @@ export type ActionableIssue = {
   group?: string;
   /** How many of that family are failing at once, which is the difference between one cause and several. */
   groupFailing?: number;
+  /**
+   * How many checks of this thing in a row have failed, where the thing is checked over and over.
+   *
+   * A list that reads the present cannot tell a blink from a break, and it was reporting both at the
+   * same severity: on 2026-09-27 one closed socket on a Discord read put `worker:promotion` beside a
+   * leaderboard that had been structurally dead for three days, and a list where those look alike
+   * teaches its reader to skip it. This is the number that separates them, in the unit the thing is
+   * actually checked in -- consecutive polls for a source, consecutive cycles for a worker,
+   * consecutive unusable answers for a judge -- never in readings of this report, which would call
+   * one failure of an hourly worker twelve.
+   *
+   * Absent on the issues that are not repeated checks at all. A failed delivery, a refused
+   * destination, a frozen board, a stale backup and a missing credential each stay until somebody
+   * acts, and counting them would say nothing but how long that has been.
+   */
+  consecutiveFailures?: number;
   message: string;
   hint: string;
 };
@@ -67,6 +83,7 @@ type WorkerState = {
   lastError?: string | null;
   lastHeartbeatAt?: string;
   heartbeatIntervalMs?: number;
+  consecutiveFailures?: number;
 };
 
 const STUCK_DELIVERY_MS = 5 * 60 * 1000;
@@ -133,11 +150,75 @@ function judgeIssues(db: Database, now: number): ActionableIssue[] {
     source: run.source,
     firstSeenAt: run.since,
     updatedAt: run.lastAttemptedAt,
+    consecutiveFailures: run.attempts,
     message: `${run.operation} has answered unusably ${run.attempts} times in a row on ${run.source}${
       run.costUsd ? ` (${run.costUsd.toFixed(2)} USD)` : ""
     }: ${run.errorType ?? "no usable verdict"}`,
     hint: "The question is held off after three, so this is a gap rather than a bill; deepseek-usage has the calls, and the answer being truncated at its token ceiling is the usual cause.",
   }));
+}
+
+/**
+ * Workers that failed a cycle or went quiet mid-cycle.
+ *
+ * Its own function because a worker's state is the one issue with a unit of its own: the count of
+ * consecutive failed cycles lives in that state, and reading it is what separates a blink from a
+ * break.
+ */
+function workerIssues(db: Database, now: number): ActionableIssue[] {
+  const issues: ActionableIssue[] = [];
+  const workerRows = db
+    .query<{ key: string; value: string }, []>("SELECT key,value FROM app_state WHERE key LIKE 'worker:%'")
+    .all();
+  for (const row of workerRows) {
+    const state = readJson<WorkerState>(row.value, {});
+    const worker = row.key.slice("worker:".length);
+    if (state.state === "failed") {
+      const updatedAt = issueTime(state.lastFinishedAt ?? state.lastStartedAt, now);
+      // One cycle in a run of cycles is a blink: a socket closed mid-read, the next cycle is whole,
+      // and nothing needs a person. Two in a row is the worker, not the network. The count comes off
+      // the worker's own state because a cycle is the only unit that means anything here, and it is
+      // what keeps a blink out of the alert channel: alerts.ts sends errors, not warnings.
+      const cycles = Number.isInteger(state.consecutiveFailures) ? Number(state.consecutiveFailures) : 1;
+      issues.push({
+        id: `worker:${worker}`,
+        kind: "worker_failed",
+        severity: cycles > 1 ? "error" : "warning",
+        entity: worker,
+        firstSeenAt: updatedAt,
+        updatedAt,
+        consecutiveFailures: cycles,
+        message:
+          cycles > 1
+            ? `Worker ${worker} has failed ${cycles} cycles in a row${state.lastError ? `: ${state.lastError.replace(/\s+/g, " ").slice(0, 160)}` : ""}`
+            : `Worker ${worker} failed its last cycle and has not run since${state.lastError ? `: ${state.lastError.replace(/\s+/g, " ").slice(0, 160)}` : ""}`,
+        hint:
+          cycles > 1
+            ? "Inspect the worker log and restore the failed dependency before restarting it repeatedly."
+            : "One cycle: wait for the next one before acting. If the cycle after this one fails too the same issue comes back as an error, which is when there is something to fix.",
+      });
+    }
+    if (state.state === "running") {
+      const heartbeat = state.lastHeartbeatAt ?? state.lastStartedAt;
+      const heartbeatMs = Number(state.heartbeatIntervalMs);
+      const heartbeatAt = heartbeat ? Date.parse(heartbeat) : Number.NaN;
+      const staleAfterMs = Number.isFinite(heartbeatMs) ? Math.max(120_000, heartbeatMs * 3) : null;
+      if (staleAfterMs !== null && Number.isFinite(heartbeatAt) && now - heartbeatAt > staleAfterMs) {
+        const updatedAt = issueTime(heartbeat, now);
+        issues.push({
+          id: `worker:${worker}:stale`,
+          kind: "worker_stale",
+          severity: "critical",
+          entity: worker,
+          firstSeenAt: updatedAt,
+          updatedAt,
+          message: `Worker ${worker} has not sent a heartbeat for ${Math.round((now - heartbeatAt) / 1000)} seconds`,
+          hint: "Inspect the in-flight operation and process health; do not assume an unfinished external operation is safe to retry.",
+        });
+      }
+    }
+  }
+  return issues;
 }
 
 export function listActionableIssues(db: Database, config: AppConfig, now = Date.now()): ActionableIssue[] {
@@ -191,6 +272,9 @@ export function listActionableIssues(db: Database, config: AppConfig, now = Date
       firstSeenAt: issueTime(started, now),
       updatedAt: issueTime(checked, now),
       retryAt: row?.retry_at ?? null,
+      // `sources.failures` is the consecutive failing polls, and the poller stops the count at six:
+      // past that the difference between six and sixty is the age, which `firstSeenAt` carries.
+      consecutiveFailures: row?.failures ?? 1,
       message: `${entry.label} ${
         entry.state === "stale"
           ? "is stale"
@@ -344,45 +428,7 @@ export function listActionableIssues(db: Database, config: AppConfig, now = Date
       hint: "Inspect the render and the channel's permissions; the board in the channel is stale until this clears.",
     });
 
-  const workerRows = db
-    .query<{ key: string; value: string }, []>("SELECT key,value FROM app_state WHERE key LIKE 'worker:%'")
-    .all();
-  for (const row of workerRows) {
-    const state = readJson<WorkerState>(row.value, {});
-    const worker = row.key.slice("worker:".length);
-    if (state.state === "failed") {
-      const updatedAt = issueTime(state.lastFinishedAt ?? state.lastStartedAt, now);
-      issues.push({
-        id: `worker:${worker}`,
-        kind: "worker_failed",
-        severity: "error",
-        entity: worker,
-        firstSeenAt: updatedAt,
-        updatedAt,
-        message: `Worker ${worker} failed its last cycle`,
-        hint: "Inspect the worker log and restore the failed dependency before restarting it repeatedly.",
-      });
-    }
-    if (state.state === "running") {
-      const heartbeat = state.lastHeartbeatAt ?? state.lastStartedAt;
-      const heartbeatMs = Number(state.heartbeatIntervalMs);
-      const heartbeatAt = heartbeat ? Date.parse(heartbeat) : Number.NaN;
-      const staleAfterMs = Number.isFinite(heartbeatMs) ? Math.max(120_000, heartbeatMs * 3) : null;
-      if (staleAfterMs !== null && Number.isFinite(heartbeatAt) && now - heartbeatAt > staleAfterMs) {
-        const updatedAt = issueTime(heartbeat, now);
-        issues.push({
-          id: `worker:${worker}:stale`,
-          kind: "worker_stale",
-          severity: "critical",
-          entity: worker,
-          firstSeenAt: updatedAt,
-          updatedAt,
-          message: `Worker ${worker} has not sent a heartbeat for ${Math.round((now - heartbeatAt) / 1000)} seconds`,
-          hint: "Inspect the in-flight operation and process health; do not assume an unfinished external operation is safe to retry.",
-        });
-      }
-    }
-  }
+  issues.push(...workerIssues(db, now));
 
   const runtime = readState(db, "runtime");
   const runtimeState = runtime ? readJson<{ uncleanRestarts?: string[] }>(runtime, {}) : {};

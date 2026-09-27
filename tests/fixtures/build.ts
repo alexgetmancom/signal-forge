@@ -123,15 +123,18 @@ export function aSource(
     failures?: number;
     retryAt?: string | null;
     acceptShrink?: number;
+    /** Since when this deployment has been reading the source; null is "no collection on record". */
+    firstObservedAt?: string | null;
   } = {},
 ): void {
   db.query(
-    `INSERT INTO sources(id,last_success,last_error,last_error_kind,checked_at,failures,retry_at,accept_shrink)
-     VALUES(?,?,?,?,?,?,?,?)
+    `INSERT INTO sources(id,last_success,last_error,last_error_kind,checked_at,failures,retry_at,accept_shrink,first_observed_at)
+     VALUES(?,?,?,?,?,?,?,?,?)
      ON CONFLICT(id) DO UPDATE SET
        last_success=excluded.last_success, last_error=excluded.last_error,
        last_error_kind=excluded.last_error_kind, checked_at=excluded.checked_at,
-       failures=excluded.failures, retry_at=excluded.retry_at, accept_shrink=excluded.accept_shrink`,
+       failures=excluded.failures, retry_at=excluded.retry_at, accept_shrink=excluded.accept_shrink,
+       first_observed_at=excluded.first_observed_at`,
   ).run(
     id,
     fields.lastSuccess ?? null,
@@ -141,6 +144,7 @@ export function aSource(
     fields.failures ?? 0,
     fields.retryAt ?? null,
     fields.acceptShrink ?? 0,
+    fields.firstObservedAt === undefined ? null : fields.firstObservedAt,
   );
 }
 
