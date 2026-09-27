@@ -104,6 +104,53 @@ test("a backlog of unjudged records is asked about in bounded batches", async ()
   }));
   const answering = judge("builders");
   await withAudience(db, config, answering.request, "openai-chatgpt-release-notes", records);
-  expect(answering.asked[0]).toHaveLength(40);
+  expect(answering.asked[0]).toHaveLength(12);
+  db.close();
+});
+
+test("a judge that keeps answering unusably stops being paid to", async () => {
+  const db = openDatabase(":memory:");
+  const records = [{ id: "a", name: "Note a", summary: "s" }];
+  const failing = judge("silent");
+  for (let poll = 0; poll < 6; poll++)
+    await withAudience(db, config, failing.request, "openai-chatgpt-release-notes", records);
+  // Three unusable answers is enough to establish it; the rest of the polls cost nothing.
+  expect(failing.asked).toHaveLength(3);
+  expect(db.query<{ c: number }, []>("SELECT COUNT(*) c FROM deepseek_usage").get()?.c).toBe(3);
+  db.close();
+});
+
+test("one usable answer ends the run, so a bad minute is not a lasting silence", async () => {
+  const db = openDatabase(":memory:");
+  const records = [{ id: "a", name: "Note a", summary: "s" }];
+  const failing = judge("silent");
+  await withAudience(db, config, failing.request, "openai-chatgpt-release-notes", records);
+  await withAudience(db, config, failing.request, "openai-chatgpt-release-notes", records);
+
+  const answering = judge("builders");
+  expect(
+    (await withAudience(db, config, answering.request, "openai-chatgpt-release-notes", records))[0]?.audience,
+  ).toBe("builders");
+
+  // The two failures before it are spent, not carried: the next two are asked as well.
+  const again = judge("silent");
+  await withAudience(db, config, again.request, "openai-chatgpt-release-notes", records);
+  await withAudience(db, config, again.request, "openai-chatgpt-release-notes", records);
+  expect(again.asked).toHaveLength(2);
+  db.close();
+});
+
+test("the hold-off is per source: one broken judge does not silence the others", async () => {
+  const db = openDatabase(":memory:");
+  const records = [{ id: "a", name: "Note a", summary: "s" }];
+  const failing = judge("silent");
+  for (let poll = 0; poll < 5; poll++)
+    await withAudience(db, config, failing.request, "openai-chatgpt-release-notes", records);
+  expect(failing.asked).toHaveLength(3);
+
+  const other = judge("builders");
+  expect((await withAudience(db, config, other.request, "mistral-release-notes", records))[0]?.audience).toBe(
+    "builders",
+  );
   db.close();
 });

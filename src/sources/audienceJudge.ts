@@ -9,6 +9,7 @@ import {
   type DeepSeekAttemptResult,
   recordDeepSeekCall,
   safeErrorType,
+  unusableJudgeRun,
 } from "../runtime/deepseekUsage.js";
 
 export type Audience = "builders" | "consumers";
@@ -44,6 +45,21 @@ const answerSchema = z.object({
 });
 const verdictSchema = z.record(z.string(), z.enum(["builders", "consumers"]));
 
+const JUDGE_OPERATION = "audience.judge";
+
+/**
+ * How many unusable answers in a row stop the question being asked, and for how long.
+ *
+ * An unjudged entry is asked about again on the next poll, which is what makes a verdict that never
+ * arrives a bill rather than a gap: between 2026-09-24 and 2026-09-27 this judge made 218
+ * consecutive truncated calls about the same ChatGPT backlog, 2.16M tokens and $0.88, and would not
+ * have stopped. Three unusable answers in a row is a breakage rather than a bad minute, so the next
+ * question waits six hours -- an outage still heals by itself, and a permanent one costs four calls
+ * a day instead of seventy.
+ */
+const JUDGE_UNUSABLE_RUN_LIMIT = 3;
+const JUDGE_BACKOFF_MS = 6 * 3_600_000;
+
 async function judgeAudience(
   config: AppConfig,
   request: Fetch,
@@ -51,15 +67,22 @@ async function judgeAudience(
   ledger?: { db: Database; source: string },
 ): Promise<Map<string, Audience>> {
   if (!config.DEEPSEEK_API_KEY || entries.length === 0) return new Map();
+  if (ledger) {
+    const run = unusableJudgeRun(ledger.db, JUDGE_OPERATION, ledger.source, new Date());
+    if (run.attempts >= JUDGE_UNUSABLE_RUN_LIMIT && run.msSinceLast < JUDGE_BACKOFF_MS) {
+      log("warn", "Audience judge held off", { source: ledger.source, unusableRun: run.attempts });
+      return new Map();
+    }
+  }
   const input = entries
-    .map((entry) => `ID: ${entry.id}\nTitle: ${entry.name}\n${entry.summary.slice(0, 400)}`)
+    .map((entry) => `ID: ${entry.id}\nTitle: ${entry.name}\n${entry.summary.slice(0, JUDGED_SUMMARY_CHARS)}`)
     .join("\n\n");
   const attemptedAt = new Date();
   const settle = (result: DeepSeekAttemptResult) => {
     if (ledger)
       recordDeepSeekCall(
         ledger.db,
-        { operation: "audience.judge", source: ledger.source, stream: "news", inputChars: input.length, attemptedAt },
+        { operation: JUDGE_OPERATION, source: ledger.source, stream: "news", inputChars: input.length, attemptedAt },
         result,
       );
   };
@@ -119,13 +142,19 @@ async function judgeAudience(
 }
 
 /**
- * How many unjudged entries one poll will ask about.
+ * How many unjudged entries one poll will ask about, and how much of each one it sends.
  *
  * The question is one request for the whole batch, so the cap is about the size of that request
  * rather than the number of them: 275 ChatGPT release notes at 400 characters of summary each is a
  * prompt no answer comes back from. A backlog drains over a few polls instead.
+ *
+ * 40 was still too many. The model reasons before it answers, and every one of the 218 truncated
+ * calls above spent exactly the 6,000-token ceiling on ~16,000 characters of input and returned
+ * half a JSON object -- an answer that parses as nothing. The cost of being wrong here is silent
+ * and recurring, so the batch is sized to leave the ceiling room to spare rather than to just fit.
  */
-const JUDGED_PER_POLL = 40;
+const JUDGED_PER_POLL = 12;
+const JUDGED_SUMMARY_CHARS = 240;
 
 /**
  * Stamps each record with its audience: kept from the stored row when there is one, so a record the

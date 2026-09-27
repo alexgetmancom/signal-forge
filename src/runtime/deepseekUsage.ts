@@ -502,6 +502,41 @@ export function deepSeekAttemptsToday(db: Database, now: Date): number {
 }
 
 /**
+ * The run of unusable answers a judge has just had on one source, newest first, and how long ago
+ * the last of them was.
+ *
+ * A judge has no per-entry bookkeeping the way a summary has `event_id`: what it was asked about is
+ * not in the ledger, only that it was asked. So the ceiling is read off the answers instead -- the
+ * summary path already holds that an invalid answer is an answer and asking twice only pays twice
+ * (see `deepSeekAttemptable`), and this is the same rule for a caller that re-asks from a backlog.
+ * Anything but `summarized` is unusable; one usable answer ends the run.
+ */
+export function unusableJudgeRun(
+  db: Database,
+  operation: string,
+  source: string,
+  now: Date,
+  window = 16,
+): { attempts: number; msSinceLast: number } {
+  const rows = db
+    .query<{ outcome: string; attempted_at: string }, [string, string, number]>(
+      `SELECT outcome,attempted_at FROM deepseek_usage
+        WHERE operation=? AND source=? ORDER BY attempted_at DESC, id DESC LIMIT ?`,
+    )
+    .all(operation, source, Math.max(1, Math.trunc(window)));
+  let attempts = 0;
+  for (const row of rows) {
+    if (row.outcome === "summarized") break;
+    attempts++;
+  }
+  const last = rows[0]?.attempted_at;
+  return {
+    attempts,
+    msSinceLast: attempts > 0 && last ? Math.max(0, now.getTime() - Date.parse(last)) : Number.POSITIVE_INFINITY,
+  };
+}
+
+/**
  * Records one call that answers no event -- a judge, not a summary -- already settled, so its cost
  * is in the same ledger. The schema's outcomes are a summary's; an answer is stored as
  * `summarized`, and the operation tells the two apart.
