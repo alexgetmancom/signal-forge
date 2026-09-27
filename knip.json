@@ -5,6 +5,7 @@
     "src/collectOne.ts",
     "src/fingerprintOne.ts",
     "src/recapOne.ts",
+    "src/rebuildOne.ts",
     "scripts/*.ts",
     "tests/**/*.test.ts"
   ],
