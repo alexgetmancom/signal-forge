@@ -124,6 +124,46 @@ test("a post carries how old it already was when we found it", async () => {
   expect(states.find((state) => state.id === "today")).not.toHaveProperty("days_old_when_found");
 });
 
+test("a roster sighting is handed over by its model, not by the key it is filed under", async () => {
+  // The arena files its roster by UUID, and that UUID was the only identifier Jev got: it answered
+  // "names something unreleased" on 29 of 56 arena sightings, reading a string that names nothing.
+  const db = openDatabase(":memory:");
+  const now = new Date("2026-09-24T16:00:00Z");
+  const base = { source: "arena", stream: "arena" as const, url: "https://x.test", raw: {} };
+  const seed = { id: "01a0cfd0-0000-7000-8000-000000000000", name: "seed" };
+  saveCollection(db, { ...base, records: [seed] }, [], "2026-09-24T15:00:00.000Z");
+  saveCollection(
+    db,
+    {
+      ...base,
+      records: [
+        seed,
+        {
+          id: "01a0cfd0-a533-7611-8bb1-5c6b090587ee",
+          name: "step-5-preview",
+          maker: "stepfun",
+          model: "step-5-preview-webdev",
+          provider: "stepfunCodeArenaNoStream",
+          selectable: true,
+        },
+      ],
+    },
+    [],
+    "2026-09-24T15:30:00.000Z",
+  );
+  const states: Record<string, unknown>[] = [];
+  const request = async (_url: string, init?: RequestInit) => {
+    states.push((JSON.parse(String(init?.body)) as { state: Record<string, unknown> }).state);
+    return Response.json({ answers: { kind: { choice: "new_model" }, worth: { score: 2 }, codename: { noul: 0.1 } } });
+  };
+  await judgeEvents(db, config, request as never, now);
+  const sighting = states.find((state) => state.title === "step-5-preview");
+  expect(sighting).toMatchObject({ maker: "stepfun", model: "step-5-preview-webdev" });
+  // The key says nothing, so it is not handed over at all, and neither is a number or a flag.
+  expect(sighting).not.toHaveProperty("id");
+  expect(sighting).not.toHaveProperty("selectable");
+});
+
 test("commits are judged, and only the notable one gets a DeepSeek line", async () => {
   const db = openDatabase(":memory:");
   const now = new Date("2026-09-19T08:00:00Z");

@@ -36,7 +36,7 @@ const MAX_STATE_CHARS = 4_000;
  * per prompt version, so the new questions are asked again of the recent window and the two sets
  * can be compared instead of being mixed in one column.
  */
-export const PROMPT_VERSION = "3";
+export const PROMPT_VERSION = "4";
 const EVALUATOR = "jev";
 const CALLS_PREFIX = "jev-calls:";
 const TOKENS_PREFIX = "jev-tokens:";
@@ -158,6 +158,7 @@ async function askJev(
   db: Database,
   config: AppConfig,
   state: Record<string, unknown>,
+  eventId: number,
   request: Fetch = fetch,
   now = new Date(),
 ): Promise<Omit<Judgement, "rules" | "at"> | null> {
@@ -194,7 +195,7 @@ async function askJev(
     log("warn", "Judgement failed", {
       errorType: error instanceof Error ? error.name : "UnknownError",
       reason: error instanceof Error ? error.message : String(error),
-      event: state.id,
+      event: eventId,
     });
     return null;
   }
@@ -218,6 +219,38 @@ function ageInDays(event: Event, published: unknown): number | null {
   return days >= 1 ? Math.round(days) : null;
 }
 
+/**
+ * A key and not a name. The arena identifies its roster by UUID, and `entity_id` is that UUID: on
+ * 2026-09-24 Jev read `01a0cfd0-a533-7611-8bb1-5c6b090587ee` and answered that the text names
+ * something unreleased with probability 0.61, on the strength of a string that names nothing at all.
+ * 29 of 56 arena sightings were flagged that way. What identifies them is `model`, which is handed
+ * over below.
+ */
+const OPAQUE_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * The record's own named fields, beyond its prose. Names and never numbers: the three questions are
+ * what this is, who would care and whether it names something unreleased, and a price, a star count
+ * or a context length bears on none of them, while a maker, a family or a variant slug bears on all
+ * three. `model` is the case this was written for -- an arena roster carries `step-5-preview` as its
+ * name and `step-5-preview-webdev` as its model, and the second is the one that is a sighting.
+ */
+const NAMED_FIELDS = [
+  "maker",
+  "owner",
+  "author",
+  "family",
+  "model",
+  "provider",
+  "version",
+  "stage",
+  "tag",
+  "prerelease",
+  "section",
+  "pipelineTag",
+  "access",
+] as const;
+
 /** What Jev reads: the record's own words, the lines a web page gained, never our rendering. */
 function evidenceOf(event: Event): Record<string, unknown> {
   const after = event.after_json ? (JSON.parse(event.after_json) as Record<string, unknown>) : {};
@@ -226,10 +259,10 @@ function evidenceOf(event: Event): Record<string, unknown> {
     source: event.source,
     kind_of_source: event.stream,
     event: event.kind,
-    id: event.entity_id,
     title: after.name ?? after.title ?? event.entity_id,
     seen_at: event.detected_at,
   };
+  if (!OPAQUE_ID.test(event.entity_id)) state.id = event.entity_id;
   const age = ageInDays(event, after.published);
   if (age !== null) {
     state.published = after.published;
@@ -237,6 +270,10 @@ function evidenceOf(event: Event): Record<string, unknown> {
   }
   for (const field of ["description", "summary", "body", "message", "notes", "url"])
     if (typeof after[field] === "string" && after[field]) state[field] = after[field];
+  for (const field of NAMED_FIELDS) {
+    const value = after[field];
+    if (typeof value === "boolean" || (typeof value === "string" && value)) state[field] = value;
+  }
   if (Array.isArray(after.strings)) {
     const old = new Set(Array.isArray(before?.strings) ? before.strings : []);
     state.added_text = after.strings.filter((value) => !old.has(value)).slice(0, 40);
@@ -284,7 +321,7 @@ export async function judgeEvents(
   let judged = 0;
   let refused = 0;
   for (const event of pending) {
-    const answer = await askJev(db, config, evidenceOf(event), request, now);
+    const answer = await askJev(db, config, evidenceOf(event), event.id, request, now);
     // An unanswered event used to end the pass outright, which is right when the API is down or the
     // key is spent and wrong for one blip: a catch-up over 795 events stopped on its first, having
     // judged none, and said only "Judged 0 events". Three in a row is still the API, one is weather.
