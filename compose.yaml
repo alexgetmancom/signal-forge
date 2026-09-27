@@ -17,9 +17,22 @@ services:
     # and the service alone sat at 171 MB and peaked at 300 MB over three minutes at 1 Hz. So this is
     # 1.5x the measured worst case rather than the 3x it was.
     #
+    # Raised to 2g on 2026-09-27, after the host was finally looked at rather than reasoned about:
+    # 7.8 GiB total, 3.5 used, 4.2 available, and the other thirteen containers on it holding 1.9 GiB
+    # between them. There was never a shortage of memory on this machine -- every OOM in the history
+    # above was against this line, which is set by hand. That makes the line worth being honest
+    # about: at 1g it was not only catching regressions, it was killing an operator `poll` that was
+    # doing nothing wrong, and it was the reason for a fortnight of work on a floor that is now 166
+    # MB. At 2g it is still roughly 3x the measured worst case and still makes the next collector to
+    # hold a 230 MB body whole a restart somebody sees.
+    #
+    # There is no swap on this host, so a limit reached is a kill rather than a slowdown. That is the
+    # argument for headroom, and the argument against raising this further is that a limit nobody
+    # can reach tells nobody anything.
+    #
     # If this turns out too tight the symptom is `oomKills` in `prod memory`, and the fix is this
     # line. Raise it rather than reasoning about which process the kernel picked.
-    mem_limit: 1g
+    mem_limit: 2g
     stop_grace_period: 2m
     logging:
       driver: json-file
