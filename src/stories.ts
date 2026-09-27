@@ -33,14 +33,25 @@ type StoryEvidenceRow = Omit<StoryEvent, "before_json" | "after_json"> & {
   evidence_type: EvidenceType;
   vendor: string | null;
 } & IdentityColumnRow;
+/**
+ * What a group keeps from the newest event it holds.
+ *
+ * The four fields the story row is written from, and nothing else. It used to keep the event itself,
+ * and an event carries both of its bodies: for the 2 765 groups a rebuild ends with that was 144 MB
+ * of permanent floor -- the largest single claim `timings` reports for a boot -- held to write four
+ * columns. The title is resolved here rather than at write time because it is the only one of the
+ * four that is parsed out of a body, and parsing it here is what lets the body go.
+ */
+type LatestEvent = { kind: Event["kind"]; detectedAt: string; confidence: Confidence; title: string | null };
+
 type StoryGroup = {
   baseKey: string;
   subject: string;
   vendor: string;
   firstEventId: number;
   firstDetectedAt: string;
-  last: StoryEvent;
-  /** `last.detected_at` as a number. The fallback scan below compares it against every group on
+  last: LatestEvent;
+  /** `last.detectedAt` as a number. The fallback scan below compares it against every group on
    * every event, and parsing the string there cost more than the rest of the projection put
    * together. Set wherever `last` is set. */
   lastTime: number;
@@ -351,15 +362,14 @@ function projectEvent(projection: StoryProjection, event: StoryEvent): StoryGrou
     // projection into 42 seconds: the copy is eleven thousand allocations of a ten-thousand-element
     // array, and it happens before the first candidate is even looked at.
     findLatestMatch(projection, event, { candidate, vendor, family, canonical, terms, url, titles, signatures });
-  const last = previous?.last;
-  if (!previous || !last || Date.parse(event.detected_at) - Date.parse(last.detected_at) > CORRELATION_WINDOW_MS) {
+  if (!previous || Date.parse(event.detected_at) - previous.lastTime > CORRELATION_WINDOW_MS) {
     const group = {
       baseKey: key,
       subject,
       vendor,
       firstEventId: event.id,
       firstDetectedAt: event.detected_at,
-      last: event,
+      last: latestOf(event, record),
       lastTime: Date.parse(event.detected_at),
       identity,
       terms: new Set(terms),
@@ -376,7 +386,7 @@ function projectEvent(projection: StoryProjection, event: StoryEvent): StoryGrou
     for (const term of terms) projection.aliases.set(`${scope}:${normalized(vendor)}:${term}`, group);
     return group;
   }
-  previous.last = event;
+  previous.last = latestOf(event, record);
   previous.lastTime = Date.parse(event.detected_at);
   previous.identity = mergeIdentities(previous.identity, identity);
   rememberFamilyIdentity(previous, family, canonical, terms);
@@ -393,13 +403,29 @@ function projectEvent(projection: StoryProjection, event: StoryEvent): StoryGrou
   return previous;
 }
 
+/**
+ * The newest event of a group, as the group keeps it.
+ *
+ * The title falls back to the group's subject at write time rather than here, because a group's
+ * subject can be merged after this event was its last one, and the fallback has to be the subject as
+ * it stands when the row is written.
+ */
+function latestOf(event: StoryEvent, record: RecordData | null): LatestEvent {
+  const title = record?.name ?? record?.model;
+  return {
+    kind: event.kind,
+    detectedAt: event.detected_at,
+    confidence: event.confidence,
+    title: title === null || title === undefined ? null : String(title),
+  };
+}
+
 function storyKey(group: StoryGroup): string {
   return `${group.baseKey}:${group.firstEventId}`;
 }
 
 function storyTitle(group: StoryGroup): string {
-  const record = recordFor(group.last);
-  return String(record?.name ?? record?.model ?? group.subject);
+  return group.last.title ?? group.subject;
 }
 
 function writeGroup(db: Database, group: StoryGroup): number {
@@ -419,7 +445,7 @@ function writeGroup(db: Database, group: StoryGroup): number {
       group.subject,
       group.vendor,
       group.firstDetectedAt,
-      group.last.detected_at,
+      group.last.detectedAt,
       group.last.confidence,
       status,
     );
