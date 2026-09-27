@@ -1,5 +1,6 @@
 import { readableName } from "../events/naming.js";
 import type { RecordData } from "../events/types.js";
+import { vendorOfName, vendorRank } from "../events/vendors.js";
 import { nameOf, type PeriodReading, recordOf } from "./reading.js";
 import type { RecapContext } from "./schema.js";
 
@@ -17,6 +18,9 @@ export function periodLeaders(reading: PeriodReading): RecapContext["leaders"] {
       return [{ board: String(after?.category ?? event.source), name: readableName(nameOf(event)) }];
     })
     .filter((leader, index, all) => all.findIndex((other) => other.board === leader.board) === index)
+    // The three makers a reader of this feed pays for are read first, here as everywhere a ranking
+    // is listed; the boards keep the order they came in behind them.
+    .sort((one, other) => vendorRank(vendorOfName(one.name)) - vendorRank(vendorOfName(other.name)))
     .slice(0, 5);
   return leaders;
 }

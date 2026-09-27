@@ -68,6 +68,21 @@ export function vendorSpelling(word: string): string | null {
   return SPELLINGS.get(word.toLowerCase()) ?? null;
 }
 
+/**
+ * The three makers a reader of this feed is actually here for, in the order they are read in.
+ *
+ * Everything else is ranked behind them and keeps its existing order. Without this the week was
+ * ordered by which collector saw a model first, and on 27 September that put four Xiaomi billing
+ * tiers above Claude Opus 5.5 and pushed Gemini and DeepSeek out of the message entirely.
+ */
+const HEADLINE_VENDORS = ["Anthropic", "OpenAI", "Google"];
+
+/** Where a maker sorts in anything a reader scans: lower is earlier. */
+export function vendorRank(vendor: string): number {
+  const place = HEADLINE_VENDORS.indexOf(vendor);
+  return place === -1 ? HEADLINE_VENDORS.length : place;
+}
+
 /** The maker a piece of text names, or Unknown when it names none of the ones we track. */
 export function vendorOfName(text: string): string {
   return VENDORS.find(([pattern]) => pattern.test(text))?.[1] ?? "Unknown";

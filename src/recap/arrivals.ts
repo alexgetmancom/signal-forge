@@ -10,7 +10,7 @@ import {
   modelSubject,
   tierBase,
 } from "../events/variants.js";
-import { vendorOf, vendorOfName } from "../events/vendors.js";
+import { vendorOf, vendorOfName, vendorRank } from "../events/vendors.js";
 import { nameOf, type PeriodReading, recordOf } from "./reading.js";
 import type { RecapContext } from "./schema.js";
 
@@ -139,13 +139,24 @@ export function periodArrivals(reading: PeriodReading): {
     if (!datedThisPeriod.has(subject) && !(readable.length >= 5 && announced.includes(readable))) continue;
     // A tier is not a model. "MiniMax M3 Fast" and "Jev 1.13 Free" are ways of billing something
     // already here, and only the catalogue's own words say so -- so the trailing word only folds
-    // away when the thing it is a tier of is something we have seen.
+    // away when the thing it is a tier of is something we have seen. A tier of something named
+    // before this week folds away here; a tier of something arriving in the same week is folded
+    // in the pass below, because whether the base is in hand depends on collection order and
+    // "GPT-6 Luna Pro" led the week's OpenAI line ahead of GPT-6 Luna itself.
     const base = tierBase(name);
-    if (base && (alreadyNamed.has(base) || bySubject.has(base))) continue;
+    if (base && alreadyNamed.has(base)) continue;
     const weight = arrivalWeight(event);
     const held = bySubject.get(subject);
     if (!held || weight > held.weight)
       bySubject.set(subject, { name, vendor: arrivalVendor(event, record, name), weight });
+  }
+  // A tier of a model that arrived in the same week, now that the whole week is in hand. Xiaomi
+  // shipped MiMo V2.6 Pro and MiMo V2.6 Pro UltraSpeed on one morning -- one checkpoint at two
+  // speeds and two prices -- and OpenRouter carried "GPT-6 Luna Pro" for a model OpenAI announced
+  // as GPT-6 Luna. Four of the week's twenty-six names were the same four models said twice.
+  for (const [subject, arrival] of [...bySubject]) {
+    const base = tierBase(arrival.name);
+    if (base && base !== subject && bySubject.has(base)) bySubject.delete(subject);
   }
   // Weight first, then a maker a reader has heard of: a research artefact published as weights
   // outranks a catalogue row on paper and is not what the week was about.
@@ -163,7 +174,13 @@ export function periodArrivals(reading: PeriodReading): {
     names.push(readableName(arrival.name).replace(new RegExp(`^${escapeForPattern(arrival.vendor)}:\\s*`, "i"), ""));
     byVendor.set(arrival.vendor, names);
   }
-  const arrivals = [...byVendor.entries()].map(([vendor, names]) => ({ vendor, names }));
+  // The three makers this feed's readers pay for come first, in that order, and everything else
+  // keeps the order the weighting above gave it. The list is cut to six groups downstream, so an
+  // ordering that buried Google behind a billing tier did not reorder the message -- it removed
+  // Google from it.
+  const arrivals = [...byVendor.entries()]
+    .map(([vendor, names]) => ({ vendor, names }))
+    .sort((one, other) => vendorRank(one.vendor) - vendorRank(other.vendor));
   return {
     arrivals,
     arrivalCount: ranked.length,

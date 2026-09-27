@@ -523,7 +523,7 @@ test("an outage is not one of the week's arrivals", () => {
   expect(JSON.stringify(context.arrivals)).not.toContain("Elevated errors");
 });
 
-test("a model listed in a lifecycle table the week it ships is not retiring", () => {
+test("the week reports what went away in it, not what is scheduled to", () => {
   const db = openDatabase(":memory:");
   const lifecycle: Collection = {
     source: "gemini-deprecations",
@@ -533,11 +533,15 @@ test("a model listed in a lifecycle table the week it ships is not retiring", ()
     records: [{ id: "gemini-1.5-pro", name: "gemini-1.5-pro", retirement: "September 24, 2025" }],
   };
   saveCollection(db, lifecycle, [wire], "2026-09-08T10:00:00.000Z");
-  // Published and tabled on the same day, with no date: a row, not news. A dated notice is news.
+  // Published and tabled on the same day, with no date: a row, not news. A dated notice is news
+  // only when the day it names falls inside the week this message covers.
   lifecycle.records.push(
     { id: "gemini-3.8-live", name: "gemini-3.8-live" },
-    { id: "gemini-2.0-flash-live-001", name: "gemini-2.0-flash-live-001", retirement: "December 9, 2026" },
-    // A date already passed is not what is going away next.
+    { id: "gemini-2.0-flash-live-001", name: "gemini-2.0-flash-live-001", retirement: "September 11, 2026" },
+    // A deadline a quarter out is a card of its own at thirty, seven and one day; the week that
+    // merely noticed it is not the week it happens in.
+    { id: "gemini-2.5-flash", name: "gemini-2.5-flash", retirement: "December 9, 2026" },
+    // A date already passed is not what went away this week either.
     { id: "gemini-1.0-pro", name: "gemini-1.0-pro", retirement: "February 15, 2025" },
   );
   saveCollection(db, lifecycle, [wire], "2026-09-10T10:00:00.000Z");
@@ -635,4 +639,36 @@ test("a catalogue restating one model spends one line of the day the reports rea
     "🆕 MAI Image 2.6 Flash · Microsoft — now on TrueFoundry · +1 variant",
     "🆕 Inkling Small · Microsoft — now on TrueFoundry",
   ]);
+});
+
+test("a speed tier of a model that arrived the same week is that model, and the makers a reader pays for lead", () => {
+  const db = openDatabase(":memory:");
+  const catalogue: Collection = {
+    source: "openai",
+    stream: "api-models",
+    url: "https://api.openai.com/models",
+    raw: [],
+    records: [{ id: "baseline", name: "Baseline", pricing: { prompt: "1" } }],
+  };
+  saveCollection(db, catalogue, [wire], "2026-09-08T10:00:00.000Z");
+  // One morning in September 2026: Xiaomi shipped MiMo V2.6 Pro and its UltraSpeed tier together,
+  // OpenRouter carried a "Pro" of the Luna OpenAI had just announced, and Hugging Face carried the
+  // distillation checkpoint Flash was trained with. Four names, two models, none of them Anthropic's
+  // -- which is what pushed Claude Opus 5.5 down the message that week.
+  catalogue.records.push(
+    { id: "mimo-v2.6-pro", name: "MiMo V2.6 Pro", created: "2026-09-09T00:00:00.000Z" },
+    { id: "mimo-v2.6-pro-ultraspeed", name: "MiMo V2.6 Pro UltraSpeed", created: "2026-09-09T00:00:00.000Z" },
+    { id: "mimo-v2.6-flash-mopd", name: "MiMo V2.6 Flash MOPD", created: "2026-09-09T00:00:00.000Z" },
+    { id: "gpt-6-luna", name: "GPT-6 Luna", created: "2026-09-09T00:00:00.000Z" },
+    { id: "gpt-6-luna-pro", name: "GPT-6 Luna Pro", created: "2026-09-09T00:00:00.000Z" },
+    { id: "claude-opus-5-5", name: "Claude Opus 5.5", created: "2026-09-09T00:00:00.000Z" },
+  );
+  saveCollection(db, catalogue, [wire], "2026-09-09T10:00:00.000Z");
+  const context = recapContext(db, "2026-09-13T18:00:00.000Z");
+  expect(context.arrivals).toEqual([
+    { vendor: "Anthropic", names: ["Claude Opus 5.5"] },
+    { vendor: "OpenAI", names: ["GPT-6 Luna"] },
+    { vendor: "Xiaomi", names: ["MiMo V2.6 Pro"] },
+  ]);
+  expect(context.arrivalCount).toBe(3);
 });

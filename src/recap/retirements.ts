@@ -3,15 +3,21 @@ import { modelSubject } from "../events/variants.js";
 import { nameOf, type PeriodReading, recordOf } from "./reading.js";
 import type { RecapContext } from "./schema.js";
 
-/** How far ahead a retirement is still something to plan around: one quarter. */
-const RETIREMENT_HORIZON_MS = 92 * 24 * 60 * 60 * 1000;
+/**
+ * A week reports what went away in it, not what is scheduled to.
+ *
+ * The horizon used to be a quarter ahead, which put "GPT-4o (9 Dec 2026)" under a heading about
+ * 20-27 September -- a deadline two and a half months out, in the one message a reader opens to
+ * find out what changed. Every dated deadline already reaches them as its own card at thirty, seven
+ * and one day out, so the quarter ahead was being said twice and the week itself never at all.
+ */
 
 /** What the maker said is going away, from a lifecycle table and from its own changelog sentence. */
 export function periodRetirements(
   reading: PeriodReading,
   arrivedThisPeriod: Set<string>,
 ): { retirements: RecapContext["retirements"]; retirementNotes: string[] } {
-  const { classified, period, to } = reading;
+  const { classified, period, from, to } = reading;
   // What the maker said is going away this week, with the date it goes when the notice gives one.
   // A retirement card came off the public wire after five of them; one line a week is the size
   // of it for a reader who does not run the model.
@@ -42,14 +48,12 @@ export function periodRetirements(
       ...retirement,
       at: Date.parse(String(retirement.date).replace(/^(?:not sooner than|to be announced|on)\s+/i, "")),
     }))
-    // A date has to be near enough to act on. "Claude Mythos 5 (9 Jun 2027)" is twenty-one months
-    // away and changes nothing a reader does this week; a line nothing can be read from at all is
-    // not worth the ink either, so both go.
+    // The date has to fall inside the week being reported. "Claude Mythos 5 (9 Jun 2027)" is
+    // twenty-one months away and changes nothing a reader does this week; a line nothing can be
+    // read from at all is not worth the ink either, so both go.
     .filter(
       (retirement) =>
-        Number.isFinite(retirement.at) &&
-        retirement.at >= Date.parse(to) &&
-        retirement.at - Date.parse(to) <= RETIREMENT_HORIZON_MS,
+        Number.isFinite(retirement.at) && retirement.at >= Date.parse(from) && retirement.at < Date.parse(to),
     )
     .sort((one, other) => one.at - other.at)
     .map(({ name, date }) => ({ name, date }))

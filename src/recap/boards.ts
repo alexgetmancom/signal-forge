@@ -1,6 +1,7 @@
 import { boardPlace, DEBUT_PLACES, isMainBoard } from "../events/boardSignals.js";
 import { readableName } from "../events/naming.js";
 import type { RecordData } from "../events/types.js";
+import { vendorOfName, vendorRank } from "../events/vendors.js";
 import { sourceLabel } from "../sources/labels.js";
 import { nameOf, type PeriodReading, recordOf } from "./reading.js";
 import type { RecapContext } from "./schema.js";
@@ -42,7 +43,12 @@ export function periodBoards(reading: PeriodReading): {
             if (to < 2 || to > DEBUT_PLACES || from - to < CLIMB_PLACES) return [];
             return [{ board: boardName(event.source, after?.category), name: readableName(nameOf(event)), from, to }];
           })
-          .sort((one, other) => other.from - other.to - (one.from - one.to))
+          // Headline makers first, then the size of the climb: a reader scans this for a name.
+          .sort(
+            (one, other) =>
+              vendorRank(vendorOfName(one.name)) - vendorRank(vendorOfName(other.name)) ||
+              other.from - other.to - (one.from - one.to),
+          )
           .filter((climb, index, all) => all.findIndex((other) => other.name === climb.name) === index)
           .slice(0, 5);
   // Every model Artificial Analysis scored for the first time, wherever it landed: a debut card
@@ -59,7 +65,10 @@ export function periodBoards(reading: PeriodReading): {
             if (typeof index !== "number") return [];
             return [{ name: readableName(nameOf(event)), index, place: boardPlace(event) }];
           })
-          .sort((one, other) => other.index - one.index)
+          .sort(
+            (one, other) =>
+              vendorRank(vendorOfName(one.name)) - vendorRank(vendorOfName(other.name)) || other.index - one.index,
+          )
           .slice(0, 5);
   const newBoards: RecapContext["newBoards"] = [];
   if (period === "day") {

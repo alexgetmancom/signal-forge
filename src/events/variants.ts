@@ -40,7 +40,7 @@ const DUPLICATE_ROW = /\(\d+\)\s*$/;
  * research bookkeeping.
  */
 const TRAINING_ARTEFACT =
-  /[-_.\s](sft|rl|rlhf|dpo|ppo|grpo|rm|reward|base|pretrain|lora|adapter|checkpoint|ckpt|distill|distilled)$/i;
+  /[-_.\s](sft|rl|rlhf|dpo|ppo|grpo|mopd|rm|reward|base|pretrain|lora|adapter|checkpoint|ckpt|distill|distilled)$/i;
 
 /** True when this entry is another way of selling a model the catalogue already lists. */
 export function isModelVariant(name: string): boolean {
@@ -166,7 +166,8 @@ export function arrivalWeight(event: Event): number {
  * word alone cannot decide: this returns what the entry would be a tier of, and the caller drops it
  * only when that thing is one it has already seen.
  */
-const TIER_WORD = /[\s:-](fast|free|flex|batch|lite|turbo|cheap|standard)$/i;
+const TIER_WORD =
+  /[\s:-](fast|free|flex|batch|lite|turbo|cheap|standard|pro|prime|ultraspeed|ultra[\s-]speed|realtime|real[\s-]time)$/i;
 export function tierBase(name: string): string | null {
   const trimmed = name.trim();
   return TIER_WORD.test(trimmed) ? modelSubject(trimmed.replace(TIER_WORD, "")) : null;
