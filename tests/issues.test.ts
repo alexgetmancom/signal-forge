@@ -4,6 +4,7 @@ import type { Destination } from "../src/config.js";
 import { loadConfig } from "../src/config.js";
 import { recordCredentialRejection } from "../src/credentials.js";
 import { listActionableIssues } from "../src/reports/issues.js";
+import { recordDeepSeekCall } from "../src/runtime/deepseekUsage.js";
 import { openDatabase } from "../src/storage/database.js";
 import { aSource } from "./fixtures/build.js";
 
@@ -196,4 +197,53 @@ test("shared upstream hints do not merge different sites in one display group", 
   expect(listActionableIssues(alone, config, now).find((issue) => issue.id === "arena")?.group).toBeUndefined();
   db.close();
   alone.close();
+});
+
+test("a judge answering unusably on a loop is an issue, not a silent bill", () => {
+  const db = openDatabase(":memory:");
+  const config = loadConfig({ CONFIG_PATH: configPath });
+  const now = Date.parse("2026-09-27T12:00:00.000Z");
+  const record = (outcome: string, at: string) =>
+    recordDeepSeekCall(
+      db,
+      {
+        operation: "audience.judge",
+        source: "openai-chatgpt-release-notes",
+        stream: "news",
+        inputChars: 16_000,
+        attemptedAt: new Date(at),
+      },
+      {
+        outcome: outcome as "invalid",
+        responseStatus: 200,
+        usage: {
+          promptTokens: 3_900,
+          completionTokens: 6_000,
+          totalTokens: 9_900,
+          promptCacheHitTokens: null,
+          promptCacheMissTokens: null,
+        },
+        errorType: outcome === "summarized" ? null : "SyntaxError",
+      },
+    );
+
+  record("summarized", "2026-09-27T07:00:00.000Z");
+  for (const hour of ["08", "09", "10"]) record("invalid", `2026-09-27T${hour}:00:00.000Z`);
+
+  const issue = listActionableIssues(db, config, now).find((entry) => entry.kind === "judge_unusable");
+  expect(issue).toMatchObject({
+    id: "judge:audience.judge:openai-chatgpt-release-notes",
+    source: "openai-chatgpt-release-notes",
+    // The run starts after the last usable answer, not at the beginning of the ledger.
+    firstSeenAt: "2026-09-27T08:00:00.000Z",
+    updatedAt: "2026-09-27T10:00:00.000Z",
+  });
+  expect(issue?.message).toContain("3 times in a row");
+  expect(issue?.message).toContain("SyntaxError");
+
+  // One usable answer and the row is gone: two failures are a bad minute.
+  record("summarized", "2026-09-27T11:00:00.000Z");
+  record("invalid", "2026-09-27T11:30:00.000Z");
+  expect(listActionableIssues(db, config, now).some((entry) => entry.kind === "judge_unusable")).toBe(false);
+  db.close();
 });

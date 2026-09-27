@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { capabilityReport } from "../capabilities.js";
 import type { AppConfig } from "../config.js";
 import { openCredentialCircuits } from "../credentials.js";
+import { unusableJudgeRuns } from "../runtime/deepseekUsage.js";
 import { boardFailures, sourceHealth } from "../status.js";
 import { readState } from "../storage/appState.js";
 import { databaseSize } from "../storage/retention.js";
@@ -27,6 +28,7 @@ export type IssueKind =
   | "capability_missing"
   | "capability_rejected"
   | "backup_stale"
+  | "judge_unusable"
   | "board_stalled"
   | "database_oversized";
 type IssueSeverity = "warning" | "error" | "critical";
@@ -114,6 +116,29 @@ function sharedUpstream(
 }
 
 /** The single read model for failures that require the owner's attention right now. */
+/**
+ * A judge that answers unusably costs money and reports nothing: the collection around it succeeds,
+ * the entry is simply left unjudged, and the next poll asks again. Between 2026-09-24 and
+ * 2026-09-27 that was 218 calls and $0.88 on one source, and no row in this report, so the bill was
+ * the first thing that said so. The hold-off in sources/audienceJudge.ts bounds the spend; this is
+ * what says the verdicts stopped arriving.
+ */
+function judgeIssues(db: Database, now: number): ActionableIssue[] {
+  return unusableJudgeRuns(db, now).map((run) => ({
+    id: `judge:${run.operation}:${run.source}`,
+    kind: "judge_unusable",
+    severity: "warning",
+    entity: run.operation,
+    source: run.source,
+    firstSeenAt: run.since,
+    updatedAt: run.lastAttemptedAt,
+    message: `${run.operation} has answered unusably ${run.attempts} times in a row on ${run.source}${
+      run.costUsd ? ` (${run.costUsd.toFixed(2)} USD)` : ""
+    }: ${run.errorType ?? "no usable verdict"}`,
+    hint: "The question is held off after three, so this is a gap rather than a bill; deepseek-usage has the calls, and the answer being truncated at its token ceiling is the usual cause.",
+  }));
+}
+
 export function listActionableIssues(db: Database, config: AppConfig, now = Date.now()): ActionableIssue[] {
   const issues: ActionableIssue[] = [];
   const health = sourceHealth(db, config, now);
@@ -396,6 +421,8 @@ export function listActionableIssues(db: Database, config: AppConfig, now = Date
         : "Provide the credential, or set `sourceEnabled` false for the sources that want it: an integration nobody intends to run is a configuration decision, not an open issue.",
     });
   }
+
+  issues.push(...judgeIssues(db, now));
 
   // The nightly backup runs on the host, outside this process. Nothing here could see it stop, so
   // a backup that quietly stopped stayed invisible until the day it was needed.

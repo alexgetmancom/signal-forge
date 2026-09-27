@@ -501,6 +501,24 @@ export function deepSeekAttemptsToday(db: Database, now: Date): number {
   return Math.max(0, Number(row?.attempts ?? 0));
 }
 
+type JudgeAttempt = { outcome: string; attempted_at: string; cost_usd: number | null; error_type: string | null };
+
+/** The unbroken run of unusable answers at the head of one judge's ledger, newest first. */
+function judgeRun(db: Database, operation: string, source: string, window: number): JudgeAttempt[] {
+  const rows = db
+    .query<JudgeAttempt, [string, string, number]>(
+      `SELECT outcome,attempted_at,cost_usd,error_type FROM deepseek_usage
+        WHERE event_id IS NULL AND operation=? AND source=? ORDER BY attempted_at DESC, id DESC LIMIT ?`,
+    )
+    .all(operation, source, Math.max(1, Math.trunc(window)));
+  const run: JudgeAttempt[] = [];
+  for (const row of rows) {
+    if (row.outcome === "summarized") break;
+    run.push(row);
+  }
+  return run;
+}
+
 /**
  * The run of unusable answers a judge has just had on one source, newest first, and how long ago
  * the last of them was.
@@ -518,22 +536,57 @@ export function unusableJudgeRun(
   now: Date,
   window = 16,
 ): { attempts: number; msSinceLast: number } {
-  const rows = db
-    .query<{ outcome: string; attempted_at: string }, [string, string, number]>(
-      `SELECT outcome,attempted_at FROM deepseek_usage
-        WHERE operation=? AND source=? ORDER BY attempted_at DESC, id DESC LIMIT ?`,
-    )
-    .all(operation, source, Math.max(1, Math.trunc(window)));
-  let attempts = 0;
-  for (const row of rows) {
-    if (row.outcome === "summarized") break;
-    attempts++;
-  }
-  const last = rows[0]?.attempted_at;
+  const run = judgeRun(db, operation, source, window);
+  const last = run[0]?.attempted_at;
   return {
-    attempts,
-    msSinceLast: attempts > 0 && last ? Math.max(0, now.getTime() - Date.parse(last)) : Number.POSITIVE_INFINITY,
+    attempts: run.length,
+    msSinceLast: last ? Math.max(0, now.getTime() - Date.parse(last)) : Number.POSITIVE_INFINITY,
   };
+}
+
+/**
+ * Every judge currently in a run of unusable answers, for the issues report.
+ *
+ * A judge is any operation in this ledger that answers no event: `event_id IS NULL` is what tells
+ * it apart from a summary, whose attempts are already bounded per event. Only a run that has
+ * reached the caller's hold-off is worth a row -- one bad answer is a bad minute.
+ */
+export function unusableJudgeRuns(
+  db: Database,
+  now = Date.now(),
+  minimumAttempts = 3,
+): {
+  operation: string;
+  source: string;
+  attempts: number;
+  since: string;
+  lastAttemptedAt: string;
+  costUsd: number | null;
+  errorType: string | null;
+}[] {
+  const pairs = db
+    .query<{ operation: string; source: string }, []>(
+      `SELECT DISTINCT operation,source FROM deepseek_usage WHERE event_id IS NULL AND source IS NOT NULL`,
+    )
+    .all();
+  const runs = [];
+  for (const pair of pairs) {
+    const run = judgeRun(db, pair.operation, pair.source, 200);
+    if (run.length < minimumAttempts) continue;
+    const oldest = run[run.length - 1];
+    const newest = run[0];
+    const cost = run.reduce((total, row) => total + (row.cost_usd ?? 0), 0);
+    runs.push({
+      operation: pair.operation,
+      source: pair.source,
+      attempts: run.length,
+      since: oldest?.attempted_at ?? new Date(now).toISOString(),
+      lastAttemptedAt: newest?.attempted_at ?? new Date(now).toISOString(),
+      costUsd: cost > 0 ? cost : null,
+      errorType: newest?.error_type ?? null,
+    });
+  }
+  return runs.sort((left, right) => right.attempts - left.attempts);
 }
 
 /**
