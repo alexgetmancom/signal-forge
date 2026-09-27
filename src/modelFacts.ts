@@ -353,8 +353,18 @@ function recordRef(source: string, id: string): string {
   return `${source}\u0000${id}`;
 }
 
+/**
+ * The evidence both readers walk, one story at a time.
+ *
+ * `before_json` arrives only when it is the body this event's record is in. Everything here reads a
+ * body through `recordFor`, which is `after_json ?? before_json`, so the earlier body of a `changed`
+ * event was read from disk, allocated as a string and dropped unlooked-at -- and a string that is
+ * allocated is a floor that has risen, whether or not anything looks at it. Over the whole join that
+ * was most of the bytes this read moved, to answer with none of them.
+ */
 const STORY_EVENTS_SQL = `SELECT s.id AS story_id,s.stable_key,s.first_seen_at,s.updated_at,
-        e.id,e.source,e.stream,e.entity_id,e.kind,e.before_json,e.after_json,e.detected_at,
+        e.id,e.source,e.stream,e.entity_id,e.kind,
+        CASE WHEN e.after_json IS NULL THEN e.before_json END AS before_json,e.after_json,e.detected_at,
         e.confidence,e.evidence_type,e.authority
  FROM stories s
  JOIN story_events se ON se.story_id=s.id
