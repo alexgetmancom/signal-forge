@@ -250,11 +250,7 @@ function timingsOperation(db: Database): OperationMap[string] {
       "mark rather than sampled, so a rebuild that holds 200 MB for under a second -- invisible to " +
       "`memory`, whose samples are five minutes apart -- is named here. RSS is never given back, so " +
       "that growth is the floor this service keeps for the rest of the boot; ask `timings --since " +
-      "boot --name boot.` for what the load itself cost -- but two of those phases, `boot.model-facts` " +
-      "and `boot.hypotheses`, are measured inside the child that rebuilds them, so their growth is a process " +
-      "that ends and not this service's floor at all. Both figures rose when they moved there, because a " +
-      "child pays its own startup into its own mark and has none of the parent's warm allocator; the number " +
-      "to read for what the service keeps is `memory`. Two sections that overlap in time each see " +
+      "boot --name boot.` for what the load itself cost. Two sections that overlap in time each see " +
       "the growth of both, which makes every figure an upper bound on its own claim. 0 across a " +
       "window means the section has not run since the deploy that started recording this.",
     mutates: false,

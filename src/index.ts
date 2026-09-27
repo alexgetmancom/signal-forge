@@ -17,7 +17,6 @@ import { syncPublications } from "./publications.js";
 import { scheduleRecaps } from "./recap.js";
 import { measure, pruneCodeMetrics } from "./runtime/metrics.js";
 import { logMemoryUsage, recordRuntimeStart, recordRuntimeStop, sampleMemory } from "./runtime/observability.js";
-import { rebuildInAChild } from "./runtime/rebuildPhase.js";
 import { stopServerGracefully } from "./runtime/shutdown.js";
 import { RuntimeSupervisor } from "./runtime/supervisor.js";
 import { startIntervalWorker } from "./runtime/worker.js";
@@ -50,16 +49,12 @@ const db = openDatabase(config.DATABASE_URL);
 const storyProjection = db.transaction(() => {
   measure(db, "boot.source-identities", () => recordSourceIdentities(db, buildSourceRegistry(db, config)));
   const projection = measure(db, "boot.stories", () => rebuildStories(db));
+  measure(db, "boot.model-facts", () => rebuildModelFacts(db));
+  measure(db, "boot.hypotheses", () => rebuildHypotheses(db));
   measure(db, "boot.lifecycle-deadlines", () => rebuildLifecycleDeadlines(db));
   return projection;
 })();
 rememberStoryProjection(db, storyProjection);
-// Model Facts and the hypotheses are rebuilt in children, outside that transaction, because all they
-// produce is the tables they write and the memory it takes to produce them is never given back here.
-// The stories stay: the poller extends that projection in place, so the process that builds it has to
-// be the process that keeps it. src/runtime/rebuildPhase.ts is the reasoning and the measurements.
-await rebuildInAChild(db, "model-facts", () => rebuildModelFacts(db));
-await rebuildInAChild(db, "hypotheses", () => rebuildHypotheses(db));
 recordRuntimeStart(db);
 recoverInterruptedDeliveries(db);
 recoverInterruptedAlerts(db);
