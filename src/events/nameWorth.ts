@@ -1,0 +1,181 @@
+/**
+ * The same model wearing another name.
+ *
+ * A gateway, a thinking effort, a harness number, a date suffix and a vendor prefix are ways one
+ * model is served rather than models of their own, and each of them arrived in the invited room as
+ * an unidentified sighting. Every rule here asks one question -- is this a name we already know,
+ * plus nothing that can name a different model -- so they share the word list that answers it and
+ * the read of what this deployment already knows.
+ */
+
+import type { Database } from "bun:sqlite";
+import { normalizeIdentity } from "./identity.js";
+import { recordFor } from "./record.js";
+import { isModelSighting } from "./signals.js";
+import type { Event } from "./types.js";
+import { vendorOfName, vendorSpelling } from "./vendors.js";
+
+/**
+ * The ways one model is served, as opposed to which model it is.
+ *
+ * `kimi-k3-gateway-max-v3` is Kimi K3 reached through a gateway at maximum thinking effort with the
+ * third harness. An arena lists each wiring separately and each one arrived as an unidentified
+ * sighting. These words can never distinguish two models, so a name that is a model we already know
+ * plus only these is that model.
+ */
+const SERVING_WORDS = new Set([
+  "gateway",
+  "official",
+  "api",
+  "direct",
+  "proxy",
+  "harness",
+  "endpoint",
+  "chat",
+  "thinking",
+  "reasoning",
+  "max",
+  "high",
+  "medium",
+  "low",
+  "effort",
+  // Latency, not a model. `gpt-6-sol-medium-fast` answered in a Codex discussion on 2026-09-25,
+  // three days after GPT-6 Sol was announced, and reached the radar as a sighting: `medium` was
+  // already read as wiring and `fast` was not, so the pair together was a name nobody knew.
+  // `flash` stays out: a maker sells Flash as its own model.
+  "fast",
+  "slow",
+  // Search Arena lists Claude Opus 5 as `claude-opus-5-search`: the released model with a search
+  // tool attached, two of them on 2026-09-18.
+  "search",
+  // The board is not the model. Arena seats one model on several boards and writes the board into
+  // the entry: `step-5-preview-agent` and `step-5-preview-webdev` are StepFun's released model on
+  // the agent and webdev boards, and on 2026-09-24 the two of them made a codename story about a
+  // model the channel had already been told about four days earlier.
+  "agent",
+  "webdev",
+]);
+
+/** A number straight after the model's name is its version: `grok 4` + `6` is Grok 4.6, not a wiring of Grok 4. */
+function servingTail(words: string[]): boolean {
+  return (
+    words.length > 0 &&
+    !/^\d+$/.test(words[0] ?? "") &&
+    // A maker's own name appended says which account answers, not which model does:
+    // `claude-haiku-4-5-direct-anthropic` is Claude Haiku 4.5 reached on Anthropic's own key.
+    // `vendorSpelling` answers only for a word that is a maker's name, where `vendorOfName` would
+    // read `sol` as OpenAI and swallow half the tails there are.
+    words.every((word) => SERVING_WORDS.has(word) || /^v?\d+$/.test(word) || vendorSpelling(word) !== null)
+  );
+}
+
+/**
+ * The words left once somebody else's namespace is taken off the front.
+ *
+ * `claude-gpt-6-astra` and `claude-gpt-6` are two routes a third-party multiplexer publishes to
+ * OpenAI's model, written the way its own client addresses them; both reached the radar on
+ * 2026-09-24 as sightings of models nobody had heard of, three weeks after GPT-6 Astra launched.
+ * The tell is that the front of the name belongs to one maker and the rest to another: a maker
+ * does not file its own model under a competitor's name, so a leading run that names a different
+ * vendor is a namespace rather than part of the model.
+ */
+function withoutForeignNamespace(words: string[]): string[] | null {
+  for (let taken = 1; taken < words.length; taken++) {
+    const front = vendorOfName(words.slice(0, taken).join(" "));
+    const rest = words.slice(taken);
+    if (front !== "Unknown" && vendorOfName(rest.join(" ")) !== front) return rest;
+  }
+  return null;
+}
+
+/** Models something in this database already identifies, as normalized word lists. */
+export function knownModelNames(db: Database): string[][] {
+  const names = new Set<string>();
+  for (const row of db
+    .query<{ body: string }, []>(
+      "SELECT body FROM records WHERE stream IN ('api-models','openrouter','weights','deprecations')",
+    )
+    .all()) {
+    let parsed: Record<string, unknown>;
+    try {
+      parsed = JSON.parse(row.body) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    for (const value of [parsed.name, parsed.id])
+      if (typeof value === "string" && value.trim()) {
+        // A catalogue writes "DeepSeek: DeepSeek V4 Flash"; the maker's prefix is not part of the
+        // model's name, and an arena never repeats it.
+        const stripped = value.replace(/^[^:/]+[:/]\s*/, "");
+        names.add(normalizeIdentity(stripped));
+      }
+  }
+  return [...names].filter((name) => name.split(" ").length >= 2).map((name) => name.split(" "));
+}
+
+/**
+ * True when this sighting is a known model with only its wiring around it.
+ *
+ * An arena seats one model per wiring and writes the wiring into the entry. A repository does the
+ * same in its own dialect: `claude-haiku-4-5-direct-anthropic` in a litellm discussion and
+ * `gpt-6-sol-medium-fast` in a Codex one are a routing alias and an effort setting, and both
+ * reached the radar on 2026-09-25 headlined "is answering requests" -- one for a model released in
+ * October 2025 that every catalogue carries, the other three days after its model was announced. A
+ * model answering under a name we can already resolve is not a sighting of anything.
+ */
+export function isAnotherServing(event: Event, known: readonly string[][]): boolean {
+  if (event.kind !== "new") return false;
+  if (event.stream !== "arena" && !isModelSighting(event)) return false;
+  const body = recordFor(event);
+  // The wiring is written wherever the venue keeps its own key: `name` is the display name, and
+  // step-5-preview's two seats differed only in `model`, so reading the name alone saw one model
+  // twice and called it an unidentified sighting. A repository sighting keys the stage into
+  // `entity_id` ("...:served"), which is why the record's own `model` is read beside it.
+  const written = [body?.name, body?.model, body?.modelKey, event.entity_id].filter(
+    (value): value is string => typeof value === "string" && value.trim().length > 0,
+  );
+  const servesKnown = (words: string[]): boolean =>
+    known.some(
+      (model) =>
+        words.length > model.length &&
+        model.every((word, index) => words[index] === word) &&
+        servingTail(words.slice(model.length)),
+    );
+  return written.some((value) => {
+    const words = normalizeIdentity(value).split(" ").filter(Boolean);
+    if (servesKnown(words)) return true;
+    const inner = withoutForeignNamespace(words);
+    // Nothing appended, only the namespace taken off: `claude-gpt-6` is exactly GPT-6.
+    return inner !== null && (servesKnown(inner) || known.some((model) => model.join(" ") === inner.join(" ")));
+  });
+}
+
+/**
+ * A dated snapshot or a billing tier of a model the same catalogue already lists.
+ *
+ * OpenAI listed `gpt-image-2.5-flare` and `gpt-image-2.5-flare-2026-09-08` in the collection of
+ * 2026-09-09 17:07, and both reached the wire as launches: four cards for two models. OpenRouter
+ * lists Mistral's models a second time as `:batch` rows -- five of them in one hour on 2026-09-10,
+ * each a sighting in the invited room of a model that shipped months before. Either is news only
+ * when the plain row is not there: a model can first appear as its snapshot, and that one speaks.
+ * `-preview` is not a tier. Google launches under it.
+ */
+const TIER_SUFFIX = /(-\d{4}-\d{2}-\d{2}|:(batch|free|beta|extended|thinking|floor|nitro|online))$/i;
+
+export function isAnotherTierOfAListedModel(db: Database, event: Event): boolean {
+  if (event.kind !== "new" || (event.stream !== "api-models" && event.stream !== "openrouter")) return false;
+  const plain = event.entity_id.replace(TIER_SUFFIX, "");
+  if (plain === event.entity_id) return false;
+  return Boolean(db.query("SELECT 1 FROM records WHERE source=? AND id=?").get(event.source, plain));
+}
+
+/**
+ * A row that exists to point at whatever is newest.
+ *
+ * `~deepseek/deepseek-v4-flash-latest` is not a model: it is a promise to route to one. Its every
+ * move duplicates a card the model behind it already produced.
+ */
+export function isAliasRow(event: Event): boolean {
+  const name = String(recordFor(event)?.name ?? event.entity_id);
+  return /[:\s/-]latest$/i.test(name.trim()) || event.entity_id.startsWith("~");
+}

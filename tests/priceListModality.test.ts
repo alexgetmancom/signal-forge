@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { isTheModalityOfAPricedModel } from "../src/events/worth.js";
+import { isTheModalityOfAPricedModel } from "../src/events/priceWorth.js";
 import { openDatabase } from "../src/storage/database.js";
 
 function catalogue(): ReturnType<typeof openDatabase> {

@@ -12,37 +12,32 @@
 import type { Database } from "bun:sqlite";
 import { newsroomVote, readersVote } from "../insights.js";
 import { judgementOf } from "../jev.js";
+import { isFixesOnlyRelease } from "./buildWorth.js";
+import { isAliasRow, isAnotherServing, isAnotherTierOfAListedModel, knownModelNames } from "./nameWorth.js";
 import { isScheduledPricingRotation } from "./oscillation.js";
+import { isPageWithoutAProduct } from "./pageWorth.js";
+import { isAResellerFillingInAPrice, isLeftToTheDailyRecap, isTheModalityOfAPricedModel } from "./priceWorth.js";
 import { renamedEvents } from "./rename.js";
 import { listsAnotherMakersModel } from "./resellers.js";
+import {
+  isAlreadyOutAtItsMaker,
+  isARouteToAReleasedModel,
+  namesOnlyKnownModels,
+  wasReleasedLongBefore,
+} from "./retoldWorth.js";
 import { isModelSighting } from "./signals.js";
 import type { SuppressionReason } from "./suppression.js";
 import type { Event, RecordData } from "./types.js";
 import { displayName } from "./variants.js";
+import { isLongPublishedWeights, isTrendingFromAnUnfollowedLab, isWeightsBesideTheRelease } from "./weightsWorth.js";
 import { firstSightingBySubject, listingsBySubject, releasedSubjects, subjectKey } from "./witness.js";
 import {
   addedFieldSignature,
   changeSignature,
   isAboutTheCompanyNotAModel,
-  isAliasRow,
-  isAlreadyOutAtItsMaker,
-  isAnotherServing,
-  isAnotherTierOfAListedModel,
-  isAResellerFillingInAPrice,
-  isARouteToAReleasedModel,
-  isFixesOnlyRelease,
   isLabelOnlyChange,
-  isLeftToTheDailyRecap,
-  isLongPublishedWeights,
   isMinorBoardMove,
-  isPageWithoutAProduct,
   isPublishedByAFollowedLab,
-  isTheModalityOfAPricedModel,
-  isTrendingFromAnUnfollowedLab,
-  isWeightsBesideTheRelease,
-  knownModelNames,
-  namesOnlyKnownModels,
-  wasReleasedLongBefore,
 } from "./worth.js";
 
 /** How long a model has to have been followed here before one more venue listing it is only a line. */

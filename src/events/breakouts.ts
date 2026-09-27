@@ -2,8 +2,8 @@ import type { Database } from "bun:sqlite";
 import type { Destination } from "../config.js";
 import { readState, writeState } from "../storage/appState.js";
 import { isUnfollowedMakerAtAReseller, resellerMaker } from "./resellers.js";
+import { wasReleasedLongBefore } from "./retoldWorth.js";
 import type { Event } from "./types.js";
-import { wasReleasedLongBefore } from "./worth.js";
 
 /**
  * A small company's model taking off, told the moment it does.

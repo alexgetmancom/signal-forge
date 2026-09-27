@@ -3,8 +3,8 @@ import type { Destination } from "../src/config.js";
 import { prepareDeliveries } from "../src/events/batching.js";
 import { displayTitle } from "../src/events/naming.js";
 import { saveCollection } from "../src/events/pipeline.js";
+import { borrowedFacts } from "../src/events/priceWorth.js";
 import type { Collection, Event, RecordData } from "../src/events/types.js";
-import { borrowedFacts } from "../src/events/worth.js";
 import { openDatabase } from "../src/storage/database.js";
 
 const wire: Destination = {
