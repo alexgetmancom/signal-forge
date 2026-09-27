@@ -44,7 +44,7 @@ const result = args.get("--result");
 
 /** A git ref, or a directory holding another checkout's src/ (useful where there is no git). */
 async function policyAt(ref: string, workspace: string): Promise<Replay> {
-  if (existsSync(join(ref, "src/events/batching.ts"))) return load(resolve(ref), ref);
+  if (existsSync(join(ref, "src/events/replayPolicy.ts"))) return load(resolve(ref), ref);
   const archive = Bun.spawnSync(["git", "archive", "--format=tar", ref, "src", "package.json"], { cwd: root });
   if (!archive.success) throw new Error(`git archive ${ref} failed: ${archive.stderr.toString()}`);
   const unpack = Bun.spawnSync(["tar", "-x", "-C", workspace], { stdin: archive.stdout });
@@ -54,7 +54,7 @@ async function policyAt(ref: string, workspace: string): Promise<Replay> {
 }
 
 async function load(directory: string, ref: string): Promise<Replay> {
-  const module = (await import(join(directory, "src/events/batching.ts"))) as {
+  const module = (await import(join(directory, "src/events/replayPolicy.ts"))) as {
     replayVerdicts?: Replay;
     replayDestinationVerdicts?: ReplayForDestination;
   };
@@ -73,7 +73,7 @@ const label = (verdict: Verdict | undefined): string =>
 const workspace = mkdtempSync(join(tmpdir(), "signal-forge-replay-"));
 try {
   const before = await policyAt(base, workspace);
-  const here = (await import("../src/events/batching.js")) as {
+  const here = (await import("../src/events/replayPolicy.js")) as {
     replayVerdicts: Replay;
     replayDestinationVerdicts: ReplayForDestination;
   };

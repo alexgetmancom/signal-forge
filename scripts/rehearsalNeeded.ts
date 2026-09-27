@@ -24,13 +24,13 @@ export const REQUIREMENTS: readonly Requirement[] = [
   {
     phase: "cards",
     because: "what a card says",
-    touches: /^src\/(events\/render\/|summary\.ts|recap\.ts|events\/naming\.ts|events\/vendors\.ts|text\.ts)/,
+    touches: /^src\/(events\/(render\/|batchMessages\.ts|naming\.ts|vendors\.ts)|summary\.ts|recap\.ts|text\.ts)/,
   },
   {
     phase: "policy",
     because: "which cards are sent",
     touches:
-      /^src\/(events\/(batching|worth|signals|classify|oscillation|rename|variants|witness|breakouts)\.ts|insights\.ts|jev\.ts|delivery\.ts)/,
+      /^src\/(events\/(batching|batchPolicy|batchMessages|replayPolicy|worth|signals|classify|oscillation|rename|variants|witness|breakouts)\.ts|insights\.ts|jev\.ts|delivery\.ts)/,
   },
   {
     phase: "reports",

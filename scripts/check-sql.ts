@@ -116,7 +116,7 @@ const MAY_READ_BODIES: Readonly<Record<string, string>> = {
   "src/events/breakouts.ts": "a breakout is a price or a context length inside the record",
   "src/events/cooldown.ts": "what was told before is compared with what the record now says",
   "src/events/rename.ts": "a rename is the same record under a different name",
-  "src/events/batching.ts": "a card is rendered from the event it is about",
+  "src/events/batchPolicy.ts": "a card is rendered from the event it is about",
   "src/events/toldBefore.ts": "a repeat is found by comparing what the records said",
   "src/jev.ts": "the judge is shown the record, which is the evidence it judges",
   "src/reports/channelMix.ts": "it renders the cards it reports on",

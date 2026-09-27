@@ -11,6 +11,9 @@ describe("what a change owes", () => {
 
   test("a routing rule owes the policy replay and a projection owes its own", () => {
     expect(required(["src/events/batching.ts"]).map((owed) => owed.phase)).toEqual(["policy"]);
+    expect(required(["src/events/batchPolicy.ts"]).map((owed) => owed.phase)).toEqual(["policy"]);
+    expect(required(["src/events/replayPolicy.ts"]).map((owed) => owed.phase)).toEqual(["policy"]);
+    expect(required(["src/events/batchMessages.ts"]).map((owed) => owed.phase)).toEqual(["cards", "policy"]);
     expect(required(["src/hypotheses.ts"]).map((owed) => owed.phase)).toEqual(["projections"]);
     expect(required(["src/storage/migrations/054_x.sql"]).map((owed) => owed.phase)).toEqual(["migration"]);
   });
