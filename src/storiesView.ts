@@ -4,6 +4,7 @@
  */
 
 import type { Database } from "bun:sqlite";
+import type { StoryClaim } from "./events/claim.js";
 import { CONFIDENCE_LEVELS } from "./events/confidence.js";
 import {
   type IdentityColumnRow,
@@ -40,7 +41,20 @@ export type StoryView = {
   /** The date the subject itself came out, when a catalogue claimed one; null is no claim. */
   releasedAt: string | null;
   updatedAt: string;
+  /**
+   * The newest event's confidence, which is a fact about that event and not about the story. What
+   * the story establishes is in `claims`: a column written from the last row in cannot rise, and
+   * three catalogues agreeing is exactly the case where something should have.
+   */
   confidence: Confidence;
+  /** What this story establishes, each with the strength it has now and when it reached it. */
+  claims: {
+    claim: StoryClaim;
+    confidence: Confidence;
+    firstAt: string;
+    raisedAt: string;
+    supportedBy: number[];
+  }[];
   currentStatus: "active" | "removed";
   authorities: SourceAuthority[];
   sources: string[];
@@ -129,6 +143,34 @@ function storyRows(db: Database, query: StoryQuery): StoryRow[] {
     .all(...levels, since, since, vendor, vendor, query.limit ?? 50, startedSince, startedSince);
 }
 
+type ClaimRow = {
+  claim: StoryClaim;
+  confidence: Confidence;
+  first_at: string;
+  raised_at: string;
+  supported_by: string;
+};
+
+/**
+ * The claims of one story, read once per row the query returns. One statement, prepared once and
+ * asked per story: the primary key of `story_claims` is the index it uses, and it is named in
+ * `hotQueries` so a plan that stops using it fails a rehearsal.
+ */
+function storyClaims(db: Database): (storyId: number) => StoryView["claims"] {
+  const query = db.query<ClaimRow, [number]>(
+    `SELECT claim,confidence,first_at,raised_at,supported_by FROM story_claims
+      WHERE story_id=? ORDER BY claim`,
+  );
+  return (storyId) =>
+    query.all(storyId).map((claim) => ({
+      claim: claim.claim,
+      confidence: claim.confidence,
+      firstAt: claim.first_at,
+      raisedAt: claim.raised_at,
+      supportedBy: JSON.parse(claim.supported_by) as number[],
+    }));
+}
+
 /** Returns a compact agent-facing story view with event IDs that lead back to immutable evidence. */
 export function listStories(db: Database, query: StoryQuery = {}): StoryView[] {
   const evidenceOf = db.query<StoryEvidenceRow, [number]>(
@@ -140,6 +182,7 @@ export function listStories(db: Database, query: StoryQuery = {}): StoryView[] {
        LEFT JOIN sources src ON src.id=e.source
       WHERE se.story_id=? ORDER BY e.detected_at,e.id`,
   );
+  const claimsOfStory = storyClaims(db);
   return storyRows(db, query).map((row) => {
     const evidence = evidenceOf.all(row.id).map((event) => {
       const identity = identityFor(event, identityRecordOf(event));
@@ -185,6 +228,7 @@ export function listStories(db: Database, query: StoryQuery = {}): StoryView[] {
       releasedAt: row.released_at,
       updatedAt: row.updated_at,
       confidence: row.confidence,
+      claims: claimsOfStory(row.id),
       currentStatus: row.current_status,
       authorities,
       sources,

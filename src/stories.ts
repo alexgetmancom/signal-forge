@@ -1,4 +1,7 @@
 import type { Database } from "bun:sqlite";
+import { claimsOf, type StoryClaim } from "./events/claim.js";
+import { confidenceRank } from "./events/confidence.js";
+import { INDEPENDENT_SOURCES } from "./events/corroboration.js";
 import {
   identityFor,
   identitySignatures,
@@ -56,8 +59,74 @@ type StoryGroup = {
    * this is the one fact about them a report cannot recompute once they are gone.
    */
   releasedAt: number | null;
+  /**
+   * What the group establishes, which is not what any one of its events said. Three `observed`
+   * catalogue rows are three weak events and one story that is no longer guessing; see
+   * `claimsOf`. Kept as ids and counts only, so it stays the size of the claim rather than the
+   * size of the evidence.
+   */
+  claims: Map<StoryClaim, HeldClaim>;
   storyId?: number;
 };
+
+/** A claim as the group holds it, and as one row of `story_claims`. */
+type HeldClaim = {
+  confidence: Confidence;
+  firstAt: string;
+  /** When it reached the confidence it now holds, which is the date a rise actually happened. */
+  raisedAt: string;
+  /** The earliest events at the current confidence, capped: the full list is `story_events`. */
+  supportedBy: number[];
+  /**
+   * Whether the row is behind the claim. A claim appears once, rises at most twice and collects a
+   * few ids; everything else an event does to a story leaves it alone, and writing it anyway is one
+   * statement per event per claim -- the N+1 shape `correlationWorkload` measures.
+   */
+  dirty: boolean;
+};
+
+/**
+ * How many event ids one claim keeps, and with it how many times one claim is ever written.
+ *
+ * A model listed by four hundred catalogue rows makes the same claim four hundred times, and a
+ * list that grew with that would be storing the noise. Three, because three independent sources is
+ * what `INDEPENDENT_SOURCES` already calls enough agreement to interrupt a reader for: past that
+ * the extra ids say nothing the fourth would not, and `story_events` has all of them anyway.
+ */
+const SUPPORT_SHOWN = INDEPENDENT_SOURCES;
+
+/**
+ * A claim only rises. The events are immutable and the card that went out was right at the time, so
+ * what moves is the derived claim: the first event to reach a strength is the one that dates it.
+ */
+function raiseClaims(group: StoryGroup, event: StoryEvent, knowsIdentity: boolean): void {
+  for (const claim of claimsOf(event, knowsIdentity)) {
+    const held = group.claims.get(claim);
+    if (!held) {
+      group.claims.set(claim, {
+        confidence: event.confidence,
+        firstAt: event.detected_at,
+        raisedAt: event.detected_at,
+        supportedBy: [event.id],
+        dirty: true,
+      });
+      continue;
+    }
+    if (confidenceRank(event.confidence) > confidenceRank(held.confidence))
+      group.claims.set(claim, {
+        confidence: event.confidence,
+        firstAt: held.firstAt,
+        raisedAt: event.detected_at,
+        supportedBy: [event.id],
+        dirty: true,
+      });
+    else if (
+      confidenceRank(event.confidence) === confidenceRank(held.confidence) &&
+      held.supportedBy.length < SUPPORT_SHOWN
+    )
+      group.claims.set(claim, { ...held, supportedBy: [...held.supportedBy, event.id], dirty: true });
+  }
+}
 
 export type StoryProjection = {
   groups: StoryGroup[];
@@ -197,6 +266,10 @@ function cloneProjection(projection: StoryProjection): StoryProjection {
         { canonicals: new Set(known.canonicals), terms: new Set(known.terms) },
       ]),
     ),
+    // Shallow: a held claim is replaced rather than edited in place, so the two projections can
+    // share the objects. Copying them cost 35 ms of every incremental update -- three objects and
+    // three arrays for each of 2882 groups, to change at most one of them.
+    claims: new Map(group.claims),
   }));
   const copies = new Map(projection.groups.map((group, index) => [group, groups[index] as StoryGroup]));
   return {
@@ -370,8 +443,10 @@ function projectEvent(projection: StoryProjection, event: StoryEvent): StoryGrou
       signatures,
       candidate,
       releasedAt: recordReleaseDate(record),
+      claims: new Map<StoryClaim, HeldClaim>(),
     };
     rememberFamilyIdentity(group, family, canonical, terms);
+    raiseClaims(group, event, canonical !== null);
     projection.groups.push(group);
     projection.active.push(group);
     projection.current.set(key, group);
@@ -380,6 +455,7 @@ function projectEvent(projection: StoryProjection, event: StoryEvent): StoryGrou
   }
   previous.last = latestOf(event, record);
   previous.lastTime = Date.parse(event.detected_at);
+  raiseClaims(previous, event, canonical !== null);
   // A model is released once; a later catalogue carrying an older date is the better witness.
   const released = recordReleaseDate(record);
   if (released !== null && (previous.releasedAt === null || released < previous.releasedAt))
@@ -451,7 +527,32 @@ function writeGroup(db: Database, group: StoryGroup): number {
     );
   if (!story) throw new Error(`Story ${storyKey(group)} could not be stored`);
   group.storyId = story.id;
+  writeClaims(db, story.id, group);
   return story.id;
+}
+
+function claimUpsert(db: Database) {
+  return db.query<null, [number, string, string, string, string, string]>(
+    `INSERT INTO story_claims(story_id,claim,confidence,first_at,raised_at,supported_by)
+     VALUES(?,?,?,?,?,?)
+     ON CONFLICT(story_id,claim) DO UPDATE SET confidence=excluded.confidence,first_at=excluded.first_at,
+       raised_at=excluded.raised_at,supported_by=excluded.supported_by`,
+  );
+}
+
+/**
+ * The claims of one story, as they stand. Upserted rather than replaced: a claim never disappears
+ * from a story, so there is no stale row to delete, and a rebuild that projects the same events
+ * writes the same values -- which is what `rehearse-projections` checks.
+ */
+function writeClaims(db: Database, storyId: number, group: StoryGroup): void {
+  let upsert: ReturnType<typeof claimUpsert> | null = null;
+  for (const [claim, held] of group.claims) {
+    if (!held.dirty) continue;
+    upsert ??= claimUpsert(db);
+    upsert.run(storyId, claim, held.confidence, held.firstAt, held.raisedAt, JSON.stringify(held.supportedBy));
+    group.claims.set(claim, { ...held, dirty: false });
+  }
 }
 
 function linkEvent(db: Database, group: StoryGroup, event: StoryEvent): void {
@@ -501,7 +602,9 @@ function storyEventPage(db: Database, after: { detectedAt: string; id: number } 
 function rebuildProjection(db: Database): StoryProjection {
   const projection = emptyProjection();
   const existing = db.query<{ stable_key: string }, []>("SELECT stable_key FROM stories").all();
-  db.exec("DELETE FROM story_events");
+  // A rebuild is authoritative over both derived tables: a claim the current rules no longer draw
+  // must not survive as a row nothing writes any more.
+  db.exec("DELETE FROM story_events; DELETE FROM story_claims");
   let lastEventId = 0;
   let after: { detectedAt: string; id: number } | null = null;
   for (;;) {

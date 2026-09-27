@@ -603,3 +603,89 @@ test("Gemini 3.8 Flash is not filed under Gemini 3.1 Flash Lite for sharing thre
   expect(glm[0]?.sources.sort()).toEqual(["arena", "openrouter"]);
   db.close();
 });
+
+/** A source's first collection is its baseline, so a seed row goes in before the model does. */
+const seeded = (db: Parameters<typeof saveCollection>[0], source: string, stream: string, at: string): void => {
+  saveCollection(db, collection(source, stream, [{ id: `${source}/seed`, name: "Seed" }]), [], at);
+};
+
+test("a claim rises as sources agree, and the immutable events under it do not move", () => {
+  const db = openDatabase(":memory:");
+  const record = { id: "anthropic/nimbus-2", name: "Nimbus 2" };
+  seeded(db, "openrouter", "openrouter", "2026-09-08T00:00:00.000Z");
+  seeded(db, "models-dev", "api-models", "2026-09-08T00:00:10.000Z");
+  seeded(db, "anthropic", "api-models", "2026-09-08T00:00:20.000Z");
+  // Three catalogues in turn: two resellers, which are `observed`, and then a maker's own API,
+  // which is `confirmed`. Every event is written once and none of them is ever rewritten.
+  saveCollection(
+    db,
+    collection("openrouter", "openrouter", [{ id: "openrouter/seed", name: "Seed" }, record]),
+    [],
+    "2026-09-08T00:01:00.000Z",
+  );
+  saveCollection(
+    db,
+    collection("models-dev", "api-models", [{ id: "models-dev/seed", name: "Seed" }, record]),
+    [],
+    "2026-09-08T00:02:00.000Z",
+  );
+  saveCollection(
+    db,
+    collection("anthropic", "api-models", [{ id: "anthropic/seed", name: "Seed" }, record]),
+    [],
+    "2026-09-08T00:03:00.000Z",
+  );
+  rebuildStories(db);
+
+  const story = listStories(db, { limit: 20 }).find((one) => one.title === "Nimbus 2");
+  const claims = new Map(story?.claims.map((claim) => [claim.claim, claim]));
+  expect(claims.get("existence")).toMatchObject({
+    confidence: "confirmed",
+    firstAt: "2026-09-08T00:01:00.000Z",
+    // The date a rise happened is the first event to reach the strength, not the last event in.
+    raisedAt: "2026-09-08T00:03:00.000Z",
+  });
+  expect(claims.get("availability")?.confidence).toBe("confirmed");
+  // Raising a claim starts its support afresh: the two weaker rows are under `story_events`, and
+  // what holds the claim up at the strength it now has is the event that got it there.
+  expect(claims.get("existence")?.supportedBy).toHaveLength(1);
+
+  // The evidence itself is untouched: the two reseller rows are still `observed`, which is what
+  // the cards they made said at the time, and only the claim above them moved.
+  expect(story?.evidence.map((event) => event.confidence).sort()).toEqual(["confirmed", "observed", "observed"]);
+  db.close();
+});
+
+test("a claim only rises, and a withdrawal is read from the story's status instead", () => {
+  const db = openDatabase(":memory:");
+  const record = { id: "acme/nimbus-3", name: "Nimbus 3" };
+  seeded(db, "openrouter", "openrouter", "2026-09-08T00:00:00.000Z");
+  saveCollection(
+    db,
+    collection("openrouter", "openrouter", [{ id: "openrouter/seed", name: "Seed" }, record]),
+    [],
+    "2026-09-08T00:01:00.000Z",
+  );
+  // A record has to be missing twice before the store calls it gone: one absence is a partial read.
+  saveCollection(
+    db,
+    collection("openrouter", "openrouter", [{ id: "openrouter/seed", name: "Seed" }]),
+    [],
+    "2026-09-08T00:02:00.000Z",
+  );
+  saveCollection(
+    db,
+    collection("openrouter", "openrouter", [{ id: "openrouter/seed", name: "Seed" }]),
+    [],
+    "2026-09-08T00:03:00.000Z",
+  );
+  rebuildStories(db);
+
+  const story = listStories(db, { limit: 20 }).find((one) => one.title === "Nimbus 3");
+  const claims = new Map(story?.claims.map((claim) => [claim.claim, claim]));
+  // A name leaving a catalogue is evidence it was there to be withdrawn, never evidence against it.
+  expect(claims.get("existence")?.supportedBy).toHaveLength(2);
+  expect(claims.get("availability")?.supportedBy).toHaveLength(1);
+  expect(story?.currentStatus).toBe("removed");
+  db.close();
+});

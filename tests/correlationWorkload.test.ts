@@ -142,7 +142,15 @@ const DERIVATIVE = "discovery:huggingface-trending";
  * drift it exists to catch. A change that moves one of these is a change in how much work
  * correlation costs, and updating the number is how that gets noticed and agreed to.
  */
-const BUDGET = { scans: 32, comparisons: 388, statements: 202 };
+/*
+ * `statements` moved from 202 to 262 when stories started keeping claims (migration 065). The 60
+ * are writes, and what makes them affordable is that they are bounded by the story rather than by
+ * the event: a claim is written when it appears, when it rises and while it collects its first
+ * three supporting ids, so a story seen four hundred times still writes each claim five times at
+ * most. `scans` and `comparisons` are untouched, which is the half of this budget that says
+ * correlation itself decided the same things the same way.
+ */
+const BUDGET = { scans: 32, comparisons: 388, statements: 262 };
 
 test("the correlation workload groups the same evidence within its work budget", () => {
   const db = openDatabase(":memory:");

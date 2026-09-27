@@ -67,3 +67,49 @@ export function claimType(event: Event): ClaimType | null {
   }
   return claim;
 }
+
+/**
+ * What a story establishes, as opposed to what one of its events said.
+ *
+ * `events.confidence` is written once, in `store.ts`, and never moves, because an event is
+ * immutable: the card that went out carried the strength that was true when it was sent, and
+ * rewriting the row would make the archive disagree with the message (`promotion.ts` argues this
+ * at length). So the thing that rises is the derived claim, not the evidence under it. Three
+ * catalogues listing a model at `observed` do not make any of those three events stronger; they
+ * make the story's claim that the model exists stronger, and that is a fact about the story.
+ *
+ * `existence` -- something by this name is real.
+ * `availability` -- a reader can call it today.
+ * `identity` -- we know which model these names are, rather than that they are something.
+ *
+ * A claim only rises. A model leaving a catalogue is evidence it existed, never evidence against
+ * it, and `stories.current_status` is where a withdrawal is read.
+ */
+export type StoryClaim = "existence" | "availability" | "identity";
+
+/** A claim that a delisting supports as readily as a listing: it was there to be withdrawn. */
+const EXISTENCE: ReadonlySet<ClaimType> = new Set<ClaimType>([
+  "model_available",
+  "model_listed",
+  "model_delisted",
+  "model_sighted",
+  "weights_published",
+  "page_changed",
+  "rank_changed",
+  "price_changed",
+  "deprecation_announced",
+]);
+
+/** Called today, by the reader, in the catalogue they would call it from. */
+const AVAILABILITY: ReadonlySet<ClaimType> = new Set<ClaimType>(["model_available", "model_listed"]);
+
+export function claimsOf(event: Event, knowsIdentity: boolean): StoryClaim[] {
+  const claim = claimType(event);
+  if (claim === null) return [];
+  const claims: StoryClaim[] = [];
+  if (EXISTENCE.has(claim)) claims.push("existence");
+  if (AVAILABILITY.has(claim) && event.kind !== "removed") claims.push("availability");
+  // An identity is claimed by the source naming the model, not by this service recognising it.
+  if (knowsIdentity && EXISTENCE.has(claim)) claims.push("identity");
+  return claims;
+}

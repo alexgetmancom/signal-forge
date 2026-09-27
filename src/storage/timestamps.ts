@@ -58,6 +58,8 @@ export const TIMESTAMP_COLUMNS: readonly (readonly [table: string, column: strin
   ["stories", "first_seen_at"],
   ["stories", "updated_at"],
   ["stories", "released_at"],
+  ["story_claims", "first_at"],
+  ["story_claims", "raised_at"],
   ["summaries", "created_at"],
   ["suppressions", "recorded_at"],
   ["card_amendments", "updated_at"],

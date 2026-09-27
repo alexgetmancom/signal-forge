@@ -47,6 +47,11 @@ export const HOT_QUERIES: readonly HotQuery[] = [
     params: ["arena", "2026-01-01T00:00:00.000Z"],
   },
   {
+    name: "claims of one story",
+    sql: "SELECT claim, confidence, supported_by FROM story_claims WHERE story_id = ?",
+    params: [1],
+  },
+  {
     name: "model fact members of one model",
     sql: "SELECT kind, ref FROM model_fact_members WHERE canonical_key = ?",
     params: ["x"],
