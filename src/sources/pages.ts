@@ -104,9 +104,11 @@ export const WATCHED_SITES: readonly WatchedSite[] = [
     ignoreSections: ["competition", "edu", "responsible-ai", "terms"],
   },
   // Most of this sitemap is the billing console; what is left is the model and pricing pages.
-  // The blog at z.ai/blog is not in it and cannot be watched: on 2026-09-19 it had no index, feed or
-  // sitemap, and no other page linked a post, so "How GLM Built Its Own Inference Infrastructure"
-  // reached us only through Hacker News. The coverage board is where the next one will show.
+  // The blog at z.ai/blog is not in it and cannot be listed: on 2026-09-19, and again on 2026-09-27,
+  // it had no index, feed or sitemap, and no other page linked a post, so "How GLM Built Its Own
+  // Inference Infrastructure" reached us only through Hacker News. An essay can still only arrive
+  // that way. A release cannot hide the same way, because the address of its post is the name of the
+  // model: `discovery:blog-zai` in probes.ts asks for one by name rather than waiting for a list.
   {
     id: "zai",
     name: "Z.ai",

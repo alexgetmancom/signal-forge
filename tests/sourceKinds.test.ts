@@ -19,8 +19,11 @@ function registry() {
  * so a gate demanding the rest would have to be switched off to pass, and a switched-off gate is
  * worse than none. This may only ever go down. Lower it when a family is named; the failure message
  * says which family is the biggest one left.
+ *
+ * 163 on the day kinds were introduced; 160 once the documentation probes became a kind, which is
+ * what adding a fourth probe cost -- the budget is what made adding one name the other three.
  */
-const UNNAMED_BUDGET = 163;
+const UNNAMED_BUDGET = 160;
 
 test("a source names the maker it belongs to the way the registry spells it", () => {
   const spellings = new Set<string>(VENDOR_NAMES);

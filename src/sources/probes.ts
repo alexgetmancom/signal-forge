@@ -3,17 +3,20 @@ import type { Collection, RecordData } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
 import { readLatestSnapshot } from "../storage/snapshots.js";
 import { USER_AGENT } from "./http.js";
+import type { Vendor } from "./vendors.js";
 
 /**
  * Asking a documentation site for a model that has not been announced.
  *
- * Every other source here waits to be told. These four ask: a vendor writes the page for a model
+ * Every other source here waits to be told. These five ask: a vendor writes the page for a model
  * before it says the model exists, and the page answers 200 to anyone who guesses its address
  * while no link anywhere points at it. Measured on 2026-09-24: `platform.claude.com`'s
  * `/docs/en/models/opus-5-5/overview` answers 200 and `opus-9-9` answers 404;
  * `ai.google.dev/gemini-api/docs/models/<slug>` answers 104 KB against an 83 KB not-found;
  * `platform.openai.com/docs/models/gpt-6-luna` answers 200 and a nonsense slug 404; and
- * `opencode.ai/data/<maker>/<slug>` renders "Completed sessions" only for a model it actually has.
+ * `opencode.ai/data/<maker>/<slug>` renders "Completed sessions" only for a model it actually has;
+ * and `z.ai/blog/<model>` answers 200 for `glm-5.3` and 404 for `glm-5.4`, which is a maker whose
+ * announcement is the address of the model itself.
  *
  * Nothing here defeats a protection: these are plain GETs identified as SignalForge, and a site
  * that answers a challenge instead of a page simply yields no candidate. The guesses are versions
@@ -53,7 +56,8 @@ function nextVersions([major, minor]: readonly [number, number]): (readonly [num
 
 export type Site = {
   id: string;
-  vendor: string;
+  /** Spelled the way the registry spells it, because a probe is a registered source like any other. */
+  vendor: Vendor;
   /** The shapes to follow, as a pattern over a model id: group one is the major, group two the minor. */
   shapes: readonly { family: string; version: RegExp }[];
   /** How the site spells one guess: the slug it would live at. */
@@ -79,8 +83,8 @@ function dotted([major, minor]: readonly [number, number]): string {
 }
 
 /**
- * The three sites answer 404 for a slug they do not have and 200 for one they do, checked against
- * both a live model and a nonsense name on 2026-09-24. The status is the whole test: no body is
+ * The four sites answer 404 for a slug they do not have and 200 for one they do, checked against
+ * both a live model and a nonsense name on 2026-09-24, and Z.ai again on 2026-09-27. The status is the whole test: no body is
  * parsed, so a redesign of the page cannot turn a miss into a sighting.
  */
 export const PROBE_SITES: readonly Site[] = [
@@ -122,6 +126,34 @@ export const PROBE_SITES: readonly Site[] = [
     spell: (observed) => observed,
     codename: /^gemini-\d+(?:\.\d+)?-[a-z][a-z-]{2,20}$/,
     url: (slug) => `https://ai.google.dev/gemini-api/docs/models/${slug}`,
+  },
+  {
+    id: "discovery:blog-zai",
+    vendor: "Z.ai",
+    /**
+     * Z.ai writes one post per release and nothing links it. The blog has no index at all --
+     * `z.ai/blog` answers 404, `z.ai/sitemap.xml` is 26 addresses of billing console, there is no
+     * feed and the shared chunk names no post -- so a list is impossible and a name is the only way
+     * in. What makes the name enough is that the address is the model: measured 2026-09-27,
+     * `glm-5.3`, `glm-5.2`, `glm-5.1`, `glm-5`, `glm-4.7`, `glm-4.6`, `glm-4.5` and `glm-image` all
+     * answer 200 while `glm-6`, `glm-6.5`, `glm-5.4`, `glm-4.8` and `glm-audio` answer 404.
+     *
+     * The 404s are worth as much as the 200s: `glm-5.3-prime`, `glm-5.3-flashx` and
+     * `glm-5.2-thinking` have no post, so the line the maker draws between a release and a tier is
+     * published here, and `TIER_WORD` is this tracker guessing at the same line.
+     */
+    shapes: [{ family: "glm", version: /^glm-(\d+)(?:\.(\d+))?$/i }],
+    slug: (family, version) => `${family}-${dotted(version)}`,
+    // The address is case-sensitive: `GLM-5.3` answers 404 where `glm-5.3` answers 200, and the
+    // catalogues spell the same model both ways.
+    spell: (observed) => observed.toLowerCase(),
+    /**
+     * No `codename`: GLM is named by number, never beside a word, so there is nothing here that
+     * version guessing cannot reach. The shape that would match instead is the catalogue's own
+     * aliases -- `glm-latest`, `glm-flash-latest`, both 404 -- which is a question asked once a day
+     * about a name no maker ever publishes.
+     */
+    url: (slug) => `https://z.ai/blog/${slug}`,
   },
 ];
 

@@ -342,3 +342,42 @@ test("a name that answered 404 is left alone for a day, and the version guesses 
   // A day later it is a question again.
   expect(asked[2]).toContain("gpt-6-vela");
 });
+
+const zai = PROBE_SITES.find((site) => site.id === "discovery:blog-zai");
+
+test("Z.ai publishes a post at the model's own address, and a tier has none", async () => {
+  if (!zai) throw new Error("the Z.ai probe is gone");
+  // What the catalogues hold spelled four ways, and the post for the release after the newest of
+  // them. `GLM-5.3` is the same model as `glm-5.3` to a catalogue and a 404 to the blog.
+  const pages = answering({
+    "https://z.ai/blog/glm-5.3": "GLM-5.3 is out",
+    "https://z.ai/blog/glm-5.4": "GLM-5.4 is out",
+  });
+  const collection = await collectDocsProbe(
+    catalogue(["GLM-5.3", "glm-5.3-flashx", "zai/glm-5.2", "glm-4.7"]),
+    zai,
+    pages,
+  );
+  expect(collection.records.map((record) => record.id)).toEqual(["glm-5.4"]);
+  expect(collection.records.map((record) => record.url)).toEqual(["https://z.ai/blog/glm-5.4"]);
+  expect(collection.source).toBe("discovery:blog-zai");
+});
+
+test("Z.ai is asked about no name a catalogue only aliases", async () => {
+  if (!zai) throw new Error("the Z.ai probe is gone");
+  const asked: string[] = [];
+  const pages = answering({ "https://z.ai/blog/glm-5.3": "GLM-5.3 is out" });
+  const request = async (url: string, init?: RequestInit) => {
+    asked.push(String(url));
+    return pages(url, init);
+  };
+  const collection = await collectDocsProbe(catalogue(["GLM-5.3", "glm-latest", "glm-flash-latest"]), zai, request);
+  expect(collection.records).toEqual([]);
+  // The next three versions of the one shape it follows, and the control. An alias is not a version.
+  expect(asked.map((url) => url.replace("https://z.ai/blog/", "")).sort()).toEqual([
+    "glm-5.3",
+    "glm-5.4",
+    "glm-6",
+    "glm-6.5",
+  ]);
+});

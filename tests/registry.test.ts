@@ -98,6 +98,7 @@ test("source registry has unique IDs, valid streams, labels and consistent pacin
       ["github-search", 60],
       ["polymarket.com", 60],
       ["discovery:docs-openai", 5],
+      ["discovery:blog-zai", 5],
       ["discovery:docs-anthropic", 5],
       ["discovery:docs-google", 5],
       ["opencode.ai", 5],

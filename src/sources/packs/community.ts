@@ -7,6 +7,7 @@ import { collectCommandCodeModels, collectOpenCodeGo, collectOpenCodeZen } from 
 import type { SourceContext, SourceEntry } from "../definition.js";
 import { collectGithubDiscovery, collectHuggingFaceTrending, GITHUB_DISCOVERY_QUERIES } from "../discovery.js";
 import { collectGithubCommits, collectGithubPulls, collectGithubReleases } from "../github.js";
+import { type SourceKind, sourcesOfKind } from "../kinds.js";
 import { collectPolymarket } from "../markets.js";
 import { collectModelMentions, MODEL_MENTION_REPOS, mentionSource } from "../modelMentions.js";
 import { collectDocsProbe, collectOpenCodeData, PROBE_SITES } from "../probes.js";
@@ -39,6 +40,23 @@ const MODEL_SPECS: readonly (AppConfig["github"][number] & { vendor: string })[]
 ];
 
 /** GitHub repositories and discovery: what third parties publish before any vendor says so. */
+/**
+ * Asking a maker's own site for a model it has not announced.
+ *
+ * A handful of addresses, asked often. This is the one kind that can be first: the page is written
+ * before the announcement and answers to anyone who names it, so the whole value is in the minutes.
+ * Five minutes is a dozen requests an hour against a host that serves millions, and nothing is
+ * stored unless an address answers. `discovery:` makes every hit a radar sighting and never a
+ * catalogue: a page is evidence that a name exists, not that the model is out.
+ */
+const DOCUMENTATION_PROBE: SourceKind = {
+  kind: "documentation-probe",
+  authority: "vendor_owned",
+  group: "Discovery",
+  stream: "pages",
+  intervalSeconds: 300,
+};
+
 export function communitySources({ db, config, cache }: SourceContext): SourceEntry[] {
   const definitions: SourceEntry[] = [
     {
@@ -215,23 +233,18 @@ export function communitySources({ db, config, cache }: SourceContext): SourceEn
       collector: () => collectCliBundle(bundle, fetch, bundleMemory(db, bundle.source)),
     });
 
-  for (const site of PROBE_SITES)
-    definitions.push({
-      id: site.id,
-      authority: "vendor_owned",
-      vendor: site.vendor,
-      group: "Discovery",
-      stream: "pages",
-      /**
-       * A handful of addresses, asked often. This is the one source that can be first: the page is
-       * written before the announcement and answers to anyone who guesses it, so the whole value is
-       * in the minutes. Five minutes is a dozen requests an hour against a documentation host that
-       * serves millions, and nothing is stored unless an address answers.
-       */
-      intervalSeconds: 300,
-      pace: { group: site.id, seconds: 5 },
-      collector: () => collectDocsProbe(db, site, fetch),
-    });
+  definitions.push(
+    ...sourcesOfKind(
+      DOCUMENTATION_PROBE,
+      PROBE_SITES.map((site) => ({
+        id: site.id,
+        vendor: site.vendor,
+        // One host per probe, so a slow answer from one maker never delays a question to another.
+        pace: { group: site.id, seconds: 5 },
+        collector: () => collectDocsProbe(db, site, fetch),
+      })),
+    ),
+  );
   definitions.push({
     id: "discovery:opencode-data",
     authority: "third_party",
