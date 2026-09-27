@@ -142,6 +142,18 @@ const ANNOUNCEMENT_WINDOW_MS = 3 * 24 * 3_600_000;
 export type Announcement = { at: string; source: string };
 
 /**
+ * How far back a card looks for a maker's announcement of a model.
+ *
+ * Long, because the gap this is about is long: OpenAI announced GPT-5.6 Cyber on 11 August and the
+ * docs page carrying it was sighted here on 25 September, forty-five days later. Ninety days would
+ * have held that one and nothing to spare, so it is six months. Bounded at all because the read
+ * below had no window: it grew with every newsroom post this service will ever record, and a read
+ * that grows with the archive is a floor that rises on its own, with nothing in any report to say
+ * why. The same six months in a second place would be two windows, so it is stated once here.
+ */
+const ANNOUNCEMENT_MEMORY_MS = 180 * 24 * 3_600_000;
+
+/**
  * The earliest announcement recorded here for each model, by the key an announcement is keyed on.
  *
  * Read once per batch, because a card that says a model is unannounced has to be able to be wrong
@@ -150,12 +162,19 @@ export type Announcement = { at: string; source: string };
  * no announcement in this table and the card called a model with a press release "not announced
  * yet". An absent row means this service never saw one, which is why the sentence built from this
  * map only ever speaks when there is a row.
+ *
+ * The window is measured from the moment the batch is being built rather than from now, because a
+ * replay asks what a card said on the day it was sent, and a window anchored to the wall clock would
+ * answer with a different set of announcements every time the history is replayed.
  */
-export function announcementsBySubject(db: Database): Map<string, Announcement> {
+export function announcementsBySubject(db: Database, now: number): Map<string, Announcement> {
+  const since = new Date(now - ANNOUNCEMENT_MEMORY_MS).toISOString();
   const found = new Map<string, Announcement>();
   for (const row of db
-    .query<Event, []>("SELECT * FROM events WHERE stream IN ('news','pages','changelog') AND kind='new'")
-    .all()) {
+    .query<Event, [string]>(
+      "SELECT * FROM events WHERE detected_at>=? AND stream IN ('news','pages','changelog') AND kind='new'",
+    )
+    .all(since)) {
     const model = announcementModel(row);
     if (!model) continue;
     const seen = found.get(model);

@@ -77,6 +77,13 @@ export const HOT_QUERIES: readonly HotQuery[] = [
     params: ["boot"],
   },
   {
+    // Read once per batch that carries a codename, and the reason it has a window at all: without
+    // one it grew with every newsroom post the archive will ever hold.
+    name: "announcements in the window a card looks back over",
+    sql: "SELECT id FROM events WHERE detected_at>=? AND stream IN ('news','pages','changelog') AND kind='new'",
+    params: ["2026-01-01T00:00:00.000Z"],
+  },
+  {
     name: "operator journal, mutations only",
     sql: "SELECT id FROM operator_journal WHERE mutates = 1 ORDER BY id DESC LIMIT 50",
     params: [],

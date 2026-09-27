@@ -311,7 +311,7 @@ function withBorrowedContext(work: Delivering, speaking: BatchEvent[]): void {
   // Only a sighting can be of something the maker has already announced, and only a batch holding
   // one pays for the reading.
   const announcements = speaking.some((event) => event.signal === "codename")
-    ? announcementsBySubject(db)
+    ? announcementsBySubject(db, now)
     : new Map<string, Announcement>();
   for (const event of speaking) {
     const returned = departedAs(db, event, now);
