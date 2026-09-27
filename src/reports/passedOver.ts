@@ -26,6 +26,17 @@ type PassedOverStory = {
   title: string;
   vendor: string | null;
   independentSourceCount: number;
+  /**
+   * The same count over arrivals alone, which is the one the corroboration rule does.
+   *
+   * A catalogue rewriting a row it already had is that catalogue repeating itself, not an
+   * organisation noticing a model, so `detectCorroborated` counts only `kind='new'`. This count
+   * says what the rule saw; `independentSourceCount` says what we held. Where they disagree the
+   * subject is a catalogue catching up: every event on Gemini 3.8 Flash on 2026-09-27 was a
+   * `changed`, three families by the wider count and none by this one, for a model Google had
+   * shipped on 2 September.
+   */
+  arrivalSourceCount: number;
   sources: string[];
   eventCount: number;
   suppressedCount: number;
@@ -42,7 +53,16 @@ type PassedOverStory = {
 export type PassedOverReport = {
   days: number;
   threshold: number;
-  /** Subjects at or over the threshold that never spoke: the misses this report exists for. */
+  /**
+   * Subjects at or over the threshold on `arrivalSourceCount` that never spoke: the misses this
+   * report exists for.
+   *
+   * Counted on arrivals because it is a claim about the corroboration rule, and a headline that
+   * counts something the rule does not is a false alarm the operator has to disprove by hand. On
+   * the seven days to 2026-09-27 the wider count made it 30 and the rule's own arithmetic made it
+   * 11; the top two, Gemini 3.8 Flash and GLM 5.2 Fast, were models out since 2 September and 23
+   * June that no reader was waiting for.
+   */
   overThresholdAndSilent: number;
   stories: PassedOverStory[];
 };
@@ -54,6 +74,7 @@ type Row = {
   first_seen_at: string;
   updated_at: string;
   event_id: number;
+  kind: string;
   source: string;
   stream: string;
   authority: SourceAuthority;
@@ -73,7 +94,7 @@ function rows(db: Database, since: string): Row[] {
   return db
     .query<Row, [string]>(
       `SELECT s.id AS story_id,s.title,s.vendor,s.first_seen_at,s.updated_at,
-              e.id AS event_id,e.source,e.stream,e.authority,src.vendor AS source_vendor,
+              e.id AS event_id,e.kind,e.source,e.stream,e.authority,src.vendor AS source_vendor,
               EXISTS(SELECT 1 FROM batch_events be JOIN deliveries d ON d.batch_id=be.batch_id
                      WHERE be.event_id=e.id) AS delivered,
               (SELECT COUNT(*) FROM suppressions sup WHERE sup.event_id=e.id) AS suppressions,
@@ -106,16 +127,15 @@ export function passedOver(db: Database, days = 7, limit = 50, now = Date.now())
   for (const [storyId, events] of grouped) {
     const first = events[0];
     if (!first) continue;
-    const families = new Set(
-      events.map((event) =>
-        sourceIndependenceFamily({
-          source: event.source,
-          stream: event.stream,
-          authority: event.authority,
-          vendor: event.source_vendor,
-        }),
-      ),
-    );
+    const familyOf = (event: Row) =>
+      sourceIndependenceFamily({
+        source: event.source,
+        stream: event.stream,
+        authority: event.authority,
+        vendor: event.source_vendor,
+      });
+    const families = new Set(events.map(familyOf));
+    const arrivalFamilies = new Set(events.filter((event) => event.kind === "new").map(familyOf));
     const tally = new Map<string, number>();
     for (const event of events)
       for (const reason of (event.reasons ?? "").split(",").filter(Boolean))
@@ -126,6 +146,7 @@ export function passedOver(db: Database, days = 7, limit = 50, now = Date.now())
       title: first.title,
       vendor: first.vendor,
       independentSourceCount: families.size,
+      arrivalSourceCount: arrivalFamilies.size,
       sources: [...new Set(events.map((event) => event.source))].sort(),
       eventCount: events.length,
       suppressedCount: events.reduce((total, event) => total + event.suppressions, 0),
@@ -139,9 +160,14 @@ export function passedOver(db: Database, days = 7, limit = 50, now = Date.now())
     });
   }
 
+  // Arrivals first, so the top of the table is what the rule could have carried. Ordering by the
+  // wider count put Gemini 3.8 Flash and GLM 5.2 Fast in the first two rows on 2026-09-27, both
+  // long since released, and a reader who trusts the ordering reads those as the day's worst
+  // misses.
   stories.sort(
     (left, right) =>
       Number(left.spoke) - Number(right.spoke) ||
+      right.arrivalSourceCount - left.arrivalSourceCount ||
       right.independentSourceCount - left.independentSourceCount ||
       right.suppressedCount - left.suppressedCount ||
       right.updatedAt.localeCompare(left.updatedAt),
@@ -149,9 +175,8 @@ export function passedOver(db: Database, days = 7, limit = 50, now = Date.now())
   return {
     days,
     threshold: INDEPENDENT_SOURCES,
-    overThresholdAndSilent: stories.filter(
-      (story) => !story.spoke && story.independentSourceCount >= INDEPENDENT_SOURCES,
-    ).length,
+    overThresholdAndSilent: stories.filter((story) => !story.spoke && story.arrivalSourceCount >= INDEPENDENT_SOURCES)
+      .length,
     stories: stories.slice(0, limit),
   };
 }

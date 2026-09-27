@@ -59,6 +59,14 @@ export function calibrationOperations(db: Database, config: AppConfig, _all: () 
       summary:
         "Subjects ranked by how many unrelated sources recorded them, and whether a reader ever heard: the misses, with the rules that made each one.",
       startHere: "what did we know about before anyone was told",
+      note:
+        "Two counts per subject, and only one of them is a miss. `independentSourceCount` is every " +
+        "unrelated source that recorded the subject; `arrivalSourceCount` counts only the ones that " +
+        "recorded it as an arrival, which is the count the corroboration rule does, and it is what " +
+        "`overThresholdAndSilent` and the ordering use. A subject high on the first and zero on the " +
+        "second is a catalogue rewriting rows for a model that is already out -- Gemini 3.8 Flash " +
+        "and GLM 5.2 Fast both read that way on 2026-09-27 -- and is not something a reader was " +
+        "waiting to hear.",
       mutates: false,
       agent: true,
       schema: z.object({ days: count(90, 7), limit: count(200, 50) }),

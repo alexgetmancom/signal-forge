@@ -158,6 +158,23 @@ test("three catalogues finishing the same import are not three organisations not
   expect(corroborationOf(db, 1)).toBeNull();
 });
 
+test("a catalogue rewriting rows it already had is not a miss the report should headline", () => {
+  const { db, add } = setup();
+  add("models-dev", "api-models", "third_party", { name: "Gemini 3.8 Flash" }, "2026-09-20T05:31:00.165Z");
+  // Gemini 3.8 Flash on 2026-09-27: three families, every one of them a `changed`, for a model
+  // Google had shipped on 2 September. The rule counts arrivals and saw nothing here, so a
+  // headline that counted the wider number was reporting a miss the rule never had.
+  db.query("UPDATE stories SET title='Gemini 3.8 Flash' WHERE id=1").run();
+  db.exec("UPDATE events SET kind='changed' WHERE id IN (SELECT event_id FROM story_events WHERE story_id=1)");
+
+  const report = passedOver(db, 7, 50, now);
+  const story = report.stories[0];
+  expect(story?.independentSourceCount).toBe(3);
+  expect(story?.arrivalSourceCount).toBe(0);
+  expect(report.overThresholdAndSilent).toBe(0);
+  expect(detectCorroborated(db, [scouts], now)).toEqual([]);
+});
+
 test("a model the catalogue itself dates to August is not a discovery of this week", () => {
   const { db, add } = setup();
   add(
