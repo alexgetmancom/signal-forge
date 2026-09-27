@@ -3,6 +3,7 @@ import { signalOf } from "../events/classify.js";
 import { SIGNAL_CLASSES, type SignalClass } from "../events/signals.js";
 import type { Event } from "../events/types.js";
 import { listStories } from "../storiesView.js";
+import { clip, text } from "../text.js";
 
 /**
  * What came out over a window, in the shape a person asks for it: "what was news today".
@@ -39,9 +40,9 @@ export type NewsReport = {
 export type NewsItem = { label: string | null; title: string; description: string | null; url: string | null };
 
 const DESCRIPTION_LIMIT = 400;
-const clip = (text: string): string =>
-  text.length > DESCRIPTION_LIMIT ? `${text.slice(0, DESCRIPTION_LIMIT - 1).trimEnd()}…` : text;
-const orNull = (text: string | undefined): string | null => (text?.trim() ? text.trim() : null);
+/** Clips through `clip` rather than `slice`, so a description cut mid-emoji keeps whole characters. */
+const shorten = (value: string): string =>
+  value.length > DESCRIPTION_LIMIT ? `${clip(value, DESCRIPTION_LIMIT - 1).trimEnd()}…` : value;
 
 type Embed = { author?: { name?: string }; title?: string; description?: string; url?: string };
 
@@ -53,12 +54,12 @@ export function readMessage(body: string): { headline: string | null; items: New
   if (body.startsWith("{")) {
     try {
       const payload = JSON.parse(body) as { content?: string; embeds?: Embed[] };
-      const headline = orNull(payload.content?.split("\n")[0]?.replace(/<@&?\d+>/g, ""));
+      const headline = text(payload.content?.split("\n")[0]?.replace(/<@&?\d+>/g, ""));
       const items = (payload.embeds ?? []).map((embed) => ({
-        label: orNull(embed.author?.name),
+        label: text(embed.author?.name),
         title: embed.title?.trim() || embed.author?.name?.trim() || "(untitled)",
-        description: embed.description?.trim() ? clip(embed.description.trim()) : null,
-        url: orNull(embed.url),
+        description: embed.description?.trim() ? shorten(embed.description.trim()) : null,
+        url: text(embed.url),
       }));
       return { headline, items };
     } catch {
@@ -76,8 +77,8 @@ export function readMessage(body: string): { headline: string | null; items: New
   const url = lines.find((line) => /^https?:\/\//.test(line)) ?? null;
   const rest = lines.filter((line) => line !== url && !line.startsWith("Signal Forge ·"));
   return {
-    headline: orNull(header.split("\n")[0]),
-    items: [{ label: null, title: rest[0] ?? "(untitled)", description: orNull(clip(rest.slice(1).join("\n"))), url }],
+    headline: text(header.split("\n")[0]),
+    items: [{ label: null, title: rest[0] ?? "(untitled)", description: text(shorten(rest.slice(1).join("\n"))), url }],
   };
 }
 

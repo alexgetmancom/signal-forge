@@ -3,7 +3,7 @@ import type { AppConfig, SourceMode } from "../config.js";
 import { CONFIDENCE_LEVELS } from "../events/confidence.js";
 import { type IndependenceEvidence, sourceIndependenceFamily } from "../events/sourceFamily.js";
 import type { Confidence } from "../events/types.js";
-import { median } from "../numbers.js";
+import { median, round } from "../numbers.js";
 import { sourceJobs } from "../sources/registry.js";
 
 type SignalQualitySource = {
@@ -95,11 +95,6 @@ type VerdictAggregate = { source: string; quiet: number; undecided: number };
 type StoryEvidence = IndependenceEvidence & { id: number; confidence: Confidence; detected_at: string };
 type LeadTime = { source: string; leadTimeSeconds: number };
 
-const rounded = (value: number, digits = 2): number => {
-  const factor = 10 ** digits;
-  return Math.round(value * factor) / factor;
-};
-
 function medianSeconds(values: number[]): number | null {
   const value = median(values);
   return value === null ? null : Math.round(value);
@@ -120,7 +115,7 @@ export function signalQuality(db: Database, config: AppConfig, days = 7, now = D
     .get(since);
   const observedHours =
     bounds?.observedFrom && bounds.observedUntil
-      ? rounded(Math.max(0, Date.parse(bounds.observedUntil) - Date.parse(bounds.observedFrom)) / 3_600_000)
+      ? round(Math.max(0, Date.parse(bounds.observedUntil) - Date.parse(bounds.observedFrom)) / 3_600_000)
       : 0;
   const collections = new Map(
     db
@@ -303,18 +298,18 @@ export function signalQuality(db: Database, config: AppConfig, days = 7, now = D
       ambiguousDeliveries: counts.ambiguous,
       suppressedEvents: verdicts.get(job.id)?.quiet ?? 0,
       eventsWithoutAVerdict: verdicts.get(job.id)?.undecided ?? 0,
-      sourceFailureRate: total ? rounded((row?.failed ?? 0) / total, 3) : 0,
-      averageEventsPerCollection: successful ? rounded((row?.events ?? 0) / successful) : 0,
+      sourceFailureRate: total ? round((row?.failed ?? 0) / total, 3) : 0,
+      averageEventsPerCollection: successful ? round((row?.events ?? 0) / successful) : 0,
       storyCount: storyKeys.size,
       uniqueStoryCount,
       corroboratedStoryCount,
-      duplicateRate: storyKeys.size ? rounded((storyKeys.size - uniqueStoryCount) / storyKeys.size, 3) : 0,
-      freshnessHours: latest ? rounded(Math.max(0, now - Date.parse(latest)) / 3_600_000) : null,
-      signalDensity: row?.records ? rounded((row.events ?? 0) / row.records, 3) : 0,
+      duplicateRate: storyKeys.size ? round((storyKeys.size - uniqueStoryCount) / storyKeys.size, 3) : 0,
+      freshnessHours: latest ? round(Math.max(0, now - Date.parse(latest)) / 3_600_000) : null,
+      signalDensity: row?.records ? round((row.events ?? 0) / row.records, 3) : 0,
       firstSourceWins: firstSourceWins.get(job.id) ?? 0,
       laterConfirmed: laterConfirmed.get(job.id) ?? 0,
       confirmationRate: firstSourceWins.get(job.id)
-        ? rounded((laterConfirmed.get(job.id) ?? 0) / (firstSourceWins.get(job.id) ?? 1), 3)
+        ? round((laterConfirmed.get(job.id) ?? 0) / (firstSourceWins.get(job.id) ?? 1), 3)
         : 0,
       medianLeadTimeSeconds: medianSeconds(
         leadTimes.filter((leadTime) => leadTime.source === job.id).map((leadTime) => leadTime.leadTimeSeconds),

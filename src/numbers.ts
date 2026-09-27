@@ -9,8 +9,8 @@ export function median(values: number[]): number | null {
   return ((sorted[middle - 1] ?? 0) + (sorted[middle] ?? 0)) / 2;
 }
 
-/** Rounds to a fixed number of decimal places. */
-export function round(value: number, digits: number): number {
+/** Rounds to a fixed number of decimal places, two unless another count is asked for. */
+export function round(value: number, digits = 2): number {
   const factor = 10 ** digits;
   return Math.round(value * factor) / factor;
 }

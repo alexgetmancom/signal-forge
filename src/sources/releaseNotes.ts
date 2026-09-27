@@ -6,7 +6,7 @@ import type { Fetch } from "../http-client.js";
 import type { HttpCache } from "../storage/httpCache.js";
 import { slug } from "../text.js";
 import { withAudience } from "./audienceJudge.js";
-import { attribute, htmlText } from "./html.js";
+import { attribute, htmlText, sections } from "./html.js";
 import { fetchText } from "./http.js";
 
 const OPENAI_CHATGPT_RELEASE_NOTES_URL = "https://help.openai.com/en/articles/6825453-chatgpt-release-notes";
@@ -92,6 +92,23 @@ function publicationDate(value: string, source: string, fallbackYear?: number): 
   throw new Error(`${source}: invalid publication date`);
 }
 
+/** Whether a heading carries a date at all, which is what separates entries from navigation. */
+function isDate(value: string, source: string, fallbackYear?: number): boolean {
+  try {
+    publicationDate(value, source, fallbackYear);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The calendar day of a publication instant, which is what every record id is built from. */
+function dayOf(published: string): string {
+  return published.slice(0, 10);
+}
+
+const SUMMARY_LIMIT = 1_200;
+
 function contentBlocks(value: string): string {
   const blocks = [...value.matchAll(/<(p|ul|ol|blockquote)\b[^>]*>[\s\S]*?<\/\1>/gi)].map((match) =>
     htmlText(match[0] ?? ""),
@@ -112,6 +129,31 @@ function releaseCollection(source: string, url: string, records: RecordData[]): 
     appendOnly: true,
     trackChanges: true,
     records: parsed,
+  };
+}
+
+/**
+ * Fetch, then parse. Written out per vendor this was eight functions differing in a URL and a parse,
+ * and the argument list -- `(request, cache)` in that order, with the cache optional -- had to be
+ * repeated correctly eight times for the registry to be able to call any of them.
+ */
+function collector(url: string, parse: (body: string) => Collection) {
+  return async (request: Fetch = fetch, cache?: HttpCache): Promise<Collection> =>
+    parse(await fetchText(url, {}, request, undefined, cache));
+}
+
+/** The same, for the two pages whose entries are judged for audience before they are stored. */
+function judgedCollector(url: string, parse: (body: string) => Collection) {
+  const read = collector(url, parse);
+  return async (
+    request: Fetch = fetch,
+    cache?: HttpCache,
+    judge?: { db: Database; config: AppConfig },
+  ): Promise<Collection> => {
+    const collection = await read(request, cache);
+    if (!judge) return collection;
+    const records = await withAudience(judge.db, judge.config, request, collection.source, collection.records);
+    return { ...collection, records };
   };
 }
 
@@ -171,96 +213,68 @@ export function parseOpenAIApiChangelog(markdown: string): Collection {
     const identity = slug(link?.url ?? `${metadata}:${name}`) || `entry-${index}`;
     return [
       {
-        id: `openai-api:${published.slice(0, 10)}:${identity}`,
+        id: `openai-api:${dayOf(published)}:${identity}`,
         name,
         url: OPENAI_API_CHANGELOG_URL,
         maker: "OpenAI",
         published,
-        summary: summary.slice(0, 1_200),
+        summary: summary.slice(0, SUMMARY_LIMIT),
       } satisfies RecordData,
     ];
   });
   return releaseCollection("openai-api-changelog", OPENAI_API_CHANGELOG_URL, records);
 }
 
-export async function collectOpenAIApiChangelog(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
-  return parseOpenAIApiChangelog(await fetchText(OPENAI_API_CHANGELOG_FETCH_URL, {}, request, undefined, cache));
-}
+export const collectOpenAIApiChangelog = collector(OPENAI_API_CHANGELOG_FETCH_URL, parseOpenAIApiChangelog);
 
 /** Parse the dated article sections from OpenAI's ChatGPT Help Center release notes. */
 export function parseOpenAIChatGPTReleaseNotes(html: string): Collection {
   const article = html.match(/<article\b[^>]*>([\s\S]*?)<\/article>/i)?.[1];
   if (!article) throw new Error("OpenAI ChatGPT release notes article not found");
-  const datedHeadings = [...article.matchAll(/<h1\b[^>]*>([\s\S]*?)<\/h1>/gi)].filter((heading) => {
-    try {
-      publicationDate(htmlText(heading[1] ?? ""), "openai-chatgpt-release-notes");
-      return true;
-    } catch {
-      return false;
-    }
-  });
-  const records: RecordData[] = [];
-  for (let dateIndex = 0; dateIndex < datedHeadings.length; dateIndex++) {
-    const dateHeading = datedHeadings[dateIndex];
-    if (dateHeading?.index === undefined) continue;
-    const dateText = htmlText(dateHeading[1] ?? "");
-    const published = publicationDate(dateText, "openai-chatgpt-release-notes");
-    const sectionStart = dateHeading.index + dateHeading[0].length;
-    const sectionEnd = datedHeadings[dateIndex + 1]?.index ?? article.length;
-    const section = article.slice(sectionStart, sectionEnd);
-    const entries = [...section.matchAll(/<h2\b[^>]*>([\s\S]*?)<\/h2>/gi)];
-    entries.forEach((entry, entryIndex) => {
-      const name = htmlText(entry[1] ?? "");
-      if (!name || entry.index === undefined) return;
-      const bodyStart = entry.index + entry[0].length;
-      const bodyEnd = entries[entryIndex + 1]?.index ?? section.length;
-      const summary = contentBlocks(section.slice(bodyStart, bodyEnd)).slice(0, 1_200) || name;
-      records.push({
-        id: `${published.slice(0, 10)}:${slug(name) || `entry-${entryIndex}`}`,
-        name,
-        url: OPENAI_CHATGPT_RELEASE_NOTES_URL,
-        maker: "OpenAI",
-        published,
-        summary,
-      });
+  const days = sections(article, /<h1\b[^>]*>([\s\S]*?)<\/h1>/gi, (heading) =>
+    isDate(htmlText(heading[1] ?? ""), "openai-chatgpt-release-notes"),
+  );
+  const records = days.flatMap((day) => {
+    const published = publicationDate(htmlText(day.match[1] ?? ""), "openai-chatgpt-release-notes");
+    return sections(day.body, /<h2\b[^>]*>([\s\S]*?)<\/h2>/gi).flatMap((entry, entryIndex) => {
+      const name = htmlText(entry.match[1] ?? "");
+      if (!name) return [];
+      const summary = contentBlocks(entry.body).slice(0, SUMMARY_LIMIT) || name;
+      return [
+        {
+          id: `${dayOf(published)}:${slug(name) || `entry-${entryIndex}`}`,
+          name,
+          url: OPENAI_CHATGPT_RELEASE_NOTES_URL,
+          maker: "OpenAI",
+          published,
+          summary,
+        } satisfies RecordData,
+      ];
     });
-  }
+  });
   return releaseCollection("openai-chatgpt-release-notes", OPENAI_CHATGPT_RELEASE_NOTES_URL, records);
 }
 
-export async function collectOpenAIChatGPTReleaseNotes(
-  request: Fetch = fetch,
-  cache?: HttpCache,
-  judge?: { db: Database; config: AppConfig },
-): Promise<Collection> {
-  const collection = parseOpenAIChatGPTReleaseNotes(
-    await fetchText(OPENAI_CHATGPT_RELEASE_NOTES_FETCH_URL, {}, request, undefined, cache),
-  );
-  if (!judge) return collection;
-  const records = await withAudience(judge.db, judge.config, request, collection.source, collection.records);
-  return { ...collection, records };
-}
+export const collectOpenAIChatGPTReleaseNotes = judgedCollector(
+  OPENAI_CHATGPT_RELEASE_NOTES_FETCH_URL,
+  parseOpenAIChatGPTReleaseNotes,
+);
 
 /** Parse one dated section per entry from Google's official Gemini API changelog. */
 export function parseGeminiApiChangelog(html: string): Collection {
   const content = html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i)?.[1] ?? html;
-  const headings = [...content.matchAll(/<h2\b([^>]*)>([\s\S]*?)<\/h2>/gi)].flatMap((heading) => {
-    const dateText = attribute(heading[1] ?? "", "data-text") ?? htmlText(heading[2] ?? "");
-    try {
-      const published = publicationDate(dateText, "gemini-api-changelog");
-      return heading.index === undefined ? [] : [{ heading, dateText, published }];
-    } catch {
-      return [];
-    }
-  });
-  const records = headings.map(({ heading, dateText, published }, index) => {
-    const anchor = attribute(heading[1] ?? "", "id") ?? published.slice(0, 10);
-    const sectionStart = (heading.index ?? 0) + heading[0].length;
-    const sectionEnd = headings[index + 1]?.heading.index ?? content.length;
-    const summary = contentBlocks(content.slice(sectionStart, sectionEnd)).slice(0, 1_200) || dateText;
+  const dateOf = (heading: RegExpMatchArray): string =>
+    attribute(heading[1] ?? "", "data-text") ?? htmlText(heading[2] ?? "");
+  const records = sections(content, /<h2\b([^>]*)>([\s\S]*?)<\/h2>/gi, (heading) =>
+    isDate(dateOf(heading), "gemini-api-changelog"),
+  ).map(({ match, body }) => {
+    const dateText = dateOf(match);
+    const published = publicationDate(dateText, "gemini-api-changelog");
+    const anchor = attribute(match[1] ?? "", "id") ?? dayOf(published);
+    const summary = contentBlocks(body).slice(0, SUMMARY_LIMIT) || dateText;
     return {
-      id: published.slice(0, 10),
-      name: `Gemini API changelog · ${published.slice(0, 10)}`,
+      id: dayOf(published),
+      name: `Gemini API changelog · ${dayOf(published)}`,
       url: `${GEMINI_API_CHANGELOG_URL}#${anchor}`,
       maker: "Google",
       published,
@@ -270,9 +284,7 @@ export function parseGeminiApiChangelog(html: string): Collection {
   return releaseCollection("gemini-api-changelog", GEMINI_API_CHANGELOG_URL, records);
 }
 
-export async function collectGeminiApiChangelog(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
-  return parseGeminiApiChangelog(await fetchText(GEMINI_API_CHANGELOG_URL, {}, request, undefined, cache));
-}
+export const collectGeminiApiChangelog = collector(GEMINI_API_CHANGELOG_URL, parseGeminiApiChangelog);
 
 function pageYear(html: string, source: string): number {
   const yearText =
@@ -311,10 +323,11 @@ export function parseXaiReleaseNotes(html: string): Collection {
     const nextHeading = headings[index + 1]?.index ?? content.length;
     const nextMonth = monthHeadings.find((candidate) => candidate.index > heading.index)?.index ?? content.length;
     const sectionEnd = Math.min(nextHeading, nextMonth);
-    const summary = contentBlocks(content.slice(heading.index + heading[0].length, sectionEnd)).slice(0, 1_200) || name;
+    const summary =
+      contentBlocks(content.slice(heading.index + heading[0].length, sectionEnd)).slice(0, SUMMARY_LIMIT) || name;
     return [
       {
-        id: `${published.slice(0, 10)}:${anchor}`,
+        id: `${dayOf(published)}:${anchor}`,
         name,
         url: `${XAI_RELEASE_NOTES_URL}#${anchor}`,
         maker: "xAI",
@@ -326,30 +339,23 @@ export function parseXaiReleaseNotes(html: string): Collection {
   return releaseCollection("xai-release-notes", XAI_RELEASE_NOTES_URL, records);
 }
 
-export async function collectXaiReleaseNotes(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
-  return parseXaiReleaseNotes(await fetchText(XAI_RELEASE_NOTES_URL, {}, request, undefined, cache));
-}
+export const collectXaiReleaseNotes = collector(XAI_RELEASE_NOTES_URL, parseXaiReleaseNotes);
 
 /** Parse the dated cards from Mistral's official release-notes page. */
 export function parseMistralReleaseNotes(html: string): Collection {
   const content = html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i)?.[1] ?? html;
-  const dates = [...content.matchAll(/<time\b([^>]*)>([\s\S]*?)<\/time>/gi)].flatMap((time) => {
-    const value = attribute(time[1] ?? "", "dateTime");
-    return time.index === undefined || !value ? [] : [{ time, value }];
-  });
-  const records = dates.flatMap(({ time, value }, index) => {
-    const date = publicationDate(value, "mistral-release-notes");
-    const sectionStart = (time.index ?? 0) + time[0].length;
-    const sectionEnd = dates[index + 1]?.time.index ?? content.length;
-    const section = content.slice(sectionStart, sectionEnd);
-    const heading = section.match(/<h2\b([^>]*)>([\s\S]*?)<\/h2>/i);
+  const records = sections(content, /<time\b([^>]*)>([\s\S]*?)<\/time>/gi, (time) =>
+    Boolean(attribute(time[1] ?? "", "dateTime")),
+  ).flatMap(({ match, body }) => {
+    const date = publicationDate(attribute(match[1] ?? "", "dateTime") ?? "", "mistral-release-notes");
+    const heading = body.match(/<h2\b([^>]*)>([\s\S]*?)<\/h2>/i);
     if (!heading || heading.index === undefined) return [];
     const name = htmlText(heading[2] ?? "");
     if (!name) return [];
-    const summary = contentBlocks(section.slice(heading.index + heading[0].length)).slice(0, 1_200) || name;
+    const summary = contentBlocks(body.slice(heading.index + heading[0].length)).slice(0, SUMMARY_LIMIT) || name;
     return [
       {
-        id: `${date.slice(0, 10)}:${slug(name)}`,
+        id: `${dayOf(date)}:${slug(name)}`,
         name,
         url: MISTRAL_RELEASE_NOTES_URL,
         maker: "Mistral",
@@ -361,18 +367,7 @@ export function parseMistralReleaseNotes(html: string): Collection {
   return releaseCollection("mistral-release-notes", MISTRAL_RELEASE_NOTES_URL, records);
 }
 
-export async function collectMistralReleaseNotes(
-  request: Fetch = fetch,
-  cache?: HttpCache,
-  judge?: { db: Database; config: AppConfig },
-): Promise<Collection> {
-  const collection = parseMistralReleaseNotes(
-    await fetchText(MISTRAL_RELEASE_NOTES_URL, {}, request, undefined, cache),
-  );
-  if (!judge) return collection;
-  const records = await withAudience(judge.db, judge.config, request, collection.source, collection.records);
-  return { ...collection, records };
-}
+export const collectMistralReleaseNotes = judgedCollector(MISTRAL_RELEASE_NOTES_URL, parseMistralReleaseNotes);
 
 /** Parse Groq's dated changelog cards while ignoring its navigation headings. */
 export function parseGroqChangelog(html: string): Collection {
@@ -380,19 +375,18 @@ export function parseGroqChangelog(html: string): Collection {
   const dateMarkers = [
     ...html.matchAll(/<span\b[^>]*class="[^"]*\btext-xs\b[^"]*\bsticky\b[^"]*"[^>]*>([\s\S]*?)<\/span>/gi),
   ].flatMap((marker) => (marker.index === undefined ? [] : [{ index: marker.index, text: htmlText(marker[1] ?? "") }]));
-  const headings = [...html.matchAll(/<h3\b([^>]*)>([\s\S]*?)<\/h3>/gi)];
-  const records = headings.flatMap((heading, index) => {
-    if (heading.index === undefined || !/\bmt-12\b/.test(attribute(heading[1] ?? "", "class") ?? "")) return [];
-    const marker = dateMarkers.filter((candidate) => candidate.index < heading.index).at(-1);
-    const name = htmlText(heading[2]?.match(/<a\b[^>]*>([\s\S]*?)<\/a>/i)?.[1] ?? heading[2] ?? "");
-    const anchor = attribute(heading[1] ?? "", "id") ?? slug(name);
+  // Every h3 bounds the one before it, including the navigation headings this ignores.
+  const records = sections(html, /<h3\b([^>]*)>([\s\S]*?)<\/h3>/gi).flatMap(({ match, index, body }) => {
+    if (!/\bmt-12\b/.test(attribute(match[1] ?? "", "class") ?? "")) return [];
+    const marker = dateMarkers.filter((candidate) => candidate.index < index).at(-1);
+    const name = htmlText(match[2]?.match(/<a\b[^>]*>([\s\S]*?)<\/a>/i)?.[1] ?? match[2] ?? "");
+    const anchor = attribute(match[1] ?? "", "id") ?? slug(name);
     if (!marker || !name || !anchor) return [];
     const published = publicationDate(marker.text, "groq-changelog", year);
-    const sectionEnd = headings[index + 1]?.index ?? html.length;
-    const summary = contentBlocks(html.slice(heading.index + heading[0].length, sectionEnd)).slice(0, 1_200) || name;
+    const summary = contentBlocks(body).slice(0, SUMMARY_LIMIT) || name;
     return [
       {
-        id: `${published.slice(0, 10)}:${anchor}`,
+        id: `${dayOf(published)}:${anchor}`,
         name,
         url: `${GROQ_CHANGELOG_URL}#${anchor}`,
         maker: "Groq",
@@ -404,9 +398,7 @@ export function parseGroqChangelog(html: string): Collection {
   return releaseCollection("groq-changelog", GROQ_CHANGELOG_URL, records);
 }
 
-export async function collectGroqChangelog(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
-  return parseGroqChangelog(await fetchText(GROQ_CHANGELOG_URL, {}, request, undefined, cache));
-}
+export const collectGroqChangelog = collector(GROQ_CHANGELOG_URL, parseGroqChangelog);
 
 /**
  * Moonshot ships Kimi Code faster than it ships models, and the release notes are where a model
@@ -429,7 +421,7 @@ export function parseKimiCodeChangelog(html: string): Collection {
     const version = htmlText(meta.match(/<span class="ignore-header">([\s\S]*?)<\/span>/)?.[1] ?? "");
     const date = htmlText(meta.match(/<span class="wn-date">([\s\S]*?)<\/span>/)?.[1] ?? "");
     const product = htmlText(meta.match(/<span class="wn-product">([\s\S]*?)<\/span>/)?.[1] ?? "Kimi Code");
-    const summary = contentBlocks(match[2] ?? "").slice(0, 1_200);
+    const summary = contentBlocks(match[2] ?? "").slice(0, SUMMARY_LIMIT);
     if (!version || !date || !summary) return [];
     // One historical entry is dated to a month with no day. A publication date is not invented
     // here; the entry is left out, and a wholesale format change empties the collection instead,
@@ -442,7 +434,7 @@ export function parseKimiCodeChangelog(html: string): Collection {
     }
     return [
       {
-        id: `kimi-code:${published.slice(0, 10)}:${slug(version)}`,
+        id: `kimi-code:${dayOf(published)}:${slug(version)}`,
         // A heading can already name the product ("Kimi Code Desktop is here"), and "Model Release"
         // is the page's category for a model, not a product the model belongs to.
         name: version.startsWith(product) || product === "Model Release" ? version : `${product} ${version}`,
@@ -457,9 +449,7 @@ export function parseKimiCodeChangelog(html: string): Collection {
   return releaseCollection("kimi-code-changelog", KIMI_CODE_CHANGELOG_URL, records);
 }
 
-export async function collectKimiCodeChangelog(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
-  return parseKimiCodeChangelog(await fetchText(KIMI_CODE_CHANGELOG_URL, {}, request, undefined, cache));
-}
+export const collectKimiCodeChangelog = collector(KIMI_CODE_CHANGELOG_URL, parseKimiCodeChangelog);
 
 /**
  * MiniMax Code ships a desktop build or a CLI release most days, and none of it reaches the MiniMax
@@ -488,12 +478,12 @@ export function parseMiniMaxCodeChangelog(markdown: string): Collection {
             .slice(heading.length)
             .replace(/<CardGroup[\s\S]*?<\/CardGroup>/g, " ")
             .replace(/<[^>]+>/g, " "),
-        ).slice(0, 1_200);
+        ).slice(0, SUMMARY_LIMIT);
         if (!summary) return [];
         return [
           {
-            id: `minimax-code:${published.slice(0, 10)}:${slug(`${tab[1]} ${version}`)}`,
-            name: version ? `${product} ${version}` : `${product} · ${published.slice(0, 10)}`,
+            id: `minimax-code:${dayOf(published)}:${slug(`${tab[1]} ${version}`)}`,
+            name: version ? `${product} ${version}` : `${product} · ${dayOf(published)}`,
             url: MINIMAX_CODE_CHANGELOG_URL,
             maker: "MiniMax",
             ...(version ? { version } : {}),
@@ -506,6 +496,4 @@ export function parseMiniMaxCodeChangelog(markdown: string): Collection {
   return releaseCollection("minimax-code-changelog", MINIMAX_CODE_CHANGELOG_URL, records);
 }
 
-export async function collectMiniMaxCodeChangelog(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
-  return parseMiniMaxCodeChangelog(await fetchText(MINIMAX_CODE_CHANGELOG_FETCH_URL, {}, request, undefined, cache));
-}
+export const collectMiniMaxCodeChangelog = collector(MINIMAX_CODE_CHANGELOG_FETCH_URL, parseMiniMaxCodeChangelog);

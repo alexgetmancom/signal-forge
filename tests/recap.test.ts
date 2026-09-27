@@ -672,3 +672,39 @@ test("a speed tier of a model that arrived the same week is that model, and the 
   ]);
   expect(context.arrivalCount).toBe(3);
 });
+
+test("a modality of a family, a handle on a registry and a router are not the week's models", () => {
+  const db = openDatabase(":memory:");
+  const catalogue: Collection = {
+    source: "openai",
+    stream: "api-models",
+    url: "https://api.openai.com/models",
+    raw: [],
+    records: [{ id: "baseline", name: "Baseline", pricing: { prompt: "1" } }],
+  };
+  saveCollection(db, catalogue, [wire], "2026-09-01T10:00:00.000Z");
+  // Before the week, so the family is furniture by the time its speech head is listed.
+  catalogue.records.push({ id: "gemini-3.8-flash", name: "Gemini 3.8 Flash", pricing: { prompt: "1" } });
+  saveCollection(db, catalogue, [wire], "2026-09-02T10:00:00.000Z");
+  catalogue.records.push(
+    // The speech head of a model published before this week: Google's only line in the 20-27
+    // September recap, while Gemini 3.9 Flash was not in the message at all.
+    { id: "gemini-3.8-flash-tts", name: "Gemini 3.8 Flash TTS", created: "2026-09-09T00:00:00.000Z" },
+    // A row with a price and no weights: it picks a model per request.
+    { id: "typesafe/jev-router", name: "TypeSafe: Jev Router", created: "2026-09-09T00:00:00.000Z" },
+    { id: "claude-opus-5-5", name: "Claude Opus 5.5", created: "2026-09-09T00:00:00.000Z" },
+  );
+  saveCollection(db, catalogue, [wire], "2026-09-09T10:00:00.000Z");
+  // A handle that published weights is not a maker this tracker follows.
+  const registry: Collection = {
+    source: "discovery:huggingface-trending",
+    stream: "weights",
+    url: "https://huggingface.co/models",
+    raw: [],
+    records: [{ id: "well9472/Nanosaur2-670M", name: "well9472/Nanosaur2-670M", created: "2026-09-09T00:00:00.000Z" }],
+  };
+  saveCollection(db, registry, [wire], "2026-09-09T11:00:00.000Z");
+  const context = recapContext(db, "2026-09-13T18:00:00.000Z");
+  expect(context.arrivals).toEqual([{ vendor: "Anthropic", names: ["Claude Opus 5.5"] }]);
+  expect(context.arrivalCount).toBe(1);
+});

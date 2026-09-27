@@ -166,6 +166,34 @@ export function arrivalWeight(event: Event): number {
  * word alone cannot decide: this returns what the entry would be a tier of, and the caller drops it
  * only when that thing is one it has already seen.
  */
+/**
+ * A modality of a family, named by the catalogue as a suffix on the family's name.
+ *
+ * `Gemini 3.8 Flash TTS` is the speech head of a model published in August, and `Supra2 IMG` is the
+ * image one. They are real endpoints and neither is a release: the 20-27 September recap gave
+ * Google's only line to a TTS variant while Gemini 3.9 Flash, the actual release, was not in the
+ * message at all. Like a tier, this only folds away when the family itself is something we have
+ * already seen -- a maker whose one product is an ASR model is not publishing a variant of
+ * anything.
+ */
+const MODALITY_WORD =
+  /[\s:_-](tts|stt|asr|ocr|img|image|vision|audio|voice|speech|transcribe|embed|embedding|rerank|reranker)$/i;
+export function modalityBase(name: string): string | null {
+  const trimmed = name.trim();
+  return MODALITY_WORD.test(trimmed) ? modelSubject(trimmed.replace(MODALITY_WORD, "")) : null;
+}
+
+/**
+ * Something a catalogue serves that is not a model at all.
+ *
+ * `TypeSafe: Jev Router` picks a model per request; it has a row, a price and no weights. A recap
+ * that counts it is counting the catalogue's plumbing.
+ */
+const NOT_A_MODEL = /[\s:_-](router|gateway|proxy)$/i;
+export function isNotAModel(name: string): boolean {
+  return NOT_A_MODEL.test(name.trim());
+}
+
 const TIER_WORD =
   /[\s:-](fast|free|flex|batch|lite|turbo|cheap|standard|pro|prime|ultraspeed|ultra[\s-]speed|realtime|real[\s-]time)$/i;
 export function tierBase(name: string): string | null {

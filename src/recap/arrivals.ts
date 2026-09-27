@@ -1,12 +1,14 @@
 import { readableName } from "../events/naming.js";
 import { ANNOUNCEMENT_STREAMS } from "../events/signals.js";
-import type { Event, RecordData } from "../events/types.js";
+import type { Event } from "../events/types.js";
 import {
   arrivalWeight,
   isBesideTheRelease,
   isModelVariant,
+  isNotAModel,
   isRepublished,
   isTrainingArtefact,
+  modalityBase,
   modelSubject,
   tierBase,
 } from "../events/variants.js";
@@ -46,25 +48,15 @@ function isRealArrival(event: Event, renamed: Set<number>): boolean {
   // else we collect has ever heard of it -- no benchmark, no arena, no maker's API -- so the only
   // judgement available is whether the maker is one this tracker follows. Adding a maker to that
   // table is how a new name gets in, and it is one line.
-  if (event.stream === "openrouter" && vendorOf(event, record) === "Unknown") return false;
-  return !isModelVariant(name) && !isTrainingArtefact(name) && !isRepublished(event, record);
-}
-
-/**
- * Who a reader would say published this.
- *
- * The maker table answers for anything it recognises. Everything else names itself in the shape of
- * its own handle -- `Sakana: Fugu Max` from a catalogue, `google/gnm-v3` from a registry -- and
- * reading that is better than filing a real launch under "Other" because the maker is new.
- */
-function arrivalVendor(event: Event, record: RecordData | null, name: string): string {
-  const known = vendorOf(event, record);
-  if (known !== "Unknown") return known;
-  const labelled = /^([^:]{2,30}):\s/.exec(name);
-  if (labelled?.[1]) return labelled[1];
-  const id = String(record?.id ?? event.entity_id);
-  const namespace = id.includes("/") ? (id.split("/")[0] ?? "") : "";
-  return namespace || "Other";
+  // A reseller's catalogue gains rows faster than the field gains models, and a registry gains
+  // them faster still: `well9472/Nanosaur2-670M`, `paradigma-inc/Limite-1b-Violetto` and
+  // `Kijai/Ming-Image-ComfyUI` were three of the twelve the 20-27 September recap called "smaller
+  // makers", and the maker it named for each was the handle that published it. Nothing else we
+  // collect has ever heard of them -- no benchmark, no arena, no maker's API -- so the only
+  // judgement available is whether the maker is one this tracker follows. Adding a maker to that
+  // table is how a new name gets in, and it is one line.
+  if (vendorOf(event, record) === "Unknown") return false;
+  return !isModelVariant(name) && !isTrainingArtefact(name) && !isNotAModel(name) && !isRepublished(event, record);
 }
 
 /**
@@ -143,19 +135,18 @@ export function periodArrivals(reading: PeriodReading): {
     // before this week folds away here; a tier of something arriving in the same week is folded
     // in the pass below, because whether the base is in hand depends on collection order and
     // "GPT-6 Luna Pro" led the week's OpenAI line ahead of GPT-6 Luna itself.
-    const base = tierBase(name);
+    const base = tierBase(name) ?? modalityBase(name);
     if (base && alreadyNamed.has(base)) continue;
     const weight = arrivalWeight(event);
     const held = bySubject.get(subject);
-    if (!held || weight > held.weight)
-      bySubject.set(subject, { name, vendor: arrivalVendor(event, record, name), weight });
+    if (!held || weight > held.weight) bySubject.set(subject, { name, vendor: vendorOf(event, record), weight });
   }
   // A tier of a model that arrived in the same week, now that the whole week is in hand. Xiaomi
   // shipped MiMo V2.6 Pro and MiMo V2.6 Pro UltraSpeed on one morning -- one checkpoint at two
   // speeds and two prices -- and OpenRouter carried "GPT-6 Luna Pro" for a model OpenAI announced
   // as GPT-6 Luna. Four of the week's twenty-six names were the same four models said twice.
   for (const [subject, arrival] of [...bySubject]) {
-    const base = tierBase(arrival.name);
+    const base = tierBase(arrival.name) ?? modalityBase(arrival.name);
     if (base && base !== subject && bySubject.has(base)) bySubject.delete(subject);
   }
   // Weight first, then a maker a reader has heard of: a research artefact published as weights

@@ -32,6 +32,7 @@ const VENDORS: [RegExp, string][] = [
   // spelling and its numbered family count. Step 5 Preview spent a day recorded as Unknown because
   // neither was here, so its cards carried no maker and its events joined no vendor's story.
   [/stepfun|(?:^|[\s/~])step-\d/i, "StepFun"],
+  [/aion-labs|\baion[\s-]\d/i, "AionLabs"],
   [/black[\s-]?forest|\bflux\b/i, "Black Forest Labs"],
   [/\brunway\b/i, "Runway"],
   [/\bkling\b/i, "Kling"],

@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import type { AppConfig, Destination } from "../config.js";
 import { signalOf } from "../events/classify.js";
 import type { Event } from "../events/types.js";
+import { round } from "../numbers.js";
 import { buildSourceRegistry } from "../sources/registry.js";
 
 /**
@@ -31,8 +32,6 @@ export type ChannelMixReport = {
 
 /** The line a card prints when another source carried the same story first. */
 const LEAD_MARK = "Traced ";
-
-const rounded = (value: number): number => Math.round(value * 100) / 100;
 
 export function channelMix(db: Database, config: AppConfig, days = 7, now = Date.now()): ChannelMixReport {
   const destinations: readonly Destination[] = config.destinations;
@@ -102,7 +101,7 @@ export function channelMix(db: Database, config: AppConfig, days = 7, now = Date
       ...row,
       // How often the wire could say it saw something before the rest of the internet did, which is
       // the whole claim the service makes.
-      leadShare: row.sent ? rounded(row.withLead / row.sent) : 0,
+      leadShare: row.sent ? round(row.withLead / row.sent) : 0,
     })),
     promotions,
   };

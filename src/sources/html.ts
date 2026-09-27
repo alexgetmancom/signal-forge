@@ -95,3 +95,23 @@ export function nextData(html: string, key: string): unknown {
   }
   throw new SourceError("missing-content", `Public page no longer exposes ${key}`, { evidence: { key } });
 }
+
+/** One heading and the text between it and the next kept heading. */
+export type Section = { match: RegExpMatchArray; index: number; body: string };
+
+/**
+ * A page read as a list of sections rather than as a list of headings and a separate hunt for where
+ * each one ends. Six release-note parsers computed that boundary by hand, each with its own
+ * `matchAll`, its own `index === undefined` guard and its own `?? content.length`.
+ *
+ * `keep` decides which matches are headings *before* the boundaries are taken, which is the whole
+ * reason it is an argument here: a changelog's dated headings and its navigation headings share a
+ * tag, and a section runs to the next dated one, through any navigation heading in between.
+ */
+export function sections(content: string, pattern: RegExp, keep?: (match: RegExpMatchArray) => boolean): Section[] {
+  const kept = [...content.matchAll(pattern)].filter((match) => match.index !== undefined && (!keep || keep(match)));
+  return kept.map((match, index) => {
+    const start = (match.index ?? 0) + match[0].length;
+    return { match, index: match.index ?? 0, body: content.slice(start, kept[index + 1]?.index ?? content.length) };
+  });
+}

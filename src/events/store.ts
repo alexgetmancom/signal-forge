@@ -203,7 +203,7 @@ function leaderboardChange(before: string, after: string): boolean {
   return true;
 }
 
-function recordUrl(body: string | null, fallback: string): string {
+function urlInBody(body: string | null, fallback: string): string {
   if (!body) return fallback;
   try {
     const record = JSON.parse(body) as Record<string, unknown>;
@@ -214,7 +214,7 @@ function recordUrl(body: string | null, fallback: string): string {
 }
 
 function eventUrl(event: Event, fallback: string): string {
-  return recordUrl(event.after_json, recordUrl(event.before_json, fallback));
+  return urlInBody(event.after_json, urlInBody(event.before_json, fallback));
 }
 
 const ENDED = /^(?:resolved|closed|complete|unlisted)$/i;
