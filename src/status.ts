@@ -27,6 +27,7 @@ export type SourceHealth = {
   id: string;
   label: string;
   group: string;
+  upstream: string | null;
   authority: SourceAuthority;
   mode: SourceMode;
   state: SourceState;
@@ -43,6 +44,7 @@ export function sourceHealth(db: Database, config: AppConfig, now = Date.now()):
       id: source.id,
       label: source.label,
       group: source.group,
+      upstream: source.upstream ?? (source.pace?.group.includes(".") ? source.pace.group : null),
       authority: source.authority,
       mode: source.mode,
     };

@@ -4,21 +4,21 @@ import { collectSimpleBench, collectVoxelBench, collectWeirdMl } from "../benchm
 import { collectDesignArena, DESIGNARENA_CATEGORIES } from "../community.js";
 import type { SourceContext, SourceEntry } from "../definition.js";
 
+const arenaSite = { authority: "third_party" as const, group: "Arena", upstream: "arena.ai" };
+
 /** Arenas, leaderboards and benchmark tables. */
 export function leaderboardsSources({ config, cache }: SourceContext): SourceEntry[] {
   return [
     {
       id: "arena",
-      authority: "third_party",
-      group: "Arena",
+      ...arenaSite,
       stream: "arena",
       intervalSeconds: config.pollSeconds,
       collector: () => collectArena(),
     },
     {
       id: "arena-leaderboards",
-      authority: "third_party",
-      group: "Arena",
+      ...arenaSite,
       stream: "leaderboards",
       intervalSeconds: 1800,
       collector: () => collectLeaderboards(),

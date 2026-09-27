@@ -1,8 +1,10 @@
-import { unlinkSync } from "node:fs";
+import type { Database } from "bun:sqlite";
+import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { Collection } from "../events/types.js";
 import { type FailureKind, SourceError } from "../failure.js";
+import { measure } from "../runtime/metrics.js";
 import { SourceHttpError } from "./http.js";
 
 /**
@@ -34,20 +36,16 @@ type WireFailure =
   | { as: "other"; name: string; message: string; code: string | null };
 
 /**
- * What the child answers with: its collection or its failure, and what the attempt cost it.
+ * The collection or failure the child wrote to its answer file.
  *
- * `peakRssMb` is the child's own high-water mark, read off the kernel just before it writes this.
- * The parent cannot measure it -- that is the whole point of the child, and a process that has ended
- * leaves nothing to ask -- so the child says so itself. Optional, because an older child than this
- * code may be answering during a deploy, and because a child killed for memory answers nothing at all.
+ * The child's high-water mark is written beside the answer after the answer itself is serialized.
+ * Including it in this JSON would measure the peak before the largest write of the attempt.
  *
  * A failed attempt's cost is left to the child's own log line rather than smuggled out through the
  * error: the failure is raised as the class the poller catches, and hanging a number off that class
  * would make every `catch` in the chain a place where a number can be lost.
  */
-type WireAnswer = ({ ok: true; collection: Collection } | { ok: false; failure: WireFailure }) & {
-  peakRssMb?: number;
-};
+type WireAnswer = { ok: true; collection: Collection } | { ok: false; failure: WireFailure };
 
 /** One collection by a child: what it found, and what the process that found it cost. */
 export type ChildCollection = { collection: Collection; peakRssMb: number | null };
@@ -96,16 +94,19 @@ export function fromWire(failure: WireFailure): Error {
 }
 
 /** What the child did, as seen from outside it. */
-export type ChildRun = { answer: string | null; code: number | null; timedOut: boolean; stderr: string };
+export type ChildRun = {
+  answer: string | null;
+  peakRssMb: number | null;
+  code: number | null;
+  timedOut: boolean;
+};
 
 /** The result of one collection, read from a child's answer and raised as the child raised it. */
 export function readAnswer(id: string, run: ChildRun): ChildCollection {
   if (run.timedOut)
     throw new SourceError("network", `${id} did not finish within ${Math.round(TIMEOUT_MS / 1000)}s and was stopped`);
   if (run.answer === null) {
-    // No answer and a dead child: killed for memory, or a crash before it could write. The last
-    // line of its stderr is ours -- the child is this code -- but it is described rather than
-    // quoted, because what a runtime prints when it dies is not something to store.
+    // No answer and a dead child: killed for memory, or a crash before it could write.
     const how = run.code === null ? "was killed" : `exited with code ${run.code}`;
     throw new SourceError("collector-bug", `${id} ${how} without answering`);
   }
@@ -118,42 +119,43 @@ export function readAnswer(id: string, run: ChildRun): ChildCollection {
   if (!parsed.ok) throw fromWire(parsed.failure);
   return {
     collection: parsed.collection,
-    peakRssMb: typeof parsed.peakRssMb === "number" && parsed.peakRssMb > 0 ? parsed.peakRssMb : null,
+    peakRssMb: run.peakRssMb !== null && Number.isFinite(run.peakRssMb) && run.peakRssMb > 0 ? run.peakRssMb : null,
   };
 }
 
-/** Spawns the child and waits for it, killing it if it outstays the timeout. */
-async function spawn(id: string): Promise<ChildRun> {
+/** Spawns the child, then reads and decodes its answer synchronously in the parent. */
+export async function collectInSubprocess(db: Database, id: string): Promise<ChildCollection> {
   const path = join(tmpdir(), `signal-forge-${id.replaceAll(/[^a-z0-9]+/gi, "-")}-${Bun.nanoseconds()}.json`);
   // The child's own logging goes to stdout, so the answer cannot: it travels through a file the
   // parent names, which keeps the two channels from being spliced together by a stray log line.
-  const child = Bun.spawn([process.execPath, "--smol", entry(), id, path], { stdout: "inherit", stderr: "pipe" });
+  const child = Bun.spawn([process.execPath, "--smol", entry(), id, path], { stdout: "inherit", stderr: "ignore" });
   const timer = setTimeout(() => child.kill(), TIMEOUT_MS);
   try {
-    const stderr = await new Response(child.stderr).text();
     const code = await child.exited;
     const timedOut = child.killed && code !== 0;
-    const file = Bun.file(path);
-    const answer = !timedOut && (await file.exists()) ? await file.text() : null;
-    return { answer, code, timedOut, stderr };
+    // The full answer comes back into the long-lived process. Its file read and JSON parse can
+    // raise that process's peak even though the collector ran elsewhere. Both are synchronous so
+    // no other JavaScript operation can be charged for the same growth inside this section.
+    return measure(db, `source.decode:${id}`, () =>
+      readAnswer(id, {
+        answer: !timedOut && existsSync(path) ? readFileSync(path, "utf8") : null,
+        peakRssMb: !timedOut && existsSync(`${path}.peak`) ? Number(readFileSync(`${path}.peak`, "utf8")) : null,
+        code,
+        timedOut,
+      }),
+    );
   } finally {
     clearTimeout(timer);
-    try {
-      unlinkSync(path);
-    } catch {
-      // The child may never have written it, and a temporary file left behind is not a failure.
-    }
+    for (const file of [path, `${path}.peak`])
+      try {
+        unlinkSync(file);
+      } catch {
+        // The child may never have written it.
+      }
   }
 }
 
 /** Where the child lives, beside this module's own compiled form rather than at a guessed path. */
 function entry(): string {
   return new URL(import.meta.url.endsWith(".ts") ? "../collectOne.ts" : "../collectOne.js", import.meta.url).pathname;
-}
-
-export async function collectInSubprocess(
-  id: string,
-  run: (id: string) => Promise<ChildRun> = spawn,
-): Promise<ChildCollection> {
-  return readAnswer(id, await run(id));
 }

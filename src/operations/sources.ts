@@ -116,17 +116,14 @@ export function sourcesOperations(db: Database, config: AppConfig, _all: () => O
     collection_cost: {
       section: "sources",
       summary:
-        "What each source costs the machine it runs on: what a child collection reached, and what a light one added to the floor of the process that stays.",
-      startHere: "which sources are why this service needs the memory it has",
+        "Child peaks, overlapping collection readings, and peak growth from decoding and persisting answers in the parent.",
+      startHere: "which collections and persistence steps coincided with a memory peak",
       note:
-        "Two different measurements, deliberately not added together: `childPeakMb` is the size of a " +
-        "process that has ended and costs nothing lasting, while `addedToTheFloorMb` is what a " +
-        "collection added to the high-water mark of the service itself, which is never given back. " +
-        "Only the second is compared against `worthAChildMb`, and a source over it belongs in the " +
-        "heavy lane -- mark it `heavy` in the registry and the poller collects it in a child. This " +
-        "replaces running `source-cost` on a laptop against a copy: a source added today shows its " +
-        "number the first time it runs. Both are absent for anything that has not run since " +
-        "2026-09-27, when the columns were added.",
+        "`childPeakMb` is the whole size a child reached. The parent still reads and persists that " +
+        "answer. `addedByDecodeMb` and `addedByPersistenceMb` identify the named source because " +
+        "those sections run synchronously; neither vanishes when collection moves into a child. " +
+        "`observedDuringCollectionMb` is only an upper bound because concurrent collectors can see " +
+        "the same rise, so it cannot justify moving a source into a child. Null means no measurement.",
       mutates: false,
       agent: true,
       schema: z.object({ days: count(90, 7) }),

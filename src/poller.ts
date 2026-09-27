@@ -151,7 +151,7 @@ async function collectDueSources(
         // a light one in this process. Timing it here as well recorded each collection twice under
         // one name, which inflates the call count and the total of the very report that is supposed
         // to catch a collector getting slower.
-        const child = job.heavy ? await collectInSubprocess(job.id) : null;
+        const child = job.heavy ? await collectInSubprocess(db, job.id) : null;
         const collected = child ? child.collection : await job.collector();
         const collection = { ...collected, authority: job.authority, ...(job.vendor ? { vendor: job.vendor } : {}) };
         const checkedAt = new Date().toISOString();

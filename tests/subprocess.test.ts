@@ -2,13 +2,13 @@ import { expect, test } from "bun:test";
 import { SourceError } from "../src/failure.js";
 import { classifyFailure } from "../src/failureDiagnosis.js";
 import { SourceHttpError } from "../src/sources/http.js";
-import { type ChildRun, collectInSubprocess, fromWire, readAnswer, toWire } from "../src/sources/subprocess.js";
+import { type ChildRun, fromWire, readAnswer, toWire } from "../src/sources/subprocess.js";
 
 const ran = (over: Partial<ChildRun>): ChildRun => ({
   answer: null,
+  peakRssMb: null,
   code: 0,
   timedOut: false,
-  stderr: "",
   ...over,
 });
 
@@ -47,21 +47,14 @@ test("a runtime failure keeps the name and the code its diagnosis is read off", 
   expect(classifyFailure(again).kind).toBe(classifyFailure(raised).kind);
 });
 
-test("a child that answers hands back the collection it collected and what it cost", async () => {
+test("a child that answers hands back the collection it collected and what it cost", () => {
   const collection = { source: "npm:x", stream: "github", url: "https://x.test", raw: "a", records: [] };
-  const got = await collectInSubprocess("npm:x", async () =>
-    ran({ answer: JSON.stringify({ ok: true, collection, peakRssMb: 417 }) }),
-  );
+  const got = readAnswer("npm:x", ran({ answer: JSON.stringify({ ok: true, collection }), peakRssMb: 417 }));
   expect(got).toEqual({ collection, peakRssMb: 417 });
-  // A child older than this code, mid-deploy, answers without the number rather than with a wrong
-  // one, and 0 from a platform that would not say what its peak is means the same thing.
-  const older = await collectInSubprocess("npm:x", async () =>
-    ran({ answer: JSON.stringify({ ok: true, collection }) }),
-  );
-  expect(older).toEqual({ collection, peakRssMb: null });
-  const unmeasured = await collectInSubprocess("npm:x", async () =>
-    ran({ answer: JSON.stringify({ ok: true, collection, peakRssMb: 0 }) }),
-  );
+  // A child stopped after writing its answer but before writing the measurement has no peak.
+  const stopped = readAnswer("npm:x", ran({ answer: JSON.stringify({ ok: true, collection }) }));
+  expect(stopped).toEqual({ collection, peakRssMb: null });
+  const unmeasured = readAnswer("npm:x", ran({ answer: JSON.stringify({ ok: true, collection }), peakRssMb: 0 }));
   expect(unmeasured).toEqual({ collection, peakRssMb: null });
 });
 
@@ -76,12 +69,10 @@ test("a child that dies, times out or babbles is a failure with a kind rather th
     expect(() => readAnswer("polymarket", run)).toThrow(SourceError);
 });
 
-test("a failure the child reports is raised in the parent, not swallowed", async () => {
+test("a failure the child reports is raised in the parent, not swallowed", () => {
   const answer = JSON.stringify({
     ok: false,
     failure: toWire(new SourceError("empty", "models-dev served no models")),
   });
-  await expect(collectInSubprocess("models-dev", async () => ran({ answer }))).rejects.toThrow(
-    "models-dev served no models",
-  );
+  expect(() => readAnswer("models-dev", ran({ answer }))).toThrow("models-dev served no models");
 });

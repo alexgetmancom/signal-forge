@@ -6,7 +6,7 @@ import { openDatabase } from "../src/storage/database.js";
 
 const config = loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname });
 
-test("collection cost separates what a child took from what a light source added to the floor", () => {
+test("collection cost separates child, overlapping collection, and exact parent sections", () => {
   const db = openDatabase(":memory:");
   const now = Date.parse("2026-09-27T12:00:00.000Z");
   const at = new Date(now - 3_600_000).toISOString();
@@ -18,10 +18,17 @@ test("collection cost separates what a child took from what a light source added
   db.query(
     "INSERT INTO source_collection_metrics(source,collected_at,success,peak_rss_mb) VALUES('polymarket',?,1,317)",
   ).run(new Date(now - 7_200_000).toISOString());
-  // A light source is weighed where it runs: the section the registry times it under.
+  // The child collector's metric lives in the same table but is not parent-process growth.
+  recordCodeMetric(db, "source.collect:polymarket", 120, false, now, null, 200 * 1024);
+  recordCodeMetric(db, "source.decode:polymarket", 120, false, now, null, 12 * 1024);
+  recordCodeMetric(db, "source.persist:polymarket", 120, false, now, null, 89 * 1024);
+  // Concurrent light collectors can each observe the same 40 MB rise. No verdict may name either
+  // as the cause; their synchronous persistence has a separate, attributable measurement.
   db.query("INSERT INTO source_collection_metrics(source,collected_at,success) VALUES('arena',?,1)").run(at);
   recordCodeMetric(db, "source.collect:arena", 120, false, now - 3_600_000, null, 40 * 1024);
   recordCodeMetric(db, "source.collect:arena", 120, false, now, null, 8 * 1024);
+  recordCodeMetric(db, "source.collect:deepseek-updates", 120, false, now, null, 40 * 1024);
+  recordCodeMetric(db, "source.persist:arena", 120, false, now, null, 2 * 1024);
 
   const report = collectionCost(db, config, 7, now);
   const child = report.sources.find((source) => source.id === "polymarket");
@@ -31,19 +38,20 @@ test("collection cost separates what a child took from what a light source added
     collections: 2,
     childPeakMb: 417,
     averageChildPeakMb: 367,
-    addedToTheFloorMb: null,
+    observedDuringCollectionMb: null,
+    addedByDecodeMb: 12,
+    addedByPersistenceMb: 89,
   });
   expect(arena).toMatchObject({
     lane: "in process",
     collections: 1,
     childPeakMb: null,
-    addedToTheFloorMb: 40,
-    addedOverTheWindowMb: 48,
+    observedDuringCollectionMb: 40,
+    addedByDecodeMb: null,
+    addedByPersistenceMb: 2,
   });
-  // A child's 417 MB is a process that ended and is not a reason to change anything; the light
-  // source's 40 MB is floor this service keeps, and that is the one the verdict names.
-  expect(report.shouldBeCollectedInAChild).toEqual(["arena (40 MB)"]);
-  expect(report.worthAChildMb).toBe(32);
+  expect(report.sources.find((source) => source.id === "deepseek-updates")?.observedDuringCollectionMb).toBe(40);
+  expect(report).not.toHaveProperty("shouldBeCollectedInAChild");
   db.close();
 });
 

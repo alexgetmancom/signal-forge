@@ -72,22 +72,26 @@ snapshot() {
     db.close();
     if (integrity.integrity_check !== 'ok') throw new Error('integrity_check: ' + integrity.integrity_check);
     console.log('verified', '$STAMP', 'events=' + events.n);
-    // The service cannot see this job. Without a marker, a backup that stopped three weeks ago looks
-    // exactly like one that ran last night, right up until somebody needs it. It names the file that
-    // exists at this instant -- the archive phase renames it in the marker once it has one.
-    require('fs').writeFileSync('/app/backups/last-verified.json', JSON.stringify({
+    // Publish the marker only after the verified file has its final name. A process killed between
+    // those steps must leave an old marker, never a fresh marker naming a file that never existed.
+    const fs = require('fs');
+    const final = '/app/backups/app-$STAMP.db';
+    fs.renameSync('/app/backups/pending-$STAMP.db', final);
+    const marker = '/app/backups/last-verified.json';
+    const pendingMarker = marker + '.tmp';
+    fs.writeFileSync(pendingMarker, JSON.stringify({
       verifiedAt: new Date().toISOString(),
       file: 'app-$STAMP.db',
-      bytes: require('fs').statSync('/app/backups/pending-$STAMP.db').size,
+      bytes: fs.statSync(final).size,
       events: events.n,
     }) + '\n');
+    fs.renameSync(pendingMarker, marker);
   "
   # Staged and renamed inside backups/, so a run killed between writing and verifying leaves its
   # debris where the rotation can see it. It used to be written into data/ and moved here at the
   # end: an interruption in that window left a full copy of the database -- 415 MB and growing --
   # beside the live one, archived by nothing, rotated by nothing, and invisible to `doctor`, which
   # only ever reads backups/. The name says it is not yet a backup; only verification renames it.
-  mv "$DEST/pending-$STAMP.db" "$DEST/app-$STAMP.db"
   # The routing table is not in the repository -- it names channels and carries the bot's
   # destinations -- so the database was backed up nightly while the file that decides where any of
   # it goes existed in exactly one place. Restoring the database onto a new host without it means
@@ -129,7 +133,9 @@ archive() {
       const path = '/app/backups/last-verified.json';
       const marker = JSON.parse(require('fs').readFileSync(path, 'utf8'));
       marker.file = '$archived';
-      require('fs').writeFileSync(path, JSON.stringify(marker) + '\n');
+      const pending = path + '.tmp';
+      require('fs').writeFileSync(pending, JSON.stringify(marker) + '\n');
+      require('fs').renameSync(pending, path);
     "
   fi
   rotate "$DEST/app-*.db.gz"

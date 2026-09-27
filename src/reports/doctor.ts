@@ -34,6 +34,16 @@ export type BackupStatus = {
 /** A nightly job is late once it has missed two nights; one missed night is a restart. */
 const BACKUP_MAX_AGE_HOURS = 48;
 
+function verifiedArchiveExists(directory: string, file: string): boolean {
+  if (!/^app-\d{8}-\d{6}\.db(?:\.gz)?$/.test(file)) return false;
+  try {
+    const archive = statSync(join(directory, file));
+    return archive.isFile() && archive.size > 0;
+  } catch {
+    return false;
+  }
+}
+
 export function backupStatus(directory: string, now = Date.now()): BackupStatus {
   const base = { directory, verifiedAt: null, ageHours: null, file: null, events: null };
   if (!existsSync(directory))
@@ -72,13 +82,26 @@ export function backupStatus(directory: string, now = Date.now()): BackupStatus 
       detail: "The backup marker is unreadable; treat the last archive as unverified",
     };
   const verifiedAt = Date.parse(marker.data.verifiedAt);
-  if (!Number.isFinite(verifiedAt))
+  if (!Number.isFinite(verifiedAt) || verifiedAt > now)
     return {
       ...base,
       ok: false,
       state: "unverified",
       archives,
-      detail: "The backup marker carries no usable verification time",
+      detail:
+        verifiedAt > now
+          ? "The backup marker has a verification time in the future"
+          : "The backup marker carries no usable verification time",
+    };
+  const file = marker.data.file;
+  if (!verifiedArchiveExists(directory, file))
+    return {
+      ...base,
+      ok: false,
+      state: "unverified",
+      archives,
+      verifiedAt: marker.data.verifiedAt,
+      detail: `Verified backup file ${file} is missing or empty`,
     };
   const ageHours = Math.round(((now - verifiedAt) / 3_600_000) * 10) / 10;
   const fresh = ageHours <= BACKUP_MAX_AGE_HOURS;

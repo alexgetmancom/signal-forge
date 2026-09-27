@@ -15,6 +15,8 @@ export type SourceDefinition = {
   kind?: string;
   authority: SourceAuthority;
   group: string;
+  /** Host shared with other collectors when failures may have one upstream cause. */
+  upstream?: string;
   stream: Stream;
   intervalSeconds: number;
   capabilityId?: string;

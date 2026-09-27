@@ -37,6 +37,7 @@ test("a backup is current only when the job verified one recently", () => {
     bytes: 1024,
     events: 4000,
   });
+  writeFileSync(join(stale, "app-20260908-030000.db.gz"), "archive");
   expect(backupStatus(stale, NOW)).toMatchObject({ ok: false, state: "stale" });
   expect(backupStatus(join(stale, "absent"), NOW)).toMatchObject({ ok: false, state: "missing", archives: 0 });
   for (const directory of [fresh, unverified, stale]) rmSync(directory, { recursive: true, force: true });
@@ -53,4 +54,26 @@ test("a backup that stopped becomes an operator issue rather than staying silent
   });
   rmSync(directory, { recursive: true, force: true });
   db.close();
+});
+
+test("a fresh marker cannot certify a missing archive or a future verification", () => {
+  const missing = backupDirectory({
+    verifiedAt: "2026-09-12T03:00:00.000Z",
+    file: "app-20260912-999999.db.gz",
+    bytes: 1024,
+    events: 4200,
+  });
+  expect(backupStatus(missing, NOW)).toMatchObject({ ok: false, state: "unverified" });
+  const config = loadConfig({ CONFIG_PATH: configPath, BACKUP_DIRECTORY: missing });
+  expect(doctorReport(config, NOW).required.backupVerified).toBe(false);
+
+  const future = backupDirectory({
+    verifiedAt: "2099-01-01T00:00:00.000Z",
+    file: "app-20260912-030000.db.gz",
+    bytes: 1024,
+    events: 4200,
+  });
+  expect(backupStatus(future, NOW)).toMatchObject({ ok: false, state: "unverified" });
+  rmSync(missing, { recursive: true, force: true });
+  rmSync(future, { recursive: true, force: true });
 });

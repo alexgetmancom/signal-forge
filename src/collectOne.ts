@@ -37,15 +37,11 @@ async function answer(): Promise<Record<string, unknown>> {
 }
 
 const outcome = await answer();
-// What this collection actually cost, which is the question no stored number answered: the peak is
-// read off the kernel's own high-water mark rather than sampled, because a collector that blocks the
-// event loop while it parses is invisible to any sampler running on it.
-//
-// Read after the collection and before the answer is written, so it covers the whole attempt, and
-// sent back rather than only logged: a log line is discarded by the next deploy, and the parent
-// cannot measure a process that has already ended.
+// Serialising the collection can cost more memory than fetching it. The peak is taken after the
+// answer is written, then sent in a small companion file so the measurement includes that work.
+await Bun.write(answerPath, JSON.stringify(outcome));
 const peakRssMb = peakMb();
-await Bun.write(answerPath, JSON.stringify({ ...outcome, peakRssMb }));
+await Bun.write(`${answerPath}.peak`, String(peakRssMb));
 log("info", "Heavy source collected in a child", { source: id, peakRssMb });
 db.close();
 // Explicitly: a collector may leave a socket or a timer behind, and a child that lingers holds the

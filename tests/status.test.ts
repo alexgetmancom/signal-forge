@@ -59,6 +59,15 @@ test("multi-source hosts have one shared request pace", async () => {
   db.close();
 });
 
+test("a request pace key is an upstream only when it names a host", () => {
+  const db = openDatabase(":memory:");
+  const health = sourceHealth(db, withStatus, now);
+  expect(health.find((source) => source.id === "arena")?.upstream).toBe("arena.ai");
+  expect(health.find((source) => source.id === "artificial-analysis")?.upstream).toBe("artificialanalysis.ai");
+  expect(health.find((source) => source.id === "discovery:github-ai")?.upstream).toBeNull();
+  db.close();
+});
+
 test("a source that missed three of its own intervals is stale, not failing", () => {
   const db = openDatabase(":memory:");
   const old = new Date(now - 4 * 300 * 1000).toISOString();

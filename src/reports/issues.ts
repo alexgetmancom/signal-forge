@@ -82,30 +82,34 @@ function readJson<T>(value: string, fallback: T): T {
 }
 
 /**
- * Sources of one family failing together, marked as one cause rather than counted as several.
+ * Sources reading one host that fail together, without merging unrelated sites in one display group.
  *
  * `arena` and `arena-leaderboards` are two rows in this list and one broken page: both stopped on
  * 2026-09-24 because the site stopped putting its data in the HTML, and each was reported as a
- * collector to open. Two collectors were not broken. The registry already groups sources by the
- * thing they read, so when more than one of a group is failing at the same time that is what the
- * issue says, and the reader looks at the site once instead of at the collectors twice.
+ * collector to open. The display group also contains Artificial Analysis, whose site can fail for
+ * an unrelated reason; only the host shared by the two collectors warrants a shared hint.
  */
-function sharedCause(issues: ActionableIssue[], health: readonly { id: string; group: string }[]): void {
+function sharedUpstream(
+  issues: ActionableIssue[],
+  health: readonly { id: string; group: string; upstream: string | null }[],
+): void {
   const groupOf = new Map(health.map((entry) => [entry.id, entry.group]));
+  const upstreamOf = new Map(health.map((entry) => [entry.id, entry.upstream]));
   const size = new Map<string, number>();
-  for (const entry of health) size.set(entry.group, (size.get(entry.group) ?? 0) + 1);
+  for (const entry of health) if (entry.upstream) size.set(entry.upstream, (size.get(entry.upstream) ?? 0) + 1);
   const failing = new Map<string, string[]>();
   for (const issue of issues) {
-    const group = issue.source ? groupOf.get(issue.source) : undefined;
-    if (group && issue.source) failing.set(group, [...(failing.get(group) ?? []), issue.source]);
+    const upstream = issue.source ? upstreamOf.get(issue.source) : null;
+    if (upstream && issue.source) failing.set(upstream, [...(failing.get(upstream) ?? []), issue.source]);
   }
   for (const issue of issues) {
+    const upstream = issue.source ? upstreamOf.get(issue.source) : null;
+    const peers = upstream ? (failing.get(upstream) ?? []) : [];
+    if (!upstream || peers.length < 2) continue;
     const group = issue.source ? groupOf.get(issue.source) : undefined;
-    const peers = group ? (failing.get(group) ?? []) : [];
-    if (!group || peers.length < 2) continue;
-    issue.group = group;
+    if (group) issue.group = group;
     issue.groupFailing = peers.length;
-    issue.hint = `${issue.hint} ${peers.length} of the ${size.get(group)} ${group} sources are failing at once (${peers.join(", ")}), so this is one upstream to look at before it is ${peers.length} collectors to open.`;
+    issue.hint = `${issue.hint} ${peers.length} of the ${size.get(upstream)} sources reading ${upstream} are failing (${peers.join(", ")}); inspect that host before opening each collector.`;
   }
 }
 
@@ -411,7 +415,7 @@ export function listActionableIssues(db: Database, config: AppConfig, now = Date
   }
 
   const severity = { critical: 0, error: 1, warning: 2 } satisfies Record<IssueSeverity, number>;
-  sharedCause(issues, health);
+  sharedUpstream(issues, health);
   return issues.sort(
     (left, right) =>
       severity[left.severity] - severity[right.severity] || right.updatedAt.localeCompare(left.updatedAt),

@@ -166,9 +166,9 @@ test("a refused credential is one issue, dated from the refusal, not one per sou
   db.close();
 });
 
-test("two sources of one family failing at once are one upstream, not two collectors", () => {
+test("shared upstream hints do not merge different sites in one display group", () => {
   const db = openDatabase(":memory:");
-  const config = loadConfig({ CONFIG_PATH: configPath });
+  const config = loadConfig({ CONFIG_PATH: configPath, ARTIFICIAL_ANALYSIS_API_KEY: "test-key" });
   const now = Date.parse("2026-09-08T12:00:00.000Z");
   const at = "2026-09-08T11:59:00.000Z";
   aSource(db, "arena", { lastError: "Public page no longer exposes initialModels", checkedAt: at, failures: 3 });
@@ -177,11 +177,19 @@ test("two sources of one family failing at once are one upstream, not two collec
     checkedAt: at,
     failures: 3,
   });
+  aSource(db, "artificial-analysis:text-to-video", {
+    lastError: "Collection failed: network error (ECONNRESET)",
+    checkedAt: at,
+    failures: 3,
+  });
   const issues = listActionableIssues(db, config, now);
   const arena = issues.find((issue) => issue.id === "arena");
   expect(arena?.group).toBe("Arena");
   expect(arena?.groupFailing).toBe(2);
   expect(arena?.hint).toContain("arena, arena-leaderboards");
+  expect(arena?.hint).toContain("reading arena.ai");
+  expect(arena?.hint).not.toContain("artificial-analysis:text-to-video");
+  expect(issues.find((issue) => issue.id === "artificial-analysis:text-to-video")?.groupFailing).toBeUndefined();
   // A source failing alone carries no share of somebody else's outage.
   const alone = openDatabase(":memory:");
   aSource(alone, "arena", { lastError: "Public page no longer exposes initialModels", checkedAt: at, failures: 3 });
