@@ -10,7 +10,7 @@ import {
   recordDeepSeekCall,
   safeErrorType,
   unusableJudgeRun,
-} from "../runtime/deepseekUsage.js";
+} from "../runtime/deepseekLedger.js";
 
 export type Audience = "builders" | "consumers";
 

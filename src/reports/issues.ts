@@ -4,9 +4,9 @@ import { sourceHealth } from "../boards/health.js";
 import { capabilityReport } from "../capabilities.js";
 import type { AppConfig } from "../config.js";
 import { openCredentialCircuits } from "../credentials.js";
-import { unusableJudgeRuns } from "../runtime/deepseekUsage.js";
 import { readState } from "../storage/appState.js";
 import { databaseSize } from "../storage/retention.js";
+import { unusableJudgeRuns } from "./deepseekUsage.js";
 import { backupStatus } from "./doctor.js";
 
 /** Where growth stops being normal and becomes something to look at, rather than to discover. */

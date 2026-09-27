@@ -3,7 +3,7 @@ import type { AppConfig } from "./config.js";
 import { featureEnabled } from "./features.js";
 import type { Fetch } from "./http-client.js";
 import { log } from "./logger.js";
-import { DEEPSEEK_SUMMARY_ENDPOINT, DEEPSEEK_SUMMARY_MODEL } from "./runtime/deepseekUsage.js";
+import { DEEPSEEK_SUMMARY_ENDPOINT, DEEPSEEK_SUMMARY_MODEL } from "./runtime/deepseekLedger.js";
 import { readState, writeState } from "./storage/appState.js";
 
 /**

@@ -17,11 +17,11 @@ import {
   DEEPSEEK_SUMMARY_MAX_OUTPUT_TOKENS,
   DEEPSEEK_SUMMARY_MODEL,
   type DeepSeekAttemptResult,
-  type DeepSeekTokenUsage,
   deepSeekAttemptsToday,
   finishDeepSeekUsage,
   safeErrorType,
-} from "./runtime/deepseekUsage.js";
+} from "./runtime/deepseekLedger.js";
+import type { DeepSeekTokenUsage } from "./runtime/deepseekPricing.js";
 import { packageReleaseNotes } from "./sources/packageNotes.js";
 
 /**

@@ -4,7 +4,7 @@ import type { Destination } from "../src/config.js";
 import { loadConfig } from "../src/config.js";
 import { recordCredentialRejection } from "../src/credentials.js";
 import { listActionableIssues } from "../src/reports/issues.js";
-import { recordDeepSeekCall } from "../src/runtime/deepseekUsage.js";
+import { recordDeepSeekCall } from "../src/runtime/deepseekLedger.js";
 import { openDatabase } from "../src/storage/database.js";
 import { aSource } from "./fixtures/build.js";
 

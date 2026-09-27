@@ -9,7 +9,7 @@ import {
   type DeepSeekAttemptResult,
   recordDeepSeekCall,
   safeErrorType,
-} from "../runtime/deepseekUsage.js";
+} from "../runtime/deepseekLedger.js";
 import { bareModelSlug } from "./mirrors.js";
 
 /**

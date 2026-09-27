@@ -1,10 +1,7 @@
 import { expect, test } from "bun:test";
-import {
-  calculateDeepSeekCost,
-  claimDeepSeekUsage,
-  deepSeekUsage,
-  finishDeepSeekUsage,
-} from "../src/runtime/deepseekUsage.js";
+import { deepSeekUsage } from "../src/reports/deepseekUsage.js";
+import { claimDeepSeekUsage, finishDeepSeekUsage } from "../src/runtime/deepseekLedger.js";
+import { calculateDeepSeekCost } from "../src/runtime/deepseekPricing.js";
 import { openDatabase } from "../src/storage/database.js";
 
 const usage = {

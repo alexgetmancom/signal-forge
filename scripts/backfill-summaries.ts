@@ -18,7 +18,7 @@
 import { resolve } from "node:path";
 import { loadConfig } from "../src/config.js";
 import type { Event } from "../src/events/types.js";
-import { DEEPSEEK_MAX_ATTEMPTS } from "../src/runtime/deepseekUsage.js";
+import { DEEPSEEK_MAX_ATTEMPTS } from "../src/runtime/deepseekLedger.js";
 import { openDatabase, readonlyDatabase } from "../src/storage/database.js";
 import { summarizeEvents } from "../src/summary.js";
 
