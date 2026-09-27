@@ -72,6 +72,35 @@ test("a signature is drawn on a launch banner and left off a number's corner", a
   expect((await bannerPng(hero, "alexgetman.com")).length).toBe((await bannerPng(hero)).length);
 });
 
+test("every shape of banner is signed, and only a corner already spoken for goes without", async () => {
+  const base: Banner = {
+    filename: "banner-x.png",
+    eyebrow: "Codex · reset announced",
+    title: "More resets coming next week",
+    chips: [],
+    vendor: "OpenAI",
+    logo: null,
+  };
+  const shapes: Record<string, Banner> = {
+    launch: { ...base, chips: ["free"] },
+    stealth: { ...base, stealth: true, chips: ["free"] },
+    quote: { ...base, quote: { by: "Tibo, Codex at OpenAI", portrait: "openai.png" } },
+    change: { ...base, change: { mark: "+", where: "models[].id" } },
+    week: { ...base, title: "14 new models", rows: [{ vendor: "OpenAI", names: ["GPT-5.6"], logo: null }] },
+  };
+  for (const [shape, banner] of Object.entries(shapes))
+    expect({
+      shape,
+      signed: (await bannerPng(banner, "alexgetman.com")).length !== (await bannerPng(banner)).length,
+    }).toEqual({ shape, signed: true });
+  // A quote counting down to a reset draws that number where the signature would go.
+  const due = {
+    ...base,
+    quote: { by: "Tibo, Codex at OpenAI", portrait: "openai.png", due: Math.round(Date.now() / 1000) + 7200 },
+  };
+  expect((await bannerPng(due, "alexgetman.com")).length).toBe((await bannerPng(due)).length);
+});
+
 test("a banner in a payload is not looked for among the logos", () => {
   const payload = {
     embeds: [{ image: { url: "attachment://banner-x.png" }, thumbnail: { url: "attachment://xai.png" } }],

@@ -152,12 +152,16 @@ function titleText(title: string, size: number, glow: string, vendor: string): s
   return `<text x="${LEFT}" y="${200 + size * 0.55}" font-family="Inter Display" font-weight="700" font-size="${size}" letter-spacing="-1.5" fill="#ffffff">${body}</text>`;
 }
 
-function signatureText(signature: string | undefined, taken: boolean): string {
+function signatureText(
+  signature: string | undefined,
+  taken: boolean,
+  { right = WIDTH - 72, y = 408, opacity = 0.5 }: { right?: number; y?: number; opacity?: number } = {},
+): string {
   // A number in the corner has that corner; the picture keeps its subject and loses the signature.
   if (!signature || taken) return "";
   // On the chips' own baseline, at their size: a fourth item in that row rather than a watermark
   // dropped under it. Discord shows a banner about 470px wide, where anything smaller is lost.
-  return `<text x="${WIDTH - 72}" y="408" text-anchor="end" font-family="Inter" font-weight="600" font-size="30" letter-spacing="0.5" fill="#ffffff" fill-opacity="0.5">${xml(signature)}</text>`;
+  return `<text x="${right}" y="${y}" text-anchor="end" font-family="Inter" font-weight="600" font-size="30" letter-spacing="0.5" fill="#ffffff" fill-opacity="${opacity}">${xml(signature)}</text>`;
 }
 
 /** Green for a line that arrived, amber for one that moved: the colours a diff is read in. */
@@ -187,7 +191,7 @@ function changeSvg(banner: Banner, change: NonNullable<Banner["change"]>, signat
   <text x="${LEFT + 40}" y="${top - size * 0.22}" font-family="Inter Display" font-weight="700" font-size="${size}" fill="${mark}">${change.mark}</text>
   ${text}
   ${change.where ? `<text x="${LEFT}" y="${HEIGHT - 52}" font-family="Inter" font-weight="600" font-size="26" fill="#ffffff" fill-opacity="0.55">${xml(change.where)}</text>` : ""}
-  ${signature ? `<text x="${WIDTH - 72}" y="${HEIGHT - 52}" text-anchor="end" font-family="Inter" font-weight="600" font-size="30" letter-spacing="0.5" fill="#ffffff" fill-opacity="0.5">${xml(signature)}</text>` : ""}
+  ${signatureText(signature, false, { y: HEIGHT - 52 })}
 </svg>`;
 }
 
@@ -233,14 +237,15 @@ function stealthSvg(banner: Banner, signature?: string): string {
   <text x="${LEFT}" y="118" font-family="Inter" font-weight="600" font-size="28" letter-spacing="4" fill="#ffffff" fill-opacity="0.6">${xml(banner.eyebrow.toUpperCase())}</text>
   <text x="${LEFT}" y="${214 + size * 0.55}" font-family="Inter Display" font-weight="700" font-size="${size}" letter-spacing="-1.5" fill="#ffffff">${xml(banner.title)}</text>
   ${chips}
-  ${signature ? `<text x="${WIDTH - 72}" y="408" text-anchor="end" font-family="Inter" font-weight="600" font-size="30" fill="#ffffff" fill-opacity="0.38">${xml(signature)}</text>` : ""}
+  <!-- Fainter than elsewhere: the violet lamp lifts everything drawn over it. -->
+  ${signatureText(signature, false, { opacity: 0.38 })}
 </svg>`;
 }
 
 function bannerSvg(banner: Banner, signature?: string): string {
   if (banner.stealth) return stealthSvg(banner, signature);
-  if (banner.rows) return posterSvg(banner);
-  if (banner.quote) return quoteSvg(banner, banner.quote);
+  if (banner.rows) return posterSvg(banner, signature);
+  if (banner.quote) return quoteSvg(banner, banner.quote, signature);
   if (banner.change) return changeSvg(banner, banner.change, signature);
   const glow = banner.glow === undefined ? glowOf(banner.vendor) : lit(hex(banner.glow));
   const logo = logoData(banner.logo);
@@ -298,7 +303,7 @@ function wrap(text: string, room: number): { size: number; lines: string[] } {
 
 const two = (value: number) => String(value).padStart(2, "0");
 
-function quoteSvg(banner: Banner, quote: NonNullable<Banner["quote"]>): string {
+function quoteSvg(banner: Banner, quote: NonNullable<Banner["quote"]>, signature?: string): string {
   const glow = quote.accent ? hex(quote.accent) : glowOf(banner.vendor);
   const photo = logoData(quote.portrait);
   const tile = 150;
@@ -329,6 +334,8 @@ function quoteSvg(banner: Banner, quote: NonNullable<Banner["quote"]>): string {
   ${text}
   <text x="${LEFT}" y="${HEIGHT - 56}" font-family="Inter" font-weight="600" font-size="32" fill="#ffffff" fill-opacity="0.8">— ${xml(quote.by)}</text>
   ${hero}
+  <!-- On the attribution's baseline, opposite it; a countdown, when there is one, owns that corner. -->
+  ${signatureText(signature, quote.due !== undefined, { y: HEIGHT - 56 })}
 </svg>`;
 }
 
@@ -344,7 +351,7 @@ const POSTER_NAMES = 2;
  * with their tiles. The first draft listed seven makers in three columns of one weight and every
  * model by name; shrunk into Discord it read as a footnote. The rest of the week is in the text.
  */
-function posterSvg(banner: Banner): string {
+function posterSvg(banner: Banner, signature?: string): string {
   const rows = (banner.rows ?? []).slice(0, POSTER_ROWS);
   const glow = glowOf(rows[0]?.vendor ?? "", 0x5865f2);
   const [count = "", ...label] = banner.title.split(" ");
@@ -377,6 +384,7 @@ function posterSvg(banner: Banner): string {
   <text x="${left - 8}" y="400" font-family="Inter Display" font-weight="700" font-size="${count.length > 2 ? 190 : 250}" letter-spacing="-8" fill="#ffffff">${xml(count)}</text>
   <text x="${left}" y="476" font-family="Inter Display" font-weight="700" font-size="54" fill="#ffffff" fill-opacity="0.85">${xml(label.join(" "))}</text>
   ${body}
+  ${signatureText(signature, false, { right: POSTER_WIDTH - 72, y: POSTER_HEIGHT - 44 })}
 </svg>`;
 }
 
