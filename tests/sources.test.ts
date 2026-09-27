@@ -736,6 +736,17 @@ test("source redirects retain credentials only on the same origin", async () => 
   ).rejects.toThrow("changed origin");
 });
 
+test("source requests send exactly one user agent regardless of header casing", async () => {
+  const agents: string[] = [];
+  const request = async (_url: string | URL | Request, init?: RequestInit) => {
+    agents.push(new Headers(init?.headers).get("user-agent") ?? "");
+    return new Response("ok");
+  };
+  await fetchText("https://example.test/default", {}, request);
+  await fetchText("https://example.test/override", { "user-agent": "Special/1" }, request);
+  expect(agents).toEqual(["SignalForge/0.1", "Special/1"]);
+});
+
 test("a body is read whatever its chunks and whatever content-length claims", async () => {
   // A response whose bytes arrive in pieces, with a content-length that is a hint rather than a
   // promise. The buffer is sized from it and grows when it was short; a multi-byte character split

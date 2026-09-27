@@ -106,7 +106,7 @@ const PARSERS: Record<LabPageSource, (body: string) => LabPage[]> = {
 
 export async function collectLabPages(source: LabPageSource, request: Fetch = fetch): Promise<Collection> {
   const url = URLS[source];
-  const body = await fetchText(url, { "user-agent": "Mozilla/5.0" }, request);
+  const body = await fetchText(url, {}, request);
   const records = PARSERS[source](body);
   if (!records.length) throw new Error(`${LAB_PAGE_SOURCES[source]}'s pages list no model`);
   return {

@@ -72,7 +72,7 @@ export async function collectLabSitemap(
   const sitemaps = SITEMAPS.filter((sitemap) => sitemap.maker === maker);
   const records = new Map<string, { id: string; name: string; maker: string; url: string }>();
   for (const sitemap of sitemaps) {
-    const xml = await fetchText(sitemap.url, { "user-agent": "Mozilla/5.0" }, request);
+    const xml = await fetchText(sitemap.url, {}, request);
     if (!xml.includes("href=") && !xml.includes("<loc>")) throw new Error(`${sitemap.url} is not a sitemap`);
     for (const url of modelPages(xml, sitemap.pages))
       records.set(url, { id: url, name: url.split("/").at(-1) ?? url, maker, url });

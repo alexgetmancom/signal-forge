@@ -2,6 +2,8 @@ import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { type CacheEntry, freshUntil, type HttpCache } from "../storage/httpCache.js";
 
+export const USER_AGENT = "SignalForge/0.1";
+
 /** How long the channel is given to come back before an observation is called a failure. */
 export const RETRY_DELAYS_MS = [3_000, 9_000];
 
@@ -92,11 +94,13 @@ export async function fetchText(
     const conditional: Record<string, string> = {};
     if (cached?.etag) conditional["if-none-match"] = cached.etag;
     else if (cached?.lastModified) conditional["if-modified-since"] = cached.lastModified;
+    const requestHeaders = new Headers({ "user-agent": USER_AGENT, ...conditional });
+    for (const [name, value] of Object.entries(headers)) requestHeaders.set(name, value);
     response = await attempt(
       url,
       request,
       {
-        headers: { "User-Agent": "SignalForge/0.1", ...conditional, ...headers },
+        headers: requestHeaders,
         redirect: "manual",
         ...(send ? { method: send.method, body: send.body } : {}),
       },

@@ -1,8 +1,8 @@
 import type { Database } from "bun:sqlite";
 import type { Collection, RecordData } from "../events/types.js";
-import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { readLatestSnapshot } from "../storage/snapshots.js";
+import { USER_AGENT } from "./http.js";
 
 /**
  * Asking a documentation site for a model that has not been announced.
@@ -15,16 +15,13 @@ import { readLatestSnapshot } from "../storage/snapshots.js";
  * `platform.openai.com/docs/models/gpt-6-luna` answers 200 and a nonsense slug 404; and
  * `opencode.ai/data/<maker>/<slug>` renders "Completed sessions" only for a model it actually has.
  *
- * Nothing here defeats a protection: these are plain GETs with a browser's user agent, and a site
+ * Nothing here defeats a protection: these are plain GETs identified as SignalForge, and a site
  * that answers a challenge instead of a page simply yields no candidate. The guesses are versions
  * of families the vendor already ships, so the request rate is a handful of addresses per poll.
  *
  * Each probe is a `discovery:` source, which makes every hit a radar sighting and never a
  * catalogue: a page is evidence that a name exists, not that the model is out.
  */
-const USER_AGENT =
-  "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36";
-
 /**
  * The version a probe asks past is read from the catalogue, never written down here. A constant in
  * this file is a guess that rots: the first version of this probe asked OpenAI for `gpt-5.7` and
@@ -220,36 +217,13 @@ export function heardNames(db: Database, site: Site, now = Date.now()): string[]
   return heard;
 }
 
-/**
- * One address, asked the way a browser asks.
- *
- * Google bounces the first request to a silent sign-in and back, and refuses to stop bouncing until
- * the cookie it set comes back: a plain follow-redirects fetch gives up with "redirected too many
- * times" on every slug, real or not. So the redirects are walked by hand with a jar that lives for
- * one poll. Nothing is logged in to; the cookie is the anonymous one the site hands out.
- */
-async function probe(url: string, request: Fetch, jar: Map<string, string>): Promise<{ status: number; body: string }> {
-  let next = url;
-  for (let hop = 0; hop < 6; hop++) {
-    const cookie = [...jar].map(([name, value]) => `${name}=${value}`).join("; ");
-    const response = await request(next, {
-      headers: { "user-agent": USER_AGENT, accept: "text/html", ...(cookie ? { cookie } : {}) },
-      redirect: "manual",
-      signal: AbortSignal.timeout(20_000),
-    });
-    for (const header of response.headers.getSetCookie?.() ?? []) {
-      const [name, value] = (header.split(";")[0] ?? "").split("=");
-      if (name && value) jar.set(name.trim(), value);
-    }
-    const location = response.headers.get("location");
-    if (location && response.status >= 300 && response.status < 400) {
-      await response.body?.cancel();
-      next = new URL(location, next).toString();
-      continue;
-    }
-    return { status: response.status, body: await response.text() };
-  }
-  throw new SourceError("protocol", "Source redirected past six hops");
+/** Read a page that may reveal a model before the vendor announces it. */
+async function probe(url: string, request: Fetch): Promise<{ status: number; body: string }> {
+  const response = await request(url, {
+    headers: { "user-agent": USER_AGENT, accept: "text/html" },
+    signal: AbortSignal.timeout(20_000),
+  });
+  return { status: response.status, body: await response.text() };
 }
 
 /**
@@ -322,16 +296,15 @@ export async function collectDocsProbe(
   candidates.delete(control);
   const records: RecordData[] = [];
   const tried: Asked = { ...asked };
-  const jar = new Map<string, string>();
   for (const slug of [...candidates].sort()) {
     const url = site.url(slug);
-    const answer = await probe(url, request, jar).catch(() => null);
+    const answer = await probe(url, request).catch(() => null);
     if (!answer) continue;
     tried[slug] = { status: answer.status, at: new Date(now).toISOString() };
     if (answer.status !== 200) continue;
     records.push({ id: slug, name: slug, url, maker: site.vendor, source: "documentation" });
   }
-  const answered = await probe(site.url(control), request, jar);
+  const answered = await probe(site.url(control), request);
   if (answered.status !== 200) throw new Error(`${site.id}: ${control} answered HTTP ${answered.status}`);
   tried[control] = { status: answered.status, at: new Date(now).toISOString() };
   // A question asked a month ago is no longer a reason not to ask again.
@@ -449,7 +422,6 @@ function opencodeIsReal(body: string): boolean {
 export async function collectOpenCodeData(db: Database, request: Fetch = fetch): Promise<Collection> {
   const records: RecordData[] = [];
   const tried: Record<string, number> = {};
-  const jar = new Map<string, string>();
   for (const { maker, slug } of [...opencodeCandidates(db), ...OPENCODE_STEALTH]) {
     if (!OPENCODE_MAKERS.includes(maker as (typeof OPENCODE_MAKERS)[number])) continue;
     // A page exists for every model OpenCode serves, most of which everybody already lists. Asking
@@ -457,7 +429,7 @@ export async function collectOpenCodeData(db: Database, request: Fetch = fetch):
     // are simply out: `gpt-5-6` went to the radar as a find on 2026-09-24, five days into GPT-6.
     if (alreadyListed(db, slug)) continue;
     const url = opencodeUrl(maker, slug);
-    const answer = await probe(url, request, jar).catch(() => null);
+    const answer = await probe(url, request).catch(() => null);
     if (!answer) continue;
     tried[`${maker}/${slug}`] = answer.status;
     if (answer.status !== 200 || !opencodeIsReal(answer.body)) continue;

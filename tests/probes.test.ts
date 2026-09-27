@@ -37,17 +37,20 @@ function catalogue(ids: readonly string[]): Database {
 
 test("a documentation page that exists for an unannounced model is a sighting", async () => {
   if (!anthropic) throw new Error("the Anthropic probe is gone");
-  const collection = await collectDocsProbe(
-    catalogue(["claude-opus-5-5", "claude-opus-5-5-fast"]),
-    anthropic,
-    answering({
-      "https://platform.claude.com/docs/en/models/opus-5-5/overview": "the model we ship",
-      "https://platform.claude.com/docs/en/models/opus-6/overview": "the model we have not announced",
-    }),
-  );
+  const agents: string[] = [];
+  const pages = answering({
+    "https://platform.claude.com/docs/en/models/opus-5-5/overview": "the model we ship",
+    "https://platform.claude.com/docs/en/models/opus-6/overview": "the model we have not announced",
+  });
+  const request = async (url: string, init?: RequestInit) => {
+    agents.push(new Headers(init?.headers).get("user-agent") ?? "");
+    return pages(url);
+  };
+  const collection = await collectDocsProbe(catalogue(["claude-opus-5-5", "claude-opus-5-5-fast"]), anthropic, request);
   expect(collection.records.map((record) => record.id)).toEqual(["opus-6"]);
   expect(collection.source).toBe("discovery:docs-anthropic");
   expect(collection.appendOnly).toBe(true);
+  expect(new Set(agents)).toEqual(new Set(["SignalForge/0.1"]));
 });
 
 test("a probe whose control has moved is a failure, not an empty answer", async () => {
