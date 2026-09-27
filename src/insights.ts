@@ -6,7 +6,7 @@ import type { Fetch } from "./http-client.js";
 import { type Judgement, judgeEvents, judgementOf, worthCutoff } from "./jev.js";
 import { publishMonthlyAudit, publishWeeklyVotes } from "./review.js";
 import { olderThanKnown } from "./sources/mentionStage.js";
-import { summarizeForRecap } from "./summary.js";
+import { summarizeForRecap } from "./summary/recap.js";
 
 /**
  * The morning recaps' reading, done ahead of them: Jev decides what is worth a line, DeepSeek

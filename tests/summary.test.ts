@@ -3,7 +3,10 @@ import { loadConfig } from "../src/config.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import type { RecordData } from "../src/events/types.js";
 import { openDatabase } from "../src/storage/database.js";
-import { completeSentences, fillSummaries, rolloutGroups, sanitize, summarize } from "../src/summary.js";
+import { summarize } from "../src/summary/model.js";
+import { rolloutGroups } from "../src/summary/rollouts.js";
+import { completeSentences, sanitize } from "../src/summary/text.js";
+import { fillSummaries } from "../src/summary.js";
 
 const fixture = new URL("./fixtures/config.json", import.meta.url).pathname;
 const config = { ...loadConfig({ CONFIG_PATH: fixture }), DEEPSEEK_API_KEY: "key" };

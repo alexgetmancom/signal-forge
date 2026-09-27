@@ -63,7 +63,6 @@ const BUDGET: Readonly<Record<string, number>> = {
   "src/operations/database.ts:databaseOperations": 125,
   "src/reports/sourceVerdicts.ts:sourceVerdicts": 150,
   "src/sources/catalogs.ts:PROVIDER_CATALOGUES": 150,
-  "src/summary.ts:summarizeEvents": 150,
   "src/alerts.ts:publishAlerts": 125,
   "src/events/signals.ts:signalClass": 100,
   "src/poller.ts:collectDueSources": 125,
