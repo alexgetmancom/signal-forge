@@ -64,12 +64,12 @@ test("early sightings are counted as subjects, not as observations", () => {
   expect(recapContext(db, "2026-09-13T18:00:00.000Z").codenameCount).toBe(1);
 });
 
-test("the recap is queued once for a period and never twice", () => {
+test("the recap is queued once for a period and never twice", async () => {
   const db = openDatabase(":memory:");
   week(db);
   const now = Date.parse("2026-09-14T09:00:00.000Z");
-  expect(scheduleRecaps(db, config, now)).toEqual(["week"]);
-  expect(scheduleRecaps(db, config, now)).toEqual([]);
+  expect(await scheduleRecaps(db, config, now)).toEqual(["week"]);
+  expect(await scheduleRecaps(db, config, now)).toEqual([]);
   expect(db.query("SELECT COUNT(*) AS n FROM batches WHERE kind='weekly_recap'").get()).toEqual({ n: 1 });
 
   prepareDeliveries(db, now);
@@ -80,9 +80,9 @@ test("the recap is queued once for a period and never twice", () => {
   expect(body).toContain("GPT-6 Astra");
 });
 
-test("a week with nothing in it is not a message", () => {
+test("a week with nothing in it is not a message", async () => {
   const db = openDatabase(":memory:");
-  expect(scheduleRecaps(db, config, Date.parse("2026-09-14T09:00:00.000Z"))).toEqual([]);
+  expect(await scheduleRecaps(db, config, Date.parse("2026-09-14T09:00:00.000Z"))).toEqual([]);
 });
 
 test("a week is read back by maker, with training checkpoints and re-keyed rows left out", () => {
@@ -298,7 +298,7 @@ test("a reseller's catalogue speaks for makers this tracker follows", () => {
   expect(context.arrivalCount).toBe(1);
 });
 
-test("the morning message goes to nobody, and the day it would have said still reads", () => {
+test("the morning message goes to nobody, and the day it would have said still reads", async () => {
   const db = openDatabase(":memory:");
   const scouts: Destination = { id: "scouts", platform: "discord", channelId: "2", signals: ["codename"] };
   const board: Collection = {
@@ -322,7 +322,7 @@ test("the morning message goes to nobody, and the day it would have said still r
   const now = Date.parse("2026-09-17T07:00:00.000Z");
   expect(lastRecapPeriod(now, "day")).toBe("2026-09-17T06:00:00.000Z");
   // The day carries no class any room asks for, so it is queued for nobody and stored nowhere.
-  expect(scheduleRecaps(db, { destinations: [scouts] } as never, now)).toEqual([]);
+  expect(await scheduleRecaps(db, { destinations: [scouts] } as never, now)).toEqual([]);
   prepareDeliveries(db, now);
   expect(db.query<{ n: number }, []>("SELECT COUNT(*) n FROM deliveries").get()?.n).toBe(0);
   // The reports still ask the same question of the same day, which is why the period is kept.
@@ -370,7 +370,7 @@ test("a day's leaders go to the scouts, its prices to nobody, and the wire gets 
   expect(renderRecapLines(day, ["launch", "change"])).toEqual([]);
 });
 
-test("the labs' day of posts is collected for the reports and sent to no room", () => {
+test("the labs' day of posts is collected for the reports and sent to no room", async () => {
   const db = openDatabase(":memory:");
   const site = (source: string, paths: string[]): Collection => ({
     source,
@@ -399,8 +399,8 @@ test("the labs' day of posts is collected for the reports and sent to no room", 
   );
 
   const now = Date.parse("2026-09-17T07:00:00.000Z");
-  expect(scheduleRecaps(db, { destinations: [wire] } as never, now)).toEqual([]);
-  expect(scheduleRecaps(db, scoutsOnly, now)).toEqual([]);
+  expect(await scheduleRecaps(db, { destinations: [wire] } as never, now)).toEqual([]);
+  expect(await scheduleRecaps(db, scoutsOnly, now)).toEqual([]);
   const context = recapContext(db, lastRecapPeriod(now, "news"), "news");
   // The partnership is the day's news; the model page is a sighting and the help article is neither.
   expect(context.headlines.map((line) => line.title)).toEqual(["mistral x mozilla"]);

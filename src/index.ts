@@ -68,9 +68,9 @@ if (featureEnabled(config, "publications-sync")) {
   );
 }
 supervisor.register(
-  startIntervalWorker(db, "lifecycle", 300_000, () => {
+  startIntervalWorker(db, "lifecycle", 300_000, async () => {
     scheduleLifecycleReminders(db, config);
-    scheduleRecaps(db, config);
+    await scheduleRecaps(db, config);
     // Both detectors read stored evidence and speak on their own, so the switch is here: they take
     // the destinations rather than the config, and a reading nobody asked for is not worth running.
     if (featureEnabled(config, "breakouts")) detectBreakouts(db, config.destinations);
