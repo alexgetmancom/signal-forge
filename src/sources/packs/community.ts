@@ -252,6 +252,13 @@ export function communitySources({ db, config, cache }: SourceContext): SourceEn
     stream: "api-models",
     intervalSeconds: 900,
     pace: { group: "opencode.ai", seconds: 5 },
+    /**
+     * Thirty-two lab pages of about 150 KB each, because this reads OpenCode's catalogue rather than
+     * guessing at addresses in it. Measured 2026-09-27 with `source-cost`: 27 MB claimed on the
+     * first pass and 9 MB more on the second, and RSS is never given back, so in the long-lived
+     * service that would be a floor that keeps rising. Collected in a child, which ends.
+     */
+    heavy: true,
     collector: () => collectOpenCodeData(db, fetch),
   });
   definitions.push({
