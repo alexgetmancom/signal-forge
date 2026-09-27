@@ -5,7 +5,8 @@ import { vendorOf } from "../src/events/interpretation.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import type { Collection } from "../src/events/types.js";
 import { openDatabase } from "../src/storage/database.js";
-import { listStories, rebuildStories } from "../src/stories.js";
+import { rebuildStories } from "../src/stories.js";
+import { listStories } from "../src/storiesView.js";
 import { registered } from "./registered.js";
 
 const collection = (source: string, stream: string, records: Collection["records"]): Collection =>

@@ -3,10 +3,10 @@ import { z } from "zod";
 import type { AppConfig } from "../config.js";
 import { getHypothesis, listHypotheses } from "../hypotheses.js";
 import { listLifecycleDeadlines } from "../lifecycle.js";
-import { getModelFacts, listModelFacts } from "../modelFacts.js";
+import { getModelFacts, listModelFacts } from "../modelFactsView.js";
 import { listPublications } from "../publications.js";
 import { isSignalClass, news } from "../reports/news.js";
-import { listStories } from "../stories.js";
+import { listStories } from "../storiesView.js";
 import { count, identifier, type OperationMap } from "./definition.js";
 
 /** The "evidence" section of the operation registry; src/operations.ts joins the sections. */

@@ -3,7 +3,7 @@ import { saveCollection } from "../src/events/pipeline.js";
 import type { Collection } from "../src/events/types.js";
 import { leadTime } from "../src/reports/leadTime.js";
 import { openDatabase } from "../src/storage/database.js";
-import { listStories } from "../src/stories.js";
+import { listStories } from "../src/storiesView.js";
 
 const catalogue = (source: string, stream: string, records: Collection["records"]): Collection => ({
   source,

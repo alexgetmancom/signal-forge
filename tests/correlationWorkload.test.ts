@@ -15,7 +15,8 @@ import { expect, test } from "bun:test";
 import { saveCollection } from "../src/events/pipeline.js";
 import type { Collection, RecordData } from "../src/events/types.js";
 import { openDatabase } from "../src/storage/database.js";
-import { listStories, rebuildStories, storyScanWork } from "../src/stories.js";
+import { rebuildStories, storyScanWork } from "../src/stories.js";
+import { listStories } from "../src/storiesView.js";
 
 const DAY = 86_400_000;
 const START = Date.parse("2026-01-01T00:00:00.000Z");
