@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { claimType } from "../events/claim.js";
 import { signalOf } from "../events/classify.js";
 import { SIGNAL_CLASSES, type SignalClass } from "../events/signals.js";
 import type { Event } from "../events/types.js";
@@ -17,6 +18,13 @@ export type NewsReport = {
   hours: number;
   signal: SignalClass | null;
   totals: { events: number; messages: number; stories: number };
+  /**
+   * What happened over the window, which is not what `classes` answers. A class is the routing
+   * decision -- who was meant to hear this -- so a stealth listing, a severe outage and a limit
+   * reset all appear there as `launch`. This says which of those it was, derived from the row by
+   * `claimType` and therefore answering for events older than the stored class as well.
+   */
+  claims: { claim: string; events: number; delivered: number }[];
   classes: { signal: string; events: number; delivered: number; topSources: { source: string; events: number }[] }[];
   messages: {
     sentAt: string;
@@ -86,6 +94,25 @@ export function isSignalClass(value: string): value is SignalClass {
   return (SIGNAL_CLASSES as readonly string[]).includes(value);
 }
 
+/**
+ * What the events of a window claimed, counted. Asking for one class narrows this too, so both
+ * halves of the answer describe the same events: the classes a reader was routed by, and what
+ * those events actually said happened.
+ */
+function claimRows(events: readonly (Event & { delivered: number })[]): NewsReport["claims"] {
+  const claims = new Map<string, { events: number; delivered: number }>();
+  for (const event of events) {
+    const claim = claimType(event) ?? "no_claim";
+    const held = claims.get(claim) ?? { events: 0, delivered: 0 };
+    held.events += 1;
+    if (event.delivered) held.delivered += 1;
+    claims.set(claim, held);
+  }
+  return [...claims.entries()]
+    .map(([claim, counts]) => ({ claim, ...counts }))
+    .sort((one, other) => other.events - one.events);
+}
+
 export function news(
   db: Database,
   input: { hours: number; signal?: SignalClass | undefined },
@@ -106,6 +133,7 @@ export function news(
   for (const event of events) {
     const signal = signalOf(event) || "unclassified";
     classOf.set(event.id, signal);
+
     const held = classes.get(signal) ?? { events: 0, delivered: 0, sources: new Map() };
     held.events += 1;
     if (event.delivered) held.delivered += 1;
@@ -188,6 +216,7 @@ export function news(
       messages: byBody.size,
       stories: stories.length,
     },
+    claims: claimRows(events.filter((event) => !wanted || classOf.get(event.id) === wanted)),
     classes: classRows,
     messages: [...byBody.values()],
     stories,

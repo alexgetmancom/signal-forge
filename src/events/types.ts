@@ -39,6 +39,27 @@ export type RecordData = { id: string; name: string; [key: string]: unknown };
 export type Confidence = "observed" | "supported" | "confirmed";
 
 /**
+ * What an event claims happened, derived rather than stored; ./claim.ts says why it has no column
+ * and why `SignalClass`, which answers who should hear about it, is not the same question.
+ */
+export type ClaimType =
+  | "model_available"
+  | "model_listed"
+  | "model_delisted"
+  | "model_sighted"
+  | "weights_published"
+  | "software_released"
+  | "repository_activity"
+  | "article_published"
+  | "page_changed"
+  | "deprecation_announced"
+  | "price_changed"
+  | "limit_reset"
+  | "incident_started"
+  | "incident_resolved"
+  | "rank_changed";
+
+/**
  * What state of its life the subject is in, derived rather than stored; see ./lifecycleState.ts for
  * why it has no column and why `null` is a real answer for most of what this service sees.
  */

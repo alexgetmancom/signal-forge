@@ -8,7 +8,8 @@ test("a release is dated by its first source against its own timestamp, under wh
     "INSERT INTO snapshots(id,source,collected_at,body,hash,bytes) VALUES(1,'mimo','2026-09-21T19:45:00.000Z','{}','h',2)",
   ).run();
   const insert = db.query(
-    "INSERT INTO events(source,stream,entity_id,kind,after_json,detected_at,snapshot_id,authority) VALUES(?,'api-models',?,'new',?,?,1,?)",
+    `INSERT INTO events(source,stream,entity_id,kind,after_json,detected_at,snapshot_id,authority,evidence_type)
+     VALUES(?,'api-models',?,'new',?,?,1,?,?)`,
   );
   insert.run(
     "mimo",
@@ -16,6 +17,7 @@ test("a release is dated by its first source against its own timestamp, under wh
     JSON.stringify({ id: "mimo-v2.6-pro", created: "2026-09-21T19:36:12.000Z" }),
     "2026-09-21T19:45:00.000Z",
     "first_party",
+    "api_catalogue",
   );
   insert.run(
     "openrouter",
@@ -23,8 +25,16 @@ test("a release is dated by its first source against its own timestamp, under wh
     JSON.stringify({ id: "xiaomi/mimo-v2.6-pro", created: "2026-09-21T00:00:00.000Z" }),
     "2026-09-21T20:19:00.000Z",
     "third_party",
+    "availability_catalogue",
   );
-  insert.run("groq", "lonely-model", JSON.stringify({ id: "lonely-model" }), "2026-09-21T20:00:00.000Z", "third_party");
+  insert.run(
+    "groq",
+    "lonely-model",
+    JSON.stringify({ id: "lonely-model" }),
+    "2026-09-21T20:00:00.000Z",
+    "third_party",
+    "availability_catalogue",
+  );
   // OpenRouter's own date for a model is when it set the model up, not when the maker released it.
   insert.run(
     "openrouter",
@@ -32,6 +42,7 @@ test("a release is dated by its first source against its own timestamp, under wh
     JSON.stringify({ id: "acme/gemini-3.8-live", created: "2026-09-10T12:34:56.000Z" }),
     "2026-09-21T17:29:00.000Z",
     "third_party",
+    "availability_catalogue",
   );
   insert.run(
     "pages:google",
@@ -39,6 +50,7 @@ test("a release is dated by its first source against its own timestamp, under wh
     "{}",
     "2026-09-21T18:05:00.000Z",
     "first_party",
+    "web_diff",
   );
 
   const { releases } = releaseAudit(db, 7, Date.parse("2026-09-22T12:00:00.000Z"));

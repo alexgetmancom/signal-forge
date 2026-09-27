@@ -1,9 +1,10 @@
 import type { Database } from "bun:sqlite";
+import { claimType } from "../events/claim.js";
 import { INDEPENDENT_SOURCES } from "../events/corroboration.js";
 import { identityFor, normalizeIdentity } from "../events/identity.js";
 import { recordFor } from "../events/record.js";
 import { sourceFamily } from "../events/sourceFamily.js";
-import type { Event } from "../events/types.js";
+import type { ClaimType, Event } from "../events/types.js";
 import { sourceLabel } from "../sources/labels.js";
 
 /**
@@ -41,13 +42,34 @@ export type ReleaseAuditRow = {
 type EventRow = Event & { card_at: string | null; authority: string | null; suppressed: number };
 
 /**
- * Whether the pipeline took this event for a model, rather than for writing about one. Events
- * stored before the class was kept have none, and an unknown class is not an accusation: they count.
+ * Whether this event is about a model at all, rather than about software or writing around one.
+ *
+ * This used to ask the routing class -- `launch`, `release` or `codename` -- which answered a
+ * different question twice over. `release` is a CLI build, so every Codex publish counted as a
+ * model; and the class is only stored from 2026-09-21, so every older event fell through the
+ * "unknown is not an accusation" clause and counted as well. `claimType` is derived from the row,
+ * so it answers for all of history and says software is software.
+ *
+ * It also shows what the routing class was hiding. qwen3.8-max-prime was listed by OpenRouter,
+ * models.dev, the Vercel gateway and OpenCode over the week to 2026-09-27, nothing was suppressed
+ * and no card went out -- and the report never showed it, because all four sightings routed as
+ * `evidence`, so nothing was judged a model and the group was dropped before the miss could be
+ * counted. A class saying "no subscriber wants this message" is not a claim that nothing happened.
  */
-const ABOUT_A_MODEL = new Set(["launch", "release", "codename"]);
+const ABOUT_A_MODEL = new Set<ClaimType>([
+  "model_available",
+  "model_listed",
+  "model_sighted",
+  "weights_published",
+  // A page and a board place are both a model being named somewhere new, and the grouping above
+  // only reaches either with a model id already in hand.
+  "page_changed",
+  "rank_changed",
+]);
 
 function aboutAModel(event: Event): boolean {
-  return !event.signal || ABOUT_A_MODEL.has(event.signal);
+  const claim = claimType(event);
+  return claim !== null && ABOUT_A_MODEL.has(claim);
 }
 
 function modelKey(canonicalId: string): string {

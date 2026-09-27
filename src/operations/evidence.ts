@@ -33,7 +33,7 @@ export function evidenceOperations(db: Database, config: AppConfig, _all: () => 
     news: {
       section: "evidence",
       summary:
-        "What reached readers over the last N hours (default 24), by signal class, with raw event volume beside it.",
+        "What reached readers over the last N hours (default 24), by signal class -- who was meant to hear it -- and beside it by claim, which is what actually happened, with raw event volume on both.",
       startHere: "what was news today",
       mutates: false,
       agent: true,
