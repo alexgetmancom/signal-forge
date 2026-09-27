@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Collection } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
 import { fetchText } from "./http.js";
+import type { Vendor } from "./vendors.js";
 
 /**
  * Platform health. Unlike everything else here this is not about what a vendor released — it is
@@ -39,7 +40,12 @@ const summary = z.object({
  * `interval` is per platform because their bot protection differs: OpenAI's Statuspage tolerates a
  * five-minute poll, Anthropic's WAF started serving a CAPTCHA at that rate and is given room.
  */
-export const PLATFORMS: { id: string; name: string; url: string; page: string; interval: number }[] = [
+/**
+ * `name` is a `Vendor` rather than a string because it is the maker a status source answers for, and
+ * the registry only allows the spellings in src/sources/vendors.ts. It is also printed into an
+ * incident's title, which is why one field serves both.
+ */
+export const PLATFORMS: { id: string; name: Vendor; url: string; page: string; interval: number }[] = [
   {
     id: "openai",
     name: "OpenAI",

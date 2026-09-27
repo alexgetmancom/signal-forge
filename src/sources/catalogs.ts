@@ -4,6 +4,7 @@ import type { Collection, RecordData, SourceAuthority } from "../events/types.js
 import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { fetchText } from "./http.js";
+import type { Vendor } from "./vendors.js";
 
 const openRouterSchema = z.object({
   data: z
@@ -155,8 +156,11 @@ export async function collectGemini(config: AppConfig, request: Fetch = fetch): 
 export type ProviderCatalogue = {
   id: string;
   name: string;
-  /** The company answering for the catalogue, spelled as every other source of that company spells it. */
-  vendor: string;
+  /**
+   * The company answering for the catalogue. A `Vendor` rather than a string so that the spelling
+   * the registry test checks at run time is also the one the compiler checks here.
+   */
+  vendor: Vendor;
   apiUrl: string;
   url: string;
   key: CredentialName;

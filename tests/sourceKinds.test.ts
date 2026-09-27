@@ -22,8 +22,13 @@ function registry() {
  *
  * 163 on the day kinds were introduced; 160 once the documentation probes became a kind, which is
  * what adding a fourth probe cost -- the budget is what made adding one name the other three.
+ *
+ * 93 once the five largest families were named: open-weights accounts, maker APIs, reseller
+ * catalogues, package registries, retirement schedules and status pages. Nothing about a source
+ * changed in that move -- every scheduled and stored field of all 201 was compared before and after
+ * -- which is the only reason it could be one commit.
  */
-const UNNAMED_BUDGET = 160;
+const UNNAMED_BUDGET = 93;
 
 test("a source names the maker it belongs to the way the registry spells it", () => {
   const spellings = new Set<string>(VENDOR_NAMES);

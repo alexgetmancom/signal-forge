@@ -1,5 +1,6 @@
 import type { SourceContext, SourceEntry } from "../definition.js";
 import { collectAnthropicDeprecations, collectOpenAIDeprecations } from "../deprecations.js";
+import { type SourceKind, sourcesOfKind } from "../kinds.js";
 import {
   collectAwsBedrockLifecycle,
   collectAzureFoundryLifecycle,
@@ -11,6 +12,29 @@ import {
 } from "../lifecycle.js";
 import { collectPlatformStatus, PLATFORMS } from "../platforms.js";
 import { collectCodexResets } from "../resets.js";
+
+/**
+ * A provider's own retirement schedule: the one page a reader has to act on by a date.
+ *
+ * Nine of these differed only by maker and collector. Hourly because a date that moves is still a
+ * date weeks away, and nothing here is ever the first word on anything.
+ */
+const RETIREMENT_SCHEDULE: SourceKind = {
+  kind: "retirement-schedule",
+  authority: "first_party",
+  group: "Deprecations",
+  stream: "deprecations",
+  intervalSeconds: 3600,
+};
+
+/** A platform's own status page. Its pace is the platform's, so every member overrules it. */
+const STATUS_PAGE: SourceKind = {
+  kind: "status-page",
+  authority: "first_party",
+  group: "Platform health",
+  stream: "incidents",
+  intervalSeconds: 300,
+};
 
 /** Deprecation schedules, retirement pages, platform status and usage limits. */
 export function lifecycleSources({ cache }: SourceContext): SourceEntry[] {
@@ -26,97 +50,25 @@ export function lifecycleSources({ cache }: SourceContext): SourceEntry[] {
       intervalSeconds: 900,
       collector: () => collectCodexResets(fetch, cache),
     },
-    {
-      id: "openai-deprecations",
-      authority: "first_party",
-      vendor: "OpenAI",
-      group: "Deprecations",
-      stream: "deprecations",
-      intervalSeconds: 3600,
-      collector: () => collectOpenAIDeprecations(),
-    },
-    {
-      id: "anthropic-deprecations",
-      authority: "first_party",
-      vendor: "Anthropic",
-      group: "Deprecations",
-      stream: "deprecations",
-      intervalSeconds: 3600,
-      collector: () => collectAnthropicDeprecations(),
-    },
-    {
-      id: "gemini-deprecations",
-      authority: "first_party",
-      vendor: "Google",
-      group: "Deprecations",
-      stream: "deprecations",
-      intervalSeconds: 3600,
-      collector: () => collectGeminiDeprecations(),
-    },
-    {
-      id: "vertex-deprecations",
-      authority: "first_party",
-      vendor: "Google",
-      group: "Deprecations",
-      stream: "deprecations",
-      intervalSeconds: 3600,
-      collector: () => collectVertexDeprecations(),
-    },
-    {
-      id: "aws-bedrock-lifecycle",
-      authority: "first_party",
-      vendor: "AWS",
-      group: "Deprecations",
-      stream: "deprecations",
-      intervalSeconds: 3600,
-      collector: () => collectAwsBedrockLifecycle(),
-    },
-    {
-      id: "azure-foundry-lifecycle",
-      authority: "first_party",
-      vendor: "Microsoft",
-      group: "Deprecations",
-      stream: "deprecations",
-      intervalSeconds: 3600,
-      collector: () => collectAzureFoundryLifecycle(),
-    },
-    {
-      id: "groq-deprecations",
-      authority: "first_party",
-      vendor: "Groq",
-      group: "Deprecations",
-      stream: "deprecations",
-      intervalSeconds: 3600,
-      collector: () => collectGroqDeprecations(),
-    },
-    {
-      id: "cohere-deprecations",
-      authority: "first_party",
-      vendor: "Cohere",
-      group: "Deprecations",
-      stream: "deprecations",
-      intervalSeconds: 3600,
-      collector: () => collectCohereDeprecations(),
-    },
-    {
-      id: "xai-deprecations",
-      authority: "first_party",
-      vendor: "xAI",
-      group: "Deprecations",
-      stream: "deprecations",
-      intervalSeconds: 3600,
-      collector: () => collectXaiDeprecations(),
-    },
-    ...PLATFORMS.map(
-      (platform): SourceEntry => ({
+    ...sourcesOfKind(RETIREMENT_SCHEDULE, [
+      { id: "openai-deprecations", vendor: "OpenAI", collector: () => collectOpenAIDeprecations() },
+      { id: "anthropic-deprecations", vendor: "Anthropic", collector: () => collectAnthropicDeprecations() },
+      { id: "gemini-deprecations", vendor: "Google", collector: () => collectGeminiDeprecations() },
+      { id: "vertex-deprecations", vendor: "Google", collector: () => collectVertexDeprecations() },
+      { id: "aws-bedrock-lifecycle", vendor: "AWS", collector: () => collectAwsBedrockLifecycle() },
+      { id: "azure-foundry-lifecycle", vendor: "Microsoft", collector: () => collectAzureFoundryLifecycle() },
+      { id: "groq-deprecations", vendor: "Groq", collector: () => collectGroqDeprecations() },
+      { id: "cohere-deprecations", vendor: "Cohere", collector: () => collectCohereDeprecations() },
+      { id: "xai-deprecations", vendor: "xAI", collector: () => collectXaiDeprecations() },
+    ]),
+    ...sourcesOfKind(
+      STATUS_PAGE,
+      PLATFORMS.map((platform) => ({
         id: `status:${platform.id}`,
-        authority: "first_party",
         vendor: platform.name,
-        group: "Platform health",
-        stream: "incidents",
         intervalSeconds: platform.interval,
         collector: () => collectPlatformStatus(platform),
-      }),
+      })),
     ),
   ];
 }

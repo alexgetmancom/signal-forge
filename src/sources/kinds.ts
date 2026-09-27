@@ -20,6 +20,12 @@ export type SourceKind = Pick<SourceEntry, "authority" | "group" | "stream"> & {
   /** Named in reports and by `sources kinds`; never stored, so it is free to be renamed. */
   kind: string;
   intervalSeconds: number;
+  /**
+   * The host budget a family shares, when it has one. A kind whose members are all accounts on one
+   * hub is the case this exists for: the pace belongs to the hub, so a member that forgot it would
+   * spend the whole family's politeness on its own poll.
+   */
+  pace?: SourceEntry["pace"];
 };
 
 /** What a member of a kind says for itself: who it belongs to, what it reads, and any exception. */
@@ -36,5 +42,12 @@ export type KindMember = Partial<SourceKind> &
  * without being a newsroom. Anything else it wants to differ in means it is a different kind.
  */
 export function sourcesOfKind(kind: SourceKind, members: readonly KindMember[]): SourceEntry[] {
-  return members.map((member) => ({ ...kind, ...member }));
+  // `pace` is spread in only when one of the two carries it: under exactOptionalPropertyTypes an
+  // absent shared budget and a `pace: undefined` are different types, and the entry wants the former.
+  return members.map((member) => {
+    const pace = member.pace ?? kind.pace;
+    const { pace: _member, ...rest } = member;
+    const { pace: _kind, ...shared } = kind;
+    return { ...shared, ...rest, ...(pace ? { pace } : {}) };
+  });
 }
