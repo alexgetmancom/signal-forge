@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { RecapContext } from "../../recap.js";
+import type { RecapContext } from "../../recap/schema.js";
 import { sourceLabel } from "../../sources/labels.js";
 import { clip } from "../../text.js";
 import type { Event } from "../types.js";

@@ -4,7 +4,9 @@ import { prepareDeliveries } from "../src/events/batching.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import { renderRecapLines } from "../src/events/render/lifecycle.js";
 import type { Collection } from "../src/events/types.js";
-import { lastRecapPeriod, recapContext, recapContextSchema } from "../src/recap.js";
+import { lastRecapPeriod } from "../src/recap/reading.js";
+import { recapContextSchema } from "../src/recap/schema.js";
+import { recapContext } from "../src/recap.js";
 import { scheduleRecaps } from "../src/recapSchedule.js";
 import { openDatabase } from "../src/storage/database.js";
 

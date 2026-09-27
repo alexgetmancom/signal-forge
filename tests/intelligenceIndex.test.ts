@@ -3,7 +3,8 @@ import { saveCollection } from "../src/events/pipeline.js";
 import { renderRecapLines } from "../src/events/render/lifecycle.js";
 import { signalClass } from "../src/events/signals.js";
 import type { Event } from "../src/events/types.js";
-import { lastRecapPeriod, recapContext } from "../src/recap.js";
+import { lastRecapPeriod } from "../src/recap/reading.js";
+import { recapContext } from "../src/recap.js";
 import { collectArtificialAnalysis } from "../src/sources/analysis.js";
 import { openDatabase } from "../src/storage/database.js";
 

@@ -10,7 +10,7 @@
 import type { Database } from "bun:sqlite";
 import type { Destination } from "../config.js";
 import { promotionContextSchema } from "../promotion.js";
-import { type RecapContext, recapContextSchema } from "../recap.js";
+import { type RecapContext, recapContextSchema } from "../recap/schema.js";
 import type { BatchTarget, PendingBatch } from "./batchParts.js";
 import { linkDelivery, sealBatch, upsertDelivery } from "./batchParts.js";
 import { splitMessage } from "./canonical.js";

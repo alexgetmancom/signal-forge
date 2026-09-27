@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { loadConfig } from "../src/config.js";
 import { renderRecapEmbed } from "../src/events/render/lifecycle.js";
-import { recapContextSchema } from "../src/recap.js";
+import { recapContextSchema } from "../src/recap/schema.js";
 import { publishMonthlyAudit, publishWeeklyVotes } from "../src/review.js";
 import { readState } from "../src/storage/appState.js";
 import { openDatabase } from "../src/storage/database.js";

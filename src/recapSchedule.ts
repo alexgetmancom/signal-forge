@@ -4,14 +4,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { AppConfig, Destination } from "./config.js";
 import { featureEnabled } from "./features.js";
-import {
-  lastRecapPeriod,
-  PERIODS,
-  type RecapContext,
-  type RecapPeriod,
-  recapContext,
-  recapContextSchema,
-} from "./recap.js";
+import { lastRecapPeriod, PERIODS, type RecapPeriod } from "./recap/reading.js";
+import { type RecapContext, recapContextSchema } from "./recap/schema.js";
+import { recapContext } from "./recap.js";
 
 /**
  * Queueing a period's recap: the half of a recap that starts a process and writes rows.
