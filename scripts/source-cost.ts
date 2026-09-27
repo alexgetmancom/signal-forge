@@ -30,10 +30,11 @@
  * development command and not an operation: 188 collectors in one process is the memory event this
  * exists to measure, and doing that inside the container would be doing it next to the service.
  */
-import { copyFileSync, readFileSync, unlinkSync } from "node:fs";
+import { copyFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../src/config.js";
+import { peakMb } from "../src/runtime/peak.js";
 import { buildSourceRegistry } from "../src/sources/registry.js";
 import { openWithoutMigrating } from "../src/storage/database.js";
 import { prodCopy } from "./prodCopy.js";
@@ -46,22 +47,6 @@ const WORTH_A_CHILD_MB = 32;
 
 function say(message: string): void {
   process.stderr.write(`${message}\n`);
-}
-
-/**
- * The kernel's own peak for this process. `VmHWM` where there is a `/proc`; `getrusage`'s `maxRSS`
- * otherwise, which Bun reports in bytes on Darwin and kilobytes on Linux -- hence the order, so the
- * ambiguous one is only ever read on the platform where it means bytes. Never a sampler on a timer:
- * a collector blocks the event loop, and a 5 ms interval reported 65 MB of a real 417 twice.
- */
-function peakMb(): number {
-  try {
-    const kilobytes = Number(/^VmHWM:\s+(\d+)/m.exec(readFileSync("/proc/self/status", "utf8"))?.[1]);
-    if (Number.isFinite(kilobytes)) return Math.round(kilobytes / 1024);
-  } catch {
-    // Not Linux -- a development machine.
-  }
-  return Math.round((process.resourceUsage?.().maxRSS ?? 0) / 1048576);
 }
 
 const prefix = Bun.argv.slice(2).find((value) => !value.startsWith("-")) ?? "";

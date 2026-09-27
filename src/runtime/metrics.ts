@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { log } from "../logger.js";
 import { round } from "../numbers.js";
 import { readRuntime } from "./observability.js";
+import { peakGrowthKb, peakKb } from "./peak.js";
 
 const METRIC_BUCKET_MS = 60 * 60 * 1000;
 const RETENTION_DAYS = 90;
@@ -18,6 +19,8 @@ type StoredMetric = {
   min_duration_ms: number;
   max_duration_ms: number;
   duration_buckets_json: string;
+  peak_growth_kb: number;
+  max_peak_growth_kb: number;
   last_called_at: string;
   last_error_at: string | null;
   last_error_type: string | null;
@@ -37,6 +40,10 @@ type SectionTotals = {
   totalDurationMs: number;
   minDurationMs: number;
   maxDurationMs: number;
+  /** What this section added to the process's peak across the window, summed over its calls. */
+  peakGrowthKb: number;
+  /** The worst single call's growth, which is the number a memory limit is sized from. */
+  maxPeakGrowthKb: number;
   lastCalledAt: string;
   lastErrorAt: string | null;
   lastErrorType: string | null;
@@ -54,6 +61,16 @@ type CodeAnalyticsSection = {
   maxDurationMs: number;
   p50DurationMs: number;
   p95DurationMs: number;
+  /**
+   * What this section added to the floor: the sum across the window, and the worst single call.
+   *
+   * RSS is a high-water mark the allocator never returns, so a section that claimed 200 MB once is
+   * why this service is sized for it forever after. `peakGrowthMb` is what an hour of this section
+   * costs and `maxPeakGrowthMb` is what one call can do; a section that shows 0 in both has either
+   * not run since the deploy that started recording this, or genuinely holds nothing new.
+   */
+  peakGrowthMb: number;
+  maxPeakGrowthMb: number;
   lastCalledAt: string;
   lastErrorAt: string | null;
   lastErrorType: string | null;
@@ -77,6 +94,8 @@ export type CodeAnalyticsReport = {
     failureRate: number;
     totalDurationMs: number;
     averageDurationMs: number;
+    /** The floor the answered sections raised between them, which no single one of them explains. */
+    peakGrowthMb: number;
   };
   sections: CodeAnalyticsSection[];
   timeline: {
@@ -116,8 +135,91 @@ function errorType(error: unknown): string {
   return "UnknownError";
 }
 
-function recordFailure(db: Database, name: string, durationMs: number, error: unknown, now: number): void {
-  recordCodeMetric(db, name, durationMs, true, now, errorType(error));
+function recordFailure(
+  db: Database,
+  name: string,
+  durationMs: number,
+  error: unknown,
+  now: number,
+  peakGrowth: number,
+): void {
+  recordCodeMetric(db, name, durationMs, true, now, errorType(error), peakGrowth);
+}
+
+/**
+ * One call as both statements below take it: the row's two keys and the four things a call carries.
+ *
+ * A record rather than eleven positional arguments twice over, because the update and the insert
+ * bind the same values in different orders, and the fifth `duration` in a row of them is where a
+ * duration ends up in the column for a growth.
+ */
+type CallSample = {
+  name: string;
+  bucket: string;
+  calledAt: string;
+  duration: number;
+  /** Kilobytes this call added to the process's peak; see `measure`. */
+  growth: number;
+  failed: boolean;
+  lastErrorType: string | null;
+};
+
+/** Folds one call into the bucket that already exists. `MIN`/`MAX` keep the extremes of the hour. */
+function extendBucket(db: Database, sample: CallSample, buckets: readonly number[]): void {
+  db.query(
+    `UPDATE code_metrics
+     SET calls=calls+1,
+         failures=failures+?,
+         total_duration_ms=total_duration_ms+?,
+         min_duration_ms=MIN(min_duration_ms,?),
+         max_duration_ms=MAX(max_duration_ms,?),
+         duration_buckets_json=?,
+         peak_growth_kb=peak_growth_kb+?,
+         max_peak_growth_kb=MAX(max_peak_growth_kb,?),
+         last_called_at=?,
+         last_error_at=CASE WHEN ? THEN ? ELSE last_error_at END,
+         last_error_type=CASE WHEN ? THEN ? ELSE last_error_type END
+     WHERE name=? AND bucket_start=?`,
+  ).run(
+    sample.failed ? 1 : 0,
+    sample.duration,
+    sample.duration,
+    sample.duration,
+    JSON.stringify(buckets),
+    sample.growth,
+    sample.growth,
+    sample.calledAt,
+    sample.failed ? 1 : 0,
+    sample.calledAt,
+    sample.failed ? 1 : 0,
+    sample.lastErrorType,
+    sample.name,
+    sample.bucket,
+  );
+}
+
+/** The first call of an hour, which is the same numbers with this call as all of them. */
+function openBucket(db: Database, sample: CallSample, buckets: readonly number[]): void {
+  db.query(
+    `INSERT INTO code_metrics(
+       name,bucket_start,calls,failures,total_duration_ms,min_duration_ms,max_duration_ms,
+       duration_buckets_json,peak_growth_kb,max_peak_growth_kb,last_called_at,last_error_at,last_error_type
+     ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+  ).run(
+    sample.name,
+    sample.bucket,
+    1,
+    sample.failed ? 1 : 0,
+    sample.duration,
+    sample.duration,
+    sample.duration,
+    JSON.stringify(buckets),
+    sample.growth,
+    sample.growth,
+    sample.calledAt,
+    sample.failed ? sample.calledAt : null,
+    sample.failed ? sample.lastErrorType : null,
+  );
 }
 
 /** Stores one bounded, hourly execution sample. Telemetry failures never affect application work. */
@@ -128,68 +230,30 @@ export function recordCodeMetric(
   failed: boolean,
   now = Date.now(),
   lastErrorType: string | null = null,
+  peakGrowth = 0,
 ): void {
-  const calledAt = new Date(now).toISOString();
-  const bucket = bucketStart(now);
-  const duration = Math.max(0, Math.round(durationMs));
+  const sample: CallSample = {
+    name,
+    bucket: bucketStart(now),
+    calledAt: new Date(now).toISOString(),
+    duration: Math.max(0, Math.round(durationMs)),
+    growth: Math.max(0, Math.round(peakGrowth)),
+    failed,
+    lastErrorType,
+  };
   try {
     const existing = db
       .query<StoredMetric, [string, string]>(
         `SELECT name,bucket_start,calls,failures,total_duration_ms,min_duration_ms,max_duration_ms,
-                duration_buckets_json,last_called_at,last_error_at,last_error_type
+                duration_buckets_json,peak_growth_kb,max_peak_growth_kb,last_called_at,last_error_at,last_error_type
          FROM code_metrics WHERE name=? AND bucket_start=?`,
       )
-      .get(name, bucket);
+      .get(sample.name, sample.bucket);
     const buckets = existing ? readBuckets(existing.duration_buckets_json) : emptyBuckets();
-    const index = durationBucket(duration);
+    const index = durationBucket(sample.duration);
     buckets[index] = (buckets[index] ?? 0) + 1;
-    if (existing) {
-      db.query(
-        `UPDATE code_metrics
-         SET calls=calls+1,
-             failures=failures+?,
-             total_duration_ms=total_duration_ms+?,
-             min_duration_ms=MIN(min_duration_ms,?),
-             max_duration_ms=MAX(max_duration_ms,?),
-             duration_buckets_json=?,
-             last_called_at=?,
-             last_error_at=CASE WHEN ? THEN ? ELSE last_error_at END,
-             last_error_type=CASE WHEN ? THEN ? ELSE last_error_type END
-         WHERE name=? AND bucket_start=?`,
-      ).run(
-        failed ? 1 : 0,
-        duration,
-        duration,
-        duration,
-        JSON.stringify(buckets),
-        calledAt,
-        failed ? 1 : 0,
-        calledAt,
-        failed ? 1 : 0,
-        lastErrorType,
-        name,
-        bucket,
-      );
-    } else {
-      db.query(
-        `INSERT INTO code_metrics(
-           name,bucket_start,calls,failures,total_duration_ms,min_duration_ms,max_duration_ms,
-           duration_buckets_json,last_called_at,last_error_at,last_error_type
-         ) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
-      ).run(
-        name,
-        bucket,
-        1,
-        failed ? 1 : 0,
-        duration,
-        duration,
-        duration,
-        JSON.stringify(buckets),
-        calledAt,
-        failed ? calledAt : null,
-        failed ? lastErrorType : null,
-      );
-    }
+    if (existing) extendBucket(db, sample, buckets);
+    else openBucket(db, sample, buckets);
   } catch {
     log("warn", "Code metric could not be stored", { metric: name });
   }
@@ -197,25 +261,38 @@ export function recordCodeMetric(
 
 export function measure<T>(db: Database, name: string, operation: () => T): T;
 export function measure<T>(db: Database, name: string, operation: () => Promise<T>): Promise<T>;
+/**
+ * A section's duration and what it added to the floor, stored together.
+ *
+ * The peak is read before and after rather than sampled, because `VmHWM` is monotone: the increment
+ * is exactly what this section raised the high-water mark by, and a section that holds 200 MB for
+ * eight hundred milliseconds cannot fall between two samples the way it does in `memory`.
+ *
+ * Two sections that overlap in time each see the growth of both, because there is one process and
+ * one mark. That makes every figure here an upper bound on the section's own claim, which is the
+ * safe direction -- it names a suspect rather than clearing one -- and it is why the boot phases are
+ * measured in sequence inside one transaction, where the numbers are each section's alone.
+ */
 export function measure<T>(db: Database, name: string, operation: () => T | Promise<T>): T | Promise<T> {
   const started = Date.now();
+  const peakBefore = peakKb();
   try {
     const result = operation();
     if (result instanceof Promise)
       return result.then(
         (value) => {
-          recordCodeMetric(db, name, Date.now() - started, false);
+          recordCodeMetric(db, name, Date.now() - started, false, Date.now(), null, peakGrowthKb(peakBefore));
           return value;
         },
         (error: unknown) => {
-          recordFailure(db, name, Date.now() - started, error, Date.now());
+          recordFailure(db, name, Date.now() - started, error, Date.now(), peakGrowthKb(peakBefore));
           throw error;
         },
       );
-    recordCodeMetric(db, name, Date.now() - started, false);
+    recordCodeMetric(db, name, Date.now() - started, false, Date.now(), null, peakGrowthKb(peakBefore));
     return result;
   } catch (error) {
-    recordFailure(db, name, Date.now() - started, error, Date.now());
+    recordFailure(db, name, Date.now() - started, error, Date.now(), peakGrowthKb(peakBefore));
     throw error;
   }
 }
@@ -245,6 +322,8 @@ function sectionReport(metric: SectionTotals, buckets: number[]): CodeAnalyticsS
     maxDurationMs: metric.maxDurationMs,
     p50DurationMs: percentile(buckets, 0.5),
     p95DurationMs: percentile(buckets, 0.95),
+    peakGrowthMb: round(metric.peakGrowthKb / 1024, 1),
+    maxPeakGrowthMb: round(metric.maxPeakGrowthKb / 1024, 1),
     lastCalledAt: metric.lastCalledAt,
     lastErrorAt: metric.lastErrorAt,
     lastErrorType: metric.lastErrorType,
@@ -324,6 +403,8 @@ const SECTION_TOTALS = `
          SUM(m.total_duration_ms) AS totalDurationMs,
          MIN(m.min_duration_ms) AS minDurationMs,
          MAX(m.max_duration_ms) AS maxDurationMs,
+         SUM(m.peak_growth_kb) AS peakGrowthKb,
+         MAX(m.max_peak_growth_kb) AS maxPeakGrowthKb,
          MAX(m.last_called_at) AS lastCalledAt,
          MAX(m.last_error_at) AS lastErrorAt,
          (SELECT f.last_error_type FROM code_metrics f
@@ -418,6 +499,9 @@ export function codeAnalytics(db: Database, days = 7, now = Date.now(), query: T
   const calls = metrics.reduce((sum, metric) => sum + metric.calls, 0);
   const failures = metrics.reduce((sum, metric) => sum + metric.failures, 0);
   const totalDurationMs = metrics.reduce((sum, metric) => sum + metric.totalDurationMs, 0);
+  // Named for what it is rather than after the reader it is summed from: `peakGrowthKb` is the
+  // imported function, and shadowing it here would leave the next edit unable to call it.
+  const growthKb = metrics.reduce((sum, metric) => sum + metric.peakGrowthKb, 0);
   const answered = query.limit ? metrics.slice(0, query.limit) : metrics;
   const buckets = histograms(
     db,
@@ -438,6 +522,7 @@ export function codeAnalytics(db: Database, days = 7, now = Date.now(), query: T
       failureRate: calls ? round(failures / calls, 4) : 0,
       totalDurationMs,
       averageDurationMs: calls ? round(totalDurationMs / calls, 2) : 0,
+      peakGrowthMb: round(growthKb / 1024, 1),
     },
     sections: answered.map((metric) => sectionReport(metric, buckets.get(metric.name) ?? emptyBuckets())),
     timeline: query.timeline ? timelineOf(db, window) : [],

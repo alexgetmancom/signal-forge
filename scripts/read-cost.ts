@@ -25,11 +25,12 @@
  * share the cost with are all here. It reads a private copy of production, because `verify` writes
  * on first ask.
  */
-import { copyFileSync, readFileSync, unlinkSync } from "node:fs";
+import { copyFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../src/config.js";
 import { operations } from "../src/operations.js";
+import { peakMb } from "../src/runtime/peak.js";
 import { openWithoutMigrating } from "../src/storage/database.js";
 import { prodCopy } from "./prodCopy.js";
 
@@ -38,17 +39,6 @@ const WORTH_A_CHILD_MB = 32;
 
 function say(message: string): void {
   process.stderr.write(`${message}\n`);
-}
-
-/** The kernel's own peak for this process; `source-cost` explains the two readings and the order. */
-function peakMb(): number {
-  try {
-    const kilobytes = Number(/^VmHWM:\s+(\d+)/m.exec(readFileSync("/proc/self/status", "utf8"))?.[1]);
-    if (Number.isFinite(kilobytes)) return Math.round(kilobytes / 1024);
-  } catch {
-    // Not Linux -- a development machine.
-  }
-  return Math.round((process.resourceUsage?.().maxRSS ?? 0) / 1048576);
 }
 
 const filter = Bun.argv.slice(2).find((value) => !value.startsWith("-")) ?? "";

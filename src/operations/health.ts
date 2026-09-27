@@ -244,7 +244,15 @@ function timingsOperation(db: Database): OperationMap[string] {
       "because the usual question is what is slow, not when. After a deploy ask " +
       "`timings --since boot`: buckets are hourly, so a release at 13:34 poisons the 13:00 one, " +
       "and `--since` names that hour in `straddled` and leaves it out rather than averaging the " +
-      "two builds together. It also takes an ISO instant or a span such as 90m, 6h, 2d.",
+      "two builds together. It also takes an ISO instant or a span such as 90m, 6h, 2d. Beside each " +
+      "duration it says what the section added to the floor: `peakGrowthMb` is the sum over the " +
+      "window and `maxPeakGrowthMb` the worst single call, read off the kernel's monotone high-water " +
+      "mark rather than sampled, so a rebuild that holds 200 MB for under a second -- invisible to " +
+      "`memory`, whose samples are five minutes apart -- is named here. RSS is never given back, so " +
+      "that growth is the floor this service keeps for the rest of the boot; ask `timings --since " +
+      "boot --name boot.` for what the load itself cost. Two sections that overlap in time each see " +
+      "the growth of both, which makes every figure an upper bound on its own claim. 0 across a " +
+      "window means the section has not run since the deploy that started recording this.",
     mutates: false,
     agent: true,
     schema: z.object({

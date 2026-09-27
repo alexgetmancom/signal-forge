@@ -124,3 +124,48 @@ describe("a window that starts at a named moment", () => {
     expect(report.days).toBe(7);
   });
 });
+
+test("timings say what a section added to the floor, summed and at its worst", () => {
+  const db = openDatabase(":memory:");
+  const now = Date.parse("2026-09-27T12:00:00.000Z");
+  // Two calls in one bucket and one in the hour before it: the sum crosses buckets, the worst call
+  // is the largest single claim anywhere in the window, and neither is an average.
+  recordCodeMetric(db, "boot.stories", 900, false, now - 3_600_000, null, 120 * 1024);
+  recordCodeMetric(db, "boot.stories", 800, false, now, null, 8 * 1024);
+  recordCodeMetric(db, "boot.stories", 700, false, now, null, 4 * 1024);
+  recordCodeMetric(db, "boot.hypotheses", 100, false, now, null, 1024);
+
+  const report = codeAnalytics(db, 7, now);
+  expect(report.sections).toEqual([
+    expect.objectContaining({ name: "boot.stories", peakGrowthMb: 132, maxPeakGrowthMb: 120 }),
+    expect.objectContaining({ name: "boot.hypotheses", peakGrowthMb: 1, maxPeakGrowthMb: 1 }),
+  ]);
+  expect(report.totals.peakGrowthMb).toBe(133);
+  db.close();
+});
+
+test("a section that was never weighed reads as zero rather than as absent", () => {
+  const db = openDatabase(":memory:");
+  const now = Date.parse("2026-09-27T12:00:00.000Z");
+  // Every row stored before migration 058 has the default, and so does a call on a platform that
+  // will not say what its peak is. Zero, not null: a report that has to explain a missing number
+  // in every section is a report nobody reads to the end.
+  recordCodeMetric(db, "worker:sources", 5, false, now);
+  expect(codeAnalytics(db, 7, now).sections[0]).toMatchObject({ peakGrowthMb: 0, maxPeakGrowthMb: 0 });
+  db.close();
+});
+
+test("measure weighs the section it times", async () => {
+  const db = openDatabase(":memory:");
+  // The growth of one small allocation is not a number a test can assert on -- it depends on the
+  // allocator, and on Linux `VmHWM` moves in pages. What is asserted is that the two readings are
+  // taken around the operation and stored as a non-negative claim against the section that ran.
+  await measure(db, "test:weighed", async () => {
+    await Bun.sleep(1);
+  });
+  const section = codeAnalytics(db, 1).sections[0];
+  expect(section?.name).toBe("test:weighed");
+  expect(section?.peakGrowthMb).toBeGreaterThanOrEqual(0);
+  expect(section?.maxPeakGrowthMb).toBeLessThanOrEqual(section?.peakGrowthMb ?? 0);
+  db.close();
+});

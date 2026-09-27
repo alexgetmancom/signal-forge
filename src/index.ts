@@ -41,12 +41,17 @@ const config = loadConfig();
 // Logs live beside the database, on the volume that outlives the container.
 configureLogger(config.NODE_ENV === "production", join(dirname(config.DATABASE_URL), "logs"));
 const db = openDatabase(config.DATABASE_URL);
+// Each phase of the load is timed and weighed on its own. A boot is the worst moment this process
+// ever has, and RSS is never given back, so what a phase adds to the peak here is the floor the
+// service stands on for the rest of its life. They run in sequence inside one transaction, which is
+// what makes the numbers each phase's own: one mark, one process, and nothing overlapping to charge
+// twice. Until this, every number about it came from one run of a script on a laptop.
 const storyProjection = db.transaction(() => {
-  recordSourceIdentities(db, buildSourceRegistry(db, config));
-  const projection = rebuildStories(db);
-  rebuildModelFacts(db);
-  rebuildHypotheses(db);
-  rebuildLifecycleDeadlines(db);
+  measure(db, "boot.source-identities", () => recordSourceIdentities(db, buildSourceRegistry(db, config)));
+  const projection = measure(db, "boot.stories", () => rebuildStories(db));
+  measure(db, "boot.model-facts", () => rebuildModelFacts(db));
+  measure(db, "boot.hypotheses", () => rebuildHypotheses(db));
+  measure(db, "boot.lifecycle-deadlines", () => rebuildLifecycleDeadlines(db));
   return projection;
 })();
 rememberStoryProjection(db, storyProjection);
