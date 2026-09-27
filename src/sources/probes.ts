@@ -166,6 +166,21 @@ export const PROBE_SITES: readonly Site[] = [
  * kept: `claude-opus-5-5` over `claude-opus-5-5-fast`, which is the name a documentation page is
  * written for.
  */
+/**
+ * A catalogue id as the sites here spell a model: without the maker that a catalogue puts in front
+ * of it, and without the variant a serving platform puts after it.
+ *
+ * `model_facts` holds both spellings of the same model -- `gpt-6-sol` from one catalogue and
+ * `openai/gpt-6-sol` from another, 2,173 of 4,854 ids prefixed on 2026-09-27 -- and both the
+ * frontier and the check for "already out" read that column. Compared unstripped, a prefixed id
+ * matches no shape and no heard name: on 2026-09-27 `gpt-5.2-codex`, released in December and
+ * documented ever since, was heard from OpenCode's catalogue, read as unreleased because the only
+ * spelling of it was `openai/gpt-5.2-codex`, probed, and published as a new page.
+ */
+function bareId(canonicalId: string): string {
+  return (canonicalId.split("/").pop() ?? "").split(":")[0] ?? "";
+}
+
 export function observedFamilies(
   db: Database,
   site: Site,
@@ -173,7 +188,7 @@ export function observedFamilies(
   const ids = db
     .query<{ canonical_id: string }, []>("SELECT canonical_id FROM model_facts")
     .all()
-    .map((row) => row.canonical_id);
+    .map((row) => bareId(row.canonical_id));
   const highest = new Map<string, { version: [number, number]; observed: string }>();
   for (const shape of site.shapes)
     for (const id of ids) {
@@ -230,7 +245,7 @@ export function heardNames(db: Database, site: Site, now = Date.now()): string[]
     db
       .query<{ canonical_id: string }, []>("SELECT canonical_id FROM model_facts")
       .all()
-      .map((row) => site.spell(row.canonical_id.toLowerCase())),
+      .map((row) => site.spell(bareId(row.canonical_id).toLowerCase())),
   );
   const heard: string[] = [];
   for (const row of db
@@ -240,7 +255,7 @@ export function heardNames(db: Database, site: Site, now = Date.now()): string[]
        ORDER BY e.id DESC LIMIT 2000`,
     )
     .all(since)) {
-    const name = (row.entity_id.split("/").pop() ?? "").split(":")[0]?.toLowerCase() ?? "";
+    const name = bareId(row.entity_id).toLowerCase();
     if (!site.codename.test(name)) continue;
     const slug = site.spell(name);
     if (released.has(slug)) continue;

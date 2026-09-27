@@ -328,6 +328,29 @@ test("a released model written another way is still released", () => {
   expect(heardNames(db, anthropicProbe, Date.parse("2026-09-24T00:00:00.000Z"))).toEqual([]);
 });
 
+test("a model the catalogue files under its maker is out, and is not a question", () => {
+  const openai = PROBE_SITES.find((site) => site.id === "discovery:docs-openai");
+  if (!openai) throw new Error("the OpenAI probe is gone");
+  // The only spelling of this model in the catalogue carries the maker in front of it, which is how
+  // OpenCode writes every id. Read past the prefix it is released; read with it, the probe asks the
+  // documentation about a model that shipped in December and calls the answer a new page.
+  const db = catalogue(["openai/gpt-5.2-codex", "openai/gpt-6-sol"]);
+  db.query(
+    "INSERT INTO events(source,stream,entity_id,kind,after_json,detected_at,signal,snapshot_id) VALUES('discovery:opencode-data','api-models',?,'new','{}','2026-09-23T10:00:00.000Z','codename',1)",
+  ).run("openai/gpt-5.2-codex");
+  expect(heardNames(db, openai, Date.parse("2026-09-24T00:00:00.000Z"))).toEqual([]);
+});
+
+test("the frontier is read past the maker the catalogue puts in front of a model", () => {
+  const openai = PROBE_SITES.find((site) => site.id === "discovery:docs-openai");
+  if (!openai) throw new Error("the OpenAI probe is gone");
+  // Unstripped, none of these match the shape at all: the probe sees an empty catalogue and refuses,
+  // or sees only the older unprefixed name and asks questions about the past.
+  expect(observedFamilies(catalogue(["gpt-5.6-cyber", "openai/gpt-6-sol"]), openai)).toEqual([
+    { family: "gpt", version: [6, 0], observed: "gpt-6-sol" },
+  ]);
+});
+
 test("a name below the maker's own frontier is still a question", () => {
   const openai = PROBE_SITES.find((site) => site.id === "discovery:docs-openai");
   if (!openai) throw new Error("the OpenAI probe is gone");
