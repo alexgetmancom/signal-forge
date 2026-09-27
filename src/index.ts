@@ -1,5 +1,6 @@
 import { dirname, join } from "node:path";
 import { publishAlerts, recoverInterruptedAlerts } from "./alerts.js";
+import { BOARD_ORDER } from "./boards/keys.js";
 import { loadConfig } from "./config.js";
 import { deliverPending, recoverInterruptedDeliveries } from "./delivery.js";
 import { detectBreakouts } from "./events/breakouts.js";
@@ -21,7 +22,7 @@ import { stopServerGracefully } from "./runtime/shutdown.js";
 import { RuntimeSupervisor } from "./runtime/supervisor.js";
 import { startIntervalWorker } from "./runtime/worker.js";
 import { buildSourceRegistry, recordSourceIdentities } from "./sources/registry.js";
-import { BOARD_ORDER, publishBoard } from "./status.js";
+import { publishBoard } from "./status.js";
 import { openDatabase } from "./storage/database.js";
 import { HttpCache } from "./storage/httpCache.js";
 import {

@@ -71,7 +71,7 @@ const BUDGET: Readonly<Record<string, number>> = {
   "src/sources/labels.ts:STATIC_LABELS": 125,
   "src/sources/packs/lifecycle.ts:lifecycleSources": 125,
   "src/sources/pages.ts:WATCHED_SITES": 125,
-  "src/status.ts:sourceHealth": 125,
+  "src/boards/health.ts:sourceHealth": 125,
   "src/events/render/story.ts:storyEmbed": 100,
   "src/reports/flakySources.ts:flakySources": 100,
   "src/reports/news.ts:news": 100,

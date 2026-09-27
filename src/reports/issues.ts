@@ -1,9 +1,10 @@
 import type { Database } from "bun:sqlite";
+import { boardFailures } from "../boards/failures.js";
+import { sourceHealth } from "../boards/health.js";
 import { capabilityReport } from "../capabilities.js";
 import type { AppConfig } from "../config.js";
 import { openCredentialCircuits } from "../credentials.js";
 import { unusableJudgeRuns } from "../runtime/deepseekUsage.js";
-import { boardFailures, sourceHealth } from "../status.js";
 import { readState } from "../storage/appState.js";
 import { databaseSize } from "../storage/retention.js";
 import { backupStatus } from "./doctor.js";

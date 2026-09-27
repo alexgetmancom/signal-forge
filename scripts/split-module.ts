@@ -19,7 +19,7 @@
  * whatever proves that: the tests, and for anything a reader sees, `bun run rehearse`.
  */
 
-import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative, resolve } from "node:path";
 import {
   type Chunk,
@@ -101,7 +101,25 @@ for (const [file, names] of plan)
 const directory = dirname(path);
 const imported = importedNames(block.statements);
 const staying = cut.filter((chunk) => !destination.has(chunk.name));
+/**
+ * A destination's specifier as written from the original file's directory. Every reader of it goes
+ * through `respecify`, because a destination may sit in a subdirectory -- `boards/embed.ts` is
+ * `./embed.js` to its neighbour there and `./boards/embed.js` to the file they both came from, and
+ * spelling one of those everywhere wrote imports that resolve to nothing.
+ */
 const moduleName = (file: string) => `./${file.replace(/\.ts$/, ".js")}`;
+
+/**
+ * How a moved declaration is imported: by name, or as a type when that is what it is.
+ *
+ * `verbatimModuleSyntax` is on, so a moved `type` or `interface` reached for by name alone is a
+ * file that does not compile. Nothing caught this until a split moved a type for the first time.
+ */
+function clauseFor(name: string): string {
+  const chunk = byName.get(name) as Chunk;
+  const declaration = chunk.text.split("\n").find((line) => DECLARATION.test(line)) as string;
+  return /^(?:export\s+)?(?:declare\s+)?(?:type|interface)\s/.test(declaration) ? `type ${name}` : name;
+}
 
 /** What one set of chunks needs imported, given where every other name in the file now lives. */
 function needs(taken: Chunk[], intoDirectory: string, self: string | null): Map<string, Origin> {
@@ -117,49 +135,37 @@ function needs(taken: Chunk[], intoDirectory: string, self: string | null): Map<
         continue;
       }
       const moved = destination.get(name);
-      if (moved && moved !== self) needed.set(name, { module: moduleName(moved), clause: name });
+      if (moved && moved !== self)
+        needed.set(name, {
+          module: respecify(moduleName(moved), directory, intoDirectory),
+          clause: clauseFor(name),
+        });
       else if (!moved && byName.has(name) && self !== null)
         needed.set(name, {
           module: respecify(`./${stem.replace(/\.ts$/, ".js")}`, directory, intoDirectory),
-          clause: name,
+          clause: clauseFor(name),
         });
     }
   }
   return needed;
 }
 
-/** A declaration that was private to its old file has to be exported out of its new one. */
-function exported(chunk: Chunk): string {
-  if (chunk.exported) return chunk.text;
-  const lines = chunk.text.split("\n");
-  const at = lines.findIndex((line) => DECLARATION.test(line));
-  lines[at] = `export ${lines[at]}`;
-  return lines.join("\n");
-}
-
-const written = new Map<string, string>();
+/**
+ * Who each destination is, and what it has to import, worked out before anything is written: which
+ * declarations have to be exported out of their new file is not knowable until every other file's
+ * needs are known.
+ */
+const takenBy = new Map<string, Chunk[]>();
+const neededBy = new Map<string, Map<string, Origin>>();
 for (const [file, names] of plan) {
-  const taken = names.map((name) => byName.get(name) as Chunk);
   const into = join(directory, file);
   if (existsSync(into)) {
     process.stderr.write(`${relative(root, into)} already exists.\n`);
     process.exit(2);
   }
-  const needed = needs(taken, dirname(into), file);
-  written.set(
-    into,
-    [
-      "/**",
-      ` * ${taken.length} declaration${taken.length === 1 ? "" : "s"} moved out of ${stem} unchanged.`,
-      " *",
-      " * Say here what they have in common, because that is the only reason this file exists.",
-      " */",
-      ...importLines(needed),
-      "",
-      ...taken.map((chunk) => exported(chunk)),
-      "",
-    ].join("\n"),
-  );
+  const taken = names.map((name) => byName.get(name) as Chunk);
+  takenBy.set(file, taken);
+  neededBy.set(file, needs(taken, dirname(into), file));
 }
 
 const remaining = needs(staying, directory, null);
@@ -167,6 +173,43 @@ for (const [name, origin] of imported) if (!remaining.has(name) && mentionsAnywh
 function mentionsAnywhere(name: string): boolean {
   return staying.some((chunk) => mentions(chunk.text).has(name)) || mentions(header.join("\n")).has(name);
 }
+
+/** Every moved name some other file now imports: exactly the ones that have to be exported. */
+const wanted = new Set<string>();
+for (const needed of [...neededBy.values(), remaining]) for (const name of needed.keys()) wanted.add(name);
+
+/**
+ * A declaration nobody outside its new file names stays private there.
+ *
+ * Exporting every moved declaration was the obvious thing and it was wrong: a constant that was
+ * private to status.ts and is still only read beside where it moved came out exported, and the dead
+ * code pass is what said so, nine times in one split. An export is a claim that somebody else reads
+ * this, and the plan above already knows who does.
+ */
+function exported(chunk: Chunk): string {
+  if (chunk.exported || !wanted.has(chunk.name)) return chunk.text;
+  const lines = chunk.text.split("\n");
+  const at = lines.findIndex((line) => DECLARATION.test(line));
+  lines[at] = `export ${lines[at]}`;
+  return lines.join("\n");
+}
+
+const written = new Map<string, string>();
+for (const [file, taken] of takenBy)
+  written.set(
+    join(directory, file),
+    [
+      "/**",
+      ` * ${taken.length} declaration${taken.length === 1 ? "" : "s"} moved out of ${stem} unchanged.`,
+      " *",
+      " * Say here what they have in common, because that is the only reason this file exists.",
+      " */",
+      ...importLines(neededBy.get(file) as Map<string, Origin>),
+      "",
+      ...taken.map((chunk) => exported(chunk)),
+      "",
+    ].join("\n"),
+  );
 written.set(
   path,
   [...block.preamble, ...importLines(remaining), "", ...header, ...staying.map((chunk) => chunk.text), ""].join("\n"),
@@ -206,14 +249,7 @@ say(`${target}: ${lines.length} lines, ${cut.length} top-level declarations, rea
 for (const [file, names] of plan) {
   const into = join(directory, file);
   say(`  ${file}  <- ${names.length} moved, ${(written.get(into) as string).split("\n").length} lines`);
-  for (const line of importLines(
-    needs(
-      names.map((name) => byName.get(name) as Chunk),
-      dirname(into),
-      file,
-    ),
-  ))
-    say(`      ${line}`);
+  for (const line of importLines(neededBy.get(file) as Map<string, Origin>)) say(`      ${line}`);
 }
 say(`  ${target.split("/").pop()}  keeps ${staying.length}, ${(written.get(path) as string).split("\n").length} lines`);
 for (const file of repointed.keys()) say(`  repointed ${relative(root, file)}`);
@@ -225,6 +261,10 @@ if (!write) {
   );
   process.exit(0);
 }
-for (const [file, text] of [...written, ...repointed]) writeFileSync(file, text);
+for (const [file, text] of [...written, ...repointed]) {
+  // A destination in a subdirectory that does not exist yet is a plan, not a mistake.
+  mkdirSync(dirname(file), { recursive: true });
+  writeFileSync(file, text);
+}
 say("");
 say(`Written. Run \`bun run format\` to sort the imports, then \`bun run check --fast\`.`);

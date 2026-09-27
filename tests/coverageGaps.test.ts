@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
+import { coverageEmbed } from "../src/boards/coverage.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import type { Collection } from "../src/events/types.js";
 import { coverageGaps } from "../src/reports/coverageGaps.js";
-import { coverageEmbed } from "../src/status.js";
 import { openDatabase } from "../src/storage/database.js";
 
 const hn = (stories: { id: string; name: string; url: string }[]): Collection => ({

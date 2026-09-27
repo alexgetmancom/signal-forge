@@ -177,7 +177,11 @@ export function declaredWithin(text: string): Set<string> {
     /(?:^|[\s(;{])(?:const|let|var|function|class|type|interface|enum)\s+([A-Za-z_$][\w$]*)/g,
   ))
     inner.add(match[1] as string);
-  for (const match of stripped.matchAll(/([A-Za-z_$][\w$]*)\s*:/g)) inner.add(match[1] as string);
+  // A name with a colon after it on the same line: an object key, or a typed parameter or field.
+  // The colon has to be on that line. Written `\s*:` it crossed a newline, and the second arm of a
+  // ternary formatted across lines -- `? \`${INDEPENDENT_SOURCES}\`` above, `:` below -- read as a
+  // key being declared here, so the file this moved to was written without the import it needed.
+  for (const match of stripped.matchAll(/([A-Za-z_$][\w$]*)[ \t]*:/g)) inner.add(match[1] as string);
   return inner;
 }
 

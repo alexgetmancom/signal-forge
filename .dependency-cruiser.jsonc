@@ -96,6 +96,12 @@
       "to": { "path": "^src/events/(store|pipeline|record)\\.ts$|^src/storage/snapshots\\.ts$" }
     },
     {
+      "name": "boards-draw-and-hand-back",
+      "comment": "A board's file builds an embed and stops. status.ts is the one place that may edit a message in a channel or write the id and the render it compares against; a board that could send is a board that could send itself twice, and the reason the channel holds a state rather than a log is that nothing which draws decides whether it goes. boards/failures.ts is not an exception: it writes down a refusal status.ts already had in its hands, and reaches app_state rather than Discord.",
+      "from": { "path": "^src/boards/" },
+      "to": { "path": "^src/(status|delivery(Request|Outcome)?|http)\\.ts$" }
+    },
+    {
       "name": "production-does-not-import-tests",
       "comment": "Test helpers stand in for the clock, the network and the database. An import from src/ would ship one into production, where it would quietly answer for the real thing.",
       "from": { "path": "^src/" },
