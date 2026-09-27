@@ -10,8 +10,15 @@
  *
  * What the child gives back is the tables it wrote, which is all these two phases ever produced, so
  * nothing crosses but a yes. It times and weighs itself under the name it has always had, in the
- * same database, which is why `timings --name boot` keeps its ninety days of history and the figure
- * stays the phase's own claim rather than the parent's view of a child.
+ * same database, which is why `timings --name boot` keeps its ninety days of history rather than
+ * starting a second series beside the first.
+ *
+ * The figure means something different on either side of this change, and the guide for `timings`
+ * says so: it was what the phase added to the floor of the service, and it is now the mark of a
+ * process that ends. It went up, not down -- 95.8 MB became 162.7 for Model Facts on the first boot
+ * that ran it here -- because a child pays its own startup into its own mark and has none of the
+ * parent's warm allocator. What the service keeps is the number in `memory`, and that is where this
+ * is worth reading.
  *
  * Each child owns its transaction, and the parent holds none while it runs: two connections and one
  * write lock, so a parent still inside `db.transaction` would be a child waiting for a lock the
