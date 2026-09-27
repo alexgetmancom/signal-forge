@@ -34,16 +34,10 @@ import { copyFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../src/config.js";
-import { peakMb } from "../src/runtime/peak.js";
+import { peakMb, WORTH_A_CHILD_MB } from "../src/runtime/peak.js";
 import { buildSourceRegistry } from "../src/sources/registry.js";
 import { openWithoutMigrating } from "../src/storage/database.js";
 import { prodCopy } from "./prodCopy.js";
-
-/**
- * Above this, a source is worth a process that ends. The five that were moved claimed 35 MB and up;
- * everything left in the lane claims under 30, most of it nothing measurable.
- */
-const WORTH_A_CHILD_MB = 32;
 
 function say(message: string): void {
   process.stderr.write(`${message}\n`);

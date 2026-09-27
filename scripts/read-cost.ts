@@ -30,12 +30,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../src/config.js";
 import { operations } from "../src/operations.js";
-import { peakMb } from "../src/runtime/peak.js";
+import { peakMb, WORTH_A_CHILD_MB } from "../src/runtime/peak.js";
 import { openWithoutMigrating } from "../src/storage/database.js";
 import { prodCopy } from "./prodCopy.js";
-
-/** Above this, a read is worth answering somewhere that ends. `source-cost` uses the same figure. */
-const WORTH_A_CHILD_MB = 32;
 
 function say(message: string): void {
   process.stderr.write(`${message}\n`);

@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
 import { openCredentialCircuits } from "../credentials.js";
+import { collectionCost } from "../reports/collectionCost.js";
 import { coverageGaps } from "../reports/coverageGaps.js";
 import { leadTime } from "../reports/leadTime.js";
 import { releaseAudit } from "../reports/releaseAudit.js";
@@ -111,6 +112,27 @@ export function sourcesOperations(db: Database, config: AppConfig, _all: () => O
       cli: { args: [{ name: "days", optional: true }] },
       http: { method: "get", path: "/api/silent-sources" },
       handler: (input: { days: number }) => silentSources(db, config, input.days),
+    },
+    collection_cost: {
+      section: "sources",
+      summary:
+        "What each source costs the machine it runs on: what a child collection reached, and what a light one added to the floor of the process that stays.",
+      startHere: "which sources are why this service needs the memory it has",
+      note:
+        "Two different measurements, deliberately not added together: `childPeakMb` is the size of a " +
+        "process that has ended and costs nothing lasting, while `addedToTheFloorMb` is what a " +
+        "collection added to the high-water mark of the service itself, which is never given back. " +
+        "Only the second is compared against `worthAChildMb`, and a source over it belongs in the " +
+        "heavy lane -- mark it `heavy` in the registry and the poller collects it in a child. This " +
+        "replaces running `source-cost` on a laptop against a copy: a source added today shows its " +
+        "number the first time it runs. Both are absent for anything that has not run since " +
+        "2026-09-27, when the columns were added.",
+      mutates: false,
+      agent: true,
+      schema: z.object({ days: count(90, 7) }),
+      cli: { args: [{ name: "days", optional: true }] },
+      http: { method: "get", path: "/api/collection-cost" },
+      handler: (input: { days: number }) => collectionCost(db, config, input.days),
     },
     lead_time: {
       section: "sources",

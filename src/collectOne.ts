@@ -24,23 +24,29 @@ if (!id || !answerPath) {
 const config = loadConfig();
 const db = openWithoutMigrating(config.DATABASE_URL);
 
-async function answer(): Promise<string> {
+async function answer(): Promise<Record<string, unknown>> {
   const job = buildSourceRegistry(db, config).find((definition) => definition.id === id);
   // A name the parent has and this process does not means the two are running different code, which
   // is worth saying plainly rather than reporting as a collection that found nothing.
-  if (!job) return JSON.stringify({ ok: false, failure: toWire(new Error(`no source named ${id}`)) });
+  if (!job) return { ok: false, failure: toWire(new Error(`no source named ${id}`)) };
   try {
-    return JSON.stringify({ ok: true, collection: await job.collector() });
+    return { ok: true, collection: await job.collector() };
   } catch (error) {
-    return JSON.stringify({ ok: false, failure: toWire(error) });
+    return { ok: false, failure: toWire(error) };
   }
 }
 
-await Bun.write(answerPath, await answer());
+const outcome = await answer();
 // What this collection actually cost, which is the question no stored number answered: the peak is
 // read off the kernel's own high-water mark rather than sampled, because a collector that blocks the
 // event loop while it parses is invisible to any sampler running on it.
-log("info", "Heavy source collected in a child", { source: id, peakRssMb: peakMb() });
+//
+// Read after the collection and before the answer is written, so it covers the whole attempt, and
+// sent back rather than only logged: a log line is discarded by the next deploy, and the parent
+// cannot measure a process that has already ended.
+const peakRssMb = peakMb();
+await Bun.write(answerPath, JSON.stringify({ ...outcome, peakRssMb }));
+log("info", "Heavy source collected in a child", { source: id, peakRssMb });
 db.close();
 // Explicitly: a collector may leave a socket or a timer behind, and a child that lingers holds the
 // memory this whole arrangement exists to give back.

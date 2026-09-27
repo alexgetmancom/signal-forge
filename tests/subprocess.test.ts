@@ -47,10 +47,22 @@ test("a runtime failure keeps the name and the code its diagnosis is read off", 
   expect(classifyFailure(again).kind).toBe(classifyFailure(raised).kind);
 });
 
-test("a child that answers hands back the collection it collected", async () => {
+test("a child that answers hands back the collection it collected and what it cost", async () => {
   const collection = { source: "npm:x", stream: "github", url: "https://x.test", raw: "a", records: [] };
-  const got = await collectInSubprocess("npm:x", async () => ran({ answer: JSON.stringify({ ok: true, collection }) }));
-  expect(got).toEqual(collection);
+  const got = await collectInSubprocess("npm:x", async () =>
+    ran({ answer: JSON.stringify({ ok: true, collection, peakRssMb: 417 }) }),
+  );
+  expect(got).toEqual({ collection, peakRssMb: 417 });
+  // A child older than this code, mid-deploy, answers without the number rather than with a wrong
+  // one, and 0 from a platform that would not say what its peak is means the same thing.
+  const older = await collectInSubprocess("npm:x", async () =>
+    ran({ answer: JSON.stringify({ ok: true, collection }) }),
+  );
+  expect(older).toEqual({ collection, peakRssMb: null });
+  const unmeasured = await collectInSubprocess("npm:x", async () =>
+    ran({ answer: JSON.stringify({ ok: true, collection, peakRssMb: 0 }) }),
+  );
+  expect(unmeasured).toEqual({ collection, peakRssMb: null });
 });
 
 test("a child that dies, times out or babbles is a failure with a kind rather than a silent nothing", () => {

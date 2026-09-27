@@ -33,7 +33,24 @@ type WireFailure =
   | { as: "source"; kind: FailureKind; message: string; evidence: Record<string, unknown> | null }
   | { as: "other"; name: string; message: string; code: string | null };
 
-type WireAnswer = { ok: true; collection: Collection } | { ok: false; failure: WireFailure };
+/**
+ * What the child answers with: its collection or its failure, and what the attempt cost it.
+ *
+ * `peakRssMb` is the child's own high-water mark, read off the kernel just before it writes this.
+ * The parent cannot measure it -- that is the whole point of the child, and a process that has ended
+ * leaves nothing to ask -- so the child says so itself. Optional, because an older child than this
+ * code may be answering during a deploy, and because a child killed for memory answers nothing at all.
+ *
+ * A failed attempt's cost is left to the child's own log line rather than smuggled out through the
+ * error: the failure is raised as the class the poller catches, and hanging a number off that class
+ * would make every `catch` in the chain a place where a number can be lost.
+ */
+type WireAnswer = ({ ok: true; collection: Collection } | { ok: false; failure: WireFailure }) & {
+  peakRssMb?: number;
+};
+
+/** One collection by a child: what it found, and what the process that found it cost. */
+export type ChildCollection = { collection: Collection; peakRssMb: number | null };
 
 /** What the child writes down about a failure, in the child. */
 export function toWire(error: unknown): WireFailure {
@@ -82,7 +99,7 @@ export function fromWire(failure: WireFailure): Error {
 export type ChildRun = { answer: string | null; code: number | null; timedOut: boolean; stderr: string };
 
 /** The result of one collection, read from a child's answer and raised as the child raised it. */
-export function readAnswer(id: string, run: ChildRun): Collection {
+export function readAnswer(id: string, run: ChildRun): ChildCollection {
   if (run.timedOut)
     throw new SourceError("network", `${id} did not finish within ${Math.round(TIMEOUT_MS / 1000)}s and was stopped`);
   if (run.answer === null) {
@@ -99,7 +116,10 @@ export function readAnswer(id: string, run: ChildRun): Collection {
     throw new SourceError("collector-bug", `${id} wrote an answer that is not JSON`);
   }
   if (!parsed.ok) throw fromWire(parsed.failure);
-  return parsed.collection;
+  return {
+    collection: parsed.collection,
+    peakRssMb: typeof parsed.peakRssMb === "number" && parsed.peakRssMb > 0 ? parsed.peakRssMb : null,
+  };
 }
 
 /** Spawns the child and waits for it, killing it if it outstays the timeout. */
@@ -134,6 +154,6 @@ function entry(): string {
 export async function collectInSubprocess(
   id: string,
   run: (id: string) => Promise<ChildRun> = spawn,
-): Promise<Collection> {
+): Promise<ChildCollection> {
   return readAnswer(id, await run(id));
 }

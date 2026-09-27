@@ -151,7 +151,8 @@ async function collectDueSources(
         // a light one in this process. Timing it here as well recorded each collection twice under
         // one name, which inflates the call count and the total of the very report that is supposed
         // to catch a collector getting slower.
-        const collected = job.heavy ? await collectInSubprocess(job.id) : await job.collector();
+        const child = job.heavy ? await collectInSubprocess(job.id) : null;
+        const collected = child ? child.collection : await job.collector();
         const collection = { ...collected, authority: job.authority, ...(job.vendor ? { vendor: job.vendor } : {}) };
         const checkedAt = new Date().toISOString();
         const destinations = job.mode === "shadow" ? [] : config.destinations;
@@ -173,6 +174,16 @@ async function collectDueSources(
             // The shape of an answer that worked, so the next failure has something to be
             // compared against. Paths and types only: see src/shape.ts for why no value is kept.
             recordSourceShape(db, job.id, collection.raw, checkedAt);
+            // What the child cost, onto the row `saveCollection` has just written for this moment.
+            // Here rather than inside the store: the store persists evidence, and how much memory
+            // another process took to fetch it is this loop's observation, not the collection's.
+            // Keyed by the instant the same transaction wrote, so it can match no other run.
+            if (child?.peakRssMb !== null && child?.peakRssMb !== undefined)
+              db.query("UPDATE source_collection_metrics SET peak_rss_mb=? WHERE source=? AND collected_at=?").run(
+                child.peakRssMb,
+                job.id,
+                checkedAt,
+              );
             return emitted;
           })(),
         );

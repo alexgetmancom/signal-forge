@@ -16,6 +16,17 @@
 import { readFileSync } from "node:fs";
 
 /**
+ * Above this, a peak is worth spending somewhere that ends.
+ *
+ * One figure for the three lanes that ask the question -- `source-cost` for collectors, `read-cost`
+ * for reads, `collection_cost` for what production actually sees -- because a threshold with three
+ * copies is three thresholds, and the one that gets raised is whichever copy the next person edits.
+ * The five sources that were moved into children claimed 35 MB and up; everything left in that lane
+ * claims under 30, most of it nothing measurable.
+ */
+export const WORTH_A_CHILD_MB = 32;
+
+/**
  * This process's peak resident size in kilobytes, or 0 where the platform will not say.
  *
  * `/proc/self/status` on Linux, which is production. A development machine has no `/proc`, so
