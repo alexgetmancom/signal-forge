@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { AppConfig } from "./config.js";
 import { signalOf } from "./events/classify.js";
+import { knownModelNames, namesAModelKnownHere } from "./events/nameWorth.js";
 import type { Event } from "./events/types.js";
 import { featureEnabled } from "./features.js";
 import type { Fetch } from "./http-client.js";
@@ -36,7 +37,7 @@ const MAX_STATE_CHARS = 4_000;
  * per prompt version, so the new questions are asked again of the recent window and the two sets
  * can be compared instead of being mixed in one column.
  */
-export const PROMPT_VERSION = "4";
+export const PROMPT_VERSION = "5";
 const EVALUATOR = "jev";
 const CALLS_PREFIX = "jev-calls:";
 const TOKENS_PREFIX = "jev-tokens:";
@@ -251,8 +252,21 @@ const NAMED_FIELDS = [
   "access",
 ] as const;
 
-/** What Jev reads: the record's own words, the lines a web page gained, never our rendering. */
-function evidenceOf(event: Event): Record<string, unknown> {
+/**
+ * Streams where the row is a model and its name can be resolved against what is already here. A
+ * newsroom post names models in prose and a docs page names none, and `already_known_here` on either
+ * would be a fact about our own coverage dressed as a fact about the post.
+ */
+const NAMED_MODEL_STREAMS = new Set(["arena", "api-models", "openrouter", "weights", "github"]);
+
+/**
+ * What Jev reads: the record's own words, the lines a web page gained, never our rendering, and one
+ * fact about this deployment -- whether the model named here is one it already holds.
+ *
+ * `known` is the model names this database can resolve, read once for the pass rather than per event:
+ * it is a scan of every catalogue record, and `judgeEvents` asks it for the whole batch.
+ */
+function evidenceOf(event: Event, known: readonly string[][]): Record<string, unknown> {
   const after = event.after_json ? (JSON.parse(event.after_json) as Record<string, unknown>) : {};
   const before = event.before_json ? (JSON.parse(event.before_json) as Record<string, unknown>) : null;
   const state: Record<string, unknown> = {
@@ -274,6 +288,10 @@ function evidenceOf(event: Event): Record<string, unknown> {
     const value = after[field];
     if (typeof value === "boolean" || (typeof value === "string" && value)) state[field] = value;
   }
+  // Present only when true, as `days_old_when_found` is: version 2 taught that a sentence added to
+  // the question moves the whole scale, including over the events it does not describe, and a field
+  // that is on every row is read as part of the question.
+  if (NAMED_MODEL_STREAMS.has(event.stream) && namesAModelKnownHere(event, known)) state.already_known_here = true;
   if (Array.isArray(after.strings)) {
     const old = new Set(Array.isArray(before?.strings) ? before.strings : []);
     state.added_text = after.strings.filter((value) => !old.has(value)).slice(0, 40);
@@ -318,10 +336,12 @@ export async function judgeEvents(
     )
     .all(since, ...JUDGED_STREAMS, EVALUATOR, PROMPT_VERSION)
     .filter(judgeable);
+  // One scan of the catalogues for the pass, and only when the pass has something to judge.
+  const known = pending.length > 0 ? knownModelNames(db) : [];
   let judged = 0;
   let refused = 0;
   for (const event of pending) {
-    const answer = await askJev(db, config, evidenceOf(event), event.id, request, now);
+    const answer = await askJev(db, config, evidenceOf(event, known), event.id, request, now);
     // An unanswered event used to end the pass outright, which is right when the API is down or the
     // key is spent and wrong for one blip: a catch-up over 795 events stopped on its first, having
     // judged none, and said only "Judged 0 events". Three in a row is still the API, one is weather.

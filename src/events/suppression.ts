@@ -27,7 +27,7 @@ const SUPPRESSION_REASONS = [
   "a_post_about_the_company_not_a_model",
   "the_readers_voted_this_source_down",
   "another_tier_of_a_listed_model",
-  "published_by_a_followed_lab",
+  "already_listed_by_its_lab",
   "weights_with_nothing_to_run",
   "weights_published_long_ago",
   "another_page_about_the_same_model",
@@ -85,8 +85,8 @@ function suppressionDetail(event: Event, reason: SuppressionReason): string {
       return "A post from a source the channel has voted against more often than for";
     case "another_tier_of_a_listed_model":
       return "A dated snapshot or billing tier of a model this catalogue already lists";
-    case "published_by_a_followed_lab":
-      return "Trending weights the lab's own account already published here";
+    case "already_listed_by_its_lab":
+      return "Trending weights the lab's own account already lists here, which is where they were read";
     case "weights_with_nothing_to_run":
       return "Weights a followed lab published that declare no pipeline to run";
     case "weights_published_long_ago":

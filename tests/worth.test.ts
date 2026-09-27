@@ -326,7 +326,7 @@ test("trending weights a followed lab already published are not a second sightin
   prepareDeliveries(db, Date.parse("2026-09-16T13:00:00.000Z"));
 
   const reasons = suppressed(db);
-  expect(reasons["deepseek-ai/DeepSeek-V4.1-Flash"]).toBe("published_by_a_followed_lab");
+  expect(reasons["deepseek-ai/DeepSeek-V4.1-Flash"]).toBe("already_listed_by_its_lab");
   // A lab nobody follows is not heard from trending either: see isTrendingFromAnUnfollowedLab.
   expect(reasons["nex-agi/Nex-N2.5-mini"]).toBe("trending_from_an_unfollowed_lab");
   db.close();

@@ -151,6 +151,42 @@ export function isAnotherServing(event: Event, known: readonly string[][]): bool
 }
 
 /**
+ * Whether this row names a model this deployment already holds a record of -- the same knowledge
+ * `isAnotherServing` acts on, offered as a fact rather than as a verdict.
+ *
+ * Jev judges every sighting with no memory of the ones before it, and the 31 events the rules held
+ * back over the fourteen days to 2026-09-27 were held back almost entirely for knowing something it
+ * could not: `already_out_at_its_maker` five times, `weights_published_long_ago` four,
+ * `another_serving_of_a_known_model` on arena. Asked to rate a renamed variant or a second serving
+ * it cannot do anything but rate the model, and arena is where the two readers disagree hardest
+ * (worth 1.15 delivered against 1.95 held back). So the fact is handed over, one boolean, no value
+ * from upstream: whether the name in front of it resolves to something already here.
+ *
+ * Wider than `isAnotherServing` in the one way that matters for a reader who is being told rather
+ * than obeyed: an exact match counts. A row whose name *is* a known model is the plainest case of
+ * already knowing it, and the suppression rule skips that case on purpose, because a catalogue
+ * relisting a model it already lists is a different question from a venue serving one.
+ */
+export function namesAModelKnownHere(event: Event, known: readonly string[][]): boolean {
+  const body = recordFor(event);
+  const written = [body?.name, body?.model, body?.modelKey, event.entity_id].filter(
+    (value): value is string => typeof value === "string" && value.trim().length > 0,
+  );
+  return written.some((value) => {
+    // The maker's prefix is not part of the name, exactly as `knownModelNames` strips it when it
+    // reads a catalogue: `Qwen/Qwen-Image-2.1` is the repository, `qwen image 2 1` is the model.
+    const words = normalizeIdentity(value.replace(/^[^:/]+[:/]\s*/, ""))
+      .split(" ")
+      .filter(Boolean);
+    return known.some(
+      (model) =>
+        model.every((word, index) => words[index] === word) &&
+        (words.length === model.length || servingTail(words.slice(model.length))),
+    );
+  });
+}
+
+/**
  * A dated snapshot or a billing tier of a model the same catalogue already lists.
  *
  * OpenAI listed `gpt-image-2.5-flare` and `gpt-image-2.5-flare-2026-09-08` in the collection of

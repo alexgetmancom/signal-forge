@@ -143,13 +143,21 @@ export function isAboutTheCompanyNotAModel(event: Event, known: readonly string[
 }
 
 /**
- * A trending model its own lab already published under an account collected as a source.
+ * A trending repository the lab's own account already lists, which is where it was read from.
  *
  * The lab's account sees the weights the hour they land; the trending list sees the same repository
  * a day later, once people have liked it. `deepseek-ai/DeepSeek-V4.1-Flash` topped the list on
- * 2026-09-16 six days after `huggingface:deepseek-ai` reported it.
+ * 2026-09-16 six days after `huggingface:deepseek-ai` reported it, and `Qwen/Qwen-Image-2.1` reached
+ * the scouts from `huggingface:Qwen` on 2026-09-20 thirty-one minutes before the trending row for it
+ * arrived.
+ *
+ * The reason this makes used to be called `published_by_a_followed_lab`, which named the publisher
+ * and so read as an argument for sending rather than the duplicate it is: a lab we follow publishing
+ * weights is the news, and this rule fires precisely because that news already travelled. What holds
+ * the row back is that the same repository is in `records` under the lab's own source, which is the
+ * only thing the name may say.
  */
-export function isPublishedByAFollowedLab(db: Database, event: Event): boolean {
+export function isAlreadyListedByItsLab(db: Database, event: Event): boolean {
   if (!event.source.startsWith("discovery:huggingface") || event.kind !== "new") return false;
   return Boolean(
     db.query("SELECT 1 FROM records WHERE source LIKE 'huggingface:%' AND lower(id)=lower(?)").get(event.entity_id),

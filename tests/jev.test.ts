@@ -270,3 +270,44 @@ test("Jev's newsroom vote rescues a high judgement and defers a low one, and say
   judge(1.2);
   expect(newsroomVote(db, 1)).toBe(null);
 });
+
+test("a sighting of a model the catalogues already carry says so, and a first one says nothing", async () => {
+  // The 31 events the rules held back over the fourteen days to 2026-09-27 were held back for
+  // knowing what Jev could not: that this model has been through here before. Arena is where the
+  // two readers disagreed hardest, and a second serving is what it disagreed about.
+  const db = openDatabase(":memory:");
+  const now = new Date("2026-09-24T16:00:00Z");
+  const catalogue = { source: "openrouter", stream: "openrouter" as const, url: "https://x.test", raw: {} };
+  saveCollection(
+    db,
+    { ...catalogue, records: [{ id: "stepfun/step-5-preview", name: "StepFun: Step 5 Preview" }] },
+    [],
+    "2026-09-24T14:00:00.000Z",
+  );
+  const arena = { source: "arena", stream: "arena" as const, url: "https://x.test", raw: {} };
+  const seed = { id: "01a0cfd0-0000-7000-8000-000000000000", name: "seed" };
+  saveCollection(db, { ...arena, records: [seed] }, [], "2026-09-24T15:00:00.000Z");
+  saveCollection(
+    db,
+    {
+      ...arena,
+      records: [
+        seed,
+        { id: "01a0cfd0-a533-7611-8bb1-5c6b090587ee", name: "step-5-preview", model: "step-5-preview-webdev" },
+        { id: "01a0cfd0-aa7c-7694-bcd1-60575944429c", name: "mimo-v2.5-pro", model: "mimo-v2.5-pro" },
+      ],
+    },
+    [],
+    "2026-09-24T15:30:00.000Z",
+  );
+  const states: Record<string, unknown>[] = [];
+  const request = async (_url: string, init?: RequestInit) => {
+    states.push((JSON.parse(String(init?.body)) as { state: Record<string, unknown> }).state);
+    return Response.json({ answers: { kind: { choice: "new_model" }, worth: { score: 2 }, codename: { noul: 0.1 } } });
+  };
+  await judgeEvents(db, config, request as never, now);
+  // A seat of a listed model, and the wiring in `model` is what says which seat.
+  expect(states.find((state) => state.title === "step-5-preview")).toHaveProperty("already_known_here", true);
+  // Nothing here lists MiMo, so there is no fact to hand over, and no field either.
+  expect(states.find((state) => state.title === "mimo-v2.5-pro")).not.toHaveProperty("already_known_here");
+});

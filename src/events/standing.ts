@@ -35,9 +35,9 @@ import {
   addedFieldSignature,
   changeSignature,
   isAboutTheCompanyNotAModel,
+  isAlreadyListedByItsLab,
   isLabelOnlyChange,
   isMinorBoardMove,
-  isPublishedByAFollowedLab,
 } from "./worth.js";
 
 /** How long a model has to have been followed here before one more venue listing it is only a line. */
@@ -137,7 +137,7 @@ export function standingReason(db: Database, event: Event, view: BatchView): Sup
   if (isAliasRow(event)) return "alias_of_another_row";
   if (isAnotherTierOfAListedModel(db, event)) return "another_tier_of_a_listed_model";
   if (isTheModalityOfAPricedModel(db, event)) return "the_modality_a_price_list_bills_for";
-  if (isPublishedByAFollowedLab(db, event)) return "published_by_a_followed_lab";
+  if (isAlreadyListedByItsLab(db, event)) return "already_listed_by_its_lab";
   if (isWeightsBesideTheRelease(event)) return "weights_with_nothing_to_run";
   if (isLongPublishedWeights(event)) return "weights_published_long_ago";
   if (isScheduledPricingRotation(event)) return "scheduled_pricing_rotation";
