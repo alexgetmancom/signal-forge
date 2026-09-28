@@ -153,7 +153,13 @@ async function collectDueSources(
         // to catch a collector getting slower.
         const child = job.heavy ? await collectInSubprocess(db, job.id) : null;
         const collected = child ? child.collection : await job.collector();
-        const collection = { ...collected, authority: job.authority, ...(job.vendor ? { vendor: job.vendor } : {}) };
+        const collection = {
+          ...collected,
+          authority: job.authority,
+          evidence: job.evidence,
+          confidence: job.confidence,
+          ...(job.vendor ? { vendor: job.vendor } : {}),
+        };
         const checkedAt = new Date().toISOString();
         const destinations = job.mode === "shadow" ? [] : config.destinations;
         // The backoff is cleared in the transaction that stores the read: a crash between the two

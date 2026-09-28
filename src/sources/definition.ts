@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import type { AppConfig, CredentialName, SourceMode, Stream } from "../config.js";
-import type { Collection, SourceAuthority } from "../events/types.js";
+import type { Collection, Confidence, EvidenceType, SourceAuthority } from "../events/types.js";
 import type { HttpCache } from "../storage/httpCache.js";
 
 export type SourceDefinition = {
@@ -14,6 +14,16 @@ export type SourceDefinition = {
    */
   kind?: string;
   authority: SourceAuthority;
+  /**
+   * What kind of evidence this source produces, and how much an event of it is worth before anything
+   * corroborates it. Both were a ladder of `if`s over source id prefixes in `confidenceFor`, so the
+   * strength of a new source depended on what it had been named and an unrecognised name fell
+   * silently to `observed`: the same class of rule AGENTS.md forbids for failure messages, applied
+   * to identifiers. They are declared here instead, once per kind, and a source that declares
+   * neither does not compile.
+   */
+  evidence: EvidenceType;
+  confidence: Confidence;
   group: string;
   /** Host shared with other collectors when failures may have one upstream cause. */
   upstream?: string;

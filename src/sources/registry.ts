@@ -113,14 +113,23 @@ export function validateSourceRegistry(definitions: readonly SourceDefinition[])
 }
 
 /**
- * Stores who each source answers for, and with what authority, as the registry says, so projections
- * rebuilt from stored rows read the values the poller collected with rather than a second list.
+ * Stores who each source answers for, with what authority, and what its evidence is worth, as the
+ * registry says, so projections rebuilt from stored rows read the values the poller collected with
+ * rather than a second list. Model Facts projects from current records, which carry no event to read
+ * a contract from, and its old answer was a hand-kept list that had fallen behind on 37 of 120.
  */
 export function recordSourceIdentities(db: Database, definitions: readonly SourceDefinition[]): void {
   const upsert = db.query(
-    "INSERT INTO sources(id,authority,vendor) VALUES(?,?,?) ON CONFLICT(id) DO UPDATE SET authority=excluded.authority,vendor=excluded.vendor",
+    "INSERT INTO sources(id,authority,vendor,evidence_type,confidence) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET authority=excluded.authority,vendor=excluded.vendor,evidence_type=excluded.evidence_type,confidence=excluded.confidence",
   );
-  for (const definition of definitions) upsert.run(definition.id, definition.authority, definition.vendor ?? null);
+  for (const definition of definitions)
+    upsert.run(
+      definition.id,
+      definition.authority,
+      definition.vendor ?? null,
+      definition.evidence,
+      definition.confidence,
+    );
 }
 
 /** Scheduler projection: all operational metadata still comes from buildSourceRegistry. */

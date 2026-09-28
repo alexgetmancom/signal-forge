@@ -38,6 +38,10 @@ import { collectLabSitemap } from "../sitemaps.js";
 const NEWSROOM: SourceKind = {
   kind: "newsroom",
   authority: "first_party",
+  // The maker's own post about its own product. Supported rather than confirmed: an announcement is
+  // the maker's word that something exists, and whether it can be called is a catalogue's business.
+  evidence: "official_news",
+  confidence: "supported",
   group: "Official news",
   stream: "news",
   // Where a launch is announced to everybody at once, so the quarter hour is the shortest pace
@@ -49,6 +53,10 @@ const NEWSROOM: SourceKind = {
 const LAB_BLOG: SourceKind = {
   kind: "lab-blog",
   authority: "first_party",
+  // The maker's own post about its own product. Supported rather than confirmed: an announcement is
+  // the maker's word that something exists, and whether it can be called is a catalogue's business.
+  evidence: "official_news",
+  confidence: "supported",
   group: "Official news",
   stream: "news",
   // Measured 2026-09-17: these answer 304 to a conditional request, or store only parsed entries,
@@ -60,6 +68,10 @@ const LAB_BLOG: SourceKind = {
 const RELEASE_NOTES: SourceKind = {
   kind: "release-notes",
   authority: "first_party",
+  // The maker's own post about its own product. Supported rather than confirmed: an announcement is
+  // the maker's word that something exists, and whether it can be called is a catalogue's business.
+  evidence: "official_news",
+  confidence: "supported",
   group: "Official news",
   stream: "news",
   intervalSeconds: 900,
@@ -69,6 +81,10 @@ const RELEASE_NOTES: SourceKind = {
 const DEVELOPER_FEED: SourceKind = {
   kind: "developer-feed",
   authority: "first_party",
+  // The maker's own post about its own product. Supported rather than confirmed: an announcement is
+  // the maker's word that something exists, and whether it can be called is a catalogue's business.
+  evidence: "official_news",
+  confidence: "supported",
   group: "Official developer feeds",
   stream: "news",
   intervalSeconds: 1800,
@@ -78,6 +94,9 @@ const DEVELOPER_FEED: SourceKind = {
 const SITEMAP: SourceKind = {
   kind: "sitemap",
   authority: "first_party",
+  // A page that appeared, which is a maker preparing to say something rather than saying it.
+  evidence: "github_activity",
+  confidence: "observed",
   group: "Official news",
   stream: "github",
   // A launch page sits unlinked for hours, and these are multi-megabyte documents; half an hour is
@@ -89,6 +108,9 @@ const SITEMAP: SourceKind = {
 const LAB_PAGE: SourceKind = {
   kind: "lab-page",
   authority: "first_party",
+  // A page that appeared, which is a maker preparing to say something rather than saying it.
+  evidence: "github_activity",
+  confidence: "observed",
   group: "Official news",
   stream: "github",
   // Each a few kilobytes, from labs that post nowhere else read here.
@@ -104,8 +126,25 @@ function newsroomSources({ cache }: SourceContext): SourceEntry[] {
     { id: "claude-blog", vendor: "Anthropic", collector: () => collectClaudeBlog(fetch, new Date(), cache) },
     // Not a newsroom and nobody's first party: other people writing about the labs, which is worth
     // the group it sits in and worth asking half as often.
-    { id: "hackernews", authority: "third_party", intervalSeconds: 1800, collector: () => collectHackerNews() },
-    { id: "cursor-changelog", vendor: "Cursor", intervalSeconds: 1800, collector: () => collectCursorChangelog() },
+    // A link aggregator repeating a maker's news is attention, not a second source for it, and it
+    // observes no surface of its own -- so no evidence type fits and it never rises above observed.
+    {
+      id: "hackernews",
+      authority: "third_party",
+      evidence: "unknown",
+      confidence: "observed",
+      intervalSeconds: 1800,
+      collector: () => collectHackerNews(),
+    },
+    // Cursor's changelog names the models it serves the day it serves them, so the post is the
+    // product rather than an announcement about it.
+    {
+      id: "cursor-changelog",
+      vendor: "Cursor",
+      confidence: "confirmed",
+      intervalSeconds: 1800,
+      collector: () => collectCursorChangelog(),
+    },
   ]);
 }
 

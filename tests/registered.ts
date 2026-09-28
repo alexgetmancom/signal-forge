@@ -10,13 +10,19 @@ const definitions = new Map(
   ).map((definition) => [definition.id, definition]),
 );
 
-/** A collection as the poller hands it over: carrying the authority and vendor its registry entry declares. */
+/**
+ * A collection as the poller hands it over: carrying the authority, the evidence contract and the
+ * vendor its registry entry declares. A source the fixture registry does not know is handed over as
+ * it came, which is what an unregistered collection gets in production too -- the least of everything.
+ */
 export function registered(collection: Collection): Collection {
   const definition = definitions.get(collection.source);
   if (!definition) return collection;
   return {
     ...collection,
     authority: definition.authority,
+    evidence: definition.evidence,
+    confidence: definition.confidence,
     ...(definition.vendor ? { vendor: definition.vendor } : {}),
   };
 }

@@ -22,6 +22,10 @@ import { collectCodexResets } from "../resets.js";
 const RETIREMENT_SCHEDULE: SourceKind = {
   kind: "retirement-schedule",
   authority: "first_party",
+  // The provider's own notice with its own dates on it: confirmed, and the one thing here that is
+  // evidence about a model's end rather than its arrival.
+  evidence: "deprecation",
+  confidence: "confirmed",
   group: "Deprecations",
   stream: "deprecations",
   intervalSeconds: 3600,
@@ -31,6 +35,9 @@ const RETIREMENT_SCHEDULE: SourceKind = {
 const STATUS_PAGE: SourceKind = {
   kind: "status-page",
   authority: "first_party",
+  // The platform saying what its own service is doing, which nothing else can contradict.
+  evidence: "status_page",
+  confidence: "confirmed",
   group: "Platform health",
   stream: "incidents",
   intervalSeconds: 300,
@@ -42,6 +49,10 @@ export function lifecycleSources({ cache }: SourceContext): SourceEntry[] {
     {
       id: "codex-resets",
       authority: "third_party",
+      // A third-party tracker watching a limit move. No surface of anybody's is observed, so no
+      // evidence type fits; `readerStanding` reads the record to say which of the two it was.
+      evidence: "unknown",
+      confidence: "observed",
       vendor: "OpenAI",
       group: "Usage limits",
       stream: "resets",

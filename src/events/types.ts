@@ -94,6 +94,13 @@ export type Collection = {
   /** A successful omission resolves a retained incident instead of deleting its evidence. */
   resolveMissing?: boolean;
   authority?: SourceAuthority;
+  /**
+   * The evidence contract of the source that produced this, carried from its registry entry by the
+   * poller exactly as `authority` is. A collection that arrives without one claims the least: no
+   * evidence type it can name, and the bottom of the scale.
+   */
+  evidence?: EvidenceType;
+  confidence?: Confidence;
   /** Who the source answers for, as its registry entry declares; stored beside its authority. */
   vendor?: string;
   /**

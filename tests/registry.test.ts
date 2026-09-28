@@ -189,6 +189,8 @@ test("registry rejects duplicate IDs and conflicting pacing", () => {
     group: "Group",
     stream: "news" as const,
     authority: "third_party" as const,
+    evidence: "unknown" as const,
+    confidence: "observed" as const,
     intervalSeconds: 60,
     collector: async () => ({
       source: "source",

@@ -1,8 +1,10 @@
 import { expect, test } from "bun:test";
-import { confidenceFor, evidenceTypeFor } from "../src/events/confidence.js";
+import { loadConfig } from "../src/config.js";
 import { signalClass } from "../src/events/signals.js";
 import type { Event } from "../src/events/types.js";
 import { collectPolymarket, parsePolymarket, priceBucket } from "../src/sources/markets.js";
+import { buildSourceRegistry } from "../src/sources/registry.js";
+import { openDatabase } from "../src/storage/database.js";
 
 const market = (fields: Record<string, unknown>) => ({
   id: "1",
@@ -92,8 +94,10 @@ test("a price is stored in buckets coarser than the day's noise", () => {
 });
 
 test("a bet is the weakest evidence in the system and never a card", () => {
-  expect(confidenceFor("polymarket", "markets", "third_party")).toBe("observed");
-  expect(evidenceTypeFor("polymarket", "markets", "third_party")).toBe("unknown");
+  const config = loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname });
+  const polymarket = buildSourceRegistry(openDatabase(":memory:"), config).find((s) => s.id === "polymarket");
+  // A market observes no surface, so there is no evidence type to name and it is pinned to the floor.
+  expect(polymarket).toMatchObject({ evidence: "unknown", confidence: "observed" });
   const opened = {
     id: 1,
     source: "polymarket",

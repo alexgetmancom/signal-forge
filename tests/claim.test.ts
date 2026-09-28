@@ -1,7 +1,22 @@
 import { expect, test } from "bun:test";
+import { loadConfig } from "../src/config.js";
 import { claimType } from "../src/events/claim.js";
 import { signalClass } from "../src/events/signals.js";
-import type { Event, RecordData } from "../src/events/types.js";
+import type { Event, EvidenceType, RecordData } from "../src/events/types.js";
+import { buildSourceRegistry } from "../src/sources/registry.js";
+import { openDatabase } from "../src/storage/database.js";
+
+/**
+ * The evidence type each source declares, which is what the poller stores on every event of it.
+ * Read from the registry rather than written out here: a claim is read from the stored row, so a
+ * test that invents an evidence type would be asserting against a source contract nobody keeps.
+ */
+const declared = new Map(
+  buildSourceRegistry(
+    openDatabase(":memory:"),
+    loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname }),
+  ).map((source) => [source.id, source.evidence as EvidenceType]),
+);
 
 const event = (
   overrides: Partial<Event> & { stream: Event["stream"]; kind: Event["kind"] },
@@ -14,6 +29,7 @@ const event = (
   before_json: null,
   after_json: record ? JSON.stringify(record) : JSON.stringify({ name: "Model" }),
   detected_at: "2026-09-11T00:00:00.000Z",
+  evidence_type: declared.get(overrides.source ?? "openrouter") ?? "unknown",
   ...overrides,
 });
 

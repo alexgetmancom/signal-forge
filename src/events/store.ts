@@ -5,7 +5,6 @@ import { SourceError } from "../failure.js";
 import { storeSnapshot } from "../storage/snapshots.js";
 import { canonical } from "./canonical.js";
 import { classify } from "./classify.js";
-import { confidenceFor, evidenceTypeFor } from "./confidence.js";
 import { isRoutine } from "./interpretation.js";
 import { hasNotificationContent } from "./notification.js";
 import { isStealthLaunch } from "./resellers.js";
@@ -253,8 +252,11 @@ export function persistCollection(
 ): number {
   if (!c.records.length && !c.appendOnly) throw new SourceError("empty", `${c.source}: empty collection rejected`);
   validateRecords(c.source, c.records);
-  // The registry declares authority and the poller carries it; a collection without one claims the least.
+  // The registry declares the contract and the poller carries it; a collection without one claims
+  // the least: nobody's authority, no evidence type that fits, the bottom of the scale.
   const authority = c.authority ?? "third_party";
+  const evidence_type = c.evidence ?? "unknown";
+  const confidence = c.confidence ?? "observed";
   const initialized = db.query("SELECT last_success,accept_shrink FROM sources WHERE id=?").get(c.source) as {
     last_success: string | null;
     accept_shrink: number;
@@ -301,8 +303,6 @@ export function persistCollection(
   let count = 0;
   const emitted: Event[] = [];
   const emit = (id: string, kind: Event["kind"], before: string | null, after: string | null) => {
-    const confidence = confidenceFor(c.source, c.stream, authority);
-    const evidence_type = evidenceTypeFor(c.source, c.stream, authority);
     const row = db
       .query<
         { id: number },
@@ -497,8 +497,8 @@ export function persistCollection(
     // `first_observed_at` is written once and never moved: it is the instant from which a miss on
     // this source is ours, and a catalogue that hands us ten years of history on its first call is
     // not late by any of it. See migration 062 and `passedOver`.
-    "INSERT INTO sources(id,last_success,checked_at,authority,vendor,first_observed_at) VALUES(?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET last_success=excluded.last_success,checked_at=excluded.checked_at,last_error=NULL,authority=excluded.authority,vendor=excluded.vendor,first_observed_at=COALESCE(sources.first_observed_at,excluded.first_observed_at)",
-  ).run(c.source, now, now, authority, c.vendor ?? null, now);
+    "INSERT INTO sources(id,last_success,checked_at,authority,vendor,evidence_type,confidence,first_observed_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET last_success=excluded.last_success,checked_at=excluded.checked_at,last_error=NULL,authority=excluded.authority,vendor=excluded.vendor,evidence_type=excluded.evidence_type,confidence=excluded.confidence,first_observed_at=COALESCE(sources.first_observed_at,excluded.first_observed_at)",
+  ).run(c.source, now, now, authority, c.vendor ?? null, evidence_type, confidence, now);
   db.query(
     "DELETE FROM snapshots WHERE source=? AND id NOT IN (SELECT snapshot_id FROM events) AND id NOT IN (SELECT id FROM snapshots WHERE source=? ORDER BY id DESC LIMIT 2)",
   ).run(c.source, c.source);

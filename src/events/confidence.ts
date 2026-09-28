@@ -20,62 +20,15 @@ const evidenceLabels: Record<EvidenceType, string> = {
 };
 
 /**
- * Source semantics, not an LLM judgment, assign the initial confidence label.
+ * The evidence type of an event.
  *
- * A catalogue is `confirmed` because the vendor is answering for its own product. An aggregator
- * republishing that catalogue is reporting, however faithfully, so authority decides rather than a
- * list of the aggregators known so far.
- *
- * A registry release, a store listing and a vendor's own catalogue are all `confirmed` and differ
- * only in `lifecycleState`. They used to be separated here as `shipped`, which read as stronger
- * evidence and was only ever a stronger claim about the product.
- */
-export function confidenceFor(source: string, stream: string, authority: SourceAuthority): Confidence {
-  if (source.startsWith("github:") && source.endsWith(":releases")) return "confirmed";
-  if (source.startsWith("npm:") || source.startsWith("pypi:")) return "confirmed";
-  if (source === "cursor-changelog") return "confirmed";
-  if (stream === "apps") return "confirmed";
-  if (source.startsWith("huggingface:") || source.startsWith("modelscope:")) return "supported";
-  if (source.startsWith("status:")) return "confirmed";
-  if (stream === "api-models") return authority === "third_party" ? "observed" : "confirmed";
-  if (stream === "deprecations") return "confirmed";
-  // A link aggregator repeating a vendor's news is attention, not a second source for it.
-  if (source === "hackernews") return "observed";
-  // Strangers pricing a rumour. The floor, and named here rather than left to the default so that
-  // raising the default can never quietly promote a bet into evidence.
-  if (stream === "markets") return "observed";
-  if (stream === "news") return "supported";
-  return "observed";
-}
-
-/** Names the kind of primary evidence behind an event; this is a source contract, not a guess. */
-export function evidenceTypeFor(source: string, stream: string, authority: SourceAuthority): EvidenceType {
-  if (source === "openrouter" || stream === "openrouter") return "availability_catalogue";
-  // Who sells a model is a different fact from what its maker publishes about it.
-  if (stream === "api-models") return authority === "third_party" ? "availability_catalogue" : "api_catalogue";
-  if (source === "hackernews") return "unknown";
-  // No evidence type fits: a market observes no surface. It says what strangers expect to happen.
-  if (stream === "markets") return "unknown";
-  if (stream === "news") return "official_news";
-  if (stream === "arena") return "arena_roster";
-  if (stream === "leaderboards") return "leaderboard";
-  if (stream === "web" || stream === "pages") return "web_diff";
-  if (stream === "github") return "github_activity";
-  if (stream === "packages") return "package_release";
-  // An app store listing is a release register like any other: a version, a date, vendor notes.
-  if (stream === "apps") return "package_release";
-  if (stream === "weights") return "open_weights";
-  if (stream === "incidents") return "status_page";
-  if (stream === "deprecations") return "deprecation";
-  return "unknown";
-}
-
-/**
- * The evidence type of an event, falling back to the source contract for one built in memory
- * without it. Renderers ask this rather than re-deriving the evidence type at each call site.
+ * Every stored event has carried one since the column was added, and the poller now takes it from
+ * the source's registry entry rather than re-deriving it from the id. An event assembled in memory
+ * without one claims the least, which is what `unknown` means here and everywhere else: no evidence
+ * type fits, so no sentence is put in the source's mouth.
  */
 export function eventEvidenceType(event: Event): EvidenceType {
-  return event.evidence_type ?? evidenceTypeFor(event.source, event.stream, event.authority ?? "third_party");
+  return event.evidence_type ?? "unknown";
 }
 
 export function evidenceLabel(type: EvidenceType): string {

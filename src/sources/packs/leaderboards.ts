@@ -4,7 +4,19 @@ import { collectSimpleBench, collectVoxelBench, collectWeirdMl } from "../benchm
 import { collectDesignArena, DESIGNARENA_CATEGORIES } from "../community.js";
 import type { SourceContext, SourceEntry } from "../definition.js";
 
-const arenaSite = { authority: "third_party" as const, group: "Arena", upstream: "arena.ai" };
+/**
+ * What every table here shares. A public leaderboard is somebody else's measurement of a model,
+ * which proves the model can be called by whoever ran the benchmark and nothing more: it never
+ * rises above `observed` on its own, and a ranking is never a claim that anything shipped.
+ */
+const LEADERBOARD = {
+  authority: "third_party" as const,
+  group: "Arena",
+  evidence: "leaderboard" as const,
+  confidence: "observed" as const,
+};
+
+const arenaSite = { ...LEADERBOARD, upstream: "arena.ai" };
 
 /** Arenas, leaderboards and benchmark tables. */
 export function leaderboardsSources({ config, cache }: SourceContext): SourceEntry[] {
@@ -12,6 +24,9 @@ export function leaderboardsSources({ config, cache }: SourceContext): SourceEnt
     {
       id: "arena",
       ...arenaSite,
+      // The roster is who is on the arena at all, which is the one thing here that can name a model
+      // nothing else has: a model under a codename plays before it is announced.
+      evidence: "arena_roster",
       stream: "arena",
       intervalSeconds: config.pollSeconds,
       collector: () => collectArena(),
@@ -27,8 +42,7 @@ export function leaderboardsSources({ config, cache }: SourceContext): SourceEnt
     ...DESIGNARENA_CATEGORIES.map(
       (category, index): SourceEntry => ({
         id: `designarena:${category}`,
-        authority: "third_party",
-        group: "Arena",
+        ...LEADERBOARD,
         stream: "leaderboards",
         intervalSeconds: 3600 + index * 120,
         pace: { group: "designarena.ai", seconds: 60 },
@@ -37,8 +51,7 @@ export function leaderboardsSources({ config, cache }: SourceContext): SourceEnt
     ),
     {
       id: "voxelbench",
-      authority: "third_party",
-      group: "Arena",
+      ...LEADERBOARD,
       stream: "leaderboards",
       // 1269 score moves in the month to 2026-09-22 and no card: a day still sees a model enter.
       intervalSeconds: 86_400,
@@ -46,24 +59,21 @@ export function leaderboardsSources({ config, cache }: SourceContext): SourceEnt
     },
     {
       id: "weirdml",
-      authority: "third_party",
-      group: "Arena",
+      ...LEADERBOARD,
       stream: "leaderboards",
       intervalSeconds: 3600,
       collector: () => collectWeirdMl(fetch, cache),
     },
     {
       id: "simplebench",
-      authority: "third_party",
-      group: "Arena",
+      ...LEADERBOARD,
       stream: "leaderboards",
       intervalSeconds: 3600,
       collector: () => collectSimpleBench(fetch, cache),
     },
     {
       id: "artificial-analysis",
-      authority: "third_party",
-      group: "Arena",
+      ...LEADERBOARD,
       stream: "leaderboards",
       intervalSeconds: 3600,
       capabilityId: "artificial-analysis",
@@ -79,8 +89,7 @@ export function leaderboardsSources({ config, cache }: SourceContext): SourceEnt
     ...MEDIA_ARENAS.map(
       (arena): SourceEntry => ({
         id: `artificial-analysis:${arena}`,
-        authority: "third_party",
-        group: "Arena",
+        ...LEADERBOARD,
         stream: "leaderboards",
         // The video and image-editing arenas rank a model after its launch: over the month to
         // 2026-09-22 neither was the first to name one or made a card, so a day is early enough.

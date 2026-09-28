@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { canonical } from "./events/canonical.js";
-import { confidenceFor, confidenceRank, evidenceTypeFor } from "./events/confidence.js";
+import { confidenceRank } from "./events/confidence.js";
 import { identityFor, type ModelIdentity, mergeIdentities, normalizeIdentity } from "./events/identity.js";
 import { vendorOf } from "./events/interpretation.js";
 import { recordFor } from "./events/record.js";
@@ -58,6 +58,8 @@ type CurrentRecordRow = {
   stream: string;
   observed_at: string;
   authority: SourceAuthority;
+  evidence_type: EvidenceType;
+  confidence: Confidence;
 };
 
 function number(value: unknown): number | null {
@@ -151,8 +153,8 @@ function currentEvent(row: CurrentRecordRow): EventRow {
     before_json: null,
     after_json: row.body,
     detected_at: row.observed_at,
-    confidence: confidenceFor(row.source, row.stream, row.authority),
-    evidence_type: evidenceTypeFor(row.source, row.stream, row.authority),
+    confidence: row.confidence,
+    evidence_type: row.evidence_type,
     authority: row.authority,
   };
 }
@@ -351,7 +353,8 @@ const STORY_EVENTS_SQL = `SELECT s.id AS story_id,s.stable_key,s.first_seen_at,s
  JOIN story_events se ON se.story_id=s.id
  JOIN events e ON e.id=se.event_id`;
 
-const RECORDS_SQL = `SELECT r.source,r.id,r.body,r.stream,r.observed_at,COALESCE(s.authority,'third_party') AS authority
+const RECORDS_SQL = `SELECT r.source,r.id,r.body,r.stream,r.observed_at,COALESCE(s.authority,'third_party') AS authority,
+ COALESCE(s.evidence_type,'unknown') AS evidence_type,COALESCE(s.confidence,'observed') AS confidence
  FROM records r LEFT JOIN sources s ON s.id=r.source`;
 
 /**

@@ -53,6 +53,10 @@ const MODEL_SPECS: readonly (AppConfig["github"][number] & { vendor: Vendor })[]
 const WATCHED_REPOSITORY: SourceKind = {
   kind: "watched-repository",
   authority: "third_party",
+  // Work in progress in somebody else's repository: a name on an added line, an issue, a pull
+  // request. It stands alone until a catalogue or the maker says the same.
+  evidence: "github_activity",
+  confidence: "observed",
   group: "GitHub",
   stream: "github",
   intervalSeconds: 1800,
@@ -67,6 +71,10 @@ const WATCHED_REPOSITORY: SourceKind = {
 const VENDOR_REPOSITORY: SourceKind = {
   kind: "vendor-repository",
   authority: "vendor_owned",
+  // Still activity rather than availability: the maker wrote the name down for a machine, which is
+  // not the maker saying the model can be called.
+  evidence: "github_activity",
+  confidence: "observed",
   group: "GitHub",
   stream: "github",
   intervalSeconds: 1800,
@@ -85,72 +93,21 @@ const VENDOR_REPOSITORY: SourceKind = {
 const DOCUMENTATION_PROBE: SourceKind = {
   kind: "documentation-probe",
   authority: "vendor_owned",
+  // A page that answers to a name nobody announced. Evidence that the name exists, and deliberately
+  // never a catalogue: the whole point of the probe is that the model is not out yet.
+  evidence: "web_diff",
+  confidence: "observed",
   group: "Discovery",
   stream: "pages",
   intervalSeconds: 300,
 };
 
-export function communitySources({ db, config, cache }: SourceContext): SourceEntry[] {
-  const definitions: SourceEntry[] = [
-    {
-      id: "mimo-training",
-      authority: "first_party",
-      vendor: "Xiaomi",
-      group: "Discovery",
-      stream: "training",
-      intervalSeconds: 1800,
-      collector: () => collectMimoTraining(),
-    },
-    {
-      id: "polymarket",
-      authority: "third_party",
-      // Two pages and 13 MB of JSON after filtering thin events upstream on 2026-09-28.
-      // The nested market arrays still belong in a child process.
-      heavy: true,
-      group: "Discovery",
-      stream: "markets",
-      // Prices move all day and the record only keeps five-point buckets, so a slower poll would
-      // read the same numbers; an hour is what the other discovery sources run at.
-      intervalSeconds: 3600,
-      pace: { group: "polymarket.com", seconds: 60 },
-      collector: () => collectPolymarket(fetch, cache),
-    },
-    /**
-     * The coding subscriptions' model lists: small JSON answers, read every two minutes.
-     *
-     * This is where a stealth model appears first and free, and it is the fastest hand this tracker
-     * has: Space Bunny was on Zen and Go on 2026-09-23 a quarter of an hour before OpenRouter listed
-     * it. A quarter-hour poll spent most of that lead waiting. The cost is nothing a database sees --
-     * a snapshot is stored only when the body changes, and Zen wrote three rows in the day to
-     * 2026-09-23 -- so the only thing spent is a small request against a small file.
-     */
-    {
-      id: "opencode-zen",
-      authority: "third_party",
-      group: "Catalogues",
-      stream: "api-models",
-      intervalSeconds: 120,
-      collector: () => collectOpenCodeZen(fetch),
-    },
-    {
-      id: "opencode-go",
-      authority: "third_party",
-      group: "Catalogues",
-      stream: "api-models",
-      intervalSeconds: 120,
-      collector: () => collectOpenCodeGo(fetch),
-    },
-    {
-      id: "command-code-models",
-      authority: "third_party",
-      group: "Catalogues",
-      stream: "api-models",
-      // A 2 MB package, downloaded only when its version moves.
-      intervalSeconds: 1800,
-      collector: () => collectCommandCodeModels(fetch),
-    },
-  ];
-
+/**
+ * Every repository read, sorted by who owns it. Its own declaration rather than part of
+ * `communitySources`: the two kinds and the four lists that feed them are the longest thing in the
+ * pack and the only part of it that is about one group.
+ */
+function repositorySources({ db, config, cache }: SourceContext): SourceEntry[] {
   /** Every repository read, sorted by who owns it; the id and the collector are all that differ. */
   const watched: KindMember[] = [];
   const owned: KindMember[] = [
@@ -170,7 +127,13 @@ export function communitySources({ db, config, cache }: SourceContext): SourceEn
     repository.push(
       { id: `github:${watch.repo}:pulls`, collector: () => collectGithubPulls(db, config, watch, fetch, cache) },
       { id: `github:${watch.repo}:commits`, collector: () => collectGithubCommits(db, config, watch, fetch, cache) },
-      { id: `github:${watch.repo}:releases`, collector: () => collectGithubReleases(db, config, watch, fetch, cache) },
+      // A tagged release is the one thing read from a repository that is not work in progress: the
+      // artifact exists and can be installed, whoever owns the repository.
+      {
+        id: `github:${watch.repo}:releases`,
+        confidence: "confirmed",
+        collector: () => collectGithubReleases(db, config, watch, fetch, cache),
+      },
     );
   }
 
@@ -215,12 +178,98 @@ export function communitySources({ db, config, cache }: SourceContext): SourceEn
       collector: () => collectCliBundle(bundle, fetch, bundleMemory(db, bundle.source)),
     });
 
-  definitions.push(...sourcesOfKind(WATCHED_REPOSITORY, watched), ...sourcesOfKind(VENDOR_REPOSITORY, owned));
+  return [...sourcesOfKind(WATCHED_REPOSITORY, watched), ...sourcesOfKind(VENDOR_REPOSITORY, owned)];
+}
+
+export function communitySources({ db, config, cache }: SourceContext): SourceEntry[] {
+  const definitions: SourceEntry[] = [
+    {
+      id: "mimo-training",
+      authority: "first_party",
+      // A training run's own dashboard. No catalogue, no page, no announcement: no evidence type
+      // fits a model that is still being trained.
+      evidence: "unknown",
+      confidence: "observed",
+      vendor: "Xiaomi",
+      group: "Discovery",
+      stream: "training",
+      intervalSeconds: 1800,
+      collector: () => collectMimoTraining(),
+    },
+    {
+      id: "polymarket",
+      authority: "third_party",
+      // Strangers pricing a rumour. A market observes no surface at all, so there is no evidence
+      // type to name, and it is pinned to the floor here so that raising any default can never
+      // quietly promote a bet into evidence.
+      evidence: "unknown",
+      confidence: "observed",
+      // Two pages and 13 MB of JSON after filtering thin events upstream on 2026-09-28.
+      // The nested market arrays still belong in a child process.
+      heavy: true,
+      group: "Discovery",
+      stream: "markets",
+      // Prices move all day and the record only keeps five-point buckets, so a slower poll would
+      // read the same numbers; an hour is what the other discovery sources run at.
+      intervalSeconds: 3600,
+      pace: { group: "polymarket.com", seconds: 60 },
+      collector: () => collectPolymarket(fetch, cache),
+    },
+    /**
+     * The coding subscriptions' model lists: small JSON answers, read every two minutes.
+     *
+     * This is where a stealth model appears first and free, and it is the fastest hand this tracker
+     * has: Space Bunny was on Zen and Go on 2026-09-23 a quarter of an hour before OpenRouter listed
+     * it. A quarter-hour poll spent most of that lead waiting. The cost is nothing a database sees --
+     * a snapshot is stored only when the body changes, and Zen wrote three rows in the day to
+     * 2026-09-23 -- so the only thing spent is a small request against a small file.
+     */
+    {
+      id: "opencode-zen",
+      authority: "third_party",
+      // A coding subscription's model list: what it will serve, which is availability from somebody
+      // who is not the maker.
+      evidence: "availability_catalogue",
+      confidence: "observed",
+      group: "Catalogues",
+      stream: "api-models",
+      intervalSeconds: 120,
+      collector: () => collectOpenCodeZen(fetch),
+    },
+    {
+      id: "opencode-go",
+      authority: "third_party",
+      // A coding subscription's model list: what it will serve, which is availability from somebody
+      // who is not the maker.
+      evidence: "availability_catalogue",
+      confidence: "observed",
+      group: "Catalogues",
+      stream: "api-models",
+      intervalSeconds: 120,
+      collector: () => collectOpenCodeGo(fetch),
+    },
+    {
+      id: "command-code-models",
+      authority: "third_party",
+      // A coding subscription's model list: what it will serve, which is availability from somebody
+      // who is not the maker.
+      evidence: "availability_catalogue",
+      confidence: "observed",
+      group: "Catalogues",
+      stream: "api-models",
+      // A 2 MB package, downloaded only when its version moves.
+      intervalSeconds: 1800,
+      collector: () => collectCommandCodeModels(fetch),
+    },
+  ];
 
   for (const query of GITHUB_DISCOVERY_QUERIES) {
     definitions.push({
       id: `discovery:github-${query.id}`,
       authority: "third_party",
+      // A search over repositories nobody here chose to watch.
+      evidence: "github_activity",
+      confidence: "observed",
       group: "Discovery",
       stream: "github",
       intervalSeconds: 3600,
@@ -245,6 +294,9 @@ export function communitySources({ db, config, cache }: SourceContext): SourceEn
   definitions.push({
     id: "discovery:opencode-data",
     authority: "third_party",
+    // OpenCode's own catalogue of other makers' models: availability, and never a maker's word.
+    evidence: "availability_catalogue",
+    confidence: "observed",
     group: "Discovery",
     stream: "api-models",
     intervalSeconds: 900,
@@ -261,6 +313,10 @@ export function communitySources({ db, config, cache }: SourceContext): SourceEn
   definitions.push({
     id: "discovery:huggingface-trending",
     authority: "third_party",
+    // The hub's trending list. The weights are real; being liked is not a release, and the list is
+    // somebody else's ordering of it, so this stays at the floor where the accounts are supported.
+    evidence: "open_weights",
+    confidence: "observed",
     group: "Discovery",
     stream: "weights",
     // The list moves with likes over days, so an hour is early enough to see a model enter it.
@@ -269,5 +325,6 @@ export function communitySources({ db, config, cache }: SourceContext): SourceEn
     collector: () => collectHuggingFaceTrending(config, fetch, cache, new Date()),
   });
 
+  definitions.push(...repositorySources({ db, config, cache }));
   return definitions;
 }

@@ -60,6 +60,10 @@ const HOSTS = new Set(["groq", "cerebras", "deepinfra"]);
 const OPEN_WEIGHTS_ACCOUNT: SourceKind = {
   kind: "open-weights-account",
   authority: "vendor_owned",
+  // A hub entry is the maker's own upload but not the maker's own word about it: the files are
+  // there, and whether the model is out is a separate question the account never answers.
+  evidence: "open_weights",
+  confidence: "supported",
   group: "Open weights",
   stream: "weights",
   // Overruled per member: a lab that ships weights before its API lists them is worth five minutes,
@@ -78,6 +82,9 @@ const OPEN_WEIGHTS_ACCOUNT: SourceKind = {
 const MAKER_API: SourceKind = {
   kind: "maker-api",
   authority: "first_party",
+  // The maker answering for its own product, which is the whole reason a listing here is confirmed.
+  evidence: "api_catalogue",
+  confidence: "confirmed",
   group: "Catalogues",
   stream: "api-models",
   intervalSeconds: MAKER_API_SECONDS,
@@ -94,6 +101,10 @@ const MAKER_API: SourceKind = {
 const RESELLER_CATALOGUE: SourceKind = {
   kind: "reseller-catalogue",
   authority: "third_party",
+  // Who sells a model is a different fact from what its maker publishes, so the evidence is
+  // availability and the listing stands alone until somebody with authority says the same.
+  evidence: "availability_catalogue",
+  confidence: "observed",
   group: "Catalogues",
   stream: "api-models",
   intervalSeconds: 900,
@@ -108,6 +119,10 @@ const RESELLER_CATALOGUE: SourceKind = {
 const PACKAGE_REGISTRY: SourceKind = {
   kind: "package-registry",
   authority: "vendor_owned",
+  // A version under the maker's name in a registry is installable, which is as confirmed as
+  // anything here gets.
+  evidence: "package_release",
+  confidence: "confirmed",
   group: "Packages",
   stream: "packages",
   intervalSeconds: 900,
@@ -132,6 +147,9 @@ export function cataloguesSources({ db, config, cache }: SourceContext): SourceE
     {
       id: "openrouter",
       authority: "third_party",
+      // One router reselling every maker: availability, and nobody's word but the router's.
+      evidence: "availability_catalogue",
+      confidence: "observed",
       group: "Catalogues",
       // Its own stream: one router's answer carries every maker at once, which nothing else here does.
       stream: "openrouter",
@@ -141,6 +159,9 @@ export function cataloguesSources({ db, config, cache }: SourceContext): SourceE
     {
       id: "openrouter-usage",
       authority: "third_party",
+      // Which models are called, not which exist: a ranking, and never evidence that anything shipped.
+      evidence: "leaderboard",
+      confidence: "observed",
       group: "Catalogues",
       stream: "leaderboards",
       // Usage over a month moves slowly; reading it four times a day is already more often than

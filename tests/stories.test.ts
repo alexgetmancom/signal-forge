@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test";
-import { confidenceFor, evidenceTypeFor } from "../src/events/confidence.js";
+import { loadConfig } from "../src/config.js";
 import { identityFor, identitySignatures, modelSignature, signaturesConflict } from "../src/events/identity.js";
 import { vendorOf } from "../src/events/interpretation.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import type { Collection } from "../src/events/types.js";
+import { buildSourceRegistry } from "../src/sources/registry.js";
 import { openDatabase } from "../src/storage/database.js";
 import { rebuildStories } from "../src/stories.js";
 import { listStories } from "../src/storiesView.js";
@@ -18,20 +19,37 @@ const collection = (source: string, stream: string, records: Collection["records
     records,
   });
 
-test("confidence labels follow source semantics instead of presentation guesses", () => {
-  expect(confidenceFor("arena", "arena", "third_party")).toBe("observed");
-  expect(confidenceFor("openai", "api-models", "first_party")).toBe("confirmed");
-  expect(confidenceFor("openai-news", "news", "first_party")).toBe("supported");
-  // A release is the maker answering for its own product, which is `confirmed`; that it is out is
-  // `lifecycleState`, not a rung above confirmation.
-  expect(confidenceFor("github:openai/codex:releases", "github", "third_party")).toBe("confirmed");
+/**
+ * The contract of a source is declared by its registry entry, not derived from its id.
+ *
+ * `confidenceFor` and `evidenceTypeFor` used to answer this from a ladder of prefixes -- `github:`,
+ * `npm:`, `huggingface:`, `cursor-changelog` -- so a source named outside the ladder was quietly
+ * weaker than its twin inside it. These assertions are the same claims made against what the sources
+ * say for themselves; `tests/sourceKinds.test.ts` holds the rule that every source says it.
+ */
+function contract(id: string): { evidence: string; confidence: string } {
+  const config = loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname });
+  const found = buildSourceRegistry(openDatabase(":memory:"), config).find((source) => source.id === id);
+  if (!found) throw new Error(`No such source: ${id}`);
+  return { evidence: found.evidence, confidence: found.confidence };
+}
+
+test("what a source's evidence is worth is declared by the source, not read off its name", () => {
+  expect(contract("arena")).toEqual({ evidence: "arena_roster", confidence: "observed" });
+  expect(contract("openai")).toEqual({ evidence: "api_catalogue", confidence: "confirmed" });
+  expect(contract("openai-news")).toEqual({ evidence: "official_news", confidence: "supported" });
+  // A release is the artifact existing, which is `confirmed`; that the model is out is
+  // `lifecycleState`, not a rung above confirmation. The other two reads of the same repository stay
+  // at the floor, which the prefix ladder could not express: it matched the id, and all three share one.
+  expect(contract("github:openai/codex:releases").confidence).toBe("confirmed");
+  expect(contract("github:openai/codex:commits").confidence).toBe("observed");
+  expect(contract("github:openai/codex:pulls").confidence).toBe("observed");
 });
 
 test("an aggregator republishing a catalogue is reporting it, not answering for it", () => {
-  expect(confidenceFor("models-dev", "api-models", "third_party")).toBe("observed");
-  expect(confidenceFor("truefoundry-azure", "api-models", "third_party")).toBe("observed");
-  expect(evidenceTypeFor("models-dev", "api-models", "third_party")).toBe("availability_catalogue");
-  expect(evidenceTypeFor("anthropic", "api-models", "first_party")).toBe("api_catalogue");
+  expect(contract("models-dev")).toEqual({ evidence: "availability_catalogue", confidence: "observed" });
+  expect(contract("truefoundry-azure")).toEqual({ evidence: "availability_catalogue", confidence: "observed" });
+  expect(contract("anthropic")).toEqual({ evidence: "api_catalogue", confidence: "confirmed" });
 });
 
 test("identity keeps Arena codenames unresolved until a canonical source identifies them", () => {

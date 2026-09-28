@@ -15,12 +15,75 @@ function childSitemapsRead(db: Database, source: string): string[] | null {
   return Array.isArray(children) ? children.filter((child): child is string => typeof child === "string") : null;
 }
 
-/** Watched site pages, app store listings and other pages read as they render. */
+/**
+ * What a reader can install: Debian indexes, the download endpoint and the App Store listings.
+ *
+ * All vendor-owned and all `package_release`, because a build reaching a store or a repository is
+ * the release itself rather than a word about it -- which is the one thing this half shares and the
+ * reason it is a declaration of its own rather than the tail of `webSources`.
+ */
+function installableSources({ cache }: Pick<SourceContext, "cache">): SourceEntry[] {
+  return [
+    ...APT_REPOSITORIES.map(
+      (repository): SourceEntry => ({
+        id: repository.source,
+        authority: "vendor_owned",
+        // A build in a store or a repository is installable, which is the release itself rather
+        // than a word about it.
+        evidence: "package_release",
+        confidence: "confirmed",
+        vendor: repository.vendor,
+        group: "Apps",
+        stream: "apps",
+        // A few kilobytes of Debian index. A build reaching it is the release.
+        intervalSeconds: 300,
+        collector: () => collectAptRepository(repository, fetch),
+      }),
+    ),
+    {
+      id: "discovery:claude-downloads",
+      authority: "vendor_owned",
+      // The download endpoint answering for a build nobody has announced: the same evidence as any
+      // other release register, which is why a name found here is worth what it says.
+      evidence: "package_release",
+      confidence: "confirmed",
+      vendor: "Anthropic",
+      group: "Discovery",
+      stream: "apps",
+      intervalSeconds: 900,
+      pace: { group: "downloads.claude.ai", seconds: 5 },
+      collector: () => collectClaudeDownloads(fetch),
+    },
+    ...APP_STORE_APPS.map(
+      (app, index): SourceEntry => ({
+        id: `app:ios:${app.id}`,
+        authority: "vendor_owned",
+        // A build in a store or a repository is installable, which is the release itself rather
+        // than a word about it.
+        evidence: "package_release",
+        confidence: "confirmed",
+        vendor: app.vendor,
+        group: "Apps",
+        stream: "apps",
+        // App Store metadata changes a few times a week per app, and one listing is one request.
+        intervalSeconds: 1800 + index * 60,
+        pace: { group: "itunes.apple.com", seconds: 10 },
+        collector: () => collectAppStore(app, fetch, cache),
+      }),
+    ),
+  ];
+}
+
+/** Watched site pages and other pages read as they render, with the installable builds beside them. */
 export function webSources({ db, cache }: SourceContext): SourceEntry[] {
   return [
     {
       id: "codex-docs",
       authority: "first_party",
+      // A page the maker serves, read as it renders: it says a name exists on the maker's own site,
+      // never that the model is out.
+      evidence: "web_diff",
+      confidence: "observed",
       vendor: "OpenAI",
       group: "Web",
       stream: "web",
@@ -32,6 +95,10 @@ export function webSources({ db, cache }: SourceContext): SourceEntry[] {
       // Every JavaScript bundle claude.ai loads, about 22 MB a read.
       heavy: true,
       authority: "first_party",
+      // A page the maker serves, read as it renders: it says a name exists on the maker's own site,
+      // never that the model is out.
+      evidence: "web_diff",
+      confidence: "observed",
       vendor: "Anthropic",
       group: "Web",
       stream: "web",
@@ -47,6 +114,10 @@ export function webSources({ db, cache }: SourceContext): SourceEntry[] {
     {
       id: "cohere-changelog",
       authority: "first_party",
+      // A page the maker serves, read as it renders: it says a name exists on the maker's own site,
+      // never that the model is out.
+      evidence: "web_diff",
+      confidence: "observed",
       vendor: "Cohere",
       group: "Web",
       stream: "web",
@@ -57,6 +128,10 @@ export function webSources({ db, cache }: SourceContext): SourceEntry[] {
       (site, index): SourceEntry => ({
         id: `pages:${site.id}`,
         authority: "first_party",
+        // An interface string or an unlinked page on the maker's own site: the name exists, and
+        // nothing here says the model can be called.
+        evidence: "web_diff",
+        confidence: "observed",
         vendor: site.vendor,
         ...(site.heavy ? { heavy: true } : {}),
         group: "Site pages",
@@ -67,40 +142,6 @@ export function webSources({ db, cache }: SourceContext): SourceEntry[] {
         collector: () => collectSitePages(site, fetch, cache, childSitemapsRead(db, `pages:${site.id}`)),
       }),
     ),
-    ...APT_REPOSITORIES.map(
-      (repository): SourceEntry => ({
-        id: repository.source,
-        authority: "vendor_owned",
-        vendor: repository.vendor,
-        group: "Apps",
-        stream: "apps",
-        // A few kilobytes of Debian index. A build reaching it is the release.
-        intervalSeconds: 300,
-        collector: () => collectAptRepository(repository, fetch),
-      }),
-    ),
-    {
-      id: "discovery:claude-downloads",
-      authority: "vendor_owned",
-      vendor: "Anthropic",
-      group: "Discovery",
-      stream: "apps",
-      intervalSeconds: 900,
-      pace: { group: "downloads.claude.ai", seconds: 5 },
-      collector: () => collectClaudeDownloads(fetch),
-    },
-    ...APP_STORE_APPS.map(
-      (app, index): SourceEntry => ({
-        id: `app:ios:${app.id}`,
-        authority: "vendor_owned",
-        vendor: app.vendor,
-        group: "Apps",
-        stream: "apps",
-        // App Store metadata changes a few times a week per app, and one listing is one request.
-        intervalSeconds: 1800 + index * 60,
-        pace: { group: "itunes.apple.com", seconds: 10 },
-        collector: () => collectAppStore(app, fetch, cache),
-      }),
-    ),
+    ...installableSources({ cache }),
   ];
 }

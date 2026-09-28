@@ -17,6 +17,7 @@ import type { Collection, RecordData } from "../src/events/types.js";
 import { openDatabase } from "../src/storage/database.js";
 import { rebuildStories, storyScanWork } from "../src/stories.js";
 import { listStories } from "../src/storiesView.js";
+import { registered } from "./registered.js";
 
 const DAY = 86_400_000;
 const START = Date.parse("2026-01-01T00:00:00.000Z");
@@ -44,13 +45,15 @@ function countStatements(db: Database): () => number {
   return () => executions;
 }
 
-const collection = (source: string, stream: string, records: RecordData[]): Collection => ({
-  source,
-  stream,
-  url: "https://example.test/feed",
-  raw: records,
-  records,
-});
+/** As the poller hands one over: `registered` attaches the contract the source's registry entry declares. */
+const collection = (source: string, stream: string, records: RecordData[]): Collection =>
+  registered({
+    source,
+    stream,
+    url: "https://example.test/feed",
+    raw: records,
+    records,
+  });
 
 /** Names that differ by one qualifier, which is exactly what the title similarity rule has to get
  * right: these are four different models, not one story seen four times. */
@@ -111,7 +114,9 @@ function build(db: Database): void {
       db,
       collection(
         "discovery:huggingface-trending",
-        "discovery",
+        // The stream the source actually collects: its contract is declared by the registry entry,
+        // so a fixture reading it under another stream would be a source that does not exist.
+        "weights",
         FAMILY.map((id) => ({
           id: `someone/${id}-quantised-${round}`,
           name: `${id} quantised ${round}`,
@@ -149,8 +154,15 @@ const DERIVATIVE = "discovery:huggingface-trending";
  * three supporting ids, so a story seen four hundred times still writes each claim five times at
  * most. `scans` and `comparisons` are untouched, which is the half of this budget that says
  * correlation itself decided the same things the same way.
+ *
+ * 262 to 350 when the evidence contract moved from a ladder over source ids into the registry, and
+ * for a reason worth keeping: this fixture's derivative collections claimed to be a stream their
+ * source does not collect, so the old ladder read them as `unknown` evidence and no claim was written
+ * for any of the 24 derivative stories. They are weights, the source says so, and each now keeps the
+ * claim it always should have. Again the 88 are writes bounded by the story; `scans` and `comparisons`
+ * did not move, so nothing about what correlation decided changed.
  */
-const BUDGET = { scans: 32, comparisons: 388, statements: 262 };
+const BUDGET = { scans: 32, comparisons: 388, statements: 350 };
 
 test("the correlation workload groups the same evidence within its work budget", () => {
   const db = openDatabase(":memory:");

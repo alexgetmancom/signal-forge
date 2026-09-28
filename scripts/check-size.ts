@@ -56,7 +56,7 @@ const BUDGET: Readonly<Record<string, number>> = {
   "src/http.ts:createHttpApp": 200,
   "src/operations/sources.ts:sourcesOperations": 150,
   "src/sources/packs/catalogues.ts:cataloguesSources": 150,
-  "src/sources/packs/community.ts:communitySources": 150,
+  "src/sources/packs/community.ts:communitySources": 110,
   "src/events/render/discord.ts:eventEmbed": 175,
   "src/operations/evidence.ts:evidenceOperations": 175,
   "src/events/render/shape.ts:shape": 150,
