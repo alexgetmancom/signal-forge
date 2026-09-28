@@ -23,7 +23,7 @@ import { fetchText } from "./http.js";
 /** Markets are grouped into events; the AI tag is the only one worth reading and is applied by hand upstream. */
 const GAMMA_EVENTS_URL = "https://gamma-api.polymarket.com/events";
 const POLYMARKET_URL = "https://polymarket.com/markets/ai";
-/** The tag answers 252 events; the pages are read until one comes back short. */
+/** Pages are read until one comes back short; a fixed first page would miss release markets. */
 const PAGE_SIZE = 100;
 const MAX_PAGES = 6;
 
@@ -145,7 +145,9 @@ export function parsePolymarket(pages: readonly string[]): Collection {
 export async function collectPolymarket(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
   const pages: string[] = [];
   for (let page = 0; page < MAX_PAGES; page++) {
-    const url = `${GAMMA_EVENTS_URL}?closed=false&limit=${PAGE_SIZE}&offset=${page * PAGE_SIZE}&tag_slug=ai`;
+    // Event liquidity is the sum of its markets, so an event below the market floor cannot hold a
+    // market we keep. The upstream filter removes thin events before their full market arrays ship.
+    const url = `${GAMMA_EVENTS_URL}?closed=false&limit=${PAGE_SIZE}&offset=${page * PAGE_SIZE}&tag_slug=ai&liquidity_min=${LIQUIDITY_FLOOR_USD}`;
     const body = await fetchText(url, {}, request, undefined, cache);
     pages.push(body);
     // A short page is the end of the tag. Asking past it answers an empty array and costs a request.

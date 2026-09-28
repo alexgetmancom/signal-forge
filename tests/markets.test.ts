@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { confidenceFor, evidenceTypeFor } from "../src/events/confidence.js";
 import { signalClass } from "../src/events/signals.js";
 import type { Event } from "../src/events/types.js";
-import { parsePolymarket, priceBucket } from "../src/sources/markets.js";
+import { collectPolymarket, parsePolymarket, priceBucket } from "../src/sources/markets.js";
 
 const market = (fields: Record<string, unknown>) => ({
   id: "1",
@@ -63,6 +63,19 @@ test("the AI tag's company questions and thin books are left where they are", ()
 test("pages are joined and a market listed twice is stored once", () => {
   const collection = parsePolymarket([page([market({})]), page([market({})])]);
   expect(collection.records).toHaveLength(1);
+});
+
+test("the upstream query excludes events below the market liquidity floor", async () => {
+  const requested: string[] = [];
+  const request = (async (url: string) => {
+    requested.push(url);
+    return new Response(page([market({})]));
+  }) as typeof fetch;
+  const collection = await collectPolymarket(request);
+  expect(collection.records).toHaveLength(1);
+  expect(requested).toEqual([
+    "https://gamma-api.polymarket.com/events?closed=false&limit=100&offset=0&tag_slug=ai&liquidity_min=3000",
+  ]);
 });
 
 /**

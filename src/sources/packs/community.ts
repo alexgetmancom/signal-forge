@@ -71,8 +71,8 @@ export function communitySources({ db, config, cache }: SourceContext): SourceEn
     {
       id: "polymarket",
       authority: "third_party",
-      // Three pages of a hundred events each, 15 MB of JSON in one collection and 38 MB of objects
-      // parsed from it; measured 2026-09-26. It was the largest read outside the heavy lane.
+      // Two pages and 13 MB of JSON after filtering thin events upstream on 2026-09-28.
+      // The nested market arrays still belong in a child process.
       heavy: true,
       group: "Discovery",
       stream: "markets",
