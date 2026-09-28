@@ -66,8 +66,61 @@ export async function collectOpenAI(config: AppConfig, request: Fetch = fetch): 
     })),
   };
 }
+/**
+ * Anthropic answers for its own models with a capability matrix, and for a long time three fields of
+ * it were read.
+ *
+ * `/v1/models` states `max_input_tokens`, `max_tokens`, and a `capabilities` object naming batch,
+ * citations, code execution, structured outputs, image and PDF input, thinking, effort levels up to
+ * `xhigh`, and dated context-management features such as `compact_20260112`. The record stored from
+ * it held `id`, `display_name` and `created_at`, so a model gaining `effort.xhigh` or a larger
+ * context window was byte-identical to the model before it and raised no event. Measured on
+ * production 2026-09-28: 7,303 collections over thirty days, one event, and that one a new model.
+ *
+ * A dated feature name is the vendor's own calendar of what it is rolling out, which is the
+ * strongest evidence this service can hold and was the part being dropped.
+ */
+const anthropicCapability = z.object({ supported: z.boolean().nullish() }).passthrough();
+const anthropicModel = z.object({
+  id: z.string().min(1),
+  display_name: z.string(),
+  created_at: z.string(),
+  max_input_tokens: z.number().int().positive().nullish(),
+  max_tokens: z.number().int().positive().nullish(),
+  capabilities: z.record(z.string(), z.unknown()).nullish(),
+});
+/** The names a capability object offers, minus the flag that says the group itself is on. */
+function capabilityNames(value: unknown): string[] | null {
+  if (!value || typeof value !== "object") return null;
+  const names = Object.keys(value as Record<string, unknown>).filter((key) => key !== "supported");
+  return names.length ? names.sort() : null;
+}
+/**
+ * One model as this service stores it. The capability tree is kept as the names it offers rather
+ * than the objects under them: a name appearing is the vendor shipping something, while the bodies
+ * under an existing name reshuffle without meaning, and storing them would churn the record.
+ */
+function anthropicRecord(model: z.infer<typeof anthropicModel>): RecordData {
+  const capabilities = model.capabilities ?? {};
+  const supported = Object.entries(capabilities)
+    .filter(([, value]) => anthropicCapability.safeParse(value).data?.supported === true)
+    .map(([name]) => name)
+    .sort();
+  return {
+    id: model.id,
+    name: model.display_name,
+    created: model.created_at,
+    ...(model.max_input_tokens ? { context: model.max_input_tokens } : {}),
+    ...(model.max_tokens ? { maxOutput: model.max_tokens } : {}),
+    ...(supported.length ? { capabilities: supported } : {}),
+    ...(capabilityNames(capabilities.effort) ? { effortLevels: capabilityNames(capabilities.effort) } : {}),
+    ...(capabilityNames(capabilities.context_management)
+      ? { contextManagement: capabilityNames(capabilities.context_management) }
+      : {}),
+  };
+}
 const anthropicSchema = z.object({
-  data: z.array(z.object({ id: z.string().min(1), display_name: z.string(), created_at: z.string() })),
+  data: z.array(anthropicModel),
   has_more: z.boolean(),
   last_id: z.string().nullable(),
 });
@@ -87,7 +140,7 @@ export async function collectAnthropic(config: AppConfig, request: Fetch = fetch
     );
     const data = anthropicSchema.parse(body);
     raw.push(body);
-    records.push(...data.data.map((m) => ({ id: m.id, name: m.display_name, created: m.created_at })));
+    records.push(...data.data.map(anthropicRecord));
     if (!data.has_more) {
       if (!records.length) throw new SourceError("empty", "Anthropic catalogue has no models");
       return { source: "anthropic", stream: "api-models", url, raw, records };

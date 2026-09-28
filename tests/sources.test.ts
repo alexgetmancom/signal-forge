@@ -753,6 +753,63 @@ test("Anthropic collects all pages, never treating first page as entire catalog"
   expect(c.url).toBe("https://docs.anthropic.com/en/docs/about-claude/models");
 });
 
+test("the Anthropic catalogue keeps the capability matrix its own API states", async () => {
+  // The shape production serves, reduced to one model. Read for id, display_name and created_at
+  // alone, a model gaining `effort.xhigh` or a bigger context window raised no event at all.
+  const c = await collectAnthropic(
+    loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname }),
+    async () =>
+      Response.json({
+        data: [
+          {
+            id: "claude-opus-5-5",
+            display_name: "Claude Opus 5.5",
+            created_at: "2026-09-22T00:00:00Z",
+            type: "model",
+            max_input_tokens: 1_000_000,
+            max_tokens: 128_000,
+            capabilities: {
+              batch: { supported: true },
+              citations: { supported: true },
+              pdf_input: { supported: false },
+              thinking: { supported: true, types: ["enabled"] },
+              effort: { supported: true, low: {}, medium: {}, high: {}, max: {}, xhigh: {} },
+              context_management: { supported: true, compact_20260112: {}, clear_thinking_20251015: {} },
+            },
+          },
+        ],
+        has_more: false,
+        last_id: "claude-opus-5-5",
+      }),
+  );
+  expect(c.records[0]).toMatchObject({
+    id: "claude-opus-5-5",
+    name: "Claude Opus 5.5",
+    context: 1_000_000,
+    maxOutput: 128_000,
+    // A capability the vendor states it does not support is not stored as one.
+    capabilities: ["batch", "citations", "context_management", "effort", "thinking"],
+    effortLevels: ["high", "low", "max", "medium", "xhigh"],
+    // A dated feature name is the vendor's own calendar of what it is rolling out.
+    contextManagement: ["clear_thinking_20251015", "compact_20260112"],
+  });
+});
+
+test("a model the Anthropic catalogue states nothing extra about keeps the three fields it had", async () => {
+  const c = await collectAnthropic(
+    loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname }),
+    async () =>
+      Response.json({
+        data: [{ id: "a", display_name: "Model", created_at: "2026-01-01" }],
+        has_more: false,
+        last_id: "a",
+      }),
+  );
+  // Absent fields are left out rather than stored as null, so a catalogue that says less does not
+  // read as every model losing a capability.
+  expect(c.records[0]).toEqual({ id: "a", name: "Model", created: "2026-01-01" });
+});
+
 test("OpenAI catalogue evidence links to the model documentation, not the authenticated API", async () => {
   const c = await collectOpenAI(
     loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname }),

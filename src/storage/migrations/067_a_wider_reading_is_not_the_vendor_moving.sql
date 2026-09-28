@@ -1,0 +1,21 @@
+-- Reading more of an answer is not the answer changing.
+--
+-- The Anthropic catalogue now keeps the context window, output ceiling, supported capabilities,
+-- effort levels and context-management feature names that `/v1/models` has been stating all along.
+-- The next collection would therefore find a different body for all twelve stored models at once,
+-- and `notificationBlock` silences only `updated`, `published`, `created` and `parameters`: a
+-- context window or a capability list arriving counts as news, so twelve cards would have gone out
+-- saying Claude models were renamed and resized on the day we widened our own reading.
+--
+-- Migration 048 rewrote stored bodies for the same reason, and could compute the corrected value in
+-- SQL. This one cannot: the capability matrix is not in the database except inside a gzipped
+-- snapshot. So the seeding is left to the collector and the event is suppressed at its source
+-- instead -- `persistCollection` emits neither `new` nor `changed` while a source has no
+-- `last_success`, which is how every source's first collection is silent. Clearing it here makes the
+-- next Anthropic collection one more first collection: twelve bodies replaced, nobody told.
+--
+-- The cost is one poll of blindness on one source, about six minutes at its observed rate. Until it
+-- runs, `silent-sources` reports `anthropic` as `never_succeeded` and `doctor` counts it among the
+-- sources without a success; both correct themselves on the next collection.
+
+UPDATE sources SET last_success = NULL WHERE id = 'anthropic';
