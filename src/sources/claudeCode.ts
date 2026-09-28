@@ -2,8 +2,11 @@ import type { Collection } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
 import { type BundleMemory, forgetful } from "./bundleMemory.js";
 import { scanGzipStream } from "./gzipScan.js";
+import { publishedVersion } from "./npmVersion.js";
 
-const TAGS = "https://registry.npmjs.org/-/package/@anthropic-ai/claude-code/dist-tags";
+const PACKAGE = "@anthropic-ai/claude-code";
+/** Claude Code ships to `next` first, which is the channel a new model id arrives on. */
+const CHANNELS = ["next", "latest"];
 const BINARY = "https://registry.npmjs.org/@anthropic-ai/claude-code-linux-x64/-/claude-code-linux-x64-";
 
 /**
@@ -33,8 +36,7 @@ export async function collectClaudeCodeModels(
   request: Fetch = fetch,
   memory: BundleMemory = forgetful,
 ): Promise<Collection> {
-  const tags = (await (await request(TAGS)).json()) as Record<string, string>;
-  const version = tags.next ?? tags.latest;
+  const version = await publishedVersion(PACKAGE, CHANNELS, request);
   if (!version) throw new Error("Claude Code has no published version");
   // The version has not moved, so the 230 MB it would take to learn nothing is not spent.
   if (memory.lastVersion() === version) {
@@ -50,6 +52,15 @@ export async function collectClaudeCodeModels(
   if (!ids.length) throw new Error(`Claude Code ${version} names no model`);
   memory.remember(version);
   return collection(version, ids);
+}
+
+/**
+ * Whether the published version is the one already read through, asked without downloading it.
+ * The poller calls this every few minutes and only spends the 230 MB when it answers false.
+ */
+export async function claudeCodeUnchanged(request: Fetch = fetch, memory: BundleMemory = forgetful): Promise<boolean> {
+  const version = await publishedVersion(PACKAGE, CHANNELS, request);
+  return version !== null && memory.lastVersion() === version && memory.ids().length > 0;
 }
 
 function collection(version: string, ids: readonly string[]): Collection {

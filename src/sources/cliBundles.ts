@@ -2,6 +2,7 @@ import type { Collection } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
 import { type BundleMemory, forgetful } from "./bundleMemory.js";
 import { scanGzipStream } from "./gzipScan.js";
+import { publishedVersion } from "./npmVersion.js";
 import type { Vendor } from "./vendors.js";
 
 /**
@@ -54,7 +55,7 @@ async function bundleIdsFromStream(
   return sortedIds(ids);
 }
 
-type Bundle = {
+export type Bundle = {
   source: string;
   package: string;
   vendor: Vendor;
@@ -89,10 +90,7 @@ export async function collectCliBundle(
   request: Fetch = fetch,
   memory: BundleMemory = forgetful,
 ): Promise<Collection> {
-  const tags = (await (
-    await request(`https://registry.npmjs.org/-/package/${bundle.package}/dist-tags`)
-  ).json()) as Record<string, string>;
-  const version = tags.latest;
+  const version = await publishedVersion(bundle.package, ["latest"], request);
   if (!version) throw new Error(`${bundle.package} has no published version`);
   // Only a new version is downloaded, and what counts as already read lives in the database rather
   // than in this process: see src/sources/bundleMemory.ts.
@@ -108,6 +106,16 @@ export async function collectCliBundle(
   if (ids.length < bundle.floor) throw new Error(`${bundle.package} ${version} names ${ids.length} models`);
   memory.remember(version);
   return collected(bundle, version, ids);
+}
+
+/** The same question `claudeCodeUnchanged` asks, for the two bundles that publish only to `latest`. */
+export async function cliBundleUnchanged(
+  bundle: Bundle,
+  request: Fetch = fetch,
+  memory: BundleMemory = forgetful,
+): Promise<boolean> {
+  const version = await publishedVersion(bundle.package, ["latest"], request);
+  return version !== null && memory.lastVersion() === version && memory.ids().length >= bundle.floor;
 }
 
 function collected(bundle: Bundle, version: string, ids: readonly string[]): Collection {

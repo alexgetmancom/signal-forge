@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import type { AppConfig } from "./config.js";
 import { isCredentialRejection, recordCredentialRejection } from "./credentials.js";
 import { saveCollection } from "./events/pipeline.js";
+import type { Collection } from "./events/types.js";
 import { classifyFailure } from "./failureDiagnosis.js";
 import { log } from "./logger.js";
 import { lockHolder, withActionLock } from "./runtime/actionLock.js";
@@ -82,6 +83,45 @@ export function byLongestWait(
   return [...jobs].sort((a, b) => waited(b) - waited(a));
 }
 
+/**
+ * A source whose cheap upstream question answered "nothing new": marked checked and successful
+ * without collecting anything, and the instant it was marked at. Null when there was no cheap
+ * question to ask or the answer was that something moved.
+ *
+ * Successful, not merely checked: being told by upstream that nothing has changed is a source
+ * working exactly as intended, and `last_success` is what every report reads to decide whether a
+ * source has gone quiet. Leaving it behind would turn a package that has not shipped in a week into
+ * an alarm. See `nothingNew` in src/sources/definition.ts for why the question is split out at all.
+ */
+async function markedUnchanged(db: Database, job: SourceDefinition): Promise<string | null> {
+  const nothingNew = job.nothingNew;
+  // Timed under its own name: this is the read that now happens every few minutes, and `timings`
+  // should be able to say what asking that often costs.
+  if (!nothingNew || !(await measure(db, `source.watch:${job.id}`, () => nothingNew()))) return null;
+  const checkedAt = new Date().toISOString();
+  db.query(
+    "UPDATE sources SET last_success=?,checked_at=?,failures=0,retry_at=NULL,failure_started_at=NULL,last_error=NULL,last_error_kind=NULL WHERE id=?",
+  ).run(checkedAt, checkedAt, job.id);
+  log("info", "Source unchanged upstream", { source: job.id });
+  return checkedAt;
+}
+
+/**
+ * What the registry declares about a source, spread onto the answer it just gave. Authority,
+ * evidence, confidence and whether an omission is a withdrawal are static facts about the surface
+ * being read, not observations a collector makes; see src/sources/definition.ts.
+ */
+function underContract(job: SourceDefinition, collected: Collection): Collection {
+  return {
+    ...collected,
+    authority: job.authority,
+    evidence: job.evidence,
+    confidence: job.confidence,
+    ...(job.vendor ? { vendor: job.vendor } : {}),
+    ...(job.appendOnly ? { appendOnly: true } : {}),
+  };
+}
+
 async function collectDueSources(
   db: Database,
   config: AppConfig,
@@ -151,16 +191,17 @@ async function collectDueSources(
         // a light one in this process. Timing it here as well recorded each collection twice under
         // one name, which inflates the call count and the total of the very report that is supposed
         // to catch a collector getting slower.
+        // Upstream has not moved, so there is nothing to download and nothing to store. Timed under
+        // its own name: this is the read that now happens every few minutes, and `timings` should be
+        // able to say what asking that often costs.
+        const unchangedAt = await markedUnchanged(db, job);
+        if (unchangedAt) {
+          if (job.pace) pacedAt.set(job.pace.group, Date.parse(unchangedAt));
+          continue;
+        }
         const child = job.heavy ? await collectInSubprocess(db, job.id) : null;
         const collected = child ? child.collection : await job.collector();
-        const collection = {
-          ...collected,
-          authority: job.authority,
-          evidence: job.evidence,
-          confidence: job.confidence,
-          ...(job.vendor ? { vendor: job.vendor } : {}),
-          ...(job.appendOnly ? { appendOnly: true } : {}),
-        };
+        const collection = underContract(job, collected);
         const checkedAt = new Date().toISOString();
         const destinations = job.mode === "shadow" ? [] : config.destinations;
         // The backoff is cleared in the transaction that stores the read: a crash between the two

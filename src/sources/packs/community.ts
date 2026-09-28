@@ -1,7 +1,7 @@
 import type { AppConfig } from "../../config.js";
 import { bundleMemory } from "../bundleMemory.js";
-import { collectClaudeCodeModels } from "../claudeCode.js";
-import { CLI_BUNDLES, collectCliBundle } from "../cliBundles.js";
+import { claudeCodeUnchanged, collectClaudeCodeModels } from "../claudeCode.js";
+import { CLI_BUNDLES, cliBundleUnchanged, collectCliBundle } from "../cliBundles.js";
 import { collectCodexModels } from "../codex.js";
 import { collectCommandCodeModels, collectOpenCodeGo, collectOpenCodeZen } from "../codingPlans.js";
 import type { SourceContext, SourceEntry } from "../definition.js";
@@ -68,6 +68,31 @@ const WATCHED_REPOSITORY: SourceKind = {
  * a name found here is the maker writing it down for a machine rather than somebody reading tea
  * leaves; what that is worth is `confidenceFor`'s business, not this registry's.
  */
+/**
+ * A model id compiled into a client the maker publishes.
+ *
+ * Not a repository, though these sat in `VENDOR_REPOSITORY` for want of anywhere better and were
+ * described to readers in words written for a commit. Nothing here reads a commit: it downloads the
+ * published tarball and scans the built binary, so the name has been shipped to every user of the
+ * client. That is stronger than a keystroke in a repository and weaker than a catalogue, which is
+ * the maker saying the model can be called -- its own evidence type, `binary_string`, and its own
+ * sentence on the card.
+ *
+ * Five minutes, against the hour these ran at while the download and the version check were one
+ * source. Only the dist-tags document is read at that pace; see `nothingNew` in
+ * src/sources/definition.ts for the split that makes the pace affordable.
+ */
+const SHIPPED_BINARY: SourceKind = {
+  kind: "shipped-binary",
+  authority: "vendor_owned",
+  evidence: "binary_string",
+  confidence: "observed",
+  group: "Shipped binaries",
+  stream: "github",
+  intervalSeconds: 300,
+  pace: { group: "registry.npmjs.org", seconds: 5 },
+};
+
 const VENDOR_REPOSITORY: SourceKind = {
   kind: "vendor-repository",
   authority: "vendor_owned",
@@ -190,14 +215,6 @@ function repositorySources({ db, config, cache }: SourceContext): SourceEntry[] 
   const watched: KindMember[] = [];
   const owned: KindMember[] = [
     { id: "codex-models", vendor: "OpenAI", collector: () => collectCodexModels(fetch, cache) },
-    {
-      id: "claude-code-models",
-      vendor: "Anthropic",
-      // A release is a 103.5 MB download unpacking to 230.4 MB, read only when the version moves.
-      intervalSeconds: 3600,
-      heavy: true,
-      collector: () => collectClaudeCodeModels(fetch, bundleMemory(db, "claude-code-models")),
-    },
   ];
 
   for (const watch of config.github) {
@@ -258,17 +275,31 @@ function repositorySources({ db, config, cache }: SourceContext): SourceEntry[] 
     });
   }
 
+  const binaries: KindMember[] = [
+    {
+      id: "claude-code-models",
+      vendor: "Anthropic",
+      // A release is a 103.5 MB download unpacking to 230.4 MB, read only when the version moves.
+      heavy: true,
+      nothingNew: () => claudeCodeUnchanged(fetch, bundleMemory(db, "claude-code-models")),
+      collector: () => collectClaudeCodeModels(fetch, bundleMemory(db, "claude-code-models")),
+    },
+  ];
   for (const bundle of CLI_BUNDLES)
-    owned.push({
+    binaries.push({
       id: bundle.source,
       vendor: bundle.vendor,
       // A 20 to 30 MB download, read only when the published version moves.
-      intervalSeconds: 3600,
       heavy: true,
+      nothingNew: () => cliBundleUnchanged(bundle, fetch, bundleMemory(db, bundle.source)),
       collector: () => collectCliBundle(bundle, fetch, bundleMemory(db, bundle.source)),
     });
 
-  return [...sourcesOfKind(WATCHED_REPOSITORY, watched), ...sourcesOfKind(VENDOR_REPOSITORY, owned)];
+  return [
+    ...sourcesOfKind(WATCHED_REPOSITORY, watched),
+    ...sourcesOfKind(VENDOR_REPOSITORY, owned),
+    ...sourcesOfKind(SHIPPED_BINARY, binaries),
+  ];
 }
 
 export function communitySources({ db, config, cache }: SourceContext): SourceEntry[] {

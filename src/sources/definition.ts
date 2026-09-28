@@ -66,6 +66,23 @@ export type SourceDefinition = {
    * this service reads is either under two megabytes or already here.
    */
   heavy?: boolean;
+  /**
+   * The cheap half of an expensive read, asked in this process before the collector is run at all:
+   * true when upstream has not moved and there is nothing to collect.
+   *
+   * A bundle reader answers two questions of one package -- has it moved, and what does the new
+   * build name -- and they differ by six orders of magnitude: a dist-tags document is a few hundred
+   * bytes, the tarball behind it is a hundred megabytes. Declared as one source they also shared one
+   * interval, so the tarball decided how often the document was asked, and the answer was an hour.
+   * Claude Code 2.1.284 was published at 17:11 on 2026-09-28 carrying `claude-sonnet-5-5`; nothing
+   * here was going to look until 17:30, because looking meant downloading.
+   *
+   * Split, the interval belongs to the cheap question and the cost belongs to the rare answer. The
+   * poller marks the source checked and moves on when this is true -- successfully, because asking
+   * upstream and being told nothing has changed is a source working, and every report that reads
+   * `last_success` would otherwise call a package that has not shipped in a week a silent source.
+   */
+  nothingNew?: () => Promise<boolean>;
 };
 
 /** What a source pack writes per source; label, enabled and mode are derived from the id by the registry. */

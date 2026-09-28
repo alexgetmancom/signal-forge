@@ -27,6 +27,7 @@ const MODEL_FACT_AUTHORITY_RANK: Record<EvidenceType, number> = {
   arena_roster: 2,
   leaderboard: 2,
   github_activity: 2,
+  binary_string: 2,
   web_diff: 2,
   status_page: 2,
   unknown: 1,

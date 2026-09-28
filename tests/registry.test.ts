@@ -103,6 +103,8 @@ test("source registry has unique IDs, valid streams, labels and consistent pacin
       ["discovery:docs-google", 5],
       ["opencode.ai", 5],
       ["downloads.claude.ai", 5],
+      // The three shipped-binary readers ask npm for a dist-tags document every five minutes.
+      ["registry.npmjs.org", 5],
     ]),
   );
   db.close();

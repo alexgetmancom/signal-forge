@@ -8,6 +8,7 @@
  */
 import { sourceLabel } from "../../sources/labels.js";
 import { boardPlace, DEBUT_PLACES, scoredDebutIndex } from "../boardSignals.js";
+import { eventEvidenceType } from "../confidence.js";
 import { readableName } from "../naming.js";
 import type { Event, RecordData } from "../types.js";
 import { excerpt, pageName, place } from "./words.js";
@@ -37,6 +38,10 @@ const KIND_ICONS: Record<Event["kind"], string> = { new: "🆕", changed: "✏�
 
 export function eyebrow(event: Event): string {
   if (event.source === "codex-docs") return "DOCUMENTATION";
+  // A model id read out of a published build is not the repository it was compiled from, and the
+  // banner is the part of the card that gets screenshotted: REPOSITORY over a binary scan said the
+  // wrong thing at the largest size on the card.
+  if (eventEvidenceType(event) === "binary_string") return "SHIPPED BINARY";
   if (event.stream === "leaderboards") return sourceLabel(event.source).toUpperCase();
   return EYEBROWS[event.stream] ?? "UPDATE";
 }
@@ -104,6 +109,9 @@ export function eventHeadline(event: Event, name: string, incident: Incident | n
     if (record?.stage === "served") return `📡 ${spoken} is answering requests`;
     if (event.kind === "new") return `🔎 ${spoken} named in code`;
   }
+  // Found, not launched: the 🆕 of a catalogue listing over a compiled-in string promised a model a
+  // reader could go and call.
+  if (eventEvidenceType(event) === "binary_string" && event.kind === "new") return `🔎 ${readableName(name)}`;
   if (event.stream === "arena" && event.kind === "new") return `🆕 ${name} appears on Arena`;
   // A page names itself "Pricing" or "Overview", which is a heading, not a headline: whose pricing
   // is the news, and it was left to the footer four lines down.
@@ -162,6 +170,11 @@ export const SIGHTINGS = new Set([
 
 /** What the observation means for someone deciding whether to care. */
 export function readerImpact(event: Event, record: RecordData | null): string | null {
+  // A shipped binary says all it has to say in its standing sentence; the line that used to land
+  // here was the repository rule reaching a source that reads no repository, so a card carried
+  // "From the project's repository. Work in progress, not a release. Repository activity is not a
+  // release." over a name compiled into a published build. One true sentence, or none.
+  if (eventEvidenceType(event) === "binary_string") return null;
   if (event.stream === "github" && !event.source.endsWith(":releases")) return "Repository activity is not a release.";
   if (event.stream === "training")
     return record?.ended

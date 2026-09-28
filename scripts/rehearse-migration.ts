@@ -78,21 +78,32 @@ try {
   // connection does both passes: a second one, opened while the first still held prepared
   // statements, deadlocked against it on any database not in WAL mode -- which is every copy made
   // by `VACUUM INTO`, and so every copy of production this was supposed to be rehearsed against.
-  const db = new Database(copy, { create: false, strict: true });
-  const startingVersion = db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version ?? 0;
-  const beforeCounts = counts(db);
-  const beforeBodies = fingerprints(db);
-  const beforePlans = plans(db);
+  const before = new Database(copy, { create: false, strict: true });
+  const startingVersion = before.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version ?? 0;
+  const beforeCounts = counts(before);
+  const beforeBodies = fingerprints(before);
+  const beforePlans = plans(before);
+  // Closed before the migration opens its own, and never open at the same time. Both halves of that
+  // matter: two live connections deadlock on a copy made by `VACUUM INTO`, which is not in WAL mode,
+  // and a single connection carries the prepared statements of the reading pass into the migrating
+  // one -- where a `DROP TABLE` on anything already read answers SQLITE_LOCKED. 068 rebuilds
+  // `events` to widen a CHECK, which is the first migration to drop a table this script had read,
+  // and it failed here for a reason that had nothing to do with the migration.
+  before.close();
 
+  const db = new Database(copy, { create: false, strict: true });
   const started = Date.now();
   db.exec("PRAGMA foreign_keys=ON;");
   runMigrations(db);
   const elapsedMs = Date.now() - started;
-  const afterCounts = counts(db);
-  const afterBodies = fingerprints(db);
-  const afterPlans = plans(db);
-  const integrity = db.query<{ integrity_check: string }, []>("PRAGMA integrity_check").get()?.integrity_check;
   db.close();
+
+  const after = new Database(copy, { create: false, strict: true });
+  const afterCounts = counts(after);
+  const afterBodies = fingerprints(after);
+  const afterPlans = plans(after);
+  const integrity = after.query<{ integrity_check: string }, []>("PRAGMA integrity_check").get()?.integrity_check;
+  after.close();
 
   const changedBodies = [...afterBodies].filter(
     ([key, hash]) => beforeBodies.has(key) && beforeBodies.get(key) !== hash,

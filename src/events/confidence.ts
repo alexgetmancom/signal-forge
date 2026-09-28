@@ -12,6 +12,7 @@ const evidenceLabels: Record<EvidenceType, string> = {
   leaderboard: "leaderboard",
   web_diff: "web diff",
   github_activity: "GitHub activity",
+  binary_string: "compiled-in model id",
   package_release: "package release",
   open_weights: "open weights registry",
   status_page: "status page",
@@ -57,6 +58,9 @@ const standings: Record<EvidenceType, string> = {
   leaderboard: "Reported by a public leaderboard.",
   web_diff: "On the maker's own site.",
   github_activity: "From the project's repository. Work in progress, not a release.",
+  // A name compiled into a client the maker publishes. Stronger than a commit -- the build shipped
+  // and every user has it -- and weaker than a catalogue, which is the maker saying it can be called.
+  binary_string: "Compiled into a shipped binary. Not announced, and not callable yet.",
   package_release: "Published to the registry. You can install it now.",
   open_weights: "Published to an open-weights registry. The files are downloadable.",
   status_page: "From the provider's own status page.",
