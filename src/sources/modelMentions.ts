@@ -5,6 +5,7 @@ import type { Collection, RecordData, SourceAuthority } from "../events/types.js
 import type { Fetch } from "../http-client.js";
 import { fetchText } from "./http.js";
 import { judgeMentions, type MentionStage, olderThanKnown, stageKnown, stageRecordId } from "./mentionStage.js";
+import type { Vendor } from "./vendors.js";
 
 export { undated } from "./mentionStage.js";
 
@@ -20,7 +21,7 @@ export { undated } from "./mentionStage.js";
  */
 export type MentionWatch = {
   repo: string;
-  vendor?: string;
+  vendor?: Vendor;
   authority: SourceAuthority;
   /** Only these files are read, where the rest of a repository names models that are not its own. */
   paths?: readonly string[];

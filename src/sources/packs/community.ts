@@ -7,12 +7,13 @@ import { collectCommandCodeModels, collectOpenCodeGo, collectOpenCodeZen } from 
 import type { SourceContext, SourceEntry } from "../definition.js";
 import { collectGithubDiscovery, collectHuggingFaceTrending, GITHUB_DISCOVERY_QUERIES } from "../discovery.js";
 import { collectGithubCommits, collectGithubPulls, collectGithubReleases } from "../github.js";
-import { type SourceKind, sourcesOfKind } from "../kinds.js";
+import { type KindMember, type SourceKind, sourcesOfKind } from "../kinds.js";
 import { collectPolymarket } from "../markets.js";
 import { collectModelMentions, MODEL_MENTION_REPOS, mentionSource } from "../modelMentions.js";
 import { collectDocsProbe, collectOpenCodeData, PROBE_SITES } from "../probes.js";
 import { collectRepoTalk, talkSource } from "../repoTalk.js";
 import { collectMimoTraining } from "../training.js";
+import type { Vendor } from "../vendors.js";
 
 /**
  * Where a vendor writes a model's identifier down for a machine, before it writes anything for a
@@ -32,12 +33,44 @@ import { collectMimoTraining } from "../training.js";
  * The releases of the Anthropic SDK are already a source; these are its commits, which are earlier
  * than the release that carries them.
  */
-const MODEL_SPECS: readonly (AppConfig["github"][number] & { vendor: string })[] = [
+const MODEL_SPECS: readonly (AppConfig["github"][number] & { vendor: Vendor })[] = [
   // The specification is one 3.6 MB file, and every model id the API accepts is in it.
   { repo: "openai/openai-openapi", vendor: "OpenAI", paths: ["openapi.yaml"] },
   // `Model` is a union of string literals in the messages resource; `api.md` is its generated index.
   { repo: "anthropics/anthropic-sdk-typescript", vendor: "Anthropic", paths: ["src/resources/messages/", "api.md"] },
 ];
+
+/**
+ * A repository this tracker does not own, read for what happens in it: pull requests, commits,
+ * releases and what people say in the issues. The maker's own repositories are a different kind --
+ * `vendor-repository` below -- because who owns the repository is the whole difference between a
+ * name somebody guessed and a name somebody shipped, and a reader of `source-kinds` could not see
+ * that difference while both were one unnamed family of 38.
+ *
+ * Half an hour is the pace: none of these is the first word on a release, and the GitHub budget is
+ * shared with everything else here.
+ */
+const WATCHED_REPOSITORY: SourceKind = {
+  kind: "watched-repository",
+  authority: "third_party",
+  group: "GitHub",
+  stream: "github",
+  intervalSeconds: 1800,
+};
+
+/**
+ * A maker's own repository, and the artifacts published from it: the model lists inside its CLI,
+ * the commits to its API specification, the release bundles its client downloads. Vendor-owned, so
+ * a name found here is the maker writing it down for a machine rather than somebody reading tea
+ * leaves; what that is worth is `confidenceFor`'s business, not this registry's.
+ */
+const VENDOR_REPOSITORY: SourceKind = {
+  kind: "vendor-repository",
+  authority: "vendor_owned",
+  group: "GitHub",
+  stream: "github",
+  intervalSeconds: 1800,
+};
 
 /** GitHub repositories and discovery: what third parties publish before any vendor says so. */
 /**
@@ -82,26 +115,6 @@ export function communitySources({ db, config, cache }: SourceContext): SourceEn
       pace: { group: "polymarket.com", seconds: 60 },
       collector: () => collectPolymarket(fetch, cache),
     },
-    {
-      id: "codex-models",
-      authority: "vendor_owned",
-      vendor: "OpenAI",
-      group: "GitHub",
-      stream: "github",
-      intervalSeconds: 1800,
-      collector: () => collectCodexModels(fetch, cache),
-    },
-    {
-      id: "claude-code-models",
-      authority: "vendor_owned",
-      vendor: "Anthropic",
-      group: "GitHub",
-      stream: "github",
-      // A release is a 103.5 MB download unpacking to 230.4 MB, read only when the version moves.
-      intervalSeconds: 3600,
-      heavy: true,
-      collector: () => collectClaudeCodeModels(fetch, bundleMemory(db, "claude-code-models")),
-    },
     /**
      * The coding subscriptions' model lists: small JSON answers, read every two minutes.
      *
@@ -138,68 +151,52 @@ export function communitySources({ db, config, cache }: SourceContext): SourceEn
     },
   ];
 
+  /** Every repository read, sorted by who owns it; the id and the collector are all that differ. */
+  const watched: KindMember[] = [];
+  const owned: KindMember[] = [
+    { id: "codex-models", vendor: "OpenAI", collector: () => collectCodexModels(fetch, cache) },
+    {
+      id: "claude-code-models",
+      vendor: "Anthropic",
+      // A release is a 103.5 MB download unpacking to 230.4 MB, read only when the version moves.
+      intervalSeconds: 3600,
+      heavy: true,
+      collector: () => collectClaudeCodeModels(fetch, bundleMemory(db, "claude-code-models")),
+    },
+  ];
+
   for (const watch of config.github) {
-    const authority = watch.repo.startsWith("deepseek-ai/") ? "vendor_owned" : "third_party";
-    definitions.push(
-      {
-        id: `github:${watch.repo}:pulls`,
-        authority,
-        group: "GitHub",
-        stream: "github",
-        intervalSeconds: 1800,
-        collector: () => collectGithubPulls(db, config, watch, fetch, cache),
-      },
-      {
-        id: `github:${watch.repo}:commits`,
-        authority,
-        group: "GitHub",
-        stream: "github",
-        intervalSeconds: 1800,
-        collector: () => collectGithubCommits(db, config, watch, fetch, cache),
-      },
-      {
-        id: `github:${watch.repo}:releases`,
-        authority,
-        group: "GitHub",
-        stream: "github",
-        intervalSeconds: 1800,
-        collector: () => collectGithubReleases(db, config, watch, fetch, cache),
-      },
+    const repository = watch.repo.startsWith("deepseek-ai/") ? owned : watched;
+    repository.push(
+      { id: `github:${watch.repo}:pulls`, collector: () => collectGithubPulls(db, config, watch, fetch, cache) },
+      { id: `github:${watch.repo}:commits`, collector: () => collectGithubCommits(db, config, watch, fetch, cache) },
+      { id: `github:${watch.repo}:releases`, collector: () => collectGithubReleases(db, config, watch, fetch, cache) },
     );
   }
 
-  for (const spec of MODEL_SPECS) {
-    definitions.push({
+  for (const spec of MODEL_SPECS)
+    owned.push({
       id: `github:${spec.repo}:commits`,
-      authority: "vendor_owned",
       vendor: spec.vendor,
-      group: "GitHub",
-      stream: "github",
-      intervalSeconds: 1800,
       collector: () => collectGithubCommits(db, config, spec, fetch, cache),
     });
-  }
 
   for (const [index, watch] of MODEL_MENTION_REPOS.entries()) {
     if (!watch.talkOnly)
-      definitions.push({
+      (watch.authority === "vendor_owned" ? owned : watched).push({
         id: mentionSource(watch.repo),
-        authority: watch.authority,
         ...(watch.vendor ? { vendor: watch.vendor } : {}),
-        group: "GitHub",
-        stream: "github",
         // One request when nothing moved; one more per commit when something did.
         intervalSeconds: 600 + index * 20,
         requiredCapabilities: ["GITHUB_TOKEN"],
         capabilityId: "github",
         collector: () => collectModelMentions(db, config, watch, fetch),
       });
-    definitions.push({
+    // What is said in a repository is said by whoever turns up, so talk is watched even when the
+    // repository is the maker's own.
+    watched.push({
       id: talkSource(watch.repo),
-      authority: "third_party",
       ...(watch.vendor ? { vendor: watch.vendor } : {}),
-      group: "GitHub",
-      stream: "github",
       // Two REST requests and one GraphQL query a poll, whatever was said.
       intervalSeconds: 900 + index * 20,
       requiredCapabilities: ["GITHUB_TOKEN"],
@@ -207,6 +204,18 @@ export function communitySources({ db, config, cache }: SourceContext): SourceEn
       collector: () => collectRepoTalk(db, config, watch, fetch),
     });
   }
+
+  for (const bundle of CLI_BUNDLES)
+    owned.push({
+      id: bundle.source,
+      vendor: bundle.vendor,
+      // A 20 to 30 MB download, read only when the published version moves.
+      intervalSeconds: 3600,
+      heavy: true,
+      collector: () => collectCliBundle(bundle, fetch, bundleMemory(db, bundle.source)),
+    });
+
+  definitions.push(...sourcesOfKind(WATCHED_REPOSITORY, watched), ...sourcesOfKind(VENDOR_REPOSITORY, owned));
 
   for (const query of GITHUB_DISCOVERY_QUERIES) {
     definitions.push({
@@ -220,18 +229,6 @@ export function communitySources({ db, config, cache }: SourceContext): SourceEn
       collector: () => collectGithubDiscovery(config, query, fetch, new Date(), cache),
     });
   }
-  for (const bundle of CLI_BUNDLES)
-    definitions.push({
-      id: bundle.source,
-      authority: "vendor_owned",
-      vendor: bundle.vendor,
-      group: "GitHub",
-      stream: "github",
-      // A 20 to 30 MB download, read only when the published version moves.
-      intervalSeconds: 3600,
-      heavy: true,
-      collector: () => collectCliBundle(bundle, fetch, bundleMemory(db, bundle.source)),
-    });
 
   definitions.push(
     ...sourcesOfKind(

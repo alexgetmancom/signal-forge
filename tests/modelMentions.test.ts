@@ -9,6 +9,7 @@ import {
   crossesMakers,
   inventedFamilies,
   isTestFile,
+  type MentionWatch,
   modelIdsInPatch,
   modelIdsInText,
   undated,
@@ -152,7 +153,7 @@ test("a model named, then served, is told twice; neither pings; another repo rep
     if (url.includes("/compare/")) return Response.json({ status: "ahead", commits: [head] });
     return Response.json({ ...head, files: files.current });
   };
-  const codex = { repo: "openai/codex", vendor: "OpenAI", authority: "vendor_owned" as const };
+  const codex: MentionWatch = { repo: "openai/codex", vendor: "OpenAI", authority: "vendor_owned" };
   const proxy = { repo: "d4rken/clankermux", authority: "third_party" as const };
   for (const watch of [codex, proxy]) saveCollection(db, await collectModelMentions(db, keyed, watch, request), []);
 
@@ -186,7 +187,7 @@ test("a model named, then served, is told twice; neither pings; another repo rep
 test("users reporting a model they were served are told without a ping; a model they merely name is kept", async () => {
   const db = openDatabase(":memory:");
   const keyed = { ...config, DEEPSEEK_API_KEY: "key" };
-  const watch = { repo: "openai/codex", vendor: "OpenAI", authority: "vendor_owned" as const };
+  const watch: MentionWatch = { repo: "openai/codex", vendor: "OpenAI", authority: "vendor_owned" };
   const stages = judge({ "gpt-6-luna": "served", "gpt-7": "noise", "gpt-6-astra": "named" });
   const request = async (url: string, init?: RequestInit) => {
     if (url.includes("deepseek")) return stages.answer(String(init?.body));

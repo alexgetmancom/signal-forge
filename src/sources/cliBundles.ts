@@ -2,6 +2,7 @@ import type { Collection } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
 import { type BundleMemory, forgetful } from "./bundleMemory.js";
 import { scanGzipStream } from "./gzipScan.js";
+import type { Vendor } from "./vendors.js";
 
 /**
  * The models Google's and Alibaba's command-line clients ship knowing about.
@@ -56,7 +57,7 @@ async function bundleIdsFromStream(
 type Bundle = {
   source: string;
   package: string;
-  vendor: string;
+  vendor: Vendor;
   page: string;
   /** Matches one quoted model id in the bundle; group one is the id. */
   pattern: RegExp;
