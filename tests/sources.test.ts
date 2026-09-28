@@ -324,6 +324,41 @@ test("DeepSeek API catalog preserves the provider model identity and rejects mal
   ]);
   expect(() => parseDeepSeekModels(JSON.stringify({ object: "list", data: [] }))).toThrow();
 });
+test("the DeepSeek model list is read for the product name and limits it states, not just the slug", () => {
+  // The payload DeepSeek actually served on 2026-09-22. Read for `id` and `owned_by` alone it is
+  // indistinguishable from the bare list above, which is how `DeepSeek-V4.1-Flash` went unreported.
+  const parsed = parseDeepSeekModels(
+    JSON.stringify({
+      object: "list",
+      data: [
+        {
+          id: "deepseek-flash",
+          object: "model",
+          owned_by: "deepseek",
+          name: "DeepSeek-V4.1-Flash",
+          context_window: 1_048_576,
+          max_output_tokens: 393_216,
+          input_modalities: ["text", "image"],
+          output_modalities: ["text"],
+          effort: { supported_levels: ["low", "high", "max"], default_level: "high" },
+          api_capabilities: { anthropic_messages: { system_prompt_update: "in-history" } },
+        },
+      ],
+    }),
+  );
+  expect(parsed.records[0]).toMatchObject({
+    id: "deepseek-flash",
+    name: "DeepSeek-V4.1-Flash",
+    context: 1_048_576,
+    maxOutput: 393_216,
+    inputModalities: ["text", "image"],
+    effortLevels: ["low", "high", "max"],
+    defaultEffort: "high",
+  });
+  // The nested capability object is kept as the names it offers, so a new one is a change and a
+  // reshuffle under an existing one is not.
+  expect(parsed.records[0]).toMatchObject({ apiCapabilities: ["anthropic_messages"] });
+});
 test("official release-note pages keep dated entries and reject unreadable pages", async () => {
   const openaiHtml = `<article>
     <h1>ChatGPT — Release Notes</h1>

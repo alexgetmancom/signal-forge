@@ -11,9 +11,39 @@ const DEEPSEEK_UPDATES_URL = "https://api-docs.deepseek.com/updates";
 const DEEPSEEK_PRICING_URL = "https://api-docs.deepseek.com/quick_start/pricing/?article_id=article_1779470751466_8";
 const DEEPSEEK_MODELS_URL = "https://api.deepseek.com/models";
 
+/**
+ * DeepSeek's own `/models` grew past `id` and `owned_by` on 2026-09-22, and the read that kept only
+ * those two threw the growth away: the response started saying `deepseek-flash` is named
+ * `DeepSeek-V4.1-Flash` -- the first-party word on a version six days before anyone reported it --
+ * and the comparison body was byte-identical, so no event was raised. Everything the list offers
+ * about a model it can be asked for is compared now.
+ *
+ * `api_capabilities` is the exception: it is a nested, vendor-shaped object, and storing it whole
+ * would churn the record on any reshuffle upstream. Its key names are what a new capability shows
+ * up as, so the record keeps the sorted keys and not the bodies under them.
+ */
 const modelsSchema = z.object({
   object: z.literal("list"),
-  data: z.array(z.object({ id: z.string().min(1), owned_by: z.string().min(1) })).min(1),
+  data: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        owned_by: z.string().min(1),
+        name: z.string().min(1).nullish(),
+        context_window: z.number().int().positive().nullish(),
+        max_output_tokens: z.number().int().positive().nullish(),
+        input_modalities: z.array(z.string().min(1)).nullish(),
+        output_modalities: z.array(z.string().min(1)).nullish(),
+        effort: z
+          .object({
+            supported_levels: z.array(z.string().min(1)).nullish(),
+            default_level: z.string().min(1).nullish(),
+          })
+          .nullish(),
+        api_capabilities: z.record(z.string(), z.unknown()).nullish(),
+      }),
+    )
+    .min(1),
 });
 
 const entrySchema = z.object({
@@ -227,11 +257,20 @@ export function parseDeepSeekModels(payload: string): Collection {
     confirmChanges: true,
     records: data.data.map((model) => ({
       id: model.id,
-      name: model.id,
+      // The list is the only place the slug and the product name are said together, so the name it
+      // gives wins; the slug stands in when the list does not name the model at all.
+      name: model.name ?? model.id,
       maker: "DeepSeek",
       model: model.id,
       owner: model.owned_by,
       url: DEEPSEEK_MODELS_URL,
+      context: model.context_window ?? null,
+      maxOutput: model.max_output_tokens ?? null,
+      inputModalities: model.input_modalities ?? null,
+      outputModalities: model.output_modalities ?? null,
+      effortLevels: model.effort?.supported_levels ?? null,
+      defaultEffort: model.effort?.default_level ?? null,
+      apiCapabilities: model.api_capabilities ? Object.keys(model.api_capabilities).sort() : null,
     })),
   };
 }
