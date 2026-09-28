@@ -104,6 +104,7 @@ function ask(config: AppConfig, request: Fetch, input: string, entryCount: numbe
       model: DEEPSEEK_SUMMARY_MODEL,
       max_tokens: ceilingFor(entryCount),
       temperature: 0,
+      thinking: { type: "disabled" },
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: PROMPT },

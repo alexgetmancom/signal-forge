@@ -159,12 +159,15 @@ test("the hold-off is per source: one broken judge does not silence the others",
 function truncating(answered: number) {
   const asked: string[][] = [];
   let ceiling = 0;
+  let thinking: string | undefined;
   const request = async (_url: string, init?: RequestInit): Promise<Response> => {
     const body = JSON.parse(String(init?.body ?? "{}")) as {
       messages: { content: string }[];
       max_tokens: number;
+      thinking?: { type: string };
     };
     ceiling = body.max_tokens;
+    thinking = body.thinking?.type;
     const ids = [...String(body.messages[1]?.content ?? "").matchAll(/^ID: (.+)$/gm)].map((m) => m[1] as string);
     asked.push(ids);
     const pairs = ids.slice(0, answered).map((id) => `"${id}": "builders"`);
@@ -173,7 +176,7 @@ function truncating(answered: number) {
       choices: [{ message: { content: `{${pairs.join(", ")}` }, finish_reason: "length" }],
     });
   };
-  return { asked, ceiling: () => ceiling, request: request as unknown as typeof fetch };
+  return { asked, ceiling: () => ceiling, thinking: () => thinking, request: request as unknown as typeof fetch };
 }
 
 test("an answer that stopped in the middle is worth the verdicts it did contain", async () => {
@@ -206,5 +209,6 @@ test("the room one answer gets is sized to the batch, not to what a runaway woul
   await withAudience(db, config, partial.request, "openai-chatgpt-release-notes", records);
   // 12 verdicts at ~20 tokens each, ten times over: far under the flat 6,000 that every runaway spent.
   expect(partial.ceiling()).toBe(2_400);
+  expect(partial.thinking()).toBe("disabled");
   db.close();
 });
