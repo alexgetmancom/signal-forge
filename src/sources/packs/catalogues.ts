@@ -59,6 +59,7 @@ const HOSTS = new Set(["groq", "cerebras", "deepinfra"]);
  */
 const OPEN_WEIGHTS_ACCOUNT: SourceKind = {
   kind: "open-weights-account",
+  appendOnly: true,
   authority: "vendor_owned",
   // A hub entry is the maker's own upload but not the maker's own word about it: the files are
   // there, and whether the model is out is a separate question the account never answers.
@@ -158,6 +159,7 @@ export function cataloguesSources({ db, config, cache }: SourceContext): SourceE
     },
     {
       id: "openrouter-usage",
+      appendOnly: true,
       authority: "third_party",
       // Which models are called, not which exist: a ranking, and never evidence that anything shipped.
       evidence: "leaderboard",
@@ -258,7 +260,7 @@ export function cataloguesSources({ db, config, cache }: SourceContext): SourceE
         requiredCapabilities: ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY"],
         collector: () => collectBedrock(config),
       },
-      { id: "huggingface-router", collector: () => collectHuggingFaceRouter(fetch, cache) },
+      { id: "huggingface-router", appendOnly: true, collector: () => collectHuggingFaceRouter(fetch, cache) },
       ...providers.filter((provider) => provider.authority !== "first_party"),
     ]),
     ...sourcesOfKind(PACKAGE_REGISTRY, [

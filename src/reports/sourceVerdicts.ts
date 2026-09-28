@@ -40,6 +40,17 @@ export type SourceVerdict = {
   recapLines: number;
   /** Events the source recorded in the period. */
   events: number;
+  /**
+   * Whether an omission from this source is a withdrawal or a window that moved, from the registry.
+   *
+   * `quiet_sentinel` is two opposite things without it. An append-only feed with no events is a lab
+   * that published nothing this period, which is the good outcome and the reason the feed is
+   * watched. A catalogue with no events is a source whose state never once moved, and on
+   * 2026-09-28 that was `deepseek-api` reading three fields of a list that had changed -- a bug
+   * that looked exactly like the healthy case from every report, because the difference was known
+   * only inside a live poll.
+   */
+  appendOnly: boolean;
   /** Of those, how many were arrivals that share a story with another source's event. */
   corroborated: number;
   /** Arrivals the source recorded in the period. */
@@ -170,6 +181,7 @@ export function sourceVerdicts(
       scoutVotesAgainst: reactions.get(definition.id)?.against ?? 0,
       recapLines: recapped.get(definition.id) ?? 0,
       events,
+      appendOnly: definition.appendOnly === true,
       arrivals,
       corroborated,
       corroborationRate: arrivals ? Math.round((corroborated / arrivals) * 100) / 100 : null,

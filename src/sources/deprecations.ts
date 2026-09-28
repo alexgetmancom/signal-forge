@@ -48,7 +48,6 @@ export function parseOpenAIDeprecations(markdown: string): Collection {
     raw: records,
     // Announcements are historical record: one leaving the page would be an edit to history, not
     // a retraction we should report as a removal.
-    appendOnly: true,
     trackChanges: true,
     records,
   };
@@ -91,7 +90,6 @@ export function parseAnthropicDeprecations(markdown: string): Collection {
     raw: records,
     // A model dropping off the table has been retired long ago; the retirement itself was already
     // reported as a change of state.
-    appendOnly: true,
     trackChanges: true,
     records,
   };

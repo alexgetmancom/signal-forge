@@ -7,6 +7,7 @@ import { platformEmbed } from "../src/boards/platforms.js";
 import { statusEmbed } from "../src/boards/statusBoard.js";
 import { loadConfig } from "../src/config.js";
 import { saveCollection } from "../src/events/pipeline.js";
+import type { Collection } from "../src/events/types.js";
 import { listActionableIssues } from "../src/reports/issues.js";
 import { PLATFORMS, parsePlatformStatus } from "../src/sources/platforms.js";
 import { publishBoard } from "../src/status.js";
@@ -516,7 +517,6 @@ test("an incident becomes an event, and its resolution is a change rather than a
   };
   const parsed = parsePlatformStatus(JSON.stringify(open), PLATFORMS[0] as (typeof PLATFORMS)[number]);
   expect(parsed.stream).toBe("incidents");
-  expect(parsed.appendOnly).toBe(true);
   expect(parsed.trackChanges).toBe(true);
   expect(parsed.resolveMissing).toBe(true);
   expect(parsed.records[0]).toMatchObject({ id: "abc", name: "OpenAI: Elevated errors", stage: "investigating" });
@@ -526,11 +526,13 @@ test("an incident becomes an event, and its resolution is a change rather than a
 
   const db = openDatabase(":memory:");
   const platform = PLATFORMS[0] as (typeof PLATFORMS)[number];
-  saveCollection(db, { ...parsed, records: [], raw: "baseline" }, [], "2026-09-08T10:00:00.000Z");
-  saveCollection(db, parsed, [], "2026-09-08T10:05:00.000Z");
-  saveCollection(db, parsePlatformStatus(calm, platform), [], "2026-09-08T10:10:00.000Z");
+  // `appendOnly` is the registry's, spread on by the poller; `polled` stands in for it.
+  const polled = (collection: Collection): Collection => ({ ...collection, appendOnly: true });
+  saveCollection(db, { ...polled(parsed), records: [], raw: "baseline" }, [], "2026-09-08T10:00:00.000Z");
+  saveCollection(db, polled(parsed), [], "2026-09-08T10:05:00.000Z");
+  saveCollection(db, polled(parsePlatformStatus(calm, platform)), [], "2026-09-08T10:10:00.000Z");
   expect(db.query("SELECT kind FROM events ORDER BY id").all()).toEqual([{ kind: "new" }]);
-  saveCollection(db, parsePlatformStatus(calm, platform), [], "2026-09-08T10:15:00.000Z");
+  saveCollection(db, polled(parsePlatformStatus(calm, platform)), [], "2026-09-08T10:15:00.000Z");
   expect(db.query("SELECT kind FROM events ORDER BY id").all()).toEqual([{ kind: "new" }, { kind: "changed" }]);
   const resolution = db.query<{ after_json: string }, []>("SELECT after_json FROM events WHERE kind='changed'").get();
   // The vendor stopped publishing it; it never said the incident was resolved, and the card must
@@ -541,7 +543,7 @@ test("an incident becomes an event, and its resolution is a change rather than a
     summary: "Incident no longer listed by the status page.",
   });
   // And an incident already gone is not reported gone a second time.
-  saveCollection(db, parsePlatformStatus(calm, platform), [], "2026-09-08T10:20:00.000Z");
+  saveCollection(db, polled(parsePlatformStatus(calm, platform)), [], "2026-09-08T10:20:00.000Z");
   expect(db.query("SELECT COUNT(*) AS n FROM events").get()).toEqual({ n: 2 });
   db.close();
 });

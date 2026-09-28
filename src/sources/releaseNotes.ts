@@ -126,7 +126,6 @@ function releaseCollection(source: string, url: string, records: RecordData[]): 
     // Store normalized evidence: the upstream HTML contains rotating framework metadata and
     // would otherwise create a new snapshot on every unchanged poll.
     raw: parsed,
-    appendOnly: true,
     trackChanges: true,
     records: parsed,
   };

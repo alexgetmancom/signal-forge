@@ -92,6 +92,7 @@ const VENDOR_REPOSITORY: SourceKind = {
  */
 const DOCUMENTATION_PROBE: SourceKind = {
   kind: "documentation-probe",
+  appendOnly: true,
   authority: "vendor_owned",
   // A page that answers to a name nobody announced. Evidence that the name exists, and deliberately
   // never a catalogue: the whole point of the probe is that the model is not out yet.
@@ -101,6 +102,83 @@ const DOCUMENTATION_PROBE: SourceKind = {
   stream: "pages",
   intervalSeconds: 300,
 };
+
+/**
+ * Sources that look for a name nobody has published: a search, a probe, a trending list.
+ *
+ * Its own declaration rather than the tail of `communitySources`, on the same grounds as
+ * `repositorySources` above: this is the half of the pack that asks a question nobody answered
+ * yet, while the other half reads something a third party chose to publish. Every member is
+ * append-only, because none of them reads a state anyone maintains.
+ */
+function discoverySources({ db, config, cache }: SourceContext): SourceEntry[] {
+  const definitions: SourceEntry[] = [];
+  for (const query of GITHUB_DISCOVERY_QUERIES)
+    definitions.push({
+      id: `discovery:github-${query.id}`,
+      appendOnly: true,
+      authority: "third_party",
+      // A search over repositories nobody here chose to watch.
+      evidence: "github_activity",
+      confidence: "observed",
+      group: "Discovery",
+      stream: "github",
+      intervalSeconds: 3600,
+      requiredCapabilities: ["GITHUB_TOKEN"],
+      pace: { group: "github-search", seconds: 60 },
+      collector: () => collectGithubDiscovery(config, query, fetch, new Date(), cache),
+    });
+
+  definitions.push(
+    ...sourcesOfKind(
+      DOCUMENTATION_PROBE,
+      PROBE_SITES.map((site) => ({
+        id: site.id,
+        vendor: site.vendor,
+        // One host per probe, so a slow answer from one maker never delays a question to another.
+        pace: { group: site.id, seconds: 5 },
+        collector: () => collectDocsProbe(db, site, fetch),
+      })),
+    ),
+  );
+  definitions.push({
+    id: "discovery:opencode-data",
+    appendOnly: true,
+    authority: "third_party",
+    // OpenCode's own catalogue of other makers' models: availability, and never a maker's word.
+    evidence: "availability_catalogue",
+    confidence: "observed",
+    group: "Discovery",
+    stream: "api-models",
+    intervalSeconds: 900,
+    pace: { group: "opencode.ai", seconds: 5 },
+    /**
+     * Thirty-two lab pages of about 150 KB each, because this reads OpenCode's catalogue rather than
+     * guessing at addresses in it. Measured 2026-09-27 with `source-cost`: 27 MB claimed on the
+     * first pass and 9 MB more on the second, and RSS is never given back, so in the long-lived
+     * service that would be a floor that keeps rising. Collected in a child, which ends.
+     */
+    heavy: true,
+    collector: () => collectOpenCodeData(db, fetch),
+  });
+  definitions.push({
+    id: "discovery:huggingface-trending",
+    appendOnly: true,
+    authority: "third_party",
+    // The hub's trending list. The weights are real; being liked is not a release, and the list is
+    // somebody else's ordering of it, so this stays at the floor where the accounts are supported.
+    evidence: "open_weights",
+    confidence: "observed",
+    group: "Discovery",
+    stream: "weights",
+    // The list moves with likes over days, so an hour is early enough to see a model enter it.
+    intervalSeconds: 3600,
+    pace: { group: "huggingface.co", seconds: 10 },
+    collector: () => collectHuggingFaceTrending(config, fetch, cache, new Date()),
+  });
+
+  return definitions;
+}
 
 /**
  * Every repository read, sorted by who owns it. Its own declaration rather than part of
@@ -125,12 +203,21 @@ function repositorySources({ db, config, cache }: SourceContext): SourceEntry[] 
   for (const watch of config.github) {
     const repository = watch.repo.startsWith("deepseek-ai/") ? owned : watched;
     repository.push(
-      { id: `github:${watch.repo}:pulls`, collector: () => collectGithubPulls(db, config, watch, fetch, cache) },
-      { id: `github:${watch.repo}:commits`, collector: () => collectGithubCommits(db, config, watch, fetch, cache) },
+      {
+        id: `github:${watch.repo}:pulls`,
+        appendOnly: true,
+        collector: () => collectGithubPulls(db, config, watch, fetch, cache),
+      },
+      {
+        id: `github:${watch.repo}:commits`,
+        appendOnly: true,
+        collector: () => collectGithubCommits(db, config, watch, fetch, cache),
+      },
       // A tagged release is the one thing read from a repository that is not work in progress: the
       // artifact exists and can be installed, whoever owns the repository.
       {
         id: `github:${watch.repo}:releases`,
+        appendOnly: true,
         confidence: "confirmed",
         collector: () => collectGithubReleases(db, config, watch, fetch, cache),
       },
@@ -140,6 +227,7 @@ function repositorySources({ db, config, cache }: SourceContext): SourceEntry[] 
   for (const spec of MODEL_SPECS)
     owned.push({
       id: `github:${spec.repo}:commits`,
+      appendOnly: true,
       vendor: spec.vendor,
       collector: () => collectGithubCommits(db, config, spec, fetch, cache),
     });
@@ -148,6 +236,7 @@ function repositorySources({ db, config, cache }: SourceContext): SourceEntry[] 
     if (!watch.talkOnly)
       (watch.authority === "vendor_owned" ? owned : watched).push({
         id: mentionSource(watch.repo),
+        appendOnly: true,
         ...(watch.vendor ? { vendor: watch.vendor } : {}),
         // One request when nothing moved; one more per commit when something did.
         intervalSeconds: 600 + index * 20,
@@ -159,6 +248,7 @@ function repositorySources({ db, config, cache }: SourceContext): SourceEntry[] 
     // repository is the maker's own.
     watched.push({
       id: talkSource(watch.repo),
+      appendOnly: true,
       ...(watch.vendor ? { vendor: watch.vendor } : {}),
       // Two REST requests and one GraphQL query a poll, whatever was said.
       intervalSeconds: 900 + index * 20,
@@ -263,68 +353,7 @@ export function communitySources({ db, config, cache }: SourceContext): SourceEn
     },
   ];
 
-  for (const query of GITHUB_DISCOVERY_QUERIES) {
-    definitions.push({
-      id: `discovery:github-${query.id}`,
-      authority: "third_party",
-      // A search over repositories nobody here chose to watch.
-      evidence: "github_activity",
-      confidence: "observed",
-      group: "Discovery",
-      stream: "github",
-      intervalSeconds: 3600,
-      requiredCapabilities: ["GITHUB_TOKEN"],
-      pace: { group: "github-search", seconds: 60 },
-      collector: () => collectGithubDiscovery(config, query, fetch, new Date(), cache),
-    });
-  }
-
-  definitions.push(
-    ...sourcesOfKind(
-      DOCUMENTATION_PROBE,
-      PROBE_SITES.map((site) => ({
-        id: site.id,
-        vendor: site.vendor,
-        // One host per probe, so a slow answer from one maker never delays a question to another.
-        pace: { group: site.id, seconds: 5 },
-        collector: () => collectDocsProbe(db, site, fetch),
-      })),
-    ),
-  );
-  definitions.push({
-    id: "discovery:opencode-data",
-    authority: "third_party",
-    // OpenCode's own catalogue of other makers' models: availability, and never a maker's word.
-    evidence: "availability_catalogue",
-    confidence: "observed",
-    group: "Discovery",
-    stream: "api-models",
-    intervalSeconds: 900,
-    pace: { group: "opencode.ai", seconds: 5 },
-    /**
-     * Thirty-two lab pages of about 150 KB each, because this reads OpenCode's catalogue rather than
-     * guessing at addresses in it. Measured 2026-09-27 with `source-cost`: 27 MB claimed on the
-     * first pass and 9 MB more on the second, and RSS is never given back, so in the long-lived
-     * service that would be a floor that keeps rising. Collected in a child, which ends.
-     */
-    heavy: true,
-    collector: () => collectOpenCodeData(db, fetch),
-  });
-  definitions.push({
-    id: "discovery:huggingface-trending",
-    authority: "third_party",
-    // The hub's trending list. The weights are real; being liked is not a release, and the list is
-    // somebody else's ordering of it, so this stays at the floor where the accounts are supported.
-    evidence: "open_weights",
-    confidence: "observed",
-    group: "Discovery",
-    stream: "weights",
-    // The list moves with likes over days, so an hour is early enough to see a model enter it.
-    intervalSeconds: 3600,
-    pace: { group: "huggingface.co", seconds: 10 },
-    collector: () => collectHuggingFaceTrending(config, fetch, cache, new Date()),
-  });
-
+  definitions.push(...discoverySources({ db, config, cache }));
   definitions.push(...repositorySources({ db, config, cache }));
   return definitions;
 }

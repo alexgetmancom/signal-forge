@@ -120,7 +120,6 @@ export function parseCursorChangelog(html: string): Collection {
     url: "https://cursor.com/changelog",
     raw: records,
     // The page shows a window of recent entries; older ones scroll off and have not been retracted.
-    appendOnly: true,
     records: records.map((entry) => ({
       id: entry.slug,
       name: entry.title,

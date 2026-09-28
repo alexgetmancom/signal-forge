@@ -21,6 +21,7 @@ import { collectCodexResets } from "../resets.js";
  */
 const RETIREMENT_SCHEDULE: SourceKind = {
   kind: "retirement-schedule",
+  appendOnly: true,
   authority: "first_party",
   // The provider's own notice with its own dates on it: confirmed, and the one thing here that is
   // evidence about a model's end rather than its arrival.
@@ -34,6 +35,7 @@ const RETIREMENT_SCHEDULE: SourceKind = {
 /** A platform's own status page. Its pace is the platform's, so every member overrules it. */
 const STATUS_PAGE: SourceKind = {
   kind: "status-page",
+  appendOnly: true,
   authority: "first_party",
   // The platform saying what its own service is doing, which nothing else can contradict.
   evidence: "status_page",
@@ -48,6 +50,7 @@ export function lifecycleSources({ cache }: SourceContext): SourceEntry[] {
   return [
     {
       id: "codex-resets",
+      appendOnly: true,
       authority: "third_party",
       // A third-party tracker watching a limit move. No surface of anybody's is observed, so no
       // evidence type fits; `readerStanding` reads the record to say which of the two it was.

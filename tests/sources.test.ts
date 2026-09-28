@@ -90,7 +90,6 @@ test("leaderboard keeps rank for the leading places and drops it below them", ()
     ],
   };
   const parsed = parseLeaderboards([{ path: "text", html: nextPage({ leaderboard: board }) }]);
-  expect(parsed.appendOnly).toBeUndefined();
   expect(parsed.records[0]).toMatchObject({ id: "text:overall:a", rank: 1, score: 1400.25, votes: 123, modelKey: "a" });
   // Deep in a board the order churns daily; storing it would buy events and no news.
   expect(parsed.records[1]).not.toHaveProperty("rank");
@@ -224,7 +223,7 @@ test("Claude blog parser keeps each post once with its date", () => {
   const item = `<div class="u-text-style-caption">September 16, 2026</div><div class="clickable_wrap"><a data-cta-copy="Claude Cowork and chat are now one Claude" data-cta="Blog page" href="/blog/cowork-is-now-claude">`;
   const grid = `<div class="card_blog_title">Claude Marketplace: one place to discover plugins</div><div fs-list-field="date">September 23, 2026</div><div class="clickable_wrap"><a data-cta-copy="Claude Marketplace: one place to discover plugins" data-cta="Blog page" href="/blog/claude-marketplace">`;
   const parsed = parseClaudeBlog(item + item + grid);
-  expect(parsed).toMatchObject({ source: "claude-blog", stream: "news", appendOnly: true });
+  expect(parsed).toMatchObject({ source: "claude-blog", stream: "news" });
   expect(parsed.records).toEqual([
     {
       id: "https://claude.com/blog/cowork-is-now-claude",
@@ -270,7 +269,7 @@ test("DeepSeek changelog parser keeps dated official updates and rejects an empt
     <p>The GA release has been rolled out on the API.</p>
   </article>`;
   const parsed = parseDeepSeekUpdates(html);
-  expect(parsed).toMatchObject({ source: "deepseek-updates", stream: "news", appendOnly: true, trackChanges: true });
+  expect(parsed).toMatchObject({ source: "deepseek-updates", stream: "news", trackChanges: true });
   expect(parsed.records).toEqual([
     expect.objectContaining({
       id: "2026-08-21:deepseek-v4-flash-vision-exp-release",
@@ -383,7 +382,6 @@ test("official release-note pages keep dated entries and reject unreadable pages
     expect.objectContaining({ id: "2026-09-03:introducing-gpt-6-astra" }),
   ]);
   expect(openai.records[0]?.summary).toContain("newer reasoning models");
-  expect(openai.appendOnly).toBe(true);
   await collectOpenAIChatGPTReleaseNotes(async (url) => {
     expect(String(url)).toBe("https://help.openai.com/en/articles/6825453-chatgpt-release-notes.json");
     return new Response(openaiHtml);
@@ -434,7 +432,6 @@ test("official release-note pages keep dated entries and reject unreadable pages
     source: "openai-api-changelog",
     stream: "news",
     url: "https://developers.openai.com/api/docs/changelog",
-    appendOnly: true,
     trackChanges: true,
   });
   expect(api.records).toEqual([
@@ -556,7 +553,6 @@ test("Hugging Face retains useful model metadata without turning it into change 
     tags: ["deepseek", "text-generation"],
     pipeline: "text-generation",
   });
-  expect(parsed.appendOnly).toBe(true);
   expect(parsed.trackChanges).toBeUndefined();
 });
 test("lifecycle parsers retain dates, replacements and regional context", () => {
@@ -1020,8 +1016,6 @@ test("Hugging Face listing is append-only and keeps access and origin", async ()
     ]),
     "openai",
   );
-  // A listing that omits a repository is paging, not a deletion.
-  expect(c.appendOnly).toBe(true);
   expect(c.records[0]).toMatchObject({ id: "openai/whisper-4", access: "public", category: "asr" });
   expect(c.records[1]).toMatchObject({ access: "gated" });
   expect(() => parseHuggingFace("{}", "openai")).toThrow();
@@ -1142,7 +1136,6 @@ test("DesignArena ranks by elo and stores no vote counters", () => {
     ],
   });
   const parsed = parseDesignArena(payload, "website");
-  expect(parsed.appendOnly).toBeUndefined();
   expect(parsed.url).toBe("https://www.designarena.ai/leaderboard/website");
   expect(parsed.records.map((record) => record.id)).toEqual(["first", "second"]);
   expect(parsed.records[0]).toMatchObject({ rank: 1, category: "designarena/website" });
@@ -1477,7 +1470,6 @@ const kimiChangelog = `
 test("a Kimi Code release is dated from its own entry, and a month without a day is left out", () => {
   const collection = parseKimiCodeChangelog(kimiChangelog);
   expect(collection.stream).toBe("news");
-  expect(collection.appendOnly).toBe(true);
   expect(collection.records).toHaveLength(1);
   expect(collection.records[0]).toMatchObject({
     id: "kimi-code:2026-09-14:v0-43-0",
@@ -1544,7 +1536,6 @@ const minimaxChangelog = `# Changelog
 
 test("a MiniMax Code release is read from every product tab, and a heading without a date is left out", () => {
   const collection = parseMiniMaxCodeChangelog(minimaxChangelog);
-  expect(collection.appendOnly).toBe(true);
   expect(collection.records.map((record) => [record.id, record.name, record.published])).toEqual([
     ["minimax-code:2026-09-14:desktop-v3-0-72", "MiniMax Code Desktop v3.0.72", "2026-09-14T00:00:00.000Z"],
     ["minimax-code:2026-09-18:cli-0-4-12", "MiniMax Code CLI 0.4.12", "2026-09-18T00:00:00.000Z"],

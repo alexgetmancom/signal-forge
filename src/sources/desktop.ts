@@ -155,7 +155,6 @@ export async function collectClaudeDownloads(request: Fetch = fetch): Promise<Co
     stream: "apps",
     url: "https://downloads.claude.ai",
     raw: tried,
-    appendOnly: true,
     records,
   };
 }

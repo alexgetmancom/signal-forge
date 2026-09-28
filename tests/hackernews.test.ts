@@ -24,7 +24,7 @@ test("Hacker News keeps front-page stories that name a followed maker, and never
       ],
     }),
   );
-  expect(collection).toMatchObject({ source: "hackernews", stream: "news", appendOnly: true });
+  expect(collection).toMatchObject({ source: "hackernews", stream: "news" });
   expect(collection.records).toEqual([
     {
       id: "45100001",

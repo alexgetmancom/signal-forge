@@ -43,7 +43,6 @@ export function parseCohereChangelog(markdown: string): Collection {
     stream: "web",
     url: COHERE_CHANGELOG_URL,
     raw: records,
-    appendOnly: true,
     trackChanges: true,
     records,
   };

@@ -38,7 +38,6 @@ export function parseOpenAINews(text: string): Collection {
     stream: "news",
     url: "https://openai.com/news/",
     raw,
-    appendOnly: true,
     records: items.map((item) => ({
       id: item.link,
       name: item.title,
@@ -108,7 +107,6 @@ export function parseAnthropicNews(html: string): Collection {
     stream: "news",
     url: "https://www.anthropic.com/news",
     raw: html,
-    appendOnly: true,
     records,
   };
 }
@@ -186,7 +184,6 @@ export function parseClaudeBlog(html: string): Collection {
     stream: "news",
     url: "https://claude.com/blog",
     raw: html,
-    appendOnly: true,
     records: [...records.values()],
   };
 }
@@ -231,7 +228,6 @@ export function parseHackerNews(payload: string): Collection {
     stream: "news",
     url: "https://news.ycombinator.com/",
     raw,
-    appendOnly: true,
     records: stories.map((hit) => ({
       id: hit.objectID,
       name: hit.title,

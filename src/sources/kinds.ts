@@ -16,7 +16,10 @@ import type { SourceEntry } from "./definition.js";
 import type { Vendor } from "./vendors.js";
 
 /** The fields a kind fixes for every member, and the pace a member may still overrule. */
-export type SourceKind = Pick<SourceEntry, "authority" | "confidence" | "evidence" | "group" | "stream"> & {
+export type SourceKind = Pick<
+  SourceEntry,
+  "appendOnly" | "authority" | "confidence" | "evidence" | "group" | "stream"
+> & {
   /** Named in reports and by `sources kinds`; never stored, so it is free to be renamed. */
   kind: string;
   intervalSeconds: number;

@@ -74,8 +74,10 @@ test("structured retirement dates create deadlines for non-Anthropic lifecycle s
   const html = `<table><tr><th>Model</th><th>Release date</th><th>Shutdown date</th><th>Recommended replacement</th></tr>
     <tr><td>gemini-2.0-flash</td><td>February 5, 2025</td><td>October 1, 2026</td><td>gemini-3.5-flash</td></tr></table>`;
   const parsed = parseGeminiDeprecations(html);
-  saveCollection(db, { ...parsed, records: [], raw: "baseline" }, [], "2026-09-09T00:00:00.000Z");
-  saveCollection(db, parsed, [], "2026-09-10T00:01:00.000Z");
+  // `appendOnly` is the registry's, spread on by the poller; these two calls stand in for it.
+  const polled: Collection = { ...parsed, appendOnly: true };
+  saveCollection(db, { ...polled, records: [], raw: "baseline" }, [], "2026-09-09T00:00:00.000Z");
+  saveCollection(db, polled, [], "2026-09-10T00:01:00.000Z");
   expect(listLifecycleDeadlines(db, 365, now)[0]).toMatchObject({
     title: "gemini-2.0-flash",
     source: "gemini-deprecations",
@@ -203,9 +205,10 @@ test("ambiguous OpenAI deprecation prose does not create a deadline", () => {
   ].join("\n");
   const parsed = parseOpenAIDeprecations(markdown);
   const db = openDatabase(":memory:");
-  const empty: Collection = { ...parsed, records: [], raw: [] };
+  const polled: Collection = { ...parsed, appendOnly: true };
+  const empty: Collection = { ...polled, records: [], raw: [] };
   saveCollection(db, empty, [], "2026-09-10T00:00:00.000Z");
-  saveCollection(db, parsed, [], "2026-09-10T00:01:00.000Z");
+  saveCollection(db, polled, [], "2026-09-10T00:01:00.000Z");
   expect(db.query("SELECT COUNT(*) AS count FROM lifecycle_deadlines").get()).toEqual({ count: 0 });
   db.close();
 });

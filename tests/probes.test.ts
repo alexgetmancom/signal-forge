@@ -49,7 +49,6 @@ test("a documentation page that exists for an unannounced model is a sighting", 
   const collection = await collectDocsProbe(catalogue(["claude-opus-5-5", "claude-opus-5-5-fast"]), anthropic, request);
   expect(collection.records.map((record) => record.id)).toEqual(["opus-6"]);
   expect(collection.source).toBe("discovery:docs-anthropic");
-  expect(collection.appendOnly).toBe(true);
   expect(new Set(agents)).toEqual(new Set(["SignalForge/0.1"]));
 });
 

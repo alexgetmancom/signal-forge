@@ -137,7 +137,6 @@ export async function collectGithubCommits(
     url: `https://github.com/${watch.repo}`,
     records,
     raw,
-    appendOnly: true,
     silentIds,
   };
 }
@@ -185,7 +184,6 @@ export async function collectGithubReleases(
     stream: "github",
     url: `https://github.com/${watch.repo}/releases`,
     raw,
-    appendOnly: true,
     silentIds,
     trackChanges: true,
     records: records.reverse(),
@@ -298,7 +296,6 @@ export async function collectGithubPulls(
     url: `https://github.com/${watch.repo}/pulls`,
     records,
     raw,
-    appendOnly: true,
     trackChanges: true,
     silentIds,
   };

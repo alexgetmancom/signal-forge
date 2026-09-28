@@ -24,6 +24,26 @@ export type SourceDefinition = {
    */
   evidence: EvidenceType;
   confidence: Confidence;
+  /**
+   * Whether an omission from this source is a withdrawal or just a window moving.
+   *
+   * A feed, a changelog and a commit log answer with the most recent entries and nothing else, so
+   * a record that has fallen out of the answer was never retired -- while a catalogue that stops
+   * naming a model is the vendor withdrawing it, which is the whole reason `sources` keeps
+   * anything at all. `saveCollection` reads it, and every report that asks why a source is silent
+   * needs it: a catalogue with no events may be broken, an append-only feed with no events is a
+   * lab that published nothing this week, and the two are indistinguishable without this field.
+   *
+   * It was a property of the returned `Collection`, which meant it could only be known during a
+   * live poll and no report could see it at all. It is a static fact about the surface being read,
+   * so it is declared here beside authority, evidence and confidence, and the poller spreads it
+   * onto the collection. Same move as 5c57f3c, for the same reason.
+   *
+   * `trackChanges`, `resolveMissing` and `confirmChanges` are the same class of field and are
+   * still returned by collectors. They are not moved here yet because no report asks for them;
+   * when one does, they belong here and not in a column.
+   */
+  appendOnly?: boolean;
   group: string;
   /** Host shared with other collectors when failures may have one upstream cause. */
   upstream?: string;

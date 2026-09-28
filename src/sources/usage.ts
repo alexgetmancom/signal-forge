@@ -63,7 +63,6 @@ export function parseOpenRouterUsage(html: string): Collection {
     raw,
     // Usage moves every hour and none of those moves is news. Only a model appearing on the
     // ranking for the first time is an event, and even that is told to nobody.
-    appendOnly: true,
     records: ranked.map((model, index) => ({
       id: model.slug,
       name: model.slug,

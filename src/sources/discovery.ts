@@ -181,7 +181,6 @@ export async function collectGithubDiscovery(
     stream: "github",
     url,
     raw: data,
-    appendOnly: true,
     records,
   };
 }
@@ -239,7 +238,6 @@ export async function collectHuggingFaceTrending(
     stream: "weights",
     url,
     raw: { trending: models.length, releases: releases.length },
-    appendOnly: true,
     records,
   };
 }

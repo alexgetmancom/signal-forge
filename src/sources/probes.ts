@@ -364,7 +364,6 @@ export async function collectDocsProbe(
     stream: "pages",
     url: site.url("*"),
     raw: kept,
-    appendOnly: true,
     records,
   };
 }
@@ -519,7 +518,6 @@ export async function collectOpenCodeData(db: Database, request: Fetch = fetch):
     url: "https://opencode.ai/data",
     // How many each lab listed, which is what says a lab went quiet rather than empty.
     raw: read,
-    appendOnly: true,
     records,
   };
 }

@@ -151,7 +151,6 @@ export async function collectCodexResets(request: Fetch = fetch, cache?: HttpCac
     stream: "resets",
     url: SITE,
     // Announcements are never withdrawn, and a truncated page must not read as a deleted history.
-    appendOnly: true,
     // The one change worth an event: a promised reset becoming an applied one.
     trackChanges: true,
     records,

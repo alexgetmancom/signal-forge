@@ -284,7 +284,6 @@ function parseCollection(source: string, url: string, raw: string, records: Reco
     stream: "deprecations",
     url,
     raw,
-    appendOnly: true,
     trackChanges: true,
     records,
   };

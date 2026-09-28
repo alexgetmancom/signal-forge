@@ -37,6 +37,7 @@ import { collectLabSitemap } from "../sitemaps.js";
 /** A lab's own front page, and the one place other people's posts about them are read. */
 const NEWSROOM: SourceKind = {
   kind: "newsroom",
+  appendOnly: true,
   authority: "first_party",
   // The maker's own post about its own product. Supported rather than confirmed: an announcement is
   // the maker's word that something exists, and whether it can be called is a catalogue's business.
@@ -52,6 +53,7 @@ const NEWSROOM: SourceKind = {
 /** Research and product blogs, where a lab explains something it has already shipped. */
 const LAB_BLOG: SourceKind = {
   kind: "lab-blog",
+  appendOnly: true,
   authority: "first_party",
   // The maker's own post about its own product. Supported rather than confirmed: an announcement is
   // the maker's word that something exists, and whether it can be called is a catalogue's business.
@@ -67,6 +69,7 @@ const LAB_BLOG: SourceKind = {
 /** Release notes and changelogs a lab publishes for its users rather than its developers. */
 const RELEASE_NOTES: SourceKind = {
   kind: "release-notes",
+  appendOnly: true,
   authority: "first_party",
   // The maker's own post about its own product. Supported rather than confirmed: an announcement is
   // the maker's word that something exists, and whether it can be called is a catalogue's business.
@@ -80,6 +83,7 @@ const RELEASE_NOTES: SourceKind = {
 /** API changelogs, SDK releases and the changelogs of the coding tools. */
 const DEVELOPER_FEED: SourceKind = {
   kind: "developer-feed",
+  appendOnly: true,
   authority: "first_party",
   // The maker's own post about its own product. Supported rather than confirmed: an announcement is
   // the maker's word that something exists, and whether it can be called is a catalogue's business.

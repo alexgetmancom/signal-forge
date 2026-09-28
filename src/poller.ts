@@ -159,6 +159,7 @@ async function collectDueSources(
           evidence: job.evidence,
           confidence: job.confidence,
           ...(job.vendor ? { vendor: job.vendor } : {}),
+          ...(job.appendOnly ? { appendOnly: true } : {}),
         };
         const checkedAt = new Date().toISOString();
         const destinations = job.mode === "shadow" ? [] : config.destinations;

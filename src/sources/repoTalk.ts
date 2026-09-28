@@ -141,7 +141,7 @@ export async function collectRepoTalk(
   now = new Date(),
 ): Promise<Collection> {
   const source = talkSource(watch.repo);
-  const base = { source, stream: "github", url: `https://github.com/${watch.repo}`, appendOnly: true } as const;
+  const base = { source, stream: "github", url: `https://github.com/${watch.repo}` } as const;
   const headers: Record<string, string> = {
     Accept: "application/vnd.github+json",
     "X-GitHub-Api-Version": "2022-11-28",

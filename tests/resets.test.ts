@@ -47,7 +47,6 @@ test("the whole history is collected oldest first, forecasts stay out of the rec
 
   expect(collection.source).toBe("codex-resets");
   expect(collection.stream).toBe("resets");
-  expect(collection.appendOnly).toBe(true);
   expect(requests.some((url) => url.includes("cursor=cursor1"))).toBe(true);
   expect(collection.records.map((record) => record.id)).toEqual([banked.id, announcement.id]);
   expect(collection.records[0]?.name).toBe("Codex banked reset credit granted");

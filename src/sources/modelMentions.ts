@@ -383,7 +383,7 @@ export async function collectModelMentions(
     "X-GitHub-Api-Version": "2022-11-28",
   };
   if (config.GITHUB_TOKEN) headers.Authorization = `Bearer ${config.GITHUB_TOKEN}`;
-  const base = { source, stream: "github", url: `https://github.com/${watch.repo}`, appendOnly: true } as const;
+  const base = { source, stream: "github", url: `https://github.com/${watch.repo}` } as const;
   const cursorRow = db
     .query<{ body: string }, [string, string]>("SELECT body FROM records WHERE source=? AND id=?")
     .get(source, CURSOR);

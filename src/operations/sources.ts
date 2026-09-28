@@ -144,7 +144,8 @@ export function sourcesOperations(db: Database, config: AppConfig, _all: () => O
     source_verdicts: {
       section: "sources",
       summary:
-        "Which enabled sources led another source, reached a reader, drew scout votes or were corroborated by another source while routing held them back; young sources shown as preliminary.",
+        "Which enabled sources led another source, reached a reader, drew scout votes or were corroborated by another source while routing held them back; young sources shown as preliminary. " +
+        "Read `appendOnly` beside a `quiet_sentinel`: true is a feed that published nothing, false is a state nobody watched change, and only the second one is ever a bug.",
       startHere: "is a source worth keeping at all",
       mutates: false,
       agent: true,

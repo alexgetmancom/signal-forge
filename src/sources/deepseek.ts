@@ -113,7 +113,6 @@ export function parseDeepSeekUpdates(html: string): Collection {
     stream: "news",
     url: DEEPSEEK_UPDATES_URL,
     raw: html,
-    appendOnly: true,
     trackChanges: true,
     records,
   };

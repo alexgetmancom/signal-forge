@@ -132,7 +132,6 @@ function sourceCollection(options: FeedOptions, raw: unknown, records: RecordDat
     stream: "news",
     url: options.url,
     raw,
-    appendOnly: true,
     trackChanges: true,
     records,
   };
@@ -220,7 +219,7 @@ function markdownText(value: string): string {
 
 function releaseCollection(source: string, url: string, raw: string, records: RecordData[]): Collection {
   if (!records.length) throw new Error(`${source}: release notes have no dated entries`);
-  return { source, stream: "news", url, raw, appendOnly: true, trackChanges: true, records };
+  return { source, stream: "news", url, raw, trackChanges: true, records };
 }
 
 export function parseClaudeCodeChangelog(markdown: string): Collection {

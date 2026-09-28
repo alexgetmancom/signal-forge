@@ -42,6 +42,7 @@ function installableSources({ cache }: Pick<SourceContext, "cache">): SourceEntr
     ),
     {
       id: "discovery:claude-downloads",
+      appendOnly: true,
       authority: "vendor_owned",
       // The download endpoint answering for a build nobody has announced: the same evidence as any
       // other release register, which is why a name found here is worth what it says.
@@ -113,6 +114,7 @@ export function webSources({ db, cache }: SourceContext): SourceEntry[] {
     },
     {
       id: "cohere-changelog",
+      appendOnly: true,
       authority: "first_party",
       // A page the maker serves, read as it renders: it says a name exists on the maker's own site,
       // never that the model is out.

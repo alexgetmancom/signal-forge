@@ -46,7 +46,6 @@ test("GitHub discovery builds a rolling UTC query and captures candidate attenti
   expect(collection).toMatchObject({
     source: "discovery:github-ai",
     stream: "github",
-    appendOnly: true,
   });
   expect(collection.trackChanges).toBeUndefined();
   expect(collection.records[0]).toMatchObject({
@@ -92,7 +91,7 @@ test("Hugging Face trending keeps young original models and says what licence th
   };
   const collection = await collectHuggingFaceTrending(config, request, undefined, now);
   expect(requested).toContain("sort=trendingScore");
-  expect(collection).toMatchObject({ source: "discovery:huggingface-trending", stream: "weights", appendOnly: true });
+  expect(collection).toMatchObject({ source: "discovery:huggingface-trending", stream: "weights" });
   expect(collection.records).toEqual([
     {
       id: "nex-agi/Nex-N2.5-mini",

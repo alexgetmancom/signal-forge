@@ -87,6 +87,15 @@ export type Collection = {
   url: string;
   records: RecordData[];
   raw: unknown;
+  /**
+   * Whether an absent record means the upstream withdrew it or merely that a feed moved on.
+   *
+   * Declared by the registry, not by the collector: the poller spreads it onto the collection
+   * before anything is stored, the same way it does authority, evidence, confidence and vendor. It
+   * stays on `Collection` because that is where `saveCollection` reads it -- and because a fixture
+   * builds a collection without a registry behind it -- but nothing under src/sources/ sets it.
+   * See `appendOnly` in src/sources/definition.ts for why.
+   */
   appendOnly?: boolean;
   silentIds?: string[];
   trackChanges?: boolean;

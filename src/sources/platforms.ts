@@ -90,7 +90,6 @@ export function parsePlatformStatus(payload: string, platform: (typeof PLATFORMS
     raw: { headline: data.status.description, indicator: data.status.indicator, incidents: data.incidents },
     // A resolved incident can leave the summary. Two successful omissions turn it into an explicit
     // resolved change, keeping the incident evidence without treating recovery as deletion.
-    appendOnly: true,
     trackChanges: true,
     resolveMissing: true,
     records: data.incidents.map((incident) => ({

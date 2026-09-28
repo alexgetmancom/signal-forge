@@ -30,8 +30,6 @@ test("usage is read per model and ranked by the tokens people actually spent", (
   ];
   const collection = parseOpenRouterUsage(page(rows));
   expect(collection.source).toBe("openrouter-usage");
-  // Usage moves every hour and none of those moves is news: only a first appearance is an event.
-  expect(collection.appendOnly).toBe(true);
   expect(collection.records.slice(0, 2)).toEqual([
     {
       id: "deepseek/deepseek-v4-flash-20260731",
