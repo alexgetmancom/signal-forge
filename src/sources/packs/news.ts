@@ -95,13 +95,13 @@ const LAB_PAGE: SourceKind = {
   intervalSeconds: 600,
 };
 
-function newsroomSources(_context: SourceContext): SourceEntry[] {
+function newsroomSources({ cache }: SourceContext): SourceEntry[] {
   return sourcesOfKind(NEWSROOM, [
     // +45 MB of permanent high-water on the first read of its 1,230 items; see `heavy` in
     // src/poller.ts. Measured 2026-09-27.
     { id: "openai-news", vendor: "OpenAI", heavy: true, collector: () => collectOpenAINews() },
     { id: "anthropic-news", vendor: "Anthropic", collector: () => collectAnthropicNews() },
-    { id: "claude-blog", vendor: "Anthropic", collector: () => collectClaudeBlog() },
+    { id: "claude-blog", vendor: "Anthropic", collector: () => collectClaudeBlog(fetch, new Date(), cache) },
     // Not a newsroom and nobody's first party: other people writing about the labs, which is worth
     // the group it sits in and worth asking half as often.
     { id: "hackernews", authority: "third_party", intervalSeconds: 1800, collector: () => collectHackerNews() },

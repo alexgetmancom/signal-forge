@@ -28,7 +28,13 @@ import {
   parseXaiDeprecations,
 } from "../src/sources/lifecycle.js";
 import { parseCohereChangelog } from "../src/sources/modelDocs.js";
-import { collectAnthropicNews, parseAnthropicNews, parseClaudeBlog, parseOpenAINews } from "../src/sources/news.js";
+import {
+  collectAnthropicNews,
+  collectClaudeBlog,
+  parseAnthropicNews,
+  parseClaudeBlog,
+  parseOpenAINews,
+} from "../src/sources/news.js";
 import { collectHuggingFace, collectNpm, collectPypi, parseHuggingFace, parseNpm } from "../src/sources/registries.js";
 import {
   collectOpenAIApiChangelog,
@@ -215,8 +221,9 @@ test("a newsroom whose newest entry is a month old is a failed collection", asyn
 });
 
 test("Claude blog parser keeps each post once with its date", () => {
-  const item = `<div class="marquee_cms_blog_list_item_content"><h2 class="u-text-style-h6 u-mb-1">Claude Cowork and chat are now one Claude</h2><div class="u-text-style-caption u-foreground-tertiary">September 16, 2026</div></div><div class="clickable_wrap u-cover-absolute"><a data-cta="Blog page" href="/blog/cowork-is-now-claude" class="clickable_link">`;
-  const parsed = parseClaudeBlog(item + item);
+  const item = `<div class="u-text-style-caption">September 16, 2026</div><div class="clickable_wrap"><a data-cta-copy="Claude Cowork and chat are now one Claude" data-cta="Blog page" href="/blog/cowork-is-now-claude">`;
+  const grid = `<div class="card_blog_title">Claude Marketplace: one place to discover plugins</div><div fs-list-field="date">September 23, 2026</div><div class="clickable_wrap"><a data-cta-copy="Claude Marketplace: one place to discover plugins" data-cta="Blog page" href="/blog/claude-marketplace">`;
+  const parsed = parseClaudeBlog(item + item + grid);
   expect(parsed).toMatchObject({ source: "claude-blog", stream: "news", appendOnly: true });
   expect(parsed.records).toEqual([
     {
@@ -225,8 +232,33 @@ test("Claude blog parser keeps each post once with its date", () => {
       url: "https://claude.com/blog/cowork-is-now-claude",
       published: "2026-09-16T00:00:00.000Z",
     },
+    {
+      id: "https://claude.com/blog/claude-marketplace",
+      name: "Claude Marketplace: one place to discover plugins",
+      url: "https://claude.com/blog/claude-marketplace",
+      published: "2026-09-23T00:00:00.000Z",
+    },
   ]);
   expect(() => parseClaudeBlog("<html></html>")).toThrow("not found");
+  expect(() => parseClaudeBlog(`<a data-cta-copy="Undated" data-cta="Blog page" href="/blog/undated">`)).toThrow(
+    "no title or date",
+  );
+});
+test("Claude blog revalidates an unchanged page without downloading its body again", async () => {
+  const db = openDatabase(":memory:");
+  const cache = new HttpCache(db);
+  const html = `<div>September 25, 2026</div><a data-cta-copy="Build plugins for Claude" data-cta="Blog page" href="/blog/build-plugins">`;
+  const seen: (string | null)[] = [];
+  const request = async (_url: string, init?: RequestInit) => {
+    const since = new Headers(init?.headers).get("if-modified-since");
+    seen.push(since);
+    if (since) return new Response(null, { status: 304 });
+    return new Response(html, { headers: { "last-modified": "Fri, 25 Sep 2026 18:04:25 GMT" } });
+  };
+  const now = new Date("2026-09-28T00:00:00Z");
+  expect((await collectClaudeBlog(request, now, cache)).records).toHaveLength(1);
+  expect((await collectClaudeBlog(request, now, cache)).records).toHaveLength(1);
+  expect(seen).toEqual([null, "Fri, 25 Sep 2026 18:04:25 GMT"]);
 });
 test("DeepSeek changelog parser keeps dated official updates and rejects an empty page", () => {
   const html = `<article>

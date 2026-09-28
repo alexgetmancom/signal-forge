@@ -4,8 +4,9 @@ import type { Collection } from "../events/types.js";
 import { vendorOfName } from "../events/vendors.js";
 import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
+import type { HttpCache } from "../storage/httpCache.js";
 import { calendarDate } from "./feeds.js";
-import { decodeHtml } from "./html.js";
+import { attribute, decodeHtml } from "./html.js";
 import { fetchText } from "./http.js";
 
 const feedSchema = z.object({
@@ -157,8 +158,9 @@ export async function collectAnthropicRoutes(request: Fetch = fetch): Promise<Co
   return parseAnthropicRoutes(await fetchText("https://www.anthropic.com/news", {}, request));
 }
 
-const claudeBlogItem =
-  /<h2 class="u-text-style-h6[^"]*">([^<]+)<\/h2><div class="u-text-style-caption[^"]*">([^<]+)<\/div><\/div><div class="clickable_wrap[^"]*"><a [^>]*href="(\/blog\/[^"]+)"/g;
+const claudeBlogLink = /<a\b([^>]*\bdata-cta="Blog page"[^>]*)>/g;
+const claudeBlogDate =
+  /\b(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\s+\d{1,2},?\s+\d{4}\b/gi;
 
 /**
  * Claude's product blog, which is where Anthropic announces what Claude does rather than what the
@@ -166,30 +168,35 @@ const claudeBlogItem =
  * was posted here on 2026-09-16 and nowhere on anthropic.com/news.
  */
 export function parseClaudeBlog(html: string): Collection {
-  const records = [
-    ...new Map(
-      [...html.matchAll(claudeBlogItem)].map((match) => {
-        const url = `https://claude.com${match[3]}`;
-        return [
-          url,
-          { id: url, name: decodeHtml(match[1] ?? "").trim(), url, published: newsDate(`${match[2]} UTC`) },
-        ] as const;
-      }),
-    ).values(),
-  ];
-  if (!records.length) throw new Error("Claude blog entries not found");
+  const records = new Map<string, { id: string; name: string; url: string; published: string }>();
+  for (const match of html.matchAll(claudeBlogLink)) {
+    const attrs = match[1] ?? "";
+    const href = attribute(attrs, "href");
+    if (!href?.startsWith("/blog/")) continue;
+    const title = attribute(attrs, "data-cta-copy");
+    const preceding = html.slice(Math.max(0, (match.index ?? 0) - 300), match.index ?? 0);
+    const date = [...preceding.matchAll(claudeBlogDate)].at(-1)?.[0];
+    if (!title || !date) throw new SourceError("schema", "Claude blog card has no title or date");
+    const url = `https://claude.com${href}`;
+    records.set(url, { id: url, name: decodeHtml(title).trim(), url, published: newsDate(`${date} UTC`) });
+  }
+  if (!records.size) throw new SourceError("missing-content", "Claude blog entries not found");
   return {
     source: "claude-blog",
     stream: "news",
     url: "https://claude.com/blog",
     raw: html,
     appendOnly: true,
-    records,
+    records: [...records.values()],
   };
 }
 
-export async function collectClaudeBlog(request: Fetch = fetch, now = new Date()): Promise<Collection> {
-  return freshNewsroom(parseClaudeBlog(await fetchText("https://claude.com/blog", {}, request)), now);
+export async function collectClaudeBlog(
+  request: Fetch = fetch,
+  now = new Date(),
+  cache?: HttpCache,
+): Promise<Collection> {
+  return freshNewsroom(parseClaudeBlog(await fetchText("https://claude.com/blog", {}, request, undefined, cache)), now);
 }
 
 const hackerNewsSchema = z.object({
