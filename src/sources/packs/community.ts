@@ -204,8 +204,8 @@ export function communitySources({ db, config, cache }: SourceContext): SourceEn
       // quietly promote a bet into evidence.
       evidence: "unknown",
       confidence: "observed",
-      // Two pages and 13 MB of JSON after filtering thin events upstream on 2026-09-28.
-      // The nested market arrays still belong in a child process.
+      // Three pages and 2.2 MB of JSON after asking for liquid markets directly on 2026-09-28.
+      // The source stays in a child process until its measured peak shows it fits the light lane.
       heavy: true,
       group: "Discovery",
       stream: "markets",

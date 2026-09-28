@@ -20,8 +20,9 @@ import { fetchText } from "./http.js";
  * real, and one that opens on a codename this feed has never seen is a gap in its coverage.
  */
 
-/** Markets are grouped into events; the AI tag is the only one worth reading and is applied by hand upstream. */
-const GAMMA_EVENTS_URL = "https://gamma-api.polymarket.com/events";
+/** The AI tag is applied upstream; market rows include their parent event's resolution rules. */
+const GAMMA_MARKETS_URL = "https://gamma-api.polymarket.com/markets";
+const AI_TAG_ID = 439;
 const POLYMARKET_URL = "https://polymarket.com/markets/ai";
 /** Pages are read until one comes back short; a fixed first page would miss release markets. */
 const PAGE_SIZE = 100;
@@ -38,15 +39,9 @@ const marketSchema = z.object({
   outcomePrices: z.string().nullish(),
   description: z.string().nullish(),
   resolutionSource: z.string().nullish(),
+  events: z.array(z.object({ description: z.string().nullish(), resolutionSource: z.string().nullish() })).min(1),
 });
-const eventsSchema = z.array(
-  z.object({
-    slug: z.string().nullish(),
-    description: z.string().nullish(),
-    resolutionSource: z.string().nullish(),
-    markets: z.array(marketSchema).nullish(),
-  }),
-);
+const marketsSchema = z.array(marketSchema);
 
 /**
  * A market that resolves by reading the Arena leaderboard is this tracker's own data with a price
@@ -102,31 +97,29 @@ export function parsePolymarket(pages: readonly string[]): Collection {
   const records: RecordData[] = [];
   const seen = new Set<string>();
   for (const page of pages) {
-    for (const event of eventsSchema.parse(JSON.parse(page))) {
-      for (const market of event.markets ?? []) {
-        const question = market.question?.trim();
-        if (!question || market.closed) continue;
-        if (!ASKS_ABOUT_A_RELEASE.test(question) || ASKS_ABOUT_A_COMPANY.test(question)) continue;
-        const settledBy = `${market.description ?? ""} ${market.resolutionSource ?? ""} ${event.description ?? ""} ${event.resolutionSource ?? ""}`;
-        if (RESOLVES_FROM_OUR_OWN_SOURCES.test(settledBy)) continue;
-        const liquidity = market.liquidityNum ?? 0;
-        if (liquidity < LIQUIDITY_FLOOR_USD) continue;
-        const price = firstOutcomePrice(market.outcomePrices);
-        if (price === null) continue;
-        if (seen.has(market.id)) continue;
-        seen.add(market.id);
-        records.push({
-          id: market.id,
-          name: question,
-          // The date the question is asking about, which is the whole content of a release market.
-          ...(market.endDate ? { deadline: market.endDate.slice(0, 10) } : {}),
-          price: priceBucket(price),
-          // Rounded hard for the same reason the price is bucketed: a book that deepens by $40
-          // overnight is not news, and a market crossing into or out of being worth reading is.
-          liquidityUsd: Math.round(liquidity / 1_000) * 1_000,
-          ...(market.slug ? { url: `https://polymarket.com/market/${market.slug}` } : {}),
-        });
-      }
+    for (const market of marketsSchema.parse(JSON.parse(page))) {
+      const question = market.question?.trim();
+      if (!question || market.closed) continue;
+      if (!ASKS_ABOUT_A_RELEASE.test(question) || ASKS_ABOUT_A_COMPANY.test(question)) continue;
+      const settledBy = `${market.description ?? ""} ${market.resolutionSource ?? ""} ${market.events.map((event) => `${event.description ?? ""} ${event.resolutionSource ?? ""}`).join(" ")}`;
+      if (RESOLVES_FROM_OUR_OWN_SOURCES.test(settledBy)) continue;
+      const liquidity = market.liquidityNum ?? 0;
+      if (liquidity < LIQUIDITY_FLOOR_USD) continue;
+      const price = firstOutcomePrice(market.outcomePrices);
+      if (price === null) continue;
+      if (seen.has(market.id)) continue;
+      seen.add(market.id);
+      records.push({
+        id: market.id,
+        name: question,
+        // The date the question is asking about, which is the whole content of a release market.
+        ...(market.endDate ? { deadline: market.endDate.slice(0, 10) } : {}),
+        price: priceBucket(price),
+        // Rounded hard for the same reason the price is bucketed: a book that deepens by $40
+        // overnight is not news, and a market crossing into or out of being worth reading is.
+        liquidityUsd: Math.round(liquidity / 1_000) * 1_000,
+        ...(market.slug ? { url: `https://polymarket.com/market/${market.slug}` } : {}),
+      });
     }
   }
   if (!records.length) throw new Error("polymarket: the AI tag listed no release markets");
@@ -145,13 +138,13 @@ export function parsePolymarket(pages: readonly string[]): Collection {
 export async function collectPolymarket(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
   const pages: string[] = [];
   for (let page = 0; page < MAX_PAGES; page++) {
-    // Event liquidity is the sum of its markets, so an event below the market floor cannot hold a
-    // market we keep. The upstream filter removes thin events before their full market arrays ship.
-    const url = `${GAMMA_EVENTS_URL}?closed=false&limit=${PAGE_SIZE}&offset=${page * PAGE_SIZE}&tag_slug=ai&liquidity_min=${LIQUIDITY_FLOOR_USD}`;
+    const url = `${GAMMA_MARKETS_URL}?closed=false&limit=${PAGE_SIZE}&offset=${page * PAGE_SIZE}&tag_id=${AI_TAG_ID}&liquidity_num_min=${LIQUIDITY_FLOOR_USD}`;
     const body = await fetchText(url, {}, request, undefined, cache);
     pages.push(body);
     // A short page is the end of the tag. Asking past it answers an empty array and costs a request.
-    if (eventsSchema.parse(JSON.parse(body)).length < PAGE_SIZE) break;
+    const count = marketsSchema.parse(JSON.parse(body)).length;
+    if (count < PAGE_SIZE) break;
+    if (page === MAX_PAGES - 1) throw new Error("Polymarket AI markets exceed six pages");
   }
   return parsePolymarket(pages);
 }

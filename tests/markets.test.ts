@@ -16,10 +16,11 @@ const market = (fields: Record<string, unknown>) => ({
   volumeNum: 8_915,
   outcomePrices: '["0.865", "0.135"]',
   description: "Resolves yes if Anthropic releases a model named Claude 6.",
+  events: [{}],
   ...fields,
 });
 
-const page = (markets: readonly Record<string, unknown>[]) => JSON.stringify([{ slug: "ai", markets }]);
+const page = (markets: readonly Record<string, unknown>[]) => JSON.stringify(markets);
 
 test("a release market is kept with its deadline and a bucketed price", () => {
   const collection = parsePolymarket([page([market({})])]);
@@ -46,7 +47,7 @@ test("a market that settles from a board this tracker collects is not a witness 
   const ours = market({
     id: "2",
     question: "Will the next Claude Opus model be released by September 30, 2026?",
-    description: "Resolved by the highest rank on the arena.ai Text Arena (Overall) leaderboard.",
+    events: [{ description: "Resolved by the highest rank on the arena.ai Text Arena (Overall) leaderboard." }],
   });
   expect(() => parsePolymarket([page([ours])])).toThrow(/no release markets/);
 });
@@ -67,7 +68,7 @@ test("pages are joined and a market listed twice is stored once", () => {
   expect(collection.records).toHaveLength(1);
 });
 
-test("the upstream query excludes events below the market liquidity floor", async () => {
+test("the upstream query filters individual markets by liquidity", async () => {
   const requested: string[] = [];
   const request = (async (url: string) => {
     requested.push(url);
@@ -76,8 +77,22 @@ test("the upstream query excludes events below the market liquidity floor", asyn
   const collection = await collectPolymarket(request);
   expect(collection.records).toHaveLength(1);
   expect(requested).toEqual([
-    "https://gamma-api.polymarket.com/events?closed=false&limit=100&offset=0&tag_slug=ai&liquidity_min=3000",
+    "https://gamma-api.polymarket.com/markets?closed=false&limit=100&offset=0&tag_id=439&liquidity_num_min=3000",
   ]);
+});
+
+test("a full last page fails instead of silently dropping later markets", async () => {
+  let requests = 0;
+  const request = (async (_url: string) => {
+    requests++;
+    return new Response(page(Array.from({ length: 100 }, () => market({}))));
+  }) as typeof fetch;
+  await expect(collectPolymarket(request)).rejects.toThrow("exceed six pages");
+  expect(requests).toBe(6);
+});
+
+test("a market without its event resolution rules is rejected", () => {
+  expect(() => parsePolymarket([page([market({ events: [] })])])).toThrow();
 });
 
 /**
