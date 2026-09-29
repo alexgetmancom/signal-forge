@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { parseAnthropicModelIndex, parseOpenAIModelIndex } from "../src/sources/modelIndex.js";
+import { parseOpenAIDocsIndex, parseOpenAIPricing } from "../src/sources/openaiDocs.js";
 
 const openaiIndex = `# All models
 
@@ -50,4 +51,64 @@ test("one Anthropic model is one record however many platforms spell it", () => 
     "claude-haiku-4-5",
   ]);
   expect(collection.records.every((record) => record.maker === "Anthropic")).toBe(true);
+});
+
+const docsIndex = `# OpenAI API docs
+
+## Guides
+- [Error codes](https://developers.openai.com/api/docs/guides/error-codes.md): An overview of error codes, including solutions.
+- [Upgrading to GPT-5.6 Sol](https://developers.openai.com/api/docs/guides/upgrading-to-gpt-5p6-sol.md): Machine-readable guidance for migrating to GPT-5.6 Sol.
+- [Using GPT-6](https://developers.openai.com/api/docs/guides/latest-model/gpt-6-astra.md): Learn how to use GPT-6 Astra, GPT-6.1 Sol and GPT-6 Luna.
+`;
+
+test("a guide is kept when it names a model and passed over when it does not", () => {
+  const collection = parseOpenAIDocsIndex(docsIndex);
+  expect(collection.records.map((record) => record.id)).toEqual([
+    "guides/upgrading-to-gpt-5p6-sol",
+    "guides/latest-model/gpt-6-astra",
+  ]);
+  expect(collection.records[0]).toMatchObject({
+    name: "Upgrading to GPT-5.6 Sol",
+    url: "https://developers.openai.com/api/docs/guides/upgrading-to-gpt-5p6-sol",
+  });
+});
+
+test("an index this parser can no longer read is a failure, not a site that documents nothing", () => {
+  expect(() => parseOpenAIDocsIndex("# OpenAI API docs\n\nSomething else entirely.\n")).toThrow("listed no page");
+});
+
+const pricing = `# Pricing
+
+## Standard pricing data
+
+| Model | Input | Output |
+| --- | --- | --- |
+| gpt-6.1-sol | $2.00 | $10.00 |
+| gpt-6-luna | $0.10 | $0.50 |
+
+## Batch pricing data
+
+| Model | Input | Output |
+| --- | --- | --- |
+| gpt-6.1-sol | $1.00 | $5.00 |
+`;
+
+test("one model priced in two tables is two rows, each under the column names of its own table", () => {
+  const collection = parseOpenAIPricing(pricing);
+  expect(collection.records.map((record) => record.id)).toEqual([
+    "Standard pricing data:gpt-6.1-sol",
+    "Standard pricing data:gpt-6-luna",
+    "Batch pricing data:gpt-6.1-sol",
+  ]);
+  expect(collection.records[0]).toMatchObject({
+    model: "gpt-6.1-sol",
+    tier: "Standard pricing data",
+    prices: { Input: 2, Output: 10 },
+  });
+  // A price that moved has to be re-read before it is believed, like every other price here.
+  expect(collection.confirmChanges).toBe(true);
+});
+
+test("a price table whose shape moved is a failure, not every model losing its price", () => {
+  expect(() => parseOpenAIPricing("# Pricing\n\n| Model | Input |\n| --- | --- |\n")).toThrow("no priced model");
 });

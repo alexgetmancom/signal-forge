@@ -22,6 +22,7 @@ import {
   collectHackerNews,
   collectOpenAINews,
 } from "../news.js";
+import { collectOpenAIDocsIndex } from "../openaiDocs.js";
 import {
   collectGeminiApiChangelog,
   collectGroqChangelog,
@@ -285,8 +286,21 @@ function sitemapSources(_context: SourceContext): SourceEntry[] {
  */
 const HEAVY_LAB_PAGES = new Set(["qwen-blog"]);
 
-function labPageSources(_context: SourceContext): SourceEntry[] {
+function labPageSources({ cache }: SourceContext): SourceEntry[] {
   return sourcesOfKind(LAB_PAGE, [
+    /**
+     * OpenAI's documentation index, kept for the guides that name a model. A model ships with its
+     * guides -- "Upgrading to GPT-5.6 Sol" is a page of its own -- and the index carries the title
+     * and the sentence under it, so a guide for a model nobody has announced reads like the model
+     * page that answers before its launch.
+     */
+    {
+      id: "openai-docs-index",
+      vendor: "OpenAI",
+      intervalSeconds: 300,
+      pace: { group: "discovery:docs-openai", seconds: 5 },
+      collector: () => collectOpenAIDocsIndex(fetch, cache),
+    },
     {
       id: "anthropic-routes",
       vendor: "Anthropic",

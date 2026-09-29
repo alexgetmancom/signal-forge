@@ -15,6 +15,7 @@ import { collectGoogleSkus } from "../googleSkus.js";
 import { type SourceKind, sourcesOfKind } from "../kinds.js";
 import { collectModelsDev, collectTrueFoundryAzure } from "../mirrors.js";
 import { collectAnthropicModelIndex, collectOpenAIModelIndex } from "../modelIndex.js";
+import { collectOpenAIPricing } from "../openaiDocs.js";
 import {
   collectHuggingFace,
   collectHuggingFaceRouter,
@@ -249,6 +250,18 @@ export function cataloguesSources({ db, config, cache }: SourceContext): SourceE
         capabilityId: "deepseek",
         requiredCapabilities: ["DEEPSEEK_API_KEY"],
         collector: () => collectDeepSeekModels(config),
+      },
+      /**
+       * The price a maker charges for its own models, which no catalogue can answer for: a reseller
+       * quotes what it charges. A new row is a model priced before it is announced, and a changed
+       * one is a price cut, which for a reader paying for Codex is the news itself.
+       */
+      {
+        id: "openai-pricing",
+        vendor: "OpenAI",
+        pace: { group: "discovery:docs-openai", seconds: 5 },
+        intervalSeconds: 900,
+        collector: () => collectOpenAIPricing(fetch, cache),
       },
       // A price list rather than a model list: the same maker's own word, read half-hourly.
       {
