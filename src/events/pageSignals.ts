@@ -38,6 +38,9 @@ function pageNamesAProduct(record: Record<string, unknown> | null | undefined): 
 }
 const PAGE_BLOGS = new Set(["pages:google-devs"]);
 
+/** The sections a maker publishes findings in, about its own models and about everyone else's. */
+const REPORT_SECTION = /^\/(?:[a-z]{2}(?:-[a-z]{2})?\/)?(?:research|institute|policy|commitments)\//i;
+
 /** What a page appearing on, or changing on, a watched site is. */
 export function pageClass(event: Event): SignalClass {
   if (HELP_CENTRES.has(event.source)) return "evidence";
@@ -48,8 +51,16 @@ export function pageClass(event: Event): SignalClass {
   // is the manual for one, and a manual is not news: Google published the Gemini 3.8 TTS models
   // on 2026-09-23 as eight pages, and the one that survived the collapse reached the news
   // channel, where a reader who came for coding models was told about a voice.
+  const path = decodeURIComponent(event.entity_id);
+  // A report is about a model, not an early word on one. Anthropic published
+  // "/research/glm-5-3-and-the-spread-of-advanced-cyber-capabilities" on 2026-09-29 and it reached
+  // the scouts as a sighting of GLM 5.3, which OpenRouter had been serving since that morning and
+  // which is not Anthropic's model to sight. The sibling page in the same collection,
+  // "/research/your-thoughts-on-ai", was read as what both of them are.
+  if (REPORT_SECTION.test(path)) return articleTopic(event);
+  // Whether the product it names is already on sale is not in the page, and `classify` asks the
+  // catalogue that knows.
   if (pageNamesAProduct(recordFor(event))) return "codename";
-  if (MODALITY_VARIANT.test(decodeURIComponent(event.entity_id).toLowerCase().replaceAll(/[/_.]/g, "-")))
-    return "evidence";
+  if (MODALITY_VARIANT.test(path.toLowerCase().replaceAll(/[/_.]/g, "-"))) return "evidence";
   return articleTopic(event);
 }

@@ -243,6 +243,39 @@ test("a new page reaches the scouts only when it names a versioned product or is
   ).not.toBe("codename");
 });
 
+test("a report about a model is not a sighting of it", () => {
+  const page = (source: string, id: string, name: string): Event => ({
+    signal: null,
+    id: 1,
+    source,
+    stream: "pages",
+    entity_id: id,
+    kind: "new",
+    before_json: null,
+    after_json: JSON.stringify({ id, name }),
+    detected_at: "2026-09-29T17:21:20.863Z",
+  });
+  // Anthropic's research section on 2026-09-29. GLM 5.3 is not Anthropic's model to sight, and
+  // OpenRouter had been serving it since that morning; the page is what Anthropic found out about
+  // somebody else's model. Its sibling in the same collection was already read this way.
+  expect(
+    signalClass(
+      page(
+        "pages:anthropic",
+        "/research/glm-5-3-and-the-spread-of-advanced-cyber-capabilities",
+        "Anthropic: Glm 5 3 and the spread of advanced cyber capabilities",
+      ),
+    ),
+  ).toBe("safety");
+  // Whether a page's model is already on sale is not in the page. Documentation stays a sighting
+  // here and `classify` is where the catalogue answers; see routingNoise.
+  expect(
+    signalClass(
+      page("pages:google", "/gemini-api/docs/models/gemini-3.8-live", "Google AI for Developers: Gemini 3.8 live"),
+    ),
+  ).toBe("codename");
+});
+
 test("a location is read through its escapes and its CDATA", () => {
   const collection = parseSitemap(
     [

@@ -24,7 +24,7 @@ import {
   resetPost,
 } from "./banners.js";
 import { DESCRIPTION_CHARACTERS } from "./budget.js";
-import { type Fact, factText, withoutMakerPrefix } from "./common.js";
+import { type Fact, factText, webChangeSaysItShipped, withoutMakerPrefix } from "./common.js";
 import { type CardContext, eventFactParts } from "./facts.js";
 import {
   eventHeadline,
@@ -206,7 +206,7 @@ export function eventEmbed(
         // A maker's own status page is not a rumour; "unconfirmed" under it read as doubt about the outage.
         // A sighting's emoji and sentence already say nobody has announced it.
         SIGHTINGS.has(event.stream) ? "brief" : detail,
-        event.stream === "web" ? "not shipped yet" : undefined,
+        event.stream === "web" && !webChangeSaysItShipped(event) ? "not shipped yet" : undefined,
       ),
     },
   };

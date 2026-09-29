@@ -68,6 +68,43 @@ test("an interface string quotes the line that was added", () => {
   expect(banner?.title).toContain("Opus 5.5 is available on the Max plan");
 });
 
+test("a caveat is not printed over a quote that contradicts it", () => {
+  const diff = (line: string): Event =>
+    ({
+      id: 9,
+      source: "codex-docs",
+      stream: "web",
+      entity_id: "https://learn.chatgpt.com/docs/code-review.md",
+      kind: "changed",
+      before_json: JSON.stringify({
+        id: "d",
+        name: "Codex: Code review",
+        strings: ["Codex can review a pull request"],
+      }),
+      after_json: JSON.stringify({
+        id: "d",
+        name: "Codex: Code review",
+        strings: ["Codex can review a pull request", line],
+      }),
+      detected_at: "2026-09-29T17:35:55.446Z",
+    }) as unknown as Event;
+  // The Codex docs card of 2026-09-29 quoted "GitHub code review is generally available" over a
+  // footer reading "not shipped yet". The caveat was written for the whole `web` stream, which is
+  // where documentation arrives too.
+  const shipped = eventEmbed(diff("GitHub code review is generally available in the Codex CLI."), "u") as unknown as {
+    footer: { text: string };
+    description: string;
+  };
+  expect(shipped.footer.text).not.toContain("not shipped yet");
+  expect(shipped.description).not.toContain("not yet confirmation");
+  // A preview is still not a thing that shipped, and the interface strings the caveat was written
+  // for keep it.
+  const preview = eventEmbed(diff("GitLab merge request support in Code Review is in preview."), "u") as unknown as {
+    footer: { text: string };
+  };
+  expect(preview.footer.text).toContain("not shipped yet");
+});
+
 test("a post is quoted by what it says, not by its version number", () => {
   const event = {
     id: 4,

@@ -141,9 +141,16 @@ export function isAnotherServing(event: Event, known: readonly string[][]): bool
         model.every((word, index) => words[index] === word) &&
         servingTail(words.slice(model.length)),
     );
+  // A repository mention is a name somebody typed, not a row somebody published, so the plain case
+  // counts there too: `gpt-6.0-sol` in a Codex issue on 2026-09-29 is exactly the GPT-6 Sol its
+  // maker had been selling for a week, and "is answering requests" said it had been glimpsed. A
+  // catalogue relisting a model it already lists is the separate question `isAnotherTierOfAListedModel`
+  // asks, which is why an exact match still does not count for one.
+  const isTheModelItself = (words: string[]): boolean =>
+    isModelSighting(event) && known.some((model) => model.join(" ") === words.join(" "));
   return written.some((value) => {
     const words = normalizeIdentity(value).split(" ").filter(Boolean);
-    if (servesKnown(words)) return true;
+    if (isTheModelItself(words) || servesKnown(words)) return true;
     const inner = withoutForeignNamespace(words);
     // Nothing appended, only the namespace taken off: `claude-gpt-6` is exactly GPT-6.
     return inner !== null && (servesKnown(inner) || known.some((model) => model.join(" ") === inner.join(" ")));

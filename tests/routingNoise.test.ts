@@ -123,6 +123,29 @@ test("catalogue lookups: a docs slug finds its launched model, an old model know
       }),
     ),
   ).toBe("codename");
+  // A documentation site writes the model into the middle of the address and the kind of page at
+  // the end. Anthropic's Sonnet 5.5 docs arrived on 2026-09-29 as four pages the day after the
+  // model was announced, and reading only the last segment asked the catalogue about "overview".
+  for (const path of [
+    "/docs/en/models/grok-4-7/overview",
+    "/docs/en/models/grok-4-7/migration-guide",
+    "/docs/en/build-with-grok/prompt-engineering/prompting-grok-4-7",
+  ])
+    expect(
+      classify(db, event({ signal: null, ...page, entity_id: path, record: { id: path, name: "Grok 4 7" } })),
+    ).not.toBe("codename");
+  // The same address shape for a model nobody sells is still the first word on it.
+  expect(
+    classify(
+      db,
+      event({
+        signal: null,
+        ...page,
+        entity_id: "/docs/en/models/grok-4-8/overview",
+        record: { id: "/docs/en/models/grok-4-8/overview", name: "Grok 4 8" },
+      }),
+    ),
+  ).toBe("codename");
   // An old model's context moving is housekeeping; its price moving still travels.
   const or = { source: "openrouter", stream: "openrouter", kind: "changed" as const };
   const sonnet = { id: "anthropic/claude-sonnet-4", context_length: 200000, pricing: { prompt: 3 } };

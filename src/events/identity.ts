@@ -37,15 +37,32 @@ function oneSpelling(value: string): string {
   );
 }
 
+/**
+ * A zero minor is the version without it.
+ *
+ * OpenAI's own catalogue lists `gpt-6-sol`, and a Codex issue on 2026-09-29 wrote `gpt-6.0-sol`.
+ * Those are two keys for one model, so every rule that asks "do we already know this name" said no,
+ * and the radar announced a model that had been callable for a week as something nobody had heard
+ * of. No maker has ever shipped 6.0 as a different model from 6. A zero that is part of a longer
+ * number is left alone: `gpt 4 05` is a date, and `qwen 2 0 5` would not be 2.5.
+ */
+const ZERO_MINOR = /(?<=^| )(\d+) 0(?=$| )(?! ?\d)/g;
+
+function withoutZeroMinor(value: string): string {
+  return value.replace(ZERO_MINOR, "$1");
+}
+
 export function normalizeIdentity(value: string): string {
   return oneSpelling(
-    value
-      .normalize("NFKC")
-      .toLowerCase()
-      .replace(/^https?:\/\//, "")
-      .replace(/[^a-z0-9]+/g, " ")
-      .trim()
-      .replace(/\s+/g, " "),
+    withoutZeroMinor(
+      value
+        .normalize("NFKC")
+        .toLowerCase()
+        .replace(/^https?:\/\//, "")
+        .replace(/[^a-z0-9]+/g, " ")
+        .trim()
+        .replace(/\s+/g, " "),
+    ),
   );
 }
 

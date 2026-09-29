@@ -39,8 +39,33 @@ function launchedAlready(db: Database, event: Event): boolean {
   // A lab's sitemap is read as a page source too: Xiaomi publishes no changelog this tracker can
   // read, so the model page its sitemap lists is the only announcement MiMo ever gets here.
   if ((event.stream !== "pages" && !event.source.endsWith("-sitemap")) || event.kind !== "new") return false;
-  const slug = event.entity_id.split("?")[0]?.replace(/\/+$/, "").split("/").at(-1) ?? "";
-  return /\d/.test(slug) && listedInCatalogue(db, slug);
+  return pathSubjects(event).some((slug) => listedInCatalogue(db, slug));
+}
+
+/**
+ * The parts of an address that could name a model, not only the last one.
+ *
+ * A documentation site writes the model into the middle of the path and the kind of page at the
+ * end: Anthropic's Sonnet 5.5 arrived on 2026-09-29 as `/docs/en/models/sonnet-5-5/overview`,
+ * `/whats-new-sonnet-5-5` and `/migration-guide`, and reading only the last segment asked the
+ * catalogue about "overview" and "migration-guide". Three of the four reached the scouts as
+ * sightings of a model its maker had announced the day before.
+ */
+function pathSubjects(event: Event): string[] {
+  const path = event.entity_id.split("?")[0]?.replace(/\/+$/, "") ?? "";
+  const names = new Set<string>();
+  // A segment is a candidate name when it has a digit to be a version and letters to be a name;
+  // a year or a numbered page is neither. The kind of page is often written in front of the model
+  // -- "prompting-claude-sonnet-5-5" -- so each ending of a segment is a candidate too.
+  for (const part of path.split("/")) {
+    if (part.length < 5 || !/\d/.test(part) || !/[a-z]{3}/i.test(part)) continue;
+    const words = part.split("-");
+    for (let start = 0; start < words.length - 1 && start < 4; start++) {
+      const name = words.slice(start).join("-");
+      if (name.length >= 5 && /^[a-z]/i.test(name) && /\d/.test(name)) names.add(name);
+    }
+  }
+  return [...names];
 }
 
 /** How long a maker's own page about a model it has just listed still counts as the announcement. */
@@ -48,7 +73,7 @@ const ANNOUNCEMENT_WINDOW_MS = 48 * 3_600_000;
 
 /** True when a catalogue listed this page's model within the last two days. */
 function justListed(db: Database, event: Event): boolean {
-  const slug = event.entity_id.split("?")[0]?.replace(/\/+$/, "").split("/").at(-1) ?? "";
+  const slug = pathSubjects(event).at(-1) ?? "";
   if (!slug) return false;
   const since = new Date(Date.parse(event.detected_at) - ANNOUNCEMENT_WINDOW_MS).toISOString();
   const subject = slug.toLowerCase().replace(/[^a-z0-9]+/g, "");

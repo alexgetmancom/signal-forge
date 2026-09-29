@@ -26,6 +26,22 @@ export function normalizeWebString(value: string): string {
     .trim();
 }
 
+/**
+ * A string that says the thing it names is out.
+ *
+ * The caveat under a web diff -- "not shipped yet" -- was written for the whole `web` stream, and
+ * the stream is where documentation diffs arrive too. On 2026-09-29 a Codex docs card carried
+ * "GitHub code review is generally available" over a footer saying it had not shipped. A caveat
+ * that contradicts the quote above it is worse than no caveat: it tells a reader the card cannot
+ * read what it just printed.
+ */
+const SHIPPED_WEB_STRING =
+  /\b(?:generally available|general availability|now available|available now|now live|is live|has shipped|now shipping|rolled out|rolling out|out now|now supports)\b/i;
+
+export function saysItShipped(value: string): boolean {
+  return SHIPPED_WEB_STRING.test(normalizeWebString(value));
+}
+
 export function meaningfulWebString(value: string): boolean {
   const normalized = normalizeWebString(value);
   if (normalized.length < 18 || normalized.length > 500 || /^[-+\d\s.,:;/()]+$/.test(normalized)) return false;

@@ -2,7 +2,9 @@ import { expect, test } from "bun:test";
 import { loadConfig } from "../src/config.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import type { RecordData } from "../src/events/types.js";
+import { DEEPSEEK_SUMMARY_MAX_INPUT_CHARS } from "../src/runtime/deepseekLedger.js";
 import { openDatabase } from "../src/storage/database.js";
+import { summaryMaterial } from "../src/summary/events.js";
 import { summarize } from "../src/summary/model.js";
 import { rolloutGroups } from "../src/summary/rollouts.js";
 import { completeSentences, sanitize } from "../src/summary/text.js";
@@ -279,4 +281,43 @@ test("a sentence and the attempt that paid for it are written together or not at
   // the card would ship the empty version of itself and never be filled in.
   expect(db.query("SELECT outcome FROM deepseek_usage").all()).toEqual([{ outcome: "failed" }]);
   db.close();
+});
+
+test("an interface diff is summarised from the difference, not from the table it is in", () => {
+  // claude.ai's string table was 58 KB on 2026-09-29 and the prompt is cut at 6,000 characters, so
+  // the summariser was handed the first tenth of PREVIOUS and never reached CURRENT. It answered
+  // "unclear" twice, and the card fell back to "64 lines added, 44 removed" over a change that had
+  // added the line below.
+  const filler = Array.from({ length: 400 }, (_, index) => `Some earlier interface string number ${index}`);
+  const early = "You're part of an early access test. Your feedback goes straight to the team building this model.";
+  const material = summaryMaterial({
+    id: 1,
+    source: "claude-web",
+    stream: "web",
+    entity_id: "public-entry-strings",
+    kind: "changed",
+    signal: "codename",
+    before_json: JSON.stringify({ id: "s", name: "Claude: public interface strings", strings: filler }),
+    after_json: JSON.stringify({ id: "s", name: "Claude: public interface strings", strings: [...filler, early] }),
+    detected_at: "2026-09-29T03:24:40.454Z",
+  });
+  expect(material).toContain(`+ ${early}`);
+  expect(material.length).toBeLessThan(DEEPSEEK_SUMMARY_MAX_INPUT_CHARS);
+  expect(material).not.toContain("Some earlier interface string number 1");
+});
+
+test("what is left of a record is read before what is being replaced", () => {
+  // The cut has to fall on the state being left behind, never on the one the sentence is about.
+  const material = summaryMaterial({
+    id: 2,
+    source: "openrouter",
+    stream: "openrouter",
+    entity_id: "openai/gpt-6-sol",
+    kind: "changed",
+    signal: "change",
+    before_json: JSON.stringify({ id: "openai/gpt-6-sol", pricing: { prompt: "1" } }),
+    after_json: JSON.stringify({ id: "openai/gpt-6-sol", pricing: { prompt: "2" } }),
+    detected_at: "2026-09-29T03:24:40.454Z",
+  });
+  expect(material.indexOf("CURRENT:")).toBeLessThan(material.indexOf("PREVIOUS:"));
 });

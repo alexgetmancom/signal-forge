@@ -6,7 +6,7 @@ import { SUBSTANTIVE_FIELDS } from "../oscillation.js";
 import { isStealthLaunch } from "../resellers.js";
 import type { Event, RecordData } from "../types.js";
 import { vendorOfName } from "../vendors.js";
-import { tellingWebString } from "../web.js";
+import { saysItShipped, tellingWebString } from "../web.js";
 import {
   collapseDetails,
   compactCount,
@@ -286,8 +286,10 @@ export function eventFactParts(event: Event & CardContext, summary?: string): Fa
     if (hidden > 0) lines.push(`…and ${hidden} more material changes not shown`);
     if (!meaningfulAdded.length && !meaningfulRemoved.length) lines.push("No material user-facing text changed.");
     // The one place this caveat is written: every transport renders these lines, and a card that
-    // said it twice in two wordings read like a machine talking to itself.
-    lines.push("A public text change is not yet confirmation that a feature shipped.");
+    // said it twice in two wordings read like a machine talking to itself. It is not written at all
+    // over a quote that says the thing is out; see `webChangeSaysItShipped`.
+    if (!meaningfulAdded.some(saysItShipped))
+      lines.push("A public text change is not yet confirmation that a feature shipped.");
   } else if (event.stream === "arena" && before && after && before.name !== after.name) {
     lines.push({ label: "Renamed", value: `${describe(before.name)} → ${describe(after.name)}` });
     if (after.maker && after.maker !== before.maker)

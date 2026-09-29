@@ -140,6 +140,10 @@ test("a model answering in a repository under a name we can resolve is not a sig
   talk.records.push(
     served("claude-haiku-4-5-direct-anthropic"),
     served("gpt-6-sol-medium-fast"),
+    // The same model with a zero minor written into its version. A Codex issue wrote it that way on
+    // 2026-09-29 and the radar announced GPT-6 Sol, callable for a week, as a model nobody had
+    // heard of: "gpt 6 0 sol" and "gpt 6 sol" were two keys for one release.
+    served("gpt-6.0-sol"),
     // Somebody else's namespace wrapped around this maker's model: clankermux's own commit says
     // "Claude Code client's `claude-gpt-6-astra` routes as `gpt-6-astra`".
     served("claude-gpt-6-astra"),
@@ -153,6 +157,7 @@ test("a model answering in a repository under a name we can resolve is not a sig
   expect(reasons["claude-haiku-4-5-direct-anthropic:served"]).toBe("another_serving_of_a_known_model");
   expect(reasons["gpt-6-sol-medium-fast:served"]).toBe("another_serving_of_a_known_model");
   expect(reasons["claude-gpt-6-astra:served"]).toBe("another_serving_of_a_known_model");
+  expect(reasons["gpt-6.0-sol:served"]).toBe("another_serving_of_a_known_model");
   expect(reasons["minimax-m3.1:served"]).toBeUndefined();
   db.close();
 });

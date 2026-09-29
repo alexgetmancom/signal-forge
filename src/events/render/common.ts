@@ -1,5 +1,6 @@
 import { canonical } from "../canonical.js";
-import { meaningfulWebString, normalizeWebString } from "../web.js";
+import type { Event } from "../types.js";
+import { meaningfulWebString, normalizeWebString, saysItShipped } from "../web.js";
 
 /** Observation metadata that is useful in evidence but not useful in a notification. */
 export const NOISE = new Set([
@@ -174,6 +175,26 @@ export function webStringChanges(before: unknown, after: unknown) {
     meaningfulAdded: added.filter(meaningfulWebString),
     meaningfulRemoved: removed.filter(meaningfulWebString),
   };
+}
+
+/**
+ * Whether the diff this card is about says the thing it describes is out.
+ *
+ * Read from the strings the change added, which is the same evidence the card quotes, so the footer
+ * and the quote above it can never disagree.
+ */
+export function webChangeSaysItShipped(event: Event): boolean {
+  if (event.stream !== "web") return false;
+  const strings = (json: string | null) => {
+    if (!json) return [];
+    try {
+      const parsed = JSON.parse(json) as { strings?: unknown };
+      return Array.isArray(parsed.strings) ? parsed.strings : [];
+    } catch {
+      return [];
+    }
+  };
+  return webStringChanges(strings(event.before_json), strings(event.after_json)).meaningfulAdded.some(saysItShipped);
 }
 
 /** A small catalogue price drift is evidence, but not subscriber-facing news. */

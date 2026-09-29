@@ -12,7 +12,7 @@ import {
   deepSeekAttemptsToday,
 } from "./runtime/deepseekLedger.js";
 import { packageReleaseNotes } from "./sources/packageNotes.js";
-import { eventTitle, needsSummary } from "./summary/events.js";
+import { eventTitle, needsSummary, summaryMaterial } from "./summary/events.js";
 import { failedResult, promptContent, type SummaryContext, type SummaryResult, summarize } from "./summary/model.js";
 import { summarizeRollouts } from "./summary/rollouts.js";
 import { settleSummary } from "./summary/storage.js";
@@ -115,11 +115,7 @@ async function summarizeEvent(
   }
   if (!notes && !needsSummary(event, event.url)) return null;
   // Read the observation itself because the rendered card may have shortened it.
-  const body = notes
-    ? [`CURRENT:\n${event.after_json ?? ""}`, notes].join("\n\n")
-    : [event.before_json ? `PREVIOUS:\n${event.before_json}` : "", `CURRENT:\n${event.after_json ?? ""}`]
-        .filter(Boolean)
-        .join("\n\n");
+  const body = notes ? [`CURRENT:\n${event.after_json ?? ""}`, notes].join("\n\n") : summaryMaterial(event);
   const context = {
     source: event.source,
     stream: event.stream,
