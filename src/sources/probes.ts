@@ -207,6 +207,58 @@ export function observedFamilies(
   return [...highest].map(([family, found]) => ({ family, version: found.version, observed: found.observed }));
 }
 
+/**
+ * The names a maker already uses, carried to the versions it has not shipped yet.
+ *
+ * `gpt-6.1-sol` was released on 2026-09-29 and this probe never asked for it. Both halves of the
+ * question were in this database two days earlier: `gpt-6-sol` had been heard from a third party's
+ * catalogue, and `nextVersions` already knew that 6.1 follows 6. They never met, because version
+ * guessing drops the codename -- it asked for `gpt-6.1`, which is a 404 and always will be, since
+ * this maker does not ship a model without a word after the number -- and `heardNames` only asks
+ * about a name somebody has already written down. A release that reuses a codename at a new number
+ * falls between them, and that is the most ordinary kind of release there is.
+ *
+ * Only the spelled form is read, and only where a codename is a word rather than a number, so
+ * Anthropic's `opus-5-5` produces nothing here and Z.ai, which has no codenames, is untouched.
+ */
+function versionedCodenames(db: Database, site: Site, heard: string[]): string[] {
+  if (!site.codename) return [];
+  /**
+   * Every codename this tracker knows, released or merely heard. Not just the frontier of each
+   * family: a maker versions a small model after shipping a big one, and `gpt-6-sol` was neither
+   * the newest nor the highest thing OpenAI had out when `gpt-6.1-sol` followed it.
+   */
+  const known = [
+    ...db
+      .query<{ canonical_id: string }, []>("SELECT canonical_id FROM model_facts")
+      .all()
+      .map((row) => row.canonical_id),
+    ...heard,
+  ];
+  const candidates = new Map<string, readonly [number, number]>();
+  for (const name of known) {
+    const bare = bareId(name).toLowerCase();
+    if (!site.codename.test(bare)) continue;
+    const parts = /^(.*?)(\d+)(?:\.(\d+))?(-[a-z][a-z-]*)$/.exec(site.spell(bare));
+    if (!parts) continue;
+    const [, head, major, minor, word] = parts;
+    const version: [number, number] = [Number(major), Number(minor ?? 0)];
+    if (version[0] > MAX_PLAUSIBLE_MAJOR) continue;
+    for (const next of nextVersions(version)) candidates.set(`${head}${dotted(next)}${word}`, next);
+  }
+  /**
+   * Highest first and capped: a maker with many codenames at many numbers would otherwise turn one
+   * poll into a crawl, and the version nobody has reached yet is the one worth the request.
+   */
+  return [...candidates]
+    .sort(([, a], [, b]) => b[0] - a[0] || b[1] - a[1])
+    .slice(0, CROSS_LIMIT)
+    .map(([slug]) => slug);
+}
+
+/** At most this many codename-and-version guesses per poll, highest version first. */
+const CROSS_LIMIT = 8;
+
 /** How far back a name heard once is still worth asking a documentation site about. */
 const HEARD_DAYS = 30;
 
@@ -336,11 +388,18 @@ export async function collectDocsProbe(
      */
     for (const next of nextVersions(highest)) candidates.add(site.slug(family, next));
   }
-  for (const heard of heardNames(db, site, now)) {
-    const last = asked[heard];
+  const heard = heardNames(db, site, now);
+  for (const name of heard) {
+    const last = asked[name];
     if (last && Date.parse(last.at) > now - COOLOFF_HOURS * 3_600_000) continue;
-    candidates.add(heard);
+    candidates.add(name);
   }
+  /**
+   * Not rate-limited by `COOLOFF_HOURS`, for the same reason the version guesses are not: these are
+   * addresses nobody has written down anywhere, so the only way to learn the minute one starts
+   * answering is to keep asking.
+   */
+  for (const slug of versionedCodenames(db, site, heard)) candidates.add(slug);
   candidates.delete(control);
   const records: RecordData[] = [];
   const tried: Asked = { ...asked };

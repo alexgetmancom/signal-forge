@@ -33,12 +33,25 @@ const TOLD_WINDOW_MS = 7 * 24 * 3_600_000;
  * not a second piece of news about it. A note that names a model nobody here has heard of still
  * speaks, and so does one that names none at all, which is most of them.
  */
-export function retellsToldModels(db: Database, event: Event, destinationId: string, asOf?: string): boolean {
+export function retellsToldModels(
+  db: Database,
+  event: Event,
+  destinationId: string,
+  now: number,
+  asOf?: string,
+): boolean {
   if (event.stream !== "news" || event.kind !== "new") return false;
   const body = recordFor(event);
   const named = `${String(body?.name ?? "")} ${String(body?.summary ?? "")}`.match(MODEL_NAME) ?? [];
   if (!named.length) return false;
-  const at = asOf ?? new Date().toISOString();
+  /**
+   * The window is measured from the moment being judged, never from the clock. This read
+   * `new Date()` when no cutoff was given, which is every call from the delivery path, so the one
+   * rule here that looked at wall time disagreed with `releaseTold` and `announcementTold` beside
+   * it -- and a test whose fixtures were a week old failed for reasons its subject had nothing to
+   * do with.
+   */
+  const at = asOf ?? new Date(now).toISOString();
   const since = new Date(Date.parse(at) - TOLD_WINDOW_MS).toISOString();
   const told = db
     .query<{ name: string }, [string, string, string]>(

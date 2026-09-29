@@ -213,17 +213,33 @@ function developerFeedSources({ cache }: SourceContext): SourceEntry[] {
   return sourcesOfKind(DEVELOPER_FEED, [
     // A 1.07 MB feed that claims +48 MB of permanent high-water the first time it is parsed: XML
     // becomes a tree an order of magnitude larger than its text. Measured 2026-09-27.
+    /**
+     * The Codex and ChatGPT changelog, which is where a reader who runs Codex hears first: the
+     * `gpt-6.1-sol` entry was in this feed as "GPT-6.1 Sol in Codex and ChatGPT Work". It answers
+     * 304 to a conditional request, measured 2026-09-29, so the half hour it used to wait bought
+     * nothing -- a poll that finds nothing costs no body, and the 1.1 MB it costs when it does find
+     * something is what `heavy` is for.
+     */
     {
       id: "openai-codex-changelog",
       vendor: "OpenAI",
       heavy: true,
+      intervalSeconds: 120,
       collector: () => collectOpenAICodexChangelog(fetch, cache),
     },
-    // Answers 304 to a conditional request, measured 2026-09-17, so a poll that finds nothing costs no body.
+    /**
+     * Answers 304 to a conditional request, measured 2026-09-17 and again 2026-09-29, so a poll
+     * that finds nothing costs no body -- and the quarter hour this used to wait was the whole
+     * margin of a race we lost. `gpt-6.1-sol`: the page went up at about 19:55 UTC on 2026-09-29,
+     * another tracker published at 19:57, and this source read the page at 20:08 because that is
+     * when its turn came round. Two minutes is the interval at which this page is the fastest
+     * first-party surface there is: the model reached OpenAI's own catalogue at 20:11, the OpenAPI
+     * spec at 20:16 and the announcement post at 21:16.
+     */
     {
       id: "openai-api-changelog",
       vendor: "OpenAI",
-      intervalSeconds: 900,
+      intervalSeconds: 120,
       collector: () => collectOpenAIApiChangelog(fetch, cache),
     },
     { id: "claude-code-changelog", vendor: "Anthropic", collector: () => collectClaudeCodeChangelog(fetch, cache) },

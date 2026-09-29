@@ -175,7 +175,7 @@ export function speakingEvents(work: Delivering): BatchEvent[] {
       repeatsDeliveredStory(db, event, target.destination_id, storyIds.get(event.id), batch.id)
     )
       return quiet(event, "already_told_by_another_source");
-    if (!isMakersAnnouncement(event) && retellsToldModels(db, event, target.destination_id))
+    if (!isMakersAnnouncement(event) && retellsToldModels(db, event, target.destination_id, now))
       return quiet(event, "names_only_known_models");
     if (event.signal === "codename" && announcedBeforeSighted(db, event, storyIds.get(event.id), batch.id))
       return quiet(event, "announced_before_it_was_sighted");

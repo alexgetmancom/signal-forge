@@ -78,7 +78,7 @@ export function replayDestinationVerdicts(
         repeatsDeliveredStory(db, event, destinationId, storyOf(event.id), batchId, asOf)
       )
         return "already_told_by_another_source";
-      if (!isMakersAnnouncement(event) && retellsToldModels(db, event, destinationId, asOf))
+      if (!isMakersAnnouncement(event) && retellsToldModels(db, event, destinationId, at, asOf))
         return "names_only_known_models";
       if (event.signal === "codename" && announcedBeforeSighted(db, event, storyOf(event.id), batchId))
         return "announced_before_it_was_sighted";

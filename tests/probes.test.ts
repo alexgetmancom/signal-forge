@@ -430,3 +430,34 @@ test("Z.ai is asked about no name a catalogue only aliases", async () => {
     "glm-6.5",
   ]);
 });
+
+test("a codename already in use is asked for at the versions the maker has not shipped", async () => {
+  const openai = PROBE_SITES.find((site) => site.id === "discovery:docs-openai");
+  if (!openai) throw new Error("the OpenAI probe is gone");
+  const asked: string[] = [];
+  const watching = (async (input: string | URL) => {
+    asked.push(String(input).split("/").at(-1) ?? "");
+    return new Response("a page", { status: String(input).endsWith("gpt-6-sol") ? 200 : 404 });
+  }) as unknown as typeof fetch;
+  await collectDocsProbe(catalogue(["gpt-6-astra", "gpt-6-sol"]), openai, watching);
+  // The release this was written for: `gpt-6-sol` is out, and the next Sol is not `gpt-6.1`.
+  expect(asked).toContain("gpt-6.1-sol");
+  expect(asked).toContain("gpt-7-sol");
+  // A number with no word after it is not a name this maker ships, but the plain guesses stay.
+  expect(asked).toContain("gpt-6.1");
+  // Asked once each, and `gpt-6-sol` appears only as the control that proves the site is answering.
+  expect(asked.filter((slug) => slug === "gpt-6.1-sol")).toHaveLength(1);
+});
+
+test("a maker that numbers its models without a codename gains no questions", async () => {
+  const anthropicProbe = PROBE_SITES.find((site) => site.id === "discovery:docs-anthropic");
+  if (!anthropicProbe) throw new Error("the Anthropic probe is gone");
+  const asked: string[] = [];
+  const watching = (async (input: string | URL) => {
+    asked.push(String(input).split("/").at(-2) ?? "");
+    return new Response("a page", { status: String(input).includes("opus-5-5") ? 200 : 404 });
+  }) as unknown as typeof fetch;
+  await collectDocsProbe(catalogue(["claude-opus-5-5", "claude-sonnet-5"]), anthropicProbe, watching);
+  // `opus-5-5` ends in a number, not a word: nothing here is a codename to carry forward.
+  expect(asked.filter((slug) => /[a-z]{3,}-\d/.test(slug) && !/^(opus|sonnet|haiku)-/.test(slug))).toEqual([]);
+});
