@@ -47,9 +47,15 @@ import type { Vendor } from "./vendors.js";
  */
 const MAX_PLAUSIBLE_MAJOR = 10;
 
+/**
+ * A half step inside the current number, for the makers that use one. Anthropic goes 4.5, 5, 5.5
+ * and Haiku sat at 4.5 for months; from 5.1 the three steps above reach 5.2, 6 and 6.5 and skip
+ * 5.5 entirely, which is the release everyone is waiting for as this is written.
+ */
 function nextVersions([major, minor]: readonly [number, number]): (readonly [number, number])[] {
   return [
     [major, minor + 1],
+    ...(minor < 5 && minor + 1 !== 5 ? ([[major, 5]] as const) : []),
     [major + 1, 0],
     [major + 1, 5],
   ];
@@ -103,15 +109,22 @@ export const PROBE_SITES: readonly Site[] = [
   {
     id: "discovery:docs-anthropic",
     vendor: "Anthropic",
+    /**
+     * Four lines, not three. `claude-fable-5-1` is in Anthropic's own comparison table and
+     * "Introducing Claude Fable 5.1 and Claude Mythos 5.1" is a post this tracker has read, so a
+     * probe that knows only Opus, Sonnet and Haiku cannot ask about half of what this maker ships.
+     */
     shapes: [
       { family: "opus", version: /^claude-opus-(\d+)[-.](\d+)$/ },
       { family: "sonnet", version: /^claude-sonnet-(\d+)(?:[-.](\d+))?$/ },
       { family: "haiku", version: /^claude-haiku-(\d+)[-.](\d+)$/ },
+      { family: "fable", version: /^claude-fable-(\d+)[-.](\d+)$/ },
+      { family: "mythos", version: /^claude-mythos-(\d+)[-.](\d+)$/ },
     ],
     slug: (family, [major, minor]) => (minor === 0 ? `${family}-${major}` : `${family}-${major}-${minor}`),
     // The catalogue writes `claude-opus-5-5`; the documentation drops the maker's own name.
     spell: (observed) => observed.replace(/^claude-/, "").replaceAll(".", "-"),
-    codename: /^claude-(?:opus|sonnet|haiku)-\d+(?:[-.]\d+)?$/,
+    codename: /^claude-(?:opus|sonnet|haiku|fable|mythos)-\d+(?:[-.]\d+)?$/,
     url: (slug) => `https://platform.claude.com/docs/en/models/${slug}/overview`,
   },
   {
@@ -208,18 +221,23 @@ export function observedFamilies(
 }
 
 /**
- * The names a maker already uses, carried to the versions it has not shipped yet.
+ * The names a maker already uses, crossed with the numbers it versions them by.
  *
  * `gpt-6.1-sol` was released on 2026-09-29 and this probe never asked for it. Both halves of the
  * question were in this database two days earlier: `gpt-6-sol` had been heard from a third party's
  * catalogue, and `nextVersions` already knew that 6.1 follows 6. They never met, because version
  * guessing drops the codename -- it asked for `gpt-6.1`, which is a 404 and always will be, since
  * this maker does not ship a model without a word after the number -- and `heardNames` only asks
- * about a name somebody has already written down. A release that reuses a codename at a new number
- * falls between them, and that is the most ordinary kind of release there is.
+ * about a name somebody has already written down.
+ *
+ * Two questions come out of the crossing, and the second is the one a reader feels. A codename at
+ * the next number is a release like `gpt-6-sol` to `gpt-6.1-sol`. A codename at a number another
+ * line already reached is the rest of a launch: Sol arrives at 6.1 and Luna and Astra follow it
+ * there, one by one, over the days after. Both are the same arithmetic over the same two sets, so
+ * both are asked.
  *
  * Only the spelled form is read, and only where a codename is a word rather than a number, so
- * Anthropic's `opus-5-5` produces nothing here and Z.ai, which has no codenames, is untouched.
+ * Anthropic's `opus-5-5` produces nothing here.
  */
 function versionedCodenames(db: Database, site: Site, heard: string[]): string[] {
   if (!site.codename) return [];
@@ -235,29 +253,79 @@ function versionedCodenames(db: Database, site: Site, heard: string[]): string[]
       .map((row) => row.canonical_id),
     ...heard,
   ];
-  const candidates = new Map<string, readonly [number, number]>();
+  const words = new Map<string, { head: string; word: string; top: readonly [number, number] }>();
+  const versions = new Map<string, { version: readonly [number, number]; shipped: boolean }>();
+  const released = new Set<string>();
   for (const name of known) {
     const bare = bareId(name).toLowerCase();
     if (!site.codename.test(bare)) continue;
-    const parts = /^(.*?)(\d+)(?:\.(\d+))?(-[a-z][a-z-]*)$/.exec(site.spell(bare));
+    const spelled = site.spell(bare);
+    released.add(spelled);
+    const parts = /^(.*?)(\d+)(?:\.(\d+))?(-[a-z][a-z-]*)$/.exec(spelled);
     if (!parts) continue;
     const [, head, major, minor, word] = parts;
     const version: [number, number] = [Number(major), Number(minor ?? 0)];
     if (version[0] > MAX_PLAUSIBLE_MAJOR) continue;
-    for (const next of nextVersions(version)) candidates.set(`${head}${dotted(next)}${word}`, next);
+    const already = words.get(`${head}${word}`)?.top;
+    if (!already || version[0] > already[0] || (version[0] === already[0] && version[1] > already[1]))
+      words.set(`${head}${word}`, { head: head ?? "", word: word ?? "", top: version });
+    versions.set(dotted(version), { version, shipped: true });
+    for (const next of nextVersions(version))
+      if (!versions.has(dotted(next))) versions.set(dotted(next), { version: next, shipped: false });
   }
+  const candidates = new Map<string, { version: readonly [number, number]; shipped: boolean; top: number }>();
+  for (const { head, word, top } of words.values())
+    for (const [, at] of versions) {
+      const slug = `${head}${dotted(at.version)}${word}`;
+      // A word is worth what the highest model wearing it is worth: `astra` and `sol` are this
+      // maker's current line, while `turbo` and `instant` are words it stopped using two numbers
+      // ago and would otherwise crowd them out of the cap.
+      if (!released.has(slug)) candidates.set(slug, { ...at, top: top[0] * 100 + top[1] });
+    }
   /**
-   * Highest first and capped: a maker with many codenames at many numbers would otherwise turn one
-   * poll into a crawl, and the version nobody has reached yet is the one worth the request.
+   * Half the cap to each of the two questions, because they are asked for different reasons and one
+   * would otherwise eat the other.
+   *
+   * A codename at a number the maker already reached is the rest of a launch -- Sol arrived at 6.1
+   * and Luna and Astra follow it there within days -- and there are as many of those as the maker
+   * has words, so ranked together they filled every slot and left nothing for `gpt-6.2-sol`, the
+   * release this was written for. Each tier is sorted by the newest number first, and by the word
+   * the newest model wears where numbers tie, so `astra` and `sol` come before `turbo` and
+   * `instant`, which this maker stopped using two numbers ago.
    */
-  return [...candidates]
-    .sort(([, a], [, b]) => b[0] - a[0] || b[1] - a[1])
-    .slice(0, CROSS_LIMIT)
-    .map(([slug]) => slug);
+  const byVersion = (
+    [, a]: [string, { version: readonly [number, number]; top: number }],
+    [, b]: [string, { version: readonly [number, number]; top: number }],
+  ): number => b.version[0] - a.version[0] || b.version[1] - a.version[1] || b.top - a.top;
+  const entries = [...candidates];
+  const siblings = entries.filter(([, at]) => at.shipped).sort(byVersion);
+  /**
+   * The nearest unshipped number first, and never one below where the maker already is: ordered
+   * the same way as the shipped ones, every slot went to `gpt-7.5-`, and ordered the other way they
+   * all went to `gpt-3.6-`, which is a number this maker left behind years ago. What is wanted is
+   * the step past the frontier -- 6.2 before 7, 7 before 7.5.
+   */
+  const frontier = entries.reduce(
+    (top, [, at]) =>
+      at.shipped && (at.version[0] > top[0] || (at.version[0] === top[0] && at.version[1] > top[1])) ? at.version : top,
+    [0, 0] as readonly [number, number],
+  );
+  const successors = entries
+    .filter(
+      ([, at]) =>
+        !at.shipped && (at.version[0] > frontier[0] || (at.version[0] === frontier[0] && at.version[1] >= frontier[1])),
+    )
+    .sort(([, a], [, b]) => a.version[0] - b.version[0] || a.version[1] - b.version[1] || b.top - a.top);
+  const half = Math.ceil(CROSS_LIMIT / 2);
+  const taken = [
+    ...siblings.slice(0, Math.max(half, CROSS_LIMIT - successors.length)),
+    ...successors.slice(0, Math.max(half, CROSS_LIMIT - siblings.length)),
+  ];
+  return taken.slice(0, CROSS_LIMIT).map(([slug]) => slug);
 }
 
 /** At most this many codename-and-version guesses per poll, highest version first. */
-const CROSS_LIMIT = 8;
+const CROSS_LIMIT = 12;
 
 /** How far back a name heard once is still worth asking a documentation site about. */
 const HEARD_DAYS = 30;

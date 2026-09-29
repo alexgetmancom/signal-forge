@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import type { HttpCache } from "../../storage/httpCache.js";
 import { collectBedrock } from "../bedrock.js";
 import {
   collectAnthropic,
@@ -13,6 +14,7 @@ import type { SourceContext, SourceEntry } from "../definition.js";
 import { collectGoogleSkus } from "../googleSkus.js";
 import { type SourceKind, sourcesOfKind } from "../kinds.js";
 import { collectModelsDev, collectTrueFoundryAzure } from "../mirrors.js";
+import { collectAnthropicModelIndex, collectOpenAIModelIndex } from "../modelIndex.js";
 import {
   collectHuggingFace,
   collectHuggingFaceRouter,
@@ -112,6 +114,54 @@ const RESELLER_CATALOGUE: SourceKind = {
 };
 
 /**
+ * A maker's own index of the models it documents.
+ *
+ * Not its API and not its newsroom: the page that lists every model page, which is the first place
+ * a new model is named in writing. `supported` rather than `confirmed` for the reason the developer
+ * feeds carry -- a documented model is the maker saying it exists, and whether it can be called is
+ * a catalogue's business -- and `web_diff` because what was read is a page, not a model list an API
+ * answers with.
+ *
+ * Two minutes, because this is the whole point of it. These pages are 12 and 17 KB, and on
+ * 2026-09-29 the fifteen minutes between polls of a changelog was the entire margin by which this
+ * tracker came second on GPT-6.1 Sol.
+ */
+const MODEL_INDEX: SourceKind = {
+  kind: "model-index",
+  authority: "first_party",
+  evidence: "web_diff",
+  confidence: "supported",
+  group: "Catalogues",
+  stream: "api-models",
+  intervalSeconds: 120,
+};
+
+/**
+ * The two makers whose own documentation index is read.
+ *
+ * Each shares its pacing group with the documentation probe, because each shares its host: the
+ * probe asks `platform.openai.com`, which is this host under its old name, and it asks
+ * `platform.claude.com`, which is where the Anthropic overview lives. A group is a host, whatever
+ * the source that first named it.
+ */
+function modelIndexSources(cache: HttpCache): SourceEntry[] {
+  return sourcesOfKind(MODEL_INDEX, [
+    {
+      id: "openai-model-index",
+      vendor: "OpenAI",
+      pace: { group: "discovery:docs-openai", seconds: 5 },
+      collector: () => collectOpenAIModelIndex(fetch, cache),
+    },
+    {
+      id: "anthropic-model-index",
+      vendor: "Anthropic",
+      pace: { group: "discovery:docs-anthropic", seconds: 5 },
+      collector: () => collectAnthropicModelIndex(fetch, cache),
+    },
+  ]);
+}
+
+/**
  * A published package of a maker's own tooling, which is the moment a reader can install it.
  *
  * `vendor_owned`: the registry is not the maker, but a version appearing under the maker's name is
@@ -209,6 +259,7 @@ export function cataloguesSources({ db, config, cache }: SourceContext): SourceE
       },
       ...providers.filter((provider) => provider.authority === "first_party"),
     ]),
+    ...modelIndexSources(cache),
     ...sourcesOfKind(RESELLER_CATALOGUE, [
       // The whole models.dev catalogue, 4.5 MB.
       {

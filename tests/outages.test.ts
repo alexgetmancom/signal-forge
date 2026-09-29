@@ -21,12 +21,27 @@ function setup() {
 
 const reset = { error: "Collection failed: network error (Error, ECONNRESET)", kind: "network" };
 
+/**
+ * The pacing group with the most members, whatever order the registry happens to be built in.
+ *
+ * This used to take whichever group the first paced source belonged to, which is a fact about the
+ * order of the packs rather than about pacing: adding one paced source to a pack that is assembled
+ * early left the test asserting things about a group of one, and it failed for a reason that had
+ * nothing to do with outages.
+ */
+function largestPacingGroup(registry: readonly { pace?: { group: string } | null }[]): string {
+  const counts = new Map<string, number>();
+  for (const definition of registry)
+    if (definition.pace) counts.set(definition.pace.group, (counts.get(definition.pace.group) ?? 0) + 1);
+  return [...counts].sort(([, a], [, b]) => b - a)[0]?.[0] ?? "";
+}
+
 test("sources sharing a pacing group report as one host, with the minutes they failed together", () => {
   const { db, config, registry } = setup();
-  const paced = registry.filter((definition) => definition.pace).slice(0, 3);
+  const group = largestPacingGroup(registry);
+  const paced = registry.filter((definition) => definition.pace?.group === group).slice(0, 3);
   expect(paced.length).toBeGreaterThanOrEqual(2);
-  const group = paced[0]?.pace?.group as string;
-  const together = paced.filter((definition) => definition.pace?.group === group);
+  const together = paced;
   expect(together.length).toBeGreaterThanOrEqual(2);
 
   // The shape measured on production: three of a group failing inside one minute, twice, plus a
@@ -66,9 +81,8 @@ test("a retired source does not drag its group into a report", () => {
 
 test("a member that failed alone carries no share of the outage it is grouped with", () => {
   const { db, config, registry } = setup();
-  const paced = registry.filter((definition) => definition.pace);
-  const group = paced[0]?.pace?.group as string;
-  const together = paced.filter((definition) => definition.pace?.group === group);
+  const group = largestPacingGroup(registry);
+  const together = registry.filter((definition) => definition.pace?.group === group);
   expect(together.length).toBeGreaterThanOrEqual(3);
   const minute = (offsetHours: number) => new Date(NOW - offsetHours * 3_600_000).toISOString();
   // Two of the host failed inside one minute. The third failed on its own, hours away from them, and

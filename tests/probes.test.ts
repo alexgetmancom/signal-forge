@@ -422,10 +422,12 @@ test("Z.ai is asked about no name a catalogue only aliases", async () => {
   };
   const collection = await collectDocsProbe(catalogue(["GLM-5.3", "glm-latest", "glm-flash-latest"]), zai, request);
   expect(collection.records).toEqual([]);
-  // The next three versions of the one shape it follows, and the control. An alias is not a version.
+  // The next versions of the one shape it follows, and the control. An alias is not a version, and
+  // 5.5 is there because this maker uses half steps: GLM-4.5 shipped between GLM-4 and GLM-5.
   expect(asked.map((url) => url.replace("https://z.ai/blog/", "")).sort()).toEqual([
     "glm-5.3",
     "glm-5.4",
+    "glm-5.5",
     "glm-6",
     "glm-6.5",
   ]);
