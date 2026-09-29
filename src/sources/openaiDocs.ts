@@ -104,7 +104,8 @@ export function parseOpenAIPricing(markdown: string): Collection {
     source: "openai-pricing",
     stream: "api-models",
     url: OPENAI_PRICING_URL,
-    raw: markdown.length,
+    // The rows read, so `snapshot` answers what was priced rather than how long the page was.
+    raw: [...records.keys()].sort(),
     confirmChanges: true,
     records: [...records.values()],
   };
