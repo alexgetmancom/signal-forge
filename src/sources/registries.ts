@@ -1,8 +1,10 @@
+import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { Collection } from "../events/types.js";
 import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import type { HttpCache } from "../storage/httpCache.js";
+import { readLatestSnapshot } from "../storage/snapshots.js";
 import { fetchText } from "./http.js";
 import { jsonMembers } from "./jsonMembers.js";
 
@@ -68,8 +70,7 @@ export const HF_AUTHORS = [
 ];
 
 /**
- * The labs whose weights are news the minute they land. One request lists an organisation's fifty
- * newest repositories, and the token allows a thousand every five minutes.
+ * The labs whose publicly visible weights are worth checking every five minutes.
  */
 export const HF_LABS = new Set([
   "openai",
@@ -95,8 +96,7 @@ export function parseHuggingFace(payload: string, author: string): Collection {
     stream: "weights",
     url: `https://huggingface.co/${author}`,
     raw: payload,
-    // Repositories are only ever added here; a listing that omits one is a paging artefact, not a
-    // deletion, and treating it as a removal would invent news.
+    // Public visibility does not establish when the repository was created or its weights released.
     records: models.map((model) => ({
       id: model.id,
       name: model.id,
@@ -115,15 +115,50 @@ export function parseHuggingFace(payload: string, author: string): Collection {
   };
 }
 
+/**
+ * Every public repository, including old private repositories that have just become visible.
+ * A complete successful snapshot is the baseline. Widening the old partial listing is quiet;
+ * failed pages never return a collection and cannot replace the last successful baseline.
+ */
 export async function collectHuggingFace(
+  db: Database,
   author: string,
   token?: string,
   request: Fetch = fetch,
-  cache?: HttpCache,
 ): Promise<Collection> {
-  const url = `https://huggingface.co/api/models?author=${encodeURIComponent(author)}&sort=createdAt&direction=-1&limit=50`;
+  let url: string | null =
+    `https://huggingface.co/api/models?author=${encodeURIComponent(author)}&sort=createdAt&direction=-1&limit=1000`;
   const headers = { accept: "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) };
-  return parseHuggingFace(await fetchText(url, headers, request, undefined, cache), author);
+  const previous = JSON.parse(readLatestSnapshot(db, `huggingface:${author}`) ?? "null") as {
+    pages?: unknown;
+  } | null;
+  const records = new Map<string, Collection["records"][number]>();
+  const pages: string[] = [];
+  const visited = new Set<string>();
+  while (url) {
+    if (visited.has(url) || new URL(url).origin !== "https://huggingface.co")
+      throw new SourceError("protocol", "Hugging Face returned an invalid pagination link");
+    visited.add(url);
+    let next: string | null = null;
+    const body = await fetchText(url, headers, async (address, init) => {
+      const response = await request(address, init);
+      next = response.headers.get("link")?.match(/<([^>]+)>;\s*rel=["']?next["']?/i)?.[1] ?? null;
+      return response;
+    });
+    const page = parseHuggingFace(body, author);
+    pages.push(body);
+    for (const record of page.records) records.set(record.id, record);
+    url = next;
+  }
+  return {
+    source: `huggingface:${author}`,
+    stream: "weights",
+    url: `https://huggingface.co/${author}`,
+    // This envelope is written only after the last page, atomically with the collected records.
+    raw: { pages },
+    records: [...records.values()],
+    silentIds: Array.isArray(previous?.pages) ? [] : [...records.keys()],
+  };
 }
 
 const routerSchema = z.object({

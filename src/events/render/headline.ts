@@ -113,6 +113,8 @@ export function eventHeadline(event: Event, name: string, incident: Incident | n
   // reader could go and call.
   if (eventEvidenceType(event) === "binary_string" && event.kind === "new") return `🔎 ${readableName(name)}`;
   if (event.stream === "arena" && event.kind === "new") return `🆕 ${name} appears on Arena`;
+  if (event.stream === "weights" && event.source.startsWith("huggingface:") && event.kind === "new")
+    return `📦 ${name} appears on Hugging Face`;
   // A page names itself "Pricing" or "Overview", which is a heading, not a headline: whose pricing
   // is the news, and it was left to the footer four lines down.
   if (event.stream === "web" && event.kind === "changed") {
