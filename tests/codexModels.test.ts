@@ -10,6 +10,14 @@ const file = JSON.stringify({
       display_name: "Daybreak Blue",
       visibility: "hide",
       available_in_plans: ["pro"],
+      context_window: 272000,
+      max_context_window: 872000,
+      supported_reasoning_levels: [
+        { effort: "high", description: "Greater reasoning depth for complex problems" },
+        { effort: "low", description: "Fast responses with lighter reasoning" },
+        { effort: "ultra", description: "Maximum reasoning with automatic task delegation" },
+      ],
+      supports_reasoning_effort_updates: true,
       base_instructions: "long",
     },
   ],
@@ -31,6 +39,11 @@ test("a slug new to the Codex model list is a sighting, and so is one opening up
   const [record] = parseCodexModels(file).records;
   expect(record).toMatchObject({ id: "gpt-daybreak-blue-latest", name: "Daybreak Blue", visibility: "hide" });
   expect(record).not.toHaveProperty("base_instructions");
+  // What a session is given and what the model can hold are two numbers, and both are kept.
+  expect(record).toMatchObject({ context: 272000, maxContext: 872000, reasoningUpdates: true });
+  // The efforts by name only: the sentence beside each one is interface copy that gets reworded.
+  expect(record?.reasoning).toEqual(["high", "low", "ultra"]);
+  expect(JSON.stringify(record)).not.toContain("Fast responses");
   expect(signalClass(event("new", null, record ?? {}))).toBe("codename");
   expect(signalClass(event("changed", record ?? {}, { ...record, visibility: "list" }))).toBe("codename");
   expect(signalClass(event("changed", record ?? {}, { ...record, context: 400000 }))).toBe("evidence");

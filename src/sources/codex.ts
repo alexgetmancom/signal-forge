@@ -63,6 +63,9 @@ const codexModelsSchema = z.object({
           visibility: z.string().optional(),
           available_in_plans: z.array(z.string()).optional(),
           context_window: z.number().optional(),
+          max_context_window: z.number().optional(),
+          supported_reasoning_levels: z.array(z.object({ effort: z.string().min(1) }).passthrough()).optional(),
+          supports_reasoning_effort_updates: z.boolean().optional(),
           supported_in_api: z.boolean().optional(),
         })
         .passthrough(),
@@ -76,6 +79,14 @@ const codexModelsSchema = z.object({
  * "Daybreak" models no catalogue listed. The commit feed watched `codex-rs/core/models.json`, a
  * path the file had left, so none of this reached anyone. Only the fields that say a model is
  * coming are kept; instructions and tool settings change with every prompt edit.
+ *
+ * A model arrives with a ceiling and a set of reasoning efforts, and both move before a launch
+ * rather than after one. `context_window` is what a session is given and `max_context_window` is
+ * what the model can hold: on 2026-09-29 gpt-6-astra read 272,000 and 872,000, and only the first
+ * was kept, so the larger number this file had been carrying was invisible here. The efforts are
+ * kept as their names alone -- `xhigh`, `max`, `ultra` -- because the sentence beside each one is
+ * interface copy that is rewritten without the tier changing, and a card that fires on a reworded
+ * tooltip is a card nobody believes.
  */
 export function parseCodexModels(text: string): Collection {
   const models = codexModelsSchema.parse(JSON.parse(text)).models;
@@ -91,6 +102,9 @@ export function parseCodexModels(text: string): Collection {
       visibility: model.visibility ?? null,
       plans: [...(model.available_in_plans ?? [])].sort(),
       context: model.context_window ?? null,
+      maxContext: model.max_context_window ?? null,
+      reasoning: [...(model.supported_reasoning_levels ?? []).map((level) => level.effort)].sort(),
+      reasoningUpdates: model.supports_reasoning_effort_updates ?? null,
       api: model.supported_in_api ?? null,
     })),
   };

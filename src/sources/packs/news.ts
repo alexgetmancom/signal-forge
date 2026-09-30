@@ -12,6 +12,7 @@ import {
   collectNvidiaDeveloperBlog,
   collectOpenAIAlignment,
   collectOpenAICodexChangelog,
+  collectOpenAIDeploymentSafety,
 } from "../feeds.js";
 import { type SourceKind, sourcesOfKind } from "../kinds.js";
 import { collectLabPages, LAB_PAGE_SOURCES } from "../labPages.js";
@@ -22,7 +23,7 @@ import {
   collectHackerNews,
   collectOpenAINews,
 } from "../news.js";
-import { collectOpenAIDocsIndex } from "../openaiDocs.js";
+import { collectOpenAIDocsIndex, collectOpenAILearnIndex, collectOpenAIShowcaseIndex } from "../openaiDocs.js";
 import {
   collectGeminiApiChangelog,
   collectGroqChangelog,
@@ -171,6 +172,17 @@ function labBlogSources({ cache }: SourceContext): SourceEntry[] {
       intervalSeconds: 1800,
       collector: () => collectOpenAIAlignment(fetch, cache),
     },
+    /**
+     * The deployment safety hub, where a system card names the model it is about. A card is
+     * published with the launch or ahead of it, so it is paced with the newsrooms rather than with
+     * the blogs; the hub answers a conditional request, so a poll that finds nothing costs nothing.
+     */
+    {
+      id: "openai-deployment-safety",
+      vendor: "OpenAI",
+      intervalSeconds: 900,
+      collector: () => collectOpenAIDeploymentSafety(fetch, cache),
+    },
     {
       id: "nvidia-developer-blog",
       vendor: "NVIDIA",
@@ -300,6 +312,26 @@ function labPageSources({ cache }: SourceContext): SourceEntry[] {
       intervalSeconds: 300,
       pace: { group: "discovery:docs-openai", seconds: 5 },
       collector: () => collectOpenAIDocsIndex(fetch, cache),
+    },
+    /**
+     * The other two indexes of the same site. A guide is written against the model that is current
+     * when it is written and a showcase project is tagged with the model that built it, so both
+     * name a model on the day a page is published rather than on the day it is announced. They sit
+     * on the same host budget as the documentation index.
+     */
+    {
+      id: "openai-learn-index",
+      vendor: "OpenAI",
+      intervalSeconds: 300,
+      pace: { group: "discovery:docs-openai", seconds: 5 },
+      collector: () => collectOpenAILearnIndex(fetch, cache),
+    },
+    {
+      id: "openai-showcase-index",
+      vendor: "OpenAI",
+      intervalSeconds: 600,
+      pace: { group: "discovery:docs-openai", seconds: 5 },
+      collector: () => collectOpenAIShowcaseIndex(fetch, cache),
     },
     {
       id: "anthropic-routes",

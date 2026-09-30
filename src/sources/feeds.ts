@@ -343,6 +343,65 @@ export async function collectNvidiaDeveloperBlog(request: Fetch = fetch, cache?:
   });
 }
 
+const OPENAI_DEPLOYMENT_SAFETY_URL = "https://deploymentsafety.openai.com/";
+const OPENAI_DEPLOYMENT_SAFETY_FEED_URL = "https://deploymentsafety.openai.com/rss.xml";
+const OPENAI_DEPLOYMENT_SAFETY_SITEMAP_URL = "https://deploymentsafety.openai.com/sitemap.xml";
+
+/** A `<loc>` of the safety hub's sitemap. Read for its path; see `deploymentSafetyCards`. */
+const SITEMAP_LOCATION = /<loc>\s*([^<\s]+)\s*<\/loc>/g;
+/** The hub's own furniture, which is not a system card. */
+const NOT_A_CARD = new Set(["", "about", "index", "search", "tags", "categories"]);
+
+/**
+ * The system cards the hub has built, from its sitemap, which lists a card before the feed does.
+ *
+ * A card is a slug with a section under it -- `/gpt-6-astra/`, `/gpt-6-astra/evaluations/` -- so
+ * the cards are the distinct first path segments, and the 1,146 locations collapse to a few dozen.
+ *
+ * The origin of a `<loc>` is thrown away rather than used. Measured 2026-09-29, every entry of
+ * this sitemap reads `http://localhost:4321/...`: the site is built by a static generator that was
+ * never told its public address, and following those URLs reaches a development server on the
+ * machine doing the reading. The path is the only part of the line that means anything, so the
+ * address is rebuilt against the hub's own origin. This also survives the day OpenAI fixes it.
+ */
+export function deploymentSafetyCards(xml: string): RecordData[] {
+  const cards = new Map<string, RecordData>();
+  for (const match of xml.matchAll(SITEMAP_LOCATION)) {
+    // A relative `<loc>` is invalid in a sitemap, but a base costs nothing and an exception here
+    // would lose every card after the malformed line.
+    const path = URL.parse(match[1] ?? "", OPENAI_DEPLOYMENT_SAFETY_URL)?.pathname;
+    const slug = (path ?? "").split("/").filter(Boolean)[0]?.toLowerCase();
+    if (!slug || NOT_A_CARD.has(slug) || slug.includes(".")) continue;
+    const url = new URL(`/${slug}/`, OPENAI_DEPLOYMENT_SAFETY_URL).toString();
+    // The feed's own title wins wherever there is one; this is the name for a card it has not
+    // reached yet, which is the only reason the sitemap is read at all.
+    if (!cards.has(url)) cards.set(url, { id: url, name: slug.replaceAll("-", " "), url, maker: "OpenAI" });
+  }
+  return [...cards.values()];
+}
+
+/**
+ * OpenAI's deployment safety hub: the system cards, and the cards the feed has not announced.
+ *
+ * A system card names the model it is about and is published with the launch or before it -- the
+ * GPT-6 Astra card on 2026-09-03, its GPT-6.1 Sol addendum on 2026-09-29 -- and nothing here was
+ * reading the hub at all. It is the alignment blog's sibling and is collected the same way: the
+ * feed for what has been said, the index beside it for what has been built and not yet said.
+ */
+export async function collectOpenAIDeploymentSafety(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
+  const feed = parseOfficialFeed(await fetchText(OPENAI_DEPLOYMENT_SAFETY_FEED_URL, {}, request, undefined, cache), {
+    source: "openai-deployment-safety",
+    maker: "OpenAI",
+    url: OPENAI_DEPLOYMENT_SAFETY_URL,
+  });
+  const cards = deploymentSafetyCards(
+    await fetchText(OPENAI_DEPLOYMENT_SAFETY_SITEMAP_URL, {}, request, undefined, cache),
+  );
+  if (!cards.length) throw new Error("openai-deployment-safety: sitemap listed no system card");
+  const records = [...new Map([...cards, ...feed.records].map((record) => [record.id, record])).values()];
+  return { ...feed, records };
+}
+
 const OPENAI_ALIGNMENT_FEED_URL = "https://alignment.openai.com/rss.xml";
 const OPENAI_ALIGNMENT_URL = "https://alignment.openai.com/";
 const OPENAI_MISALIGNMENT_REPORTS_URL = "https://alignment.openai.com/misalignment-reports/";

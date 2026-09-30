@@ -1,5 +1,6 @@
 /**
- * Two more pages of OpenAI's developer site, read for what they say before anyone announces it.
+ * The indexes and the price table of OpenAI's developer site, read for what they say before
+ * anyone announces it.
  *
  * The documentation index lists every guide the site publishes, with the sentence the site gives
  * it. A model ships with its guides -- "Upgrading to GPT-5.6 Sol" is a page, and the GPT-6 guide's
@@ -20,11 +21,19 @@ import { modelIdsInText } from "./modelMentions.js";
 
 const OPENAI_DOCS_INDEX_URL = "https://developers.openai.com/api/docs/llms.txt";
 const OPENAI_DOCS_URL = "https://developers.openai.com/api/docs";
+const OPENAI_LEARN_INDEX_URL = "https://developers.openai.com/learn/llms.txt";
+const OPENAI_LEARN_URL = "https://developers.openai.com/learn";
+const OPENAI_COOKBOOK_URL = "https://developers.openai.com/cookbook";
+const OPENAI_SHOWCASE_INDEX_URL = "https://developers.openai.com/showcase/llms.txt";
+const OPENAI_SHOWCASE_URL = "https://developers.openai.com/showcase";
 const OPENAI_PRICING_FETCH_URL = "https://developers.openai.com/api/docs/pricing.md";
 const OPENAI_PRICING_URL = "https://developers.openai.com/api/docs/pricing";
 
-/** An entry of the index: a title, the page's Markdown twin, and the sentence the site gives it. */
-const DOCS_ENTRY = /^-\s*\[([^\]]+)\]\((https:\/\/developers\.openai\.com\/api\/docs\/([^)]+?)\.md)\)\s*:?\s*(.*)$/gim;
+/** An entry of an index: a title, a page on the site, and the sentence the site gives it. */
+const INDEX_ENTRY = /^-\s*\[([^\]]+)\]\((https:\/\/developers\.openai\.com\/[^)\s]+?)\)\s*:?\s*(.*)$/gim;
+
+/** An index's own bulk export, which is every page it lists in one body rather than a page. */
+const BULK_EXPORT = /\.(?:txt|json|xml|ya?ml|csv)$/i;
 
 /** A price table row: the model in the first cell, and a dollar figure in at least one of the rest. */
 const PRICE_ROW = /^\|\s*([a-z0-9][a-z0-9.-]*)\s*\|(.+)\|\s*$/gim;
@@ -33,31 +42,115 @@ const HEADER_ROW = /^\|\s*Model\s*\|(.+)\|\s*$/gim;
 const SECTION = /^##+\s*(.+?)\s*$/gm;
 const DOLLARS = /\$\s*([\d.]+)/;
 
-export function parseOpenAIDocsIndex(markdown: string): Collection {
+/** One `llms.txt` of the developer site: which pages it lists, and how to read each entry. */
+type SiteIndex = {
+  source: string;
+  /** Entries under these prefixes are this index's own pages; everything else it links is somebody else's. */
+  prefixes: readonly string[];
+  url: string;
+  /**
+   * Whether to keep the model ids the entry names as a field of its own. The showcase says
+   * "Models: gpt-6, gpt-image-2" in as many words, so its records carry the tags and a project
+   * retagged to a newer model is a change rather than a new page.
+   */
+  tagged?: true;
+};
+
+/**
+ * The pages of one index that name a model, as records.
+ *
+ * Only entries under the index's own prefixes are kept, and an index owns the paths nothing else
+ * here reads. The learn index is mostly other people's addresses: eighteen GitHub repositories
+ * that are read as repositories elsewhere, fifty YouTube and webinar recordings, and the whole
+ * `platform.openai.com` guide set. It also lists `api/docs/guides/...`, which the documentation
+ * index already carries -- kept here too, the same guide would arrive twice under two ids from two
+ * sources, and the second one would read as a page that had just appeared.
+ */
+function parseSiteIndex(markdown: string, index: SiteIndex): Collection {
   const records: RecordData[] = [];
   const seen = new Set<string>();
   let entries = 0;
-  for (const match of markdown.matchAll(DOCS_ENTRY)) {
+  for (const match of markdown.matchAll(INDEX_ENTRY)) {
     entries++;
-    const path = (match[3] ?? "").toLowerCase();
+    const href = (match[2] ?? "").trim();
+    const prefix = index.prefixes.find((candidate) => href.startsWith(`${candidate}/`));
+    if (!prefix) continue;
     const title = (match[1] ?? "").trim();
-    const summary = (match[4] ?? "").trim();
+    const summary = (match[3] ?? "").trim();
+    // A page and its Markdown twin are one page: the learn index lists `learn/docs-mcp.md` and
+    // `learn/docs-mcp`, and they are not two guides.
+    const rest = href.slice(prefix.length + 1).replace(/\.md$/i, "");
+    const url = `${prefix}/${rest}`;
+    // A bulk export is not a page. The learn index links `llms-full.txt`, every guide it already
+    // lists concatenated into one body, which names every model the whole site mentions on the day
+    // it is read. Only these extensions are refused, because a path is also where a version lives:
+    // `image-gen-1.5-prompting_guide` is a guide to gpt-image-1.5 and not a file called `5`.
+    if (!rest || BULK_EXPORT.test(rest)) continue;
+    // The id is the page's path under the index it belongs to, not its title, so a retitled page
+    // stays the page it was. An index that reaches outside its own base keeps the rest of the path.
+    const path = (URL.parse(url)?.pathname ?? "")
+      .replace(new RegExp(`^${URL.parse(index.url)?.pathname ?? ""}/`), "")
+      .replace(/^\//, "")
+      .toLowerCase();
     if (!path || seen.has(path)) continue;
-    // A guide is a sighting only when it names a model; the rest of the index is the API's manual.
-    if (!modelIdsInText(`${title} ${summary}`).size) continue;
+    // A page is a sighting only when it names a model; the rest of an index is the site's manual.
+    const models = modelIdsInText(`${title} ${summary}`);
+    if (!models.size) continue;
     seen.add(path);
     records.push({
       id: path,
       name: title || path,
-      url: `${OPENAI_DOCS_URL}/${path}`,
+      url,
       maker: "OpenAI",
       source: "documentation",
       ...(summary ? { summary } : {}),
+      ...(index.tagged ? { models: [...models.keys()].sort() } : {}),
     });
   }
   // An index this parser can no longer read looks exactly like a site that documents nothing.
-  if (!entries) throw new Error("OpenAI documentation index listed no page");
-  return { source: "openai-docs-index", stream: "pages", url: OPENAI_DOCS_URL, raw: [...seen].sort(), records };
+  if (!entries) throw new Error(`${index.source} listed no page`);
+  return { source: index.source, stream: "pages", url: index.url, raw: [...seen].sort(), records };
+}
+
+export function parseOpenAIDocsIndex(markdown: string): Collection {
+  return parseSiteIndex(markdown, {
+    source: "openai-docs-index",
+    prefixes: [OPENAI_DOCS_URL],
+    url: OPENAI_DOCS_URL,
+  });
+}
+
+/**
+ * The learn index: the guides and walkthroughs written for a model, rather than its reference.
+ *
+ * A use-case page is written against whatever model is current when it is written, and on
+ * 2026-09-29 eight of them named a model in prose -- `gpt-6.1-sol` on four, `gpt-5.6-terra` on the
+ * iOS page -- while this service read only `api/docs/llms.txt` and saw none of them. The cookbook
+ * is listed by the same index and is the same kind of page: "GPT-5.2 Prompting Guide" is a model's
+ * name in a title, written by the people who shipped it.
+ */
+export function parseOpenAILearnIndex(markdown: string): Collection {
+  return parseSiteIndex(markdown, {
+    source: "openai-learn-index",
+    prefixes: [OPENAI_LEARN_URL, OPENAI_COOKBOOK_URL],
+    url: OPENAI_LEARN_URL,
+  });
+}
+
+/**
+ * The showcase index: what OpenAI says its own models built, with the models named as tags.
+ *
+ * This is the one index of the three that states the model instead of mentioning it, so it is the
+ * one read for its tags. Twenty of the seventy-three projects carried `gpt-6` on 2026-09-29, and a
+ * tag arrives here on the day a project is published rather than on the day a model is announced.
+ */
+export function parseOpenAIShowcaseIndex(markdown: string): Collection {
+  return parseSiteIndex(markdown, {
+    source: "openai-showcase-index",
+    prefixes: [OPENAI_SHOWCASE_URL],
+    url: OPENAI_SHOWCASE_URL,
+    tagged: true,
+  });
 }
 
 export function parseOpenAIPricing(markdown: string): Collection {
@@ -113,6 +206,14 @@ export function parseOpenAIPricing(markdown: string): Collection {
 
 export async function collectOpenAIDocsIndex(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
   return parseOpenAIDocsIndex(await fetchText(OPENAI_DOCS_INDEX_URL, {}, request, undefined, cache));
+}
+
+export async function collectOpenAILearnIndex(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
+  return parseOpenAILearnIndex(await fetchText(OPENAI_LEARN_INDEX_URL, {}, request, undefined, cache));
+}
+
+export async function collectOpenAIShowcaseIndex(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
+  return parseOpenAIShowcaseIndex(await fetchText(OPENAI_SHOWCASE_INDEX_URL, {}, request, undefined, cache));
 }
 
 export async function collectOpenAIPricing(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {

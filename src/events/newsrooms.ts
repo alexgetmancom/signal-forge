@@ -28,6 +28,7 @@ export const NEWSROOMS = new Set([
   "deepmind-blog",
   "nvidia-developer-blog",
   "openai-alignment",
+  "openai-deployment-safety",
   "hackernews",
 ]);
 
@@ -157,8 +158,10 @@ export function articleTopic(event: Event): "feature" | "safety" | "research" | 
   const record = recordFor(event);
   const title = `${text(record?.name) ?? ""} ${event.stream === "pages" ? (text(record?.id) ?? "").replaceAll(/[/_-]+/g, " ") : ""}`;
   const firstParty = event.source !== "hackernews" && event.kind === "new";
-  // Everything an alignment team publishes is about how models misbehave, whatever its title says.
-  if (event.source === "openai-alignment" || SAFETY.test(title)) return "safety";
+  // Everything an alignment team publishes is about how models misbehave, and a system card is the
+  // safety report on one model, whatever either of them puts in a title.
+  if (event.source === "openai-alignment" || event.source === "openai-deployment-safety" || SAFETY.test(title))
+    return "safety";
   // "Build voice experiences with GPT-Live-1 in the API" reads like a customer story and is a
   // capability reaching developers.
   if (firstParty && /\bin the api\b/i.test(title)) return "feature";
