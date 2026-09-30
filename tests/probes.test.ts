@@ -39,8 +39,9 @@ test("a documentation page that exists for an unannounced model is a sighting", 
   if (!anthropic) throw new Error("the Anthropic probe is gone");
   const agents: string[] = [];
   const pages = answering({
-    "https://platform.claude.com/docs/en/models/opus-5-5/overview": "the model we ship",
-    "https://platform.claude.com/docs/en/models/opus-6/overview": "the model we have not announced",
+    "https://platform.claude.com/docs/en/models/opus-5-5/overview":
+      "<title>Claude Opus 5.5 - Claude Platform Docs</title>",
+    "https://platform.claude.com/docs/en/models/opus-6/overview": "<title>Claude Opus 6 - Claude Platform Docs</title>",
   });
   const request = async (url: string, init?: RequestInit) => {
     agents.push(new Headers(init?.headers).get("user-agent") ?? "");
@@ -57,6 +58,54 @@ test("a probe whose control has moved is a failure, not an empty answer", async 
   await expect(collectDocsProbe(catalogue(["claude-opus-5-5"]), anthropic, answering({}))).rejects.toThrow(
     "opus-5-5 answered HTTP 404",
   );
+});
+
+test("Anthropic soft 404s, generic shells and another model's page never become sightings", async () => {
+  if (!anthropic) throw new Error("the Anthropic probe is gone");
+  const control = "<title>Claude Opus 5.5 - Claude Platform Docs</title>";
+  for (const miss of [
+    '<html id="__next_error__"><title>Documentation | Claude Platform</title></html>',
+    "<title>Claude Opus 6 - Claude Platform Docs</title><script>NEXT_HTTP_ERROR_FALLBACK;404</script>",
+    "<title>Documentation | Claude Platform</title>",
+    control,
+  ]) {
+    const db = catalogue(["claude-opus-5-5"]);
+    const request = async (url: string) => new Response(url.includes("opus-5-5") ? control : miss, { status: 200 });
+    const collection = await collectDocsProbe(db, anthropic, request);
+    expect(collection.records).toEqual([]);
+    db.close();
+  }
+});
+
+test("a known Anthropic model returning an error shell aborts before asking guessed versions", async () => {
+  if (!anthropic) throw new Error("the Anthropic probe is gone");
+  const db = catalogue(["claude-opus-5-5"]);
+  const asked: string[] = [];
+  const request = async (url: string) => {
+    asked.push(url);
+    return new Response('<html id="__next_error__"></html>', { status: 200 });
+  };
+  await expect(collectDocsProbe(db, anthropic, request)).rejects.toThrow(
+    "known model did not return its documentation",
+  );
+  expect(asked).toEqual([anthropic.url("opus-5-5")]);
+  db.close();
+});
+
+test("status-only sites abort when their nonexistent control looks real or cannot be checked", async () => {
+  const openai = PROBE_SITES.find((site) => site.id === "discovery:docs-openai");
+  if (!openai) throw new Error("the OpenAI probe is gone");
+  for (const status of [200, 403, 429, 500]) {
+    const db = catalogue(["gpt-6-sol"]);
+    const asked: string[] = [];
+    const request = async (url: string) => {
+      asked.push(url);
+      return new Response("a generic page", { status: url.endsWith("gpt-6-sol") ? 200 : status });
+    };
+    await expect(collectDocsProbe(db, openai, request)).rejects.toThrow("nonexistent model control");
+    expect(asked).toEqual([openai.url("gpt-6-sol"), openai.url("signalforge-nonexistent-model")]);
+    db.close();
+  }
 });
 
 /** A lab page as OpenCode serves one: its own models in full, and every lab it knows by name. */
@@ -430,6 +479,7 @@ test("Z.ai is asked about no name a catalogue only aliases", async () => {
     "glm-5.5",
     "glm-6",
     "glm-6.5",
+    "signalforge-nonexistent-model",
   ]);
 });
 
@@ -457,7 +507,9 @@ test("a maker that numbers its models without a codename gains no questions", as
   const asked: string[] = [];
   const watching = (async (input: string | URL) => {
     asked.push(String(input).split("/").at(-2) ?? "");
-    return new Response("a page", { status: String(input).includes("opus-5-5") ? 200 : 404 });
+    return new Response("<title>Claude Opus 5.5 - Claude Platform Docs</title>", {
+      status: String(input).includes("opus-5-5") ? 200 : 404,
+    });
   }) as unknown as typeof fetch;
   await collectDocsProbe(catalogue(["claude-opus-5-5", "claude-sonnet-5"]), anthropicProbe, watching);
   // `opus-5-5` ends in a number, not a word: nothing here is a codename to carry forward.

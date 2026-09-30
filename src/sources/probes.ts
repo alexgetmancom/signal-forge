@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { Collection, RecordData } from "../events/types.js";
 import { vendorOfName } from "../events/vendors.js";
+import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { readLatestSnapshot } from "../storage/snapshots.js";
 import { USER_AGENT } from "./http.js";
@@ -81,6 +82,8 @@ export type Site = {
   spell: (observed: string) => string;
   /** The shape of a name this maker gives a model beside its number, as `gpt-6-astra` is. */
   codename?: RegExp;
+  /** When HTTP status alone does not identify a document, its title must name the requested model. */
+  documentTitle?: (slug: string) => string;
   url: (slug: string) => string;
 };
 
@@ -90,9 +93,8 @@ function dotted([major, minor]: readonly [number, number]): string {
 }
 
 /**
- * The four sites answer 404 for a slug they do not have and 200 for one they do, checked against
- * both a live model and a nonsense name on 2026-09-24, and Z.ai again on 2026-09-27. The status is the whole test: no body is
- * parsed, so a redesign of the page cannot turn a miss into a sighting.
+ * Status semantics are checked against a nonexistent address on every poll. Anthropic also needs
+ * a model-specific title: on 2026-09-30 its Next.js not-found page began answering HTTP 200.
  */
 export const PROBE_SITES: readonly Site[] = [
   {
@@ -125,6 +127,10 @@ export const PROBE_SITES: readonly Site[] = [
     // The catalogue writes `claude-opus-5-5`; the documentation drops the maker's own name.
     spell: (observed) => observed.replace(/^claude-/, "").replaceAll(".", "-"),
     codename: /^claude-(?:opus|sonnet|haiku|fable|mythos)-\d+(?:[-.]\d+)?$/,
+    documentTitle: (slug) => {
+      const [family = "", major, minor] = slug.split("-");
+      return `Claude ${family[0]?.toUpperCase()}${family.slice(1)} ${major}${minor ? `.${minor}` : ""} - Claude Platform Docs`;
+    },
     url: (slug) => `https://platform.claude.com/docs/en/models/${slug}/overview`,
   },
   {
@@ -394,11 +400,13 @@ async function probe(url: string, request: Fetch): Promise<{ status: number; bod
   return { status: response.status, body: await response.text() };
 }
 
-/**
- * Every unannounced address a site answers for. Nothing is stored for a 404, which is the usual
- * answer, and the questions move on their own: they are the next versions of what the vendor has
- * out today, read from the catalogue at the moment of asking.
- */
+/** A successful transport is not a document: reject error shells and require the model's title. */
+function isDocsPage(answer: { status: number; body: string }, site: Site, slug: string): boolean {
+  if (answer.status !== 200 || /\bid=["']__next_error__["']|NEXT_HTTP_ERROR_FALLBACK;404/.test(answer.body))
+    return false;
+  return !site.documentTitle || /<title\b[^>]*>([^<]*)<\/title>/i.exec(answer.body)?.[1] === site.documentTitle(slug);
+}
+
 /**
  * How long a name that answered 404 is left alone.
  *
@@ -444,6 +452,14 @@ export async function collectDocsProbe(
   );
   const highest = furthest.version;
   const control = site.spell(furthest.observed);
+  const answered = await probe(site.url(control), request);
+  if (answered.status !== 200) throw new SourceError("http", `${site.id}: ${control} answered HTTP ${answered.status}`);
+  if (!isDocsPage(answered, site, control))
+    throw new SourceError("schema", `${site.id}: known model did not return its documentation`);
+  const missing = "signalforge-nonexistent-model";
+  const negative = await probe(site.url(missing), request);
+  if (![200, 404].includes(negative.status) || isDocsPage(negative, site, missing))
+    throw new SourceError("protocol", `${site.id}: nonexistent model control did not return a missing page`);
   const asked = previouslyAsked(db, site.id);
   const candidates = new Set<string>();
   for (const { family, version } of families) {
@@ -476,11 +492,9 @@ export async function collectDocsProbe(
     const answer = await probe(url, request).catch(() => null);
     if (!answer) continue;
     tried[slug] = { status: answer.status, at: new Date(now).toISOString() };
-    if (answer.status !== 200) continue;
+    if (!isDocsPage(answer, site, slug)) continue;
     records.push({ id: slug, name: slug, url, maker: site.vendor, source: "documentation" });
   }
-  const answered = await probe(site.url(control), request);
-  if (answered.status !== 200) throw new Error(`${site.id}: ${control} answered HTTP ${answered.status}`);
   tried[control] = { status: answered.status, at: new Date(now).toISOString() };
   // A question asked a month ago is no longer a reason not to ask again.
   const kept = Object.fromEntries(
