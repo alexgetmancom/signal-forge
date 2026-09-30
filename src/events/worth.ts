@@ -1,6 +1,8 @@
 import type { Database } from "bun:sqlite";
+import { isTellableDebut } from "./boardSignals.js";
 import { canonical } from "./canonical.js";
 import { normalizeIdentity } from "./identity.js";
+import { opensByAnnouncing } from "./newsrooms.js";
 import { recordFor } from "./record.js";
 import type { Event, RecordData } from "./types.js";
 
@@ -23,6 +25,10 @@ import type { Event, RecordData } from "./types.js";
  * One number, because two of them were two different answers to one question: this file suppressed
  * anything outside the top three while `notification.ts` called the top five reader-facing, so an
  * entry at rank four was both worth a card and not worth one depending on which guard ran.
+ *
+ * It answers one question only: how far down the table a row moving is still worth reading. A row
+ * arriving is a different question with its own number, `DEBUT_PLACES`, and both guards ask it
+ * through `isTellableDebut` so that they cannot answer it differently either.
  */
 export const TOP_PLACES = 3;
 
@@ -37,7 +43,8 @@ export function isMinorBoardMove(event: Event): boolean {
   const before = event.before_json ? (JSON.parse(event.before_json) as RecordData) : null;
   const after = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
   const place = Number(after?.rank ?? Number.NaN);
-  if (event.kind === "new") return !(Number.isFinite(place) && place <= TOP_PLACES);
+  // A debut is told to the tenth place on a board people quote; a row moving is told to the third.
+  if (event.kind === "new") return !(isTellableDebut(event) || (Number.isFinite(place) && place <= TOP_PLACES));
   if (event.kind === "removed") return Number(before?.rank ?? Number.NaN) > TOP_PLACES;
   // A change speaks when it puts something first, or takes something off the top.
   const was = Number(before?.rank ?? Number.NaN);
@@ -137,7 +144,8 @@ export function isAboutTheCompanyNotAModel(event: Event, known: readonly string[
   if (event.stream !== "news") return false;
   const body = recordFor(event);
   const title = String(body?.name ?? "");
-  if (ANNOUNCES.test(title)) return false;
+  // The title when it says so, the opening sentence when the title is a headline instead.
+  if (ANNOUNCES.test(title) || opensByAnnouncing(body)) return false;
   const haystack = normalizeIdentity([title, body?.summary, body?.description].filter(Boolean).join(" "));
   return !known.some((words) => haystack.includes(words.join(" ")));
 }

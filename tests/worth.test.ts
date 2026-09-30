@@ -1043,7 +1043,9 @@ test("the maker's own post is news beside the card, and an interface catching up
     .all()
     .map((row) => row.body)
     .join(" ");
-  expect(bodies).toContain("Introducing Claude Opus 5.5");
+  // The post's own headline is "Introducing Claude Opus 5.5"; the card names the model the post
+  // announced, which is what a reader repeats.
+  expect(bodies).toContain("Anthropic announced Claude Opus 5.5");
   expect(reasons["2026-09-22:opus-in-work"]).toBe("names_only_known_models");
   // And the maker's own page about the same model, an hour later and in a batch of its own, is the
   // same link a second time.

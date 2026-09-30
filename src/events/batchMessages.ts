@@ -2,10 +2,12 @@ import { sourceLabel } from "../sources/labels.js";
 import { clip } from "../text.js";
 import { linkDelivery, upsertDelivery } from "./batchParts.js";
 import type { BatchEvent, Delivering } from "./batchPolicy.js";
+import { boardInterest, boardPlace, isTellableDebut } from "./boardSignals.js";
 import { breakoutLine, breakoutOf } from "./breakouts.js";
 import { splitMessage } from "./canonical.js";
 import { corroborationLine, corroborationOfEvent } from "./corroboration.js";
 import { vendorOf } from "./interpretation.js";
+import { recordFor } from "./record.js";
 import type { Attachment } from "./render/attachment.js";
 import { eventAttachment } from "./render/attachment.js";
 import { oneMessage } from "./render/budget.js";
@@ -37,6 +39,40 @@ const VENDOR_EMOJIS: Record<string, string> = {
   Moonshot: "<:kimi:1551940005532803173>",
   Xiaomi: "<:xiaomi:1551940073019285555>",
 };
+
+/**
+ * Two boards, one arrival, one card.
+ *
+ * A story's events become one `storyEmbed`, which carries no picture, because a thread of several
+ * different things has no single number to put on one. A model debuting on two boards in the same
+ * collection is not that: it is one arrival seen twice, and the card a reader wants is the card the
+ * better place would have produced on its own. Gemini 4 Argon entered Arena Text at #1 and Arena
+ * Code at #8 in the same reading on 2026-09-30, and the choice was a picture of #1 with the other
+ * board lost, or both boards in a thread card with no picture at all.
+ *
+ * The picture goes to the board these readers act on rather than to the better number -- see
+ * `boardInterest` -- so the rest become chips on its picture. Null unless
+ * every event in the group is a debut, which is the only shape this is true of: a debut beside a
+ * price change is a thread, and a thread is what `storyEmbed` is for.
+ */
+function leadingDebut(group: StoryRenderEvent[]): { lead: StoryRenderEvent; others: StoryRenderEvent[] } | null {
+  if (group.length < 2 || !group.every((event) => isTellableDebut(event))) return null;
+  const placed = [...group].sort(
+    (one, other) =>
+      boardInterest(one) - boardInterest(other) || (boardPlace(one) ?? Infinity) - (boardPlace(other) ?? Infinity),
+  );
+  const [lead, ...others] = placed as [StoryRenderEvent, ...StoryRenderEvent[]];
+  return { lead, others };
+}
+
+/** "#8 code" -- the board a lesser debut landed on, short enough to sit beside a score. */
+function debutChip(event: StoryRenderEvent): string | null {
+  const place = boardPlace(event);
+  if (place === null) return null;
+  const category = recordFor(event)?.category;
+  const board = typeof category === "string" ? category.replace(/\/overall$/, "").replace(/[-_/]+/g, " ") : null;
+  return `#${place}${board ? ` ${board}` : ""}`;
+}
 
 /** The parts of one message: which stories it shows, the header above them, and their text. */
 export function messageParts(
@@ -73,8 +109,9 @@ export function messageParts(
       ? `📡 ${source} · ${speaking.length} updates\n\n`
       : "";
   const blocks = items.map((group) => {
-    if (group.length > 1) return renderStoryText(group, destination.platform, summaries);
-    const event = group[0] as StoryRenderEvent;
+    const debuts = leadingDebut(group);
+    if (group.length > 1 && !debuts) return renderStoryText(group, destination.platform, summaries);
+    const event = debuts?.lead ?? (group[0] as StoryRenderEvent);
     const rendered = renderEvent(event, event.url, destination.platform, summaries.get(event.id));
     const lines = rendered.split("\n");
     const heading = lines[0] ?? `Update · ${sourceLabel(event.source)}`;
@@ -116,16 +153,16 @@ function cardEmbeds(
   const roster = !batch.digest && items.every((group) => group.length === 1) && isRoster(items.flat());
   const rendered = roster
     ? [rosterEmbed(items.flat(), destination.detail)]
-    : items.map((group) =>
-        group.length > 1
-          ? storyEmbed(group, summaries, destination.detail)
-          : eventEmbed(
-              group[0] as StoryRenderEvent,
-              (group[0] as StoryRenderEvent).url,
-              summaries.get((group[0] as StoryRenderEvent).id),
-              destination.detail,
-            ),
-      );
+    : items.map((group) => {
+        const debuts = leadingDebut(group);
+        if (group.length > 1 && !debuts) return storyEmbed(group, summaries, destination.detail);
+        const event = debuts?.lead ?? (group[0] as StoryRenderEvent);
+        const embed = eventEmbed(event, event.url, summaries.get(event.id), destination.detail);
+        const banner = embed.banner as { chips: string[] } | undefined;
+        if (banner && debuts)
+          banner.chips = [...banner.chips, ...debuts.others.flatMap((other) => debutChip(other) ?? [])].slice(0, 3);
+        return embed;
+      });
   const embeds = distinctLinks(rendered);
   // An embed and its evidence file travel together: the page an embed lands on decides
   // which message carries its attachment.
@@ -134,7 +171,8 @@ function cardEmbeds(
   if (roster) behind.set(embeds[0] as Record<string, unknown>, items.flat());
   else
     items.forEach((group, index) => {
-      const file = group.length === 1 ? eventAttachment(group[0] as StoryRenderEvent) : null;
+      const lead = leadingDebut(group)?.lead ?? (group.length === 1 ? (group[0] as StoryRenderEvent) : null);
+      const file = lead ? eventAttachment(lead) : null;
       const embed = embeds[index];
       if (!embed) return;
       if (file) attachments.set(embed, file);

@@ -204,7 +204,9 @@ export const MIN_PRICE_CHANGE_RATIO = 0.1;
 type PriceUnit = "per-token" | "per-million";
 
 function priceUnitForSource(source?: string, value?: unknown): PriceUnit {
-  if (source === "deepseek-pricing") return "per-million";
+  // Both of these quote dollars per million tokens in the field itself: Artificial Analysis names
+  // the field `price_1m_input_tokens` and gives 2 for a model that costs two dollars.
+  if (source === "deepseek-pricing" || source === "artificial-analysis") return "per-million";
   // Keep the pure formatting helper useful for callers without source metadata; production
   // event rendering always passes the source and therefore never infers units from a JS type.
   if (!source) return typeof value === "number" ? "per-million" : "per-token";

@@ -20,6 +20,12 @@ const schema = z.object({
         evaluations: z.record(z.string(), z.unknown()).nullish(),
         median_output_tokens_per_second: z.number().nullish(),
         median_time_to_first_token_seconds: z.number().nullish(),
+        pricing: z
+          .object({
+            price_1m_input_tokens: z.number().nullish(),
+            price_1m_output_tokens: z.number().nullish(),
+          })
+          .nullish(),
       }),
     )
     .min(1),
@@ -65,6 +71,26 @@ function parseArtificialAnalysis(payload: string): Collection {
       ...(model.model_creator?.name ? { maker: model.model_creator.name } : {}),
       // Latency and throughput move with load on every reading and would make each poll an event.
       ...(model.evaluations ? { score: model.evaluations } : {}),
+      /**
+       * This site publishes what a model costs beside what it scores, and the two are read
+       * together: Gemini 4 Argon arrived here at $2 and $10 per million on 2026-09-30, which is
+       * the number the announcement was quoted for, and the schema dropped it on the way in. The
+       * rates are per million tokens, which `priceUnitForSource` is told, because the same field
+       * read as per-token turns $2 into a card claiming two million dollars.
+       */
+      ...(typeof model.pricing?.price_1m_input_tokens === "number" ||
+      typeof model.pricing?.price_1m_output_tokens === "number"
+        ? {
+            pricing: {
+              ...(typeof model.pricing.price_1m_input_tokens === "number"
+                ? { input: model.pricing.price_1m_input_tokens }
+                : {}),
+              ...(typeof model.pricing.price_1m_output_tokens === "number"
+                ? { output: model.pricing.price_1m_output_tokens }
+                : {}),
+            },
+          }
+        : {}),
       ...(places.has(model.id) ? { rank: places.get(model.id) } : {}),
     })),
   };

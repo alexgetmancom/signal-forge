@@ -7,12 +7,13 @@
  * without its filename, which the card assembles. Moved out of discord.ts unchanged.
  */
 import { sourceLabel } from "../../sources/labels.js";
-import { boardPlace, DEBUT_PLACES } from "../boardSignals.js";
+import { text } from "../../text.js";
+import { boardPlace, DEBUT_PLACES, intelligenceIndex } from "../boardSignals.js";
 import { displayTitle } from "../naming.js";
 import type { Event, RecordData } from "../types.js";
 import type { Banner } from "./banner.js";
-import { describe, type Fact } from "./common.js";
-import { dollars, priceMove, priceStep } from "./price.js";
+import { describe, type Fact, prices } from "./common.js";
+import { dollars, priceChips, priceMove, priceStep } from "./price.js";
 import { excerpt, firstSentence, pageName, place, present, shortDate } from "./words.js";
 
 /**
@@ -45,6 +46,23 @@ function boardCaption(board: string, category: string | null): string {
 }
 
 /**
+ * The model a post announces, taken off the front of its headline.
+ *
+ * A maker titles an announcement as a name and then a claim -- "Gemini 4 Argon: our next era of
+ * frontier intelligence" -- and every step that tidies a title for a card reads the claim as the
+ * title and drops the name. The name is what a reader repeats, so on this one picture it is taken
+ * before any of that tidying, from the record's own headline, and only when what comes off the
+ * front reads like a name rather than a sentence.
+ */
+export function announcedModel(record: RecordData | null, fallback: string): string {
+  // The verb belongs to the sentence the maker wrote, not to the model: "Anthropic announced
+  // Introducing Claude Opus 5.5" is what keeping it produced on every launch of the last month.
+  const headline = text(record?.name)?.replace(/^\s*(?:introducing|announcing|launching|meet|now available:?)\s+/i, "");
+  const front = headline?.split(/[:\u2013\u2014|]/)[0]?.trim();
+  return front && front.length >= 3 && front.length <= 48 && front.split(/\s+/).length <= 6 ? front : fallback;
+}
+
+/**
  * The picture for a change: the line that changed, quoted the size of a headline. Documentation, a
  * maker's changelog and a string in an interface are each read for one sentence, and all three went
  * out as a title over a table of our own bookkeeping.
@@ -62,6 +80,20 @@ export function changeBanner(
   const eyebrow = [where, shortDate(event.detected_at, true)].join(" · ");
   if (event.stream === "pages" && event.kind === "new")
     return { ...base, eyebrow, title: pageName(name), change: { mark: "+", where: "On the maker's own site" } };
+  /**
+   * A maker announcing its own model, which is the one post of the year its readers want to see
+   * coming. It gets the shape a launch gets -- the name, large, over the day it was said -- rather
+   * than a quoted sentence, because the name is what a reader repeats and the sentence is on the
+   * card underneath it. The post's own headline is not the name: "Gemini 4 Argon: our next era of
+   * frontier intelligence" is a model and then a slogan, and the slogan is what survived every
+   * other treatment of this title.
+   */
+  if (event.stream === "news" && event.kind === "new" && event.signal === "launch")
+    return {
+      ...base,
+      eyebrow: bannerEyebrow(vendor, event.detected_at, "Announced"),
+      title: announcedModel(record, name),
+    };
   // A post the maker actually wrote: a feed row carrying a headline and nothing else has nothing
   // for the picture to quote, and a picture of a name is not worth the weight of a picture.
   if (event.stream === "news" && event.kind === "new" && present(record?.summary)) {
@@ -98,6 +130,31 @@ export function changeBanner(
 }
 
 /**
+ * What a debut is read for beside its place: the rating the board scores it with, and what it costs
+ * where the board also publishes that.
+ *
+ * An arena scores in Elo and the chip says "Score 1525". Artificial Analysis scores in an index and
+ * publishes a price sheet beside it, and its whole evaluation sheet arrives under `score`, so the
+ * rule that looked for a number found an object and the card carried no chip at all -- the two
+ * numbers the announcement of Gemini 4 Argon was quoted for, 53 and $2 in / $10 out, both missing
+ * from the one card that had them.
+ */
+function debutChips(event: Event, after: RecordData | null): string[] {
+  const index = intelligenceIndex(after);
+  if (index !== null)
+    return [
+      `Index ${Number(index.toFixed(1))}`,
+      ...prices(null, after?.pricing, event.source).flatMap((fact) =>
+        typeof fact === "string" ? [] : priceChips(fact.value),
+      ),
+    ].slice(0, 3);
+  return [after?.score, after?.rating]
+    .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
+    .slice(0, 1)
+    .map((value) => `Score ${Math.round(value)}`);
+}
+
+/**
  * The picture for a card read for one number -- a debut's place, a price's move, a shutdown date --
  * so the number is what a screenshot shows first. Everything else keeps the plain card.
  */
@@ -124,10 +181,7 @@ export function numberBanner(
     return {
       ...base,
       eyebrow: bannerEyebrow(vendor, event.detected_at, "Debut"),
-      chips: [after?.score, after?.rating]
-        .filter((value): value is number => typeof value === "number" && Number.isFinite(value))
-        .slice(0, 1)
-        .map((value) => `Score ${Math.round(value)}`),
+      chips: debutChips(event, after),
       hero: {
         text: `#${rank}`,
         caption: boardCaption(board, category),

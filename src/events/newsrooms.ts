@@ -40,6 +40,22 @@ export const NEWSROOMS = new Set([
  */
 const ANNOUNCES =
   /\b(introducing|announcing|meet|launch(?:es|ing)?|now available|available (?:now|today)|releas(?:e|es|ing))\b/i;
+/**
+ * A post that opens by saying the maker is announcing something.
+ *
+ * A title is a headline before it is a sentence, and a maker is free to write one that says nothing
+ * about what it is doing: "Gemini 4 Argon: our next era of frontier intelligence" on 2026-09-30
+ * carried no verb of arrival, was classed `article`, and the launch of the day reached the public
+ * channels only as a Hacker News link to the same post thirty-one minutes later. The body of that
+ * post begins "Announcing Gemini 4 Argon". Anchored at the opening because an announcement says so
+ * first: "announcing" in the ninth paragraph of a research write-up is a word, not the subject.
+ */
+const OPENS_BY_ANNOUNCING =
+  /^\s*(?:today,?\s*)?(?:we(?:'re|'ve| are| have)\s+)?(?:introducing|announcing|launching)\b/i;
+export function opensByAnnouncing(record: RecordData | null | undefined): boolean {
+  return OPENS_BY_ANNOUNCING.test(text(record?.summary) ?? text(record?.description) ?? "");
+}
+
 export const NAMES_A_MODEL =
   /\b(?:claude|opus|sonnet|haiku|fable|mythos|gpt|o\d|gemini|gemma|grok|codex|llama|qwen|deepseek|kimi|glm|mistral|minimax)[\s-]?\d/i;
 
@@ -215,7 +231,8 @@ export function newsClass(event: Event, record: RecordData | null): SignalClass 
   }
   if (NEWSROOMS.has(event.source)) {
     const title = text(record?.name) ?? "";
-    if (event.kind === "new" && ANNOUNCES.test(title) && NAMES_A_MODEL.test(title)) return "launch";
+    if (event.kind === "new" && (ANNOUNCES.test(title) || opensByAnnouncing(record)) && NAMES_A_MODEL.test(title))
+      return "launch";
     return event.kind === "new" ? articleTopic(event) : "article";
   }
   if (event.kind !== "new") return "change";

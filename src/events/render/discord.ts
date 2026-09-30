@@ -15,6 +15,7 @@ import type { Event, RecordData } from "../types.js";
 import type { Banner } from "./banner.js";
 import {
   ANNOUNCERS,
+  announcedModel,
   bannerEyebrow,
   bannerName,
   changeBanner,
@@ -108,6 +109,13 @@ export function eventEmbed(
       detail === "evidence" || (typeof fact === "string" ? !/^> [+−] /.test(fact) : !EVIDENCE_ONLY.has(fact.label)),
   );
   const launch = isLaunch(event, vendor);
+  /**
+   * The maker's own post saying its own model exists. It is not a launch -- nobody can call the
+   * model because a blog says so, which is why `isLaunch` reads the catalogue and not the newsroom
+   * -- but it is read like one: the name in the title, the maker's own sentence kept underneath,
+   * and the picture left to say the name rather than trimmed away to a link.
+   */
+  const announced = event.stream === "news" && event.kind === "new" && event.signal === "launch";
   const stealth = isStealthLaunch(event);
   // The venue spells a stealth model `space-bunny-free` and `stealth/space-bunny-alpha`; the model
   // is Space Bunny, and the spelling stays in the handle underneath for copying.
@@ -185,14 +193,7 @@ export function eventEmbed(
             ...(sourceIcon ? { icon_url: sourceIcon } : {}),
           },
         }),
-    title: (stealth
-      ? `🚀 ${name} is out — free on ${venues.headline}`
-      : launch
-        ? `🚀 ${name} is out`
-        : newModel && event.stream !== "weights"
-          ? `🆕 ${name} on ${place(event.source)}`
-          : eventHeadline(event, name, incident)
-    ).slice(0, 250),
+    title: cardTitle({ event, record, name, vendor, incident, stealth, announced, launch, newModel, venues }),
     color,
     ...(description ? { description } : {}),
     ...(fields.length ? { fields } : {}),
@@ -266,7 +267,7 @@ export function eventEmbed(
     embed.image = { url: `attachment://${banner.filename}` };
     embed.banner = banner;
     // A change keeps its words: the picture quotes the line, and the text says what it means.
-    if (!launch && !banner.change) trimToBanner(embed, banner, handle, event.source);
+    if (!launch && !announced && !banner.change) trimToBanner(embed, banner, handle, event.source);
     // The line is on the picture now, and it was in the text cut off mid-word: "See AWS Regional
     // availa". What stays is the count, which the picture does not carry.
     else if (banner.change && typeof embed.description === "string") {
@@ -283,6 +284,32 @@ export function eventEmbed(
   // A title alone beside a logo left a logo-high empty card above; the stripe says whose it is.
   if (link) embed.url = link;
   return embed;
+}
+
+/** The one line above the picture: what happened, in the words that kind of event happens in. */
+function cardTitle(card: {
+  event: Event;
+  record: RecordData | null;
+  name: string;
+  vendor: string;
+  incident: ReturnType<typeof incidentLook>;
+  stealth: boolean;
+  announced: boolean;
+  launch: boolean;
+  newModel: boolean;
+  venues: ReturnType<typeof stealthVenues>;
+}): string {
+  const { event, record, name, vendor, stealth, announced, launch, newModel } = card;
+  const said = stealth
+    ? `🚀 ${name} is out — free on ${card.venues.headline}`
+    : announced
+      ? `🚀 ${vendor === "Unknown" ? "" : `${vendor} announced `}${announcedModel(record, name)}`.trim()
+      : launch
+        ? `🚀 ${name} is out`
+        : newModel && event.stream !== "weights"
+          ? `🆕 ${name} on ${place(event.source)}`
+          : eventHeadline(event, name, card.incident);
+  return said.slice(0, 250);
 }
 
 /**

@@ -1,3 +1,4 @@
+import { DEBUT_PLACES, isTellableDebut } from "./boardSignals.js";
 import { canonical } from "./canonical.js";
 import { incidentSilence } from "./incidents.js";
 import { MIN_PRICE_CHANGE_RATIO, priceMoveRatio, significantPriceChange, webStringChanges } from "./render/common.js";
@@ -34,7 +35,12 @@ function leaderboardSilence(event: Event): string | null {
   const beforeRank = rank(before?.rank);
   const afterRank = rank(after?.rank);
   const outsideTop = `Leaderboard movement outside the top ${TOP_PLACES}`;
-  if (event.kind === "new") return afterRank !== null && afterRank <= TOP_PLACES ? null : outsideTop;
+  // A new row near the top of a board people quote is a debut, and told to the tenth place; the
+  // same gate as `isMinorBoardMove`, which used to answer this question differently.
+  if (event.kind === "new")
+    return isTellableDebut(event) || (afterRank !== null && afterRank <= TOP_PLACES)
+      ? null
+      : `Leaderboard debut outside the top ${DEBUT_PLACES}`;
   if (event.kind === "removed") return beforeRank !== null && beforeRank <= TOP_PLACES ? null : outsideTop;
   if (beforeRank === null || afterRank === null)
     return (beforeRank !== null && beforeRank <= TOP_PLACES) || (afterRank !== null && afterRank <= TOP_PLACES)

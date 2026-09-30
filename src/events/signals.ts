@@ -14,7 +14,9 @@ export { SIGNAL_CLASSES, type SignalClass } from "./types.js";
  * The class of an event, derived from the same evidence the card is rendered from.
  *
  * `launch`: something a reader can call now, or an outage the vendor graded severe that has just
- *   started. A row appearing in the vendor's own API catalogue.
+ *   started. A row appearing in the vendor's own API catalogue, and the maker's own post saying its
+ *   own model exists -- that post is the launch as its maker tells it, and it reaches the same
+ *   readers for the same reason, which is why it is this class rather than a second one beside it.
  * `retirement`: the vendor's own word that a model or feature is going away, which is the one
  *   changelog entry a reader has to act on by a date.
  * `codename`: something on its way. An arena sighting, an entry listed but not yet selectable, a
