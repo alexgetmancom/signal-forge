@@ -347,9 +347,7 @@ export function cataloguesSources({ db, config, cache }: SourceContext): SourceE
         id: `huggingface:${author}`,
         // A lab's weights often land before its API lists them; the rest are read at the old pace.
         intervalSeconds: HF_LABS.has(author) ? 300 + index * 5 : 1800 + index * 90,
-        // Full Google catalogue: 1,136 repositories, 34 MB of lasting allocation in source-cost.
-        heavy: author === "google",
-        collector: () => collectHuggingFace(db, author, config.HF_TOKEN, fetch),
+        collector: () => collectHuggingFace(author, config.HF_TOKEN, fetch, cache),
       })),
     ),
   ];

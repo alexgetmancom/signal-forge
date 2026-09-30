@@ -1034,12 +1034,7 @@ test("Hugging Face uses its account allowance when a token is configured", async
       },
     ]);
   };
-  const db = openDatabase(":memory:");
-  try {
-    await collectHuggingFace(db, "openai", "test-token", request);
-  } finally {
-    db.close();
-  }
+  await collectHuggingFace("openai", "test-token", request);
   expect(authorizations).toEqual(["Bearer test-token"]);
 });
 

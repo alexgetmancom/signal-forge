@@ -342,7 +342,7 @@ export function rosterEmbed(
     const event = events[index] as Event;
     const title = String(card.title ?? "")
       .replace(/^\S+\s+/, "")
-      .replace(/ (?:is out|on .+|appears on Hugging Face)$/, "");
+      .replace(/ (?:is out|on .+)$/, "");
     const spec =
       typeof card.description === "string" ? /^\*\*.+ context.*$|^\*\*.+per 1M tokens$/m.exec(card.description) : null;
     const fields = ((card.fields ?? []) as { name: string; value: string }[])
@@ -359,10 +359,7 @@ export function rosterEmbed(
     return [head, ...under].join(" · ");
   });
   const embed: Record<string, unknown> = {
-    title:
-      first.stream === "weights" && first.source.startsWith("huggingface:")
-        ? `📦 ${events.length} ${maker ? `${maker} ` : ""}weight repositories appear on Hugging Face`
-        : `🚀 ${events.length} new ${maker ? `${maker} ` : ""}models`,
+    title: `🚀 ${events.length} new ${maker ? `${maker} ` : ""}models`,
     color: cardColor({ stream: first.stream, kind: "new", vendor, branded: true }),
     description: clipLines(lines, DESCRIPTION_CHARACTERS),
     timestamp: new Date(first.detected_at).toISOString(),
