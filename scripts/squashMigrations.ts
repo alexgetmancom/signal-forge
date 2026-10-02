@@ -10,9 +10,9 @@
  *
  * It does not trust itself. The old journal is replayed through the same runner a deployment uses,
  * the new one is replayed beside it, and the file is not offered unless the two schemas agree on
- * every table, column, default, constraint, foreign key and index. It also refuses the two things a
- * schema dump cannot carry and would lose without saying so: rows a migration inserted, and
- * anything that is not a table or an index.
+ * every table, column, default, constraint, foreign key, index, view and trigger. It also refuses
+ * the one thing a schema dump cannot carry and would lose without saying so: rows a migration
+ * inserted.
  */
 import type { Database } from "bun:sqlite";
 import { openWithoutMigrating } from "../src/storage/database.js";
@@ -68,16 +68,11 @@ function withoutComments(sql: string): string {
 }
 
 /**
- * A baseline carries a schema and nothing else, so anything beyond that is refused rather than
- * dropped: a row a migration inserted would not be in the new database, and a trigger would not
- * either. Both are things a person has to decide how to keep.
+ * A baseline carries a schema and nothing else, so a row a migration inserted is refused rather
+ * than dropped: it would not be in the new database, and nothing in the file would say it was
+ * missing. Whether it matters is for a person to decide.
  */
-function refuseWhatADumpWouldLose(db: Database, objects: readonly SchemaObject[]): void {
-  const foreign = objects.find((object) => object.type !== "table" && object.type !== "index");
-  if (foreign)
-    throw new Error(
-      `The journal creates a ${foreign.type}, ${foreign.name}; a baseline carries tables and indexes only`,
-    );
+function refuseRows(db: Database, objects: readonly SchemaObject[]): void {
   for (const table of objects.filter((object) => object.type === "table")) {
     const rows = db.query<{ n: number }, []>(`SELECT COUNT(*) AS n FROM ${identifier(table.name)}`).get()?.n ?? 0;
     if (rows)
@@ -255,7 +250,7 @@ export function squash(journal: readonly Migration[], through: number): Squash {
 
   const built = replay(replaces);
   const objects = schemaObjects(built);
-  refuseWhatADumpWouldLose(built, objects);
+  refuseRows(built, objects);
   const earlier = [...first.sql.matchAll(/^CREATE TABLE (\w+)/gm)].map((match) => match[1] ?? "");
   const blocks = inCreationOrder(
     objects.filter((object) => object.type === "table"),
@@ -268,6 +263,12 @@ export function squash(journal: readonly Migration[], through: number): Squash {
         .map((i) => layOutIndex(i.sql)),
     ].join("\n"),
   );
+  // Views and triggers read the tables, so they come after all of them, in the order they were made.
+  const readers = objects.filter((object) => object.type === "view" || object.type === "trigger");
+  if (readers.length)
+    blocks.push(
+      `-- Views and triggers, which read the tables above.\n${readers.map((one) => `${one.sql.trim()};`).join("\n\n")}`,
+    );
   const filename = `${padded(through)}_baseline.sql`;
   const sql = `${header(first.version, through, replaces.length)}${blocks.join("\n\n")}\n${STATISTICS}`;
 

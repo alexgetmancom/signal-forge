@@ -68,6 +68,26 @@ describe("squashing a journal", () => {
   });
 });
 
+describe("views and triggers", () => {
+  test("are carried after every table, because they read them", () => {
+    const withReaders = [
+      ...journal,
+      migration(7, "view", "CREATE VIEW named AS SELECT name FROM owners;"),
+      migration(
+        8,
+        "trigger",
+        "CREATE TRIGGER owners_named AFTER INSERT ON owners BEGIN UPDATE owners SET name = upper(name) WHERE id = NEW.id; END;",
+      ),
+    ];
+    const { sql } = squash(withReaders, 8);
+    expect(sql).toContain("-- Views and triggers, which read the tables above.");
+    expect(sql).toContain("CREATE VIEW named AS SELECT name FROM owners;");
+    expect(sql).toContain("CREATE TRIGGER owners_named AFTER INSERT ON owners BEGIN");
+    expect(sql.indexOf("CREATE VIEW")).toBeGreaterThan(sql.indexOf("CREATE TABLE toys"));
+    expect(sql.indexOf("CREATE TRIGGER")).toBeGreaterThan(sql.indexOf("CREATE VIEW"));
+  });
+});
+
 describe("what it refuses", () => {
   test("a version that is already the baseline, or that does not exist", () => {
     expect(() => squash(journal, 3)).toThrow("already the baseline");
@@ -78,10 +98,5 @@ describe("what it refuses", () => {
   test("a journal that leaves rows behind, because a baseline carries the schema and not data", () => {
     const seeded = [...journal, migration(7, "seed", "INSERT INTO owners(id, name) VALUES (1, 'a');")];
     expect(() => squash(seeded, 7)).toThrow("leaves 1 rows in owners");
-  });
-
-  test("a trigger or a view, which would be dropped without a word", () => {
-    const withView = [...journal, migration(7, "view", "CREATE VIEW named AS SELECT name FROM owners;")];
-    expect(() => squash(withView, 7)).toThrow("creates a view, named");
   });
 });
