@@ -2,14 +2,10 @@ import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { Destination } from "../config.js";
 import { collectionDegraded, SourceError } from "../failure.js";
-import { finite } from "../finite.js";
 import { storeSnapshot } from "../storage/snapshots.js";
 import { canonical } from "./canonical.js";
-import { classify } from "./classify.js";
-import { isRoutine } from "./interpretation.js";
-import { hasNotificationContent } from "./notification.js";
-import { isStealthLaunch } from "./resellers.js";
-import type { SignalClass } from "./signals.js";
+import { comparisonBody, hasMoved } from "./changeDetection.js";
+import { classifyEmitted, onNewBoard, routeEmitted } from "./routing.js";
 import type { Collection, Confidence, Event, EvidenceType, SourceAuthority } from "./types.js";
 
 const normalizedRecord = z.object({
@@ -46,158 +42,6 @@ function validateRecords(source: string, records: Collection["records"]): void {
  */
 function suspiciousShrink(previousCount: number, retainedCount: number): boolean {
   return previousCount - retainedCount >= MIN_SUSPICIOUS_SHRINK && retainedCount * 4 < previousCount * 3;
-}
-
-/**
- * A board position is not a property of the model standing in it.
- *
- * A rank moves whenever anyone above moves, so one model passing another moves every model below
- * it and one real change arrives as a change per row: designarena produced 704 change events in
- * eleven days and not one of them carried a score or a metric that had moved. This is the same
- * reason `rankLower` and `rankUpper` were kept out of the metrics sweep in sources/arena.ts.
- *
- * The top of the board is the exception, because it is the only part anything downstream speaks
- * about: `isMinorBoardMove` passes a change that puts something first or takes it off the top, the
- * scouts' morning names big climbs into the top ten, and dithering is read off ranks that keep
- * returning to a place they held. Those all live inside ten. Records are collected down to
- * `RANKED_PLACES`, twenty, and the half of the board below ten is cascade and nothing else: of
- * designarena's 865 change events, 428 never involved a place inside the top ten.
- */
-const SIGNIFICANT_PLACES = 10;
-
-function comparable(record: Record<string, unknown>): Record<string, unknown> {
-  const copy = { ...record };
-  delete copy.sampledAt;
-  delete copy.votes;
-  const place = finite(copy.rank);
-  if (place !== null && place > SIGNIFICANT_PLACES) delete copy.rank;
-  return copy;
-}
-
-/**
- * Fields that move on every poll and never made a card. Measured on production 2026-09-22 over a
- * week: 332 of 375 Polymarket changes were liquidity alone, 700 of 771 on the Hugging Face router
- * were the list of providers serving a model, 194 of 352 on models.dev its provider count. Each kept
- * its snapshot from being pruned, and the market pages alone held 52 MB. The record still takes the
- * new value; only the event is not written.
- */
-const RESTLESS_FIELDS: Readonly<Record<string, readonly string[]>> = {
-  markets: ["liquidityUsd"],
-  "api-models": ["providers", "providerCount", "created"],
-};
-
-/**
- * Verdicts this service stamps onto a record itself, which no source ever published.
- *
- * `audience` is written by the judge in sources/audienceJudge.ts, not by the vendor, and it is
- * already in the NOISE set that keeps it off a card. A verdict arriving late is this service
- * catching up with itself, not the release note changing: 272 of the 275 stored ChatGPT release
- * notes predate the judge, and back-filling them would otherwise write 272 change events about
- * text nobody touched.
- */
-const OWN_VERDICTS: readonly string[] = ["audience"];
-
-function comparisonBody(stream: string, body: string): string {
-  const restless = RESTLESS_FIELDS[stream];
-  try {
-    const record = JSON.parse(body) as Record<string, unknown>;
-    if (stream === "leaderboards") return canonical(comparable(record));
-    const ignored = [...OWN_VERDICTS, ...(restless ?? [])];
-    return canonical(Object.fromEntries(Object.entries(record).filter(([key]) => !ignored.includes(key))));
-  } catch {
-    return body;
-  }
-}
-
-/**
- * How far a number may drift before the drift is the news rather than the measurement.
- *
- * A board that publishes a confidence interval says this itself and is believed. A board that
- * publishes none was being compared exactly, because the width fell back to the score and the
- * overlap test became equality: voxelbench and the artificial-analysis boards produced 2688 change
- * events in eleven days, every one of them a score and nothing else. A quarter of a per cent is
- * narrower than any move those boards have ever reported as meaningful.
- */
-const IMPLIED_INTERVAL = 0.0025;
-
-function interval(record: Record<string, unknown>): { lower: number; upper: number } | null {
-  const score = finite(record.score);
-  if (score === null) return null;
-  const lower = finite(record.scoreLower);
-  const upper = finite(record.scoreUpper);
-  if (lower !== null && upper !== null) return { lower, upper };
-  const width = Math.abs(score) * IMPLIED_INTERVAL;
-  return { lower: score - width, upper: score + width };
-}
-
-/**
- * True while every metric the board reports is where it was, within its own width.
- *
- * `metrics` holds whatever numbers the board publishes beside the rating, swept up by name in
- * sources/arena.ts. They drift exactly as the rating does, and comparing them exactly defeated the
- * overlap test beside them: 740 of the arena's 812 change events had a rating whose interval had
- * not moved and a metric that had, in the last digit.
- */
-function metricsSettled(previous: Record<string, unknown>, current: Record<string, unknown>): boolean {
-  const before = previous.metrics;
-  const after = current.metrics;
-  const isMetrics = (value: unknown): value is Record<string, unknown> =>
-    typeof value === "object" && value !== null && !Array.isArray(value);
-  if (!isMetrics(before) || !isMetrics(after)) return canonical(before) === canonical(after);
-  for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
-    const was = finite(before[key]);
-    const now = finite(after[key]);
-    if (was === null || now === null) {
-      if (canonical(before[key]) !== canonical(after[key])) return false;
-      continue;
-    }
-    if (Math.abs(now - was) > Math.abs(was) * IMPLIED_INTERVAL) return false;
-  }
-  return true;
-}
-
-function leaderboardChange(before: string, after: string): boolean {
-  if (comparisonBody("leaderboards", before) === comparisonBody("leaderboards", after)) return false;
-  try {
-    const previous = JSON.parse(before) as Record<string, unknown>;
-    const current = JSON.parse(after) as Record<string, unknown>;
-    const besideTheNumbers = (record: Record<string, unknown>): string => {
-      const copy = comparable(record);
-      for (const key of ["score", "scoreUpper", "scoreLower", "metrics"]) delete copy[key];
-      return canonical(copy);
-    };
-    const previousInterval = interval(previous);
-    const currentInterval = interval(current);
-    const intervalsOverlap =
-      previousInterval !== null &&
-      currentInterval !== null &&
-      previousInterval.lower <= currentInterval.upper &&
-      currentInterval.lower <= previousInterval.upper;
-    if (
-      intervalsOverlap &&
-      metricsSettled(previous, current) &&
-      besideTheNumbers(previous) === besideTheNumbers(current)
-    )
-      return false;
-  } catch {
-    return true;
-  }
-  return true;
-}
-
-function urlInBody(body: string | null, fallback: string): string {
-  if (!body) return fallback;
-  try {
-    const record = JSON.parse(body) as Record<string, unknown>;
-    return typeof record.url === "string" && record.url.trim() ? record.url : fallback;
-  } catch {
-    return fallback;
-  }
-}
-
-function eventUrl(event: Event, fallback: string): string {
-  // The earlier body is read only when the later one names no address: most events carry both.
-  return urlInBody(event.after_json, "") || urlInBody(event.before_json, fallback);
 }
 
 const ENDED = /^(?:resolved|closed|complete|unlisted)$/i;
@@ -278,26 +122,6 @@ function openEmitter(
 }
 
 /**
- * Whether an event is a debut on a board the scoreboard did not have before this collection.
- *
- * A board appearing is one fact, not ten debuts: Arena opened image-to-code on 2026-09-13 with fifty
- * models on it, seven of them in a top ten nobody had entered, because there was no board to enter
- * before.
- */
-function onNewBoard(stream: string, old: Stored[]): (event: Event) => boolean {
-  if (stream !== "leaderboards") return () => false;
-  const categoryOf = (body: string) => (JSON.parse(body) as { category?: unknown }).category;
-  // Read on the first debut rather than up front: most collections have none, and the roster it
-  // would parse is every row the board holds.
-  let boardsBefore: Set<unknown> | null = null;
-  return (event) => {
-    if (event.kind !== "new") return false;
-    boardsBefore ??= new Set(old.map((row) => categoryOf(row.body)));
-    return !boardsBefore.has(categoryOf(event.after_json ?? "{}"));
-  };
-}
-
-/**
  * Drops what this collection is not to be measured against, and says whether an operator has
  * accepted a smaller answer. Throws when the answer looks like a broken one instead.
  *
@@ -332,21 +156,6 @@ function admitAnswer(
   )
     throw collectionDegraded(c.source, previous.size, c.records.length);
   return accepted;
-}
-
-/**
- * Whether what the answer carries differs from the stored record in a way that is an event.
- *
- * Equal text is answered before anything is parsed: nearly every record of every poll is exactly what
- * it was, and equal text cannot differ under any comparison below, so parsing and canonicalising both
- * sides to learn that was the larger part of a collection's cost.
- */
-function hasMoved(c: Collection, before: string, body: string): boolean {
-  if (before === body) return false;
-  if (c.appendOnly && !c.trackChanges) return false;
-  return c.stream === "leaderboards"
-    ? leaderboardChange(before, body)
-    : comparisonBody(c.stream, before) !== comparisonBody(c.stream, body);
 }
 
 function dropRecord(db: Database, c: Collection, id: string): void {
@@ -447,109 +256,6 @@ function settleDeparted(
       emit(row.id, "removed", row.body, null);
       dropRecord(db, c, row.id);
     } else countMiss(db, c, row.id);
-  }
-}
-
-/**
- * How long a stealth launch waits for its other venues.
- *
- * Space Bunny reached OpenCode Go and Zen two seconds apart on 2026-09-23, so a couple of minutes
- * is all the venues that matter need to agree, and being early is the whole point of watching
- * them. What a longer wait was really buying -- the context and the modalities, which OpenCode's
- * own row does not carry -- the card now borrows from the catalogues that already hold the model,
- * so there is nothing left to wait for.
- */
-const STEALTH_HOLD_MS = 2 * 60_000;
-
-type Pace = "now" | "held" | "hourly";
-
-/** When an event is told: at once, after the stealth hold, or in the next hour's digest. */
-function paceOf(event: Event): Pace {
-  if (isRoutine(event)) return "hourly";
-  return isStealthLaunch(event) ? "held" : "now";
-}
-
-/** The first instant a batch of this pace may be sent. */
-function readyAt(pace: Pace, now: string): string {
-  if (pace === "hourly") return new Date((Math.floor(Date.parse(now) / 3_600_000) + 1) * 3_600_000).toISOString();
-  return pace === "held" ? new Date(Date.parse(now) + STEALTH_HOLD_MS).toISOString() : now;
-}
-
-/** An event that has been given its class; `classifyEmitted` is what makes every emitted one this. */
-type Classified = Event & { signal: SignalClass };
-
-/**
- * Gives every emitted event its class and its verdict.
- *
- * Every record is saved by now, so a rule asking what the catalogues list sees this collection too.
- *
- * `speaks` is written in the same pass for the same reason the class is: the store has the event in
- * hand and has to decide anyway, and a reader that asks the question again has to read the body
- * back to answer it -- 105 MB of a floor that is never given back for one report, measured on a
- * copy of production. It is the verdict that was acted on, which is what a report about what this
- * service did should be counting, rather than what today's rules would say about last week's event.
- */
-function classifyEmitted(db: Database, emitted: Event[]): Classified[] {
-  for (const event of emitted) {
-    event.signal = classify(db, event);
-    db.query("UPDATE events SET signal=?,speaks=? WHERE id=?").run(
-      event.signal,
-      hasNotificationContent(event) ? 1 : 0,
-      event.id,
-    );
-  }
-  return emitted as Classified[];
-}
-
-/** Puts each emitted event into the batch it will be told in, for every destination that wants its class. */
-function routeEmitted(
-  db: Database,
-  c: Collection,
-  destinations: Destination[],
-  emitted: Classified[],
-  now: string,
-  onANewBoard: (event: Event) => boolean,
-): void {
-  // Each event is sorted into its pace once; the three batches below are then written in the same
-  // order as before, so their ids do not move.
-  const byPace: Record<Pace, Classified[]> = { now: [], held: [], hourly: [] };
-  for (const event of emitted) if (!onANewBoard(event)) byPace[paceOf(event)].push(event);
-  for (const pace of ["now", "held", "hourly"] as const) {
-    const digest = pace === "hourly";
-    const events = byPace[pace];
-    const present = new Set(events.map((event) => event.signal));
-    const targets = destinations.filter((destination) => destination.signals.some((signal) => present.has(signal)));
-    if (!events.length || !targets.length) continue;
-    const ready = readyAt(pace, now);
-    const batchSource = digest ? "story-digest" : c.source;
-    const existing = digest
-      ? db
-          .query<{ id: number }, [string, string]>(
-            "SELECT id FROM batches WHERE source=? AND digest=1 AND ready_at=? AND sealed=0",
-          )
-          .get(batchSource, ready)
-      : null;
-    const batch =
-      existing ??
-      db
-        .query<{ id: number }, [string, number, string]>(
-          "INSERT INTO batches(source,digest,ready_at) VALUES(?,?,?) RETURNING id",
-        )
-        .get(batchSource, Number(digest), ready);
-    if (!batch) throw new Error("Batch insert failed");
-    for (const event of events)
-      db.query("INSERT INTO batch_events(batch_id,event_id,url,signal) VALUES(?,?,?,?)").run(
-        batch.id,
-        event.id,
-        eventUrl(event, c.url),
-        event.signal,
-      );
-    for (const destination of targets)
-      db.query("INSERT OR IGNORE INTO batch_targets(batch_id,destination_id,destination_json) VALUES(?,?,?)").run(
-        batch.id,
-        destination.id,
-        JSON.stringify(destination),
-      );
   }
 }
 
