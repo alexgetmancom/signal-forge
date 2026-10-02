@@ -17,7 +17,7 @@ import type { Collection, RecordData } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
 import type { HttpCache } from "../storage/httpCache.js";
 import { fetchText } from "./http.js";
-import { modelIdsInText } from "./modelMentions.js";
+import { modelIdInField, modelIdsInText } from "./modelMentions.js";
 
 const OPENAI_DOCS_INDEX_URL = "https://developers.openai.com/api/docs/llms.txt";
 const OPENAI_DOCS_URL = "https://developers.openai.com/api/docs";
@@ -35,12 +35,24 @@ const INDEX_ENTRY = /^-\s*\[([^\]]+)\]\((https:\/\/developers\.openai\.com\/[^)\
 /** An index's own bulk export, which is every page it lists in one body rather than a page. */
 const BULK_EXPORT = /\.(?:txt|json|xml|ya?ml|csv)$/i;
 
-/** A price table row: the model in the first cell, and a dollar figure in at least one of the rest. */
-const PRICE_ROW = /^\|\s*([a-z0-9][a-z0-9.-]*)\s*\|(.+)\|\s*$/gim;
-/** The header above a price table, which is what its columns are called. */
-const HEADER_ROW = /^\|\s*Model\s*\|(.+)\|\s*$/gim;
-const SECTION = /^##+\s*(.+?)\s*$/gm;
+/** A row of any table on the page, as its cells. */
+const TABLE_ROW = /^\|(.+)\|\s*$/;
+/** The dashes under a header, which are a row of the table and not a row of it. */
+const RULE_CELL = /^:?-{2,}:?$/;
+/** A heading of the page, which is what the table under it is called. */
+const HEADING = /^#{2,}\s*(.+?)\s*$/;
 const DOLLARS = /\$\s*([\d.]+)/;
+
+/**
+ * The processing modes OpenAI prices the same model in.
+ *
+ * They are not headings. The page states the mode as a bare line above the table -- `Standard`,
+ * then `### Pricing Table data`, then `Batch`, then `### Pricing Table data` again -- so the
+ * heading alone cannot tell two of them apart: `### Grouped Pricing Table data` appears eight times
+ * in one answer and `### Pricing Table data` three. Reading only the heading kept the first of each
+ * and dropped the rest, which is how the Batch price of every fine-tuned model was missing.
+ */
+const PRICE_MODES = new Set(["Standard", "Batch", "Flex", "Fast", "Ultrafast", "Priority"]);
 
 /** One `llms.txt` of the developer site: which pages it lists, and how to read each entry. */
 type SiteIndex = {
@@ -55,6 +67,37 @@ type SiteIndex = {
    */
   tagged?: true;
 };
+
+/**
+ * The models a showcase entry states it was built with, which it states as a list of its own.
+ *
+ * The list ends at the full stop that ends the sentence, which is not every full stop in it: a
+ * version carries one, and reading to the first of them turned `Models: gpt-5.5, gpt-image-2.`
+ * into `gpt-5`.
+ */
+const TAGGED_MODELS = /(?:^|[.\s])Models:\s*([a-z0-9.,\s-]+?)(?=\.(?:\s|$)|$)/;
+
+/**
+ * The models a tagged entry names: the ones it declares, and the ones it only mentions.
+ *
+ * The showcase writes `Models: gpt-5.5, gpt-image-2.` after the description, so those ids are a
+ * field and need none of the guessing the prose rule does -- which is the difference between
+ * seeing the `gpt-image-2` on 2026-10-02's `arcade-landing-page` entry and seeing only the
+ * `gpt-5.5` beside it.
+ *
+ * The declaration is not always there, so it is read as well as the sentences rather than instead
+ * of them. Three projects of that day's seventy-three -- `e-commerce-website`,
+ * `real-estate-data-viz`, `turn-based-rpg` -- name a model in the description and declare nothing,
+ * and reading only the field dropped all three.
+ */
+function taggedModels(title: string, summary: string): Set<string> {
+  const models = new Set(modelIdsInText(`${title} ${summary}`).keys());
+  for (const cell of (TAGGED_MODELS.exec(summary)?.[1] ?? "").split(",")) {
+    const named = modelIdInField(cell);
+    if (named) models.add(named.model);
+  }
+  return models;
+}
 
 /**
  * The pages of one index that name a model, as records.
@@ -94,7 +137,7 @@ function parseSiteIndex(markdown: string, index: SiteIndex): Collection {
       .toLowerCase();
     if (!path || seen.has(path)) continue;
     // A page is a sighting only when it names a model; the rest of an index is the site's manual.
-    const models = modelIdsInText(`${title} ${summary}`);
+    const models = index.tagged ? taggedModels(title, summary) : new Set(modelIdsInText(`${title} ${summary}`).keys());
     if (!models.size) continue;
     seen.add(path);
     records.push({
@@ -104,7 +147,7 @@ function parseSiteIndex(markdown: string, index: SiteIndex): Collection {
       maker: "OpenAI",
       source: "documentation",
       ...(summary ? { summary } : {}),
-      ...(index.tagged ? { models: [...models.keys()].sort() } : {}),
+      ...(index.tagged ? { models: [...models].sort() } : {}),
     });
   }
   // An index this parser can no longer read looks exactly like a site that documents nothing.
@@ -153,43 +196,95 @@ export function parseOpenAIShowcaseIndex(markdown: string): Collection {
   });
 }
 
+/** One priced row: which table it was in, which cell of it named the model, and the figures. */
+type PricedRow = { heading: string; mode: string; columns: readonly string[]; cells: readonly string[] };
+
+/**
+ * The priced rows of the page, each carrying the table it belongs to.
+ *
+ * A table is read through its own header rather than by position: the specialized, ChatGPT and
+ * embedding tables are `Category | Model | Input | Cached input | Output`, and taking the first
+ * cell for the model there named the group -- `Codex`, `Life Sciences`, `Search` -- and skipped
+ * `gpt-5.3-codex`, `gpt-rosalind-research` and `gpt-5-search-api` entirely.
+ */
+function pricedRows(markdown: string): PricedRow[] {
+  const rows: PricedRow[] = [];
+  let heading = "Pricing";
+  let mode = "";
+  /** Whether the mode in hand has already priced a table, and so belongs to no later one. */
+  let spent = false;
+  let columns: readonly string[] = [];
+  for (const line of markdown.split("\n")) {
+    const text = line.trim();
+    const titled = HEADING.exec(text);
+    if (titled) {
+      heading = titled[1] ?? heading;
+      continue;
+    }
+    if (PRICE_MODES.has(text)) {
+      mode = text;
+      spent = false;
+      continue;
+    }
+    const row = TABLE_ROW.exec(text);
+    if (!row) continue;
+    const cells = (row[1] ?? "").split("|").map((cell) => cell.trim());
+    if (cells.some((cell) => RULE_CELL.test(cell))) continue;
+    // A table states its columns before it states a price, so a row without one is the header.
+    if (!DOLLARS.test(text)) {
+      columns = cells;
+      /**
+       * A mode is stated for the table that follows it and for no other. The GPT-Live session
+       * table states none, and carrying the last one seen priced its minute as `Ultrafast`.
+       */
+      if (spent) mode = "";
+      continue;
+    }
+    spent = true;
+    rows.push({ heading, mode, columns, cells });
+  }
+  return rows;
+}
+
+/** The cell of a row that the table says holds the model, or the first one when it does not say. */
+function namedCell(row: PricedRow, name: RegExp): string | null {
+  const at = row.columns.findIndex((column) => name.test(column));
+  return at < 0 ? null : (row.cells[at] ?? null);
+}
+
 export function parseOpenAIPricing(markdown: string): Collection {
-  const sections = [...markdown.matchAll(SECTION)].map((match) => ({
-    at: match.index ?? 0,
-    name: (match[1] ?? "").trim(),
-  }));
-  const sectionAt = (index: number): string =>
-    sections.filter((section) => section.at < index).at(-1)?.name ?? "Pricing";
-  /**
-   * What the columns of each table are called, so a card can say "short context input" and not the
-   * fourth cell of a row. Tables differ -- the grouped one prices by context length and the flex one
-   * does not -- so the nearest header above a row is the one that names it.
-   */
-  const headers = [...markdown.matchAll(HEADER_ROW)].map((match) => ({
-    at: match.index ?? 0,
-    columns: (match[1] ?? "").split("|").map((cell) => cell.trim()),
-  }));
-  const columnAt = (index: number, cell: number): string =>
-    headers.filter((header) => header.at < index).at(-1)?.columns[cell] ?? `column ${cell + 1}`;
   const records = new Map<string, RecordData>();
   let rows = 0;
-  for (const match of markdown.matchAll(PRICE_ROW)) {
-    const model = (match[1] ?? "").toLowerCase();
-    // The header row and the dashes under it are rows too, and neither names a model.
-    if (!modelIdsInText(model).size) continue;
-    const cells = (match[2] ?? "").split("|").map((cell) => cell.trim());
+  for (const row of pricedRows(markdown)) {
+    const named = modelIdInField(namedCell(row, /^model$/i) ?? row.cells[0] ?? "");
+    // Every table on this page has rows that price a tool rather than a model.
+    if (!named) continue;
     const prices: Record<string, number> = {};
-    for (const [index, cell] of cells.entries()) {
+    for (const [index, cell] of row.cells.entries()) {
       const dollars = DOLLARS.exec(cell);
-      if (dollars) prices[columnAt(match.index ?? 0, index)] = Number(dollars[1]);
+      if (dollars) prices[row.columns[index] ?? `column ${index + 1}`] = Number(dollars[1]);
     }
     if (!Object.keys(prices).length) continue;
     rows++;
-    // One model is priced in several tables -- standard, batch, priority -- and they move apart.
-    const section = sectionAt(match.index ?? 0);
-    const id = `${section}:${model}`;
+    /**
+     * One model is priced in several tables and they move apart, so what separates them has to be
+     * in the id: the mode it is processed in, the modality the row prices, and the ceiling or the
+     * agreement a parenthesised row carries. On 2026-10-02 this told 221 rows apart where the
+     * heading alone told 84, and the four it still could not separate were tool rows.
+     */
+    const modality = namedCell(row, /^modality$/i);
+    const tier = [row.heading, row.mode, modality, named.variant].filter(Boolean).join(" / ");
+    const id = `${tier}:${named.model}`;
     if (!records.has(id))
-      records.set(id, { id, name: model, url: OPENAI_PRICING_URL, maker: "OpenAI", model, tier: section, prices });
+      records.set(id, {
+        id,
+        name: named.model,
+        url: OPENAI_PRICING_URL,
+        maker: "OpenAI",
+        model: named.model,
+        tier,
+        prices,
+      });
   }
   // A table whose shape moved reads as every model losing its price at once, which is not a fact.
   if (!rows) throw new Error("OpenAI pricing named no priced model");

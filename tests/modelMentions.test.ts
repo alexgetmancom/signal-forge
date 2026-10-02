@@ -10,6 +10,7 @@ import {
   inventedFamilies,
   isTestFile,
   type MentionWatch,
+  modelIdInField,
   modelIdsInPatch,
   modelIdsInText,
   undated,
@@ -504,3 +505,23 @@ function tar(files: readonly { path: string; text: string }[]): Uint8Array<Array
   copy.set(joined);
   return copy;
 }
+
+test("a column that says it holds a model is read as one, where prose would not be", () => {
+  // Every one of these is in OpenAI's own catalogue and invisible to the prose rule.
+  for (const cell of ["gpt-image-2", "o3", "gpt-live-1", "gpt-4o", "text-embedding-3-small"]) {
+    expect(modelIdsInText(cell).size).toBe(0);
+    expect(modelIdInField(cell)).toEqual({ model: cell });
+  }
+});
+
+test("the labels that share a model column are not models, and a note on a row is not another one", () => {
+  // The five non-models among the 92 cells of the price page on 2026-10-02.
+  for (const label of ["Whisper", "Web search", "Containers", "File search", "Agent Kit"])
+    expect(modelIdInField(label)).toBeNull();
+  expect(modelIdInField("gpt-5.5 (<272K context length)")).toEqual({
+    model: "gpt-5.5",
+    variant: "<272K context length",
+  });
+  // A proxy's alias for somebody else's model is no more a model in a column than in a sentence.
+  expect(modelIdInField("claude-gpt-6-astra")).toBeNull();
+});

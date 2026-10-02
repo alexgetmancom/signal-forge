@@ -79,34 +79,105 @@ test("an index this parser can no longer read is a failure, not a site that docu
 
 const pricing = `# Pricing
 
-## Standard pricing data
+Standard
+
+### Standard pricing data
 
 | Model | Input | Output |
 | --- | --- | --- |
 | gpt-6.1-sol | $2.00 | $10.00 |
 | gpt-6-luna | $0.10 | $0.50 |
 
-## Batch pricing data
+Batch
+
+### Standard pricing data
 
 | Model | Input | Output |
 | --- | --- | --- |
 | gpt-6.1-sol | $1.00 | $5.00 |
 `;
 
-test("one model priced in two tables is two rows, each under the column names of its own table", () => {
+test("one model priced in two modes is two rows, each under the column names of its own table", () => {
   const collection = parseOpenAIPricing(pricing);
   expect(collection.records.map((record) => record.id)).toEqual([
-    "Standard pricing data:gpt-6.1-sol",
-    "Standard pricing data:gpt-6-luna",
-    "Batch pricing data:gpt-6.1-sol",
+    "Standard pricing data / Standard:gpt-6.1-sol",
+    "Standard pricing data / Standard:gpt-6-luna",
+    "Standard pricing data / Batch:gpt-6.1-sol",
   ]);
   expect(collection.records[0]).toMatchObject({
     model: "gpt-6.1-sol",
-    tier: "Standard pricing data",
+    tier: "Standard pricing data / Standard",
     prices: { Input: 2, Output: 10 },
   });
   // A price that moved has to be re-read before it is believed, like every other price here.
   expect(collection.confirmChanges).toBe(true);
+});
+
+const groupedPricing = `# Pricing
+
+Standard
+
+### Grouped Pricing Table data
+
+| Category | Model | Input | Output |
+| --- | --- | --- | --- |
+| Codex | gpt-5.3-codex | $1.75 | $14.00 |
+| Life Sciences | gpt-rosalind-research | $5.00 | $25.00 |
+
+Fast
+
+### Grouped Pricing Table data
+
+| Category | Model | Input | Output |
+| --- | --- | --- | --- |
+| Codex | gpt-5.3-codex | $3.50 | $28.00 |
+
+### Grouped Pricing Table data
+
+| Model | Modality | Input | Output |
+| --- | --- | --- | --- |
+| gpt-realtime-2.1 | Audio | $32.00 | $64.00 |
+| gpt-realtime-2.1 | Text | $4.00 | $24.00 |
+
+### Pricing Table data
+
+| Model | Price per minute |
+| --- | --- |
+| gpt-live-1 | $0.05 |
+| Whisper | $0.006 |
+`;
+
+test("a table says which of its columns is the model, and the rest of the row is what sets it apart", () => {
+  const collection = parseOpenAIPricing(groupedPricing);
+  expect(collection.records.map((record) => record.id)).toEqual([
+    // The model is the second column here, and the first is the group it is sold in.
+    "Grouped Pricing Table data / Standard:gpt-5.3-codex",
+    "Grouped Pricing Table data / Standard:gpt-rosalind-research",
+    "Grouped Pricing Table data / Fast:gpt-5.3-codex",
+    // One model priced per modality is one row per modality, not the first of them.
+    "Grouped Pricing Table data / Audio:gpt-realtime-2.1",
+    "Grouped Pricing Table data / Text:gpt-realtime-2.1",
+    // A table that states no mode is not priced in the mode of the table above it.
+    "Pricing Table data:gpt-live-1",
+  ]);
+});
+
+test("a row whose first column is a tool is not a model, and a parenthesised ceiling is not another one", () => {
+  const collection = parseOpenAIPricing(`# Pricing
+
+### Pricing Table data
+
+| Model | Input | Output |
+| --- | --- | --- |
+| gpt-5.5 | $5.00 | $30.00 |
+| gpt-5.5 (<272K context length) | $2.50 | $15.00 |
+| Web search | $10.00 | - |
+`);
+  expect(collection.records.map((record) => record.id)).toEqual([
+    "Pricing Table data:gpt-5.5",
+    "Pricing Table data / <272K context length:gpt-5.5",
+  ]);
+  expect(collection.records[1]).toMatchObject({ model: "gpt-5.5" });
 });
 
 test("a price table whose shape moved is a failure, not every model losing its price", () => {

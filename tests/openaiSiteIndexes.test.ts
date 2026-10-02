@@ -42,12 +42,26 @@ const showcase = `# OpenAI developer showcase
 ## Showcase projects
 - [Abyssal](https://developers.openai.com/showcase/abyssal): A procedural underwater scene. Built with: Codex + GPT-6 Astra. Models: gpt-6. Products: Codex.
 - [Crossword Desk](https://developers.openai.com/showcase/crossword-desk): Build crosswords from a themed word pool. Built with: Codex and Sites.
+- [Arcade Bar](https://developers.openai.com/showcase/arcade-bar): A landing page with generated art. Built with: Codex + GPT-5.5 + GPT Image 2. Models: gpt-5.5, gpt-image-2. Use cases: landing-pages.
+- [Turn-based RPG](https://developers.openai.com/showcase/turn-based-rpg): Play a turn-based RPG where GPT-5.4 drives encounters. Built with: Codex + gpt-5.4. Technologies: Next.js.
 `;
 
 test("a showcase project carries the models it is tagged with, and an untagged project is not a sighting", () => {
   const { records } = parseOpenAIShowcaseIndex(showcase);
-  expect(records).toHaveLength(1);
+  expect(records).toHaveLength(3);
   expect(records[0]).toMatchObject({ id: "abyssal", name: "Abyssal", models: ["gpt-6"] });
+  /**
+   * The tag is a declaration, so it is read as one: `gpt-image-2` is a model to the showcase and
+   * not to a rule that has to tell a model from a sentence, and the version in `gpt-5.5` is not
+   * the end of the list it sits in.
+   */
+  expect(records[1]).toMatchObject({ id: "arcade-bar", models: ["gpt-5.5", "gpt-image-2"] });
+  /**
+   * The declaration is read as well as the sentences and not instead of them: three of the
+   * seventy-three projects on 2026-10-02 declared nothing and named a model in the description,
+   * and a project is not untagged just because it was written without the field.
+   */
+  expect(records[2]).toMatchObject({ id: "turn-based-rpg", models: ["gpt-5.4"] });
 });
 
 // The documentation index, whose entries must keep the ids they have always had.

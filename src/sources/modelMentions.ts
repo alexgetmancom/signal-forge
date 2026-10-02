@@ -206,6 +206,34 @@ export function modelIdsInPatch(patch: string): Map<string, string> {
   return modelIdsInLines(added);
 }
 
+/**
+ * The id a field already holds, told apart from the label sitting in the same column.
+ *
+ * `MODEL_ID` is for prose, where a family word and a version number are the only shape specific
+ * enough to be a model rather than a sentence, and that strictness is right there: `o3` and
+ * `gpt-image-2` in a paragraph are as likely to be a release name or an ordinal as a model. A
+ * column headed `Model` is the other case entirely -- the maker has already said what the cell is,
+ * so the only question left is whether this row names a model or a group of them. On the price
+ * page, 49 of the 88 ids in OpenAI's own catalogue cannot be seen by the prose rule: every
+ * `gpt-image-*`, `gpt-realtime-*`, `gpt-audio-*`, `gpt-4o*` and the whole o-series.
+ *
+ * A model is written in lower case by every maker here and carries a digit or a hyphen; the labels
+ * that share the column are title case and often two words -- `Whisper`, `Web search`,
+ * `Agent Kit`, `File search`, `Containers` were the five non-models among 92 cells on 2026-10-02.
+ *
+ * A parenthesised note is a variant of the row, not of the model: `gpt-5.5 (<272K context length)`
+ * and `o4-mini-2025-04-16 (data sharing)` are the same models as their plain rows at another
+ * ceiling or another agreement, so the note is returned beside the id and belongs in the key rather
+ * than in the name.
+ */
+export function modelIdInField(cell: string): { model: string; variant?: string } | null {
+  const match = /^([a-z0-9][a-z0-9.-]*)(?:\s*\(([^)]+)\))?$/.exec(cell.trim());
+  if (!match) return null;
+  const [, model = "", variant] = match;
+  if (!/[\d-]/.test(model) || crossesMakers(model)) return null;
+  return variant ? { model, variant } : { model };
+}
+
 /** Model IDs in prose -- an issue, a comment -- each with the first line that carried it. */
 export function modelIdsInText(text: string): Map<string, string> {
   return modelIdsInLines(text.split("\n"));
