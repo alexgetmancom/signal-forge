@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { CURRENT_SCHEMA_VERSION, readMigrations, splitStatements } from "./migrations.js";
+import { CURRENT_SCHEMA_VERSION, type Migration, readMigrations, splitStatements } from "./migrations.js";
 
 function schemaVersion(db: Database): number {
   return db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version ?? 0;
@@ -23,10 +23,42 @@ function schemaVersion(db: Database): number {
  *
  * The statements go in one at a time rather than as one script, because a script hides exactly the
  * failure this schema can produce: see `splitStatements`.
+ *
+ * Returns the version the database reached. It is exported for `squash-migrations`, which has to
+ * replay a journal exactly as a deployment does to learn what shape it produces.
  */
+export function applyMigrations(db: Database, pending: readonly Migration[]): number {
+  let version = schemaVersion(db);
+  if (!pending.length) return version;
+  const enforced = db.query<{ foreign_keys: number }, []>("PRAGMA foreign_keys").get()?.foreign_keys ?? 0;
+  db.exec("PRAGMA foreign_keys=OFF; PRAGMA legacy_alter_table=ON");
+  try {
+    for (const migration of pending) {
+      db.transaction(() => {
+        for (const statement of splitStatements(migration.sql)) db.run(statement);
+        // Inside the transaction, so a migration that orphans a row is rolled back rather than
+        // reported after the fact.
+        const violations = db.query<{ table: string }, []>("PRAGMA foreign_key_check").all();
+        if (violations.length)
+          throw new Error(
+            `Migration ${migration.filename} left ${violations.length} foreign key violations, in ${[
+              ...new Set(violations.map((violation) => violation.table)),
+            ].join(", ")}`,
+          );
+        db.exec(`PRAGMA user_version = ${migration.version}`);
+      })();
+      version = migration.version;
+    }
+  } finally {
+    db.exec("PRAGMA legacy_alter_table=OFF");
+    if (enforced) db.exec("PRAGMA foreign_keys=ON");
+  }
+  return version;
+}
+
 export function runMigrations(db: Database): void {
   const migrations = readMigrations();
-  let version = schemaVersion(db);
+  const version = schemaVersion(db);
   if (version > CURRENT_SCHEMA_VERSION)
     throw new Error(`Database schema version ${version} is newer than ${CURRENT_SCHEMA_VERSION}`);
   // The baseline is the whole schema at its own version, so a database stamped below it has no
@@ -38,32 +70,10 @@ export function runMigrations(db: Database): void {
       `Database schema version ${version} is older than the baseline ${baseline.version}, which cannot walk it ` +
         `forward: check out the commit before the squash, migrate it there, and come back`,
     );
-  const pending = migrations.filter((candidate) => candidate.version > version);
-  if (pending.length) {
-    const enforced = db.query<{ foreign_keys: number }, []>("PRAGMA foreign_keys").get()?.foreign_keys ?? 0;
-    db.exec("PRAGMA foreign_keys=OFF; PRAGMA legacy_alter_table=ON");
-    try {
-      for (const migration of pending) {
-        db.transaction(() => {
-          for (const statement of splitStatements(migration.sql)) db.run(statement);
-          // Inside the transaction, so a migration that orphans a row is rolled back rather than
-          // reported after the fact.
-          const violations = db.query<{ table: string }, []>("PRAGMA foreign_key_check").all();
-          if (violations.length)
-            throw new Error(
-              `Migration ${migration.filename} left ${violations.length} foreign key violations, in ${[
-                ...new Set(violations.map((violation) => violation.table)),
-              ].join(", ")}`,
-            );
-          db.exec(`PRAGMA user_version = ${migration.version}`);
-        })();
-        version = migration.version;
-      }
-    } finally {
-      db.exec("PRAGMA legacy_alter_table=OFF");
-      if (enforced) db.exec("PRAGMA foreign_keys=ON");
-    }
-  }
-  if (version !== CURRENT_SCHEMA_VERSION)
-    throw new Error(`Database schema stopped at ${version}, expected ${CURRENT_SCHEMA_VERSION}`);
+  const reached = applyMigrations(
+    db,
+    migrations.filter((candidate) => candidate.version > version),
+  );
+  if (reached !== CURRENT_SCHEMA_VERSION)
+    throw new Error(`Database schema stopped at ${reached}, expected ${CURRENT_SCHEMA_VERSION}`);
 }
