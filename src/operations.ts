@@ -11,6 +11,7 @@ import { hostOperations } from "./operations/host.js";
 import { sourceProfileOperations } from "./operations/sourceProfile.js";
 import { sourceSettlementOperations } from "./operations/sourceSettlement.js";
 import { sourcesOperations } from "./operations/sources.js";
+import { storageOperations } from "./operations/storage.js";
 import { vendorTableOperations } from "./operations/vendorTable.js";
 
 export { callOperation, cliCommand, type OperationMap, operationCatalog } from "./operations/definition.js";
@@ -28,6 +29,7 @@ export function operations(db: Database, config: AppConfig): OperationMap {
     ...deliveryOperations(db, config, all),
     ...evidenceOperations(db, config, all),
     ...sourceProfileOperations(db, config),
+    ...storageOperations(db, config),
     ...sourceSettlementOperations(db, config),
     ...sourcesOperations(db, config, all),
     ...vendorTableOperations(db, config),

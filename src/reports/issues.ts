@@ -5,12 +5,9 @@ import { type CapabilityReportEntry, capabilityReport } from "../capabilities.js
 import type { AppConfig } from "../config.js";
 import { openCredentialCircuits } from "../credentials.js";
 import { readState } from "../storage/appState.js";
-import { databaseSize } from "../storage/retention.js";
+import { DATABASE_SIZE_BUDGET, databaseSize } from "../storage/retention.js";
 import { unusableJudgeRuns } from "./deepseekUsage.js";
 import { backupStatus } from "./doctor.js";
-
-/** Where growth stops being normal and becomes something to look at, rather than to discover. */
-const DATABASE_SIZE_BUDGET = 5 * 1024 ** 3;
 
 function gigabytes(bytes: number): string {
   return (bytes / 1024 ** 3).toFixed(1);
@@ -434,7 +431,7 @@ function databaseIssues(db: Database, now: number): ActionableIssue[] {
       firstSeenAt: seenAt,
       updatedAt: seenAt,
       message: `The database holds ${gigabytes(size.bytes)} GB, of which ${gigabytes(size.snapshotBytes)} GB is compressed raw payloads`,
-      hint: "Check which sources serve the largest payloads before widening retention; deleting a payload an event points at destroys its evidence.",
+      hint: "Run `storage` to see which tables and which sources hold it before widening retention; deleting a payload an event points at destroys its evidence.",
     });
   }
   return issues;

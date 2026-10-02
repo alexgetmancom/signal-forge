@@ -195,6 +195,9 @@ export function pruneShadowCandidates(db: Database, shadowSources: readonly stri
   }
 }
 
+/** Where growth stops being normal and becomes something to look at, rather than to discover. */
+export const DATABASE_SIZE_BUDGET = 5 * 1024 ** 3;
+
 /** What the database weighs now, and what it weighed a day ago, so growth is a number not a surprise. */
 export function databaseSize(db: Database): { bytes: number; snapshotBytes: number } {
   const pages = db.query<{ page_count: number }, []>("PRAGMA page_count").get()?.page_count ?? 0;

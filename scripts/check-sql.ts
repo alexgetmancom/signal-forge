@@ -130,6 +130,7 @@ const MAY_READ_BODIES: Readonly<Record<string, string>> = {
   "src/reports/channelMix.ts": "it renders the cards it reports on",
   "src/reports/news.ts": "the story cards are rendered from their events",
   "src/reports/releaseAudit.ts": "it renders every card of the window to audit them",
+  "src/reports/storage.ts": "it sums the length of every body in SQLite and one number leaves, never a body",
   "src/reports/releaseRender.ts": "the fingerprint is the rendered cards, in a child that ends",
 };
 
