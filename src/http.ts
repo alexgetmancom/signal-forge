@@ -8,7 +8,7 @@ import { evidenceLabel } from "./events/confidence.js";
 import type { EvidenceType } from "./events/types.js";
 import { recordOperatorAction } from "./journal.js";
 import { redact, redactExternalSecrets } from "./logger.js";
-import { operations } from "./operations.js";
+import { type OperationMap, operations } from "./operations.js";
 import { measure } from "./runtime/metricRecording.js";
 
 function metricRoute(path: string): string {
@@ -19,12 +19,32 @@ function metricRoute(path: string): string {
 export function createHttpApp(config: AppConfig, db: Database): Hono {
   const app = new Hono();
   app.use("*", async (c, next) => measure(db, `http.route:${c.req.method}:${metricRoute(c.req.path)}`, () => next()));
+  probeRoutes(app, db);
+  reportPage(app, config, db);
+  app.use("/api/*", bodyLimit({ maxSize: 64 * 1024 }));
+  app.use("/api/*", async (c, next) => {
+    if (!config.MCP_TOKEN || !bearerTokenAccepted(c.req.raw, config.MCP_TOKEN)) return c.text("unauthorized\n", 401);
+    return next();
+  });
+  const defs = operations(db, config);
+  operationRoutes(app, db, defs);
+  mcpRoute(app, db, defs);
+  app.onError((_error, c) => c.json({ error: "Internal server error" }, 500));
+  return app;
+}
+
+/** The routes a load balancer and a person ask first, none of which needs a token. */
+function probeRoutes(app: Hono, db: Database): void {
   app.get("/", (c) => c.json({ name: "signal-forge", status: "ok" }));
   app.get("/healthz", (c) => c.text("ok\n"));
   app.get("/readyz", (c) => {
     db.query("SELECT 1").get();
     return c.text("ready\n");
   });
+}
+
+/** One stored event's evidence as a page, behind the same token as the API. */
+function reportPage(app: Hono, config: AppConfig, db: Database): void {
   app.use("/reports/*", async (c, next) => {
     if (!config.MCP_TOKEN || !bearerTokenAccepted(c.req.raw, config.MCP_TOKEN)) return c.text("unauthorized\n", 401);
     return next();
@@ -71,13 +91,10 @@ export function createHttpApp(config: AppConfig, db: Database): Hono {
       `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Signal Forge · #${event.id}</title><style>body{font:16px system-ui;max-width:1100px;margin:40px auto;padding:0 20px;color:#17202a}h1{margin-bottom:4px}small{color:#667085}section{margin-top:28px}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#f4f6f8;padding:18px;border-radius:10px}</style></head><body><h1>${escapeHtml(event.entity_id)}</h1><small>Signal Forge · ${escapeHtml(event.source)} · ${escapeHtml(event.kind)} · ${escapeHtml(event.detected_at)} · ${escapeHtml(evidenceLabel(event.evidence_type))} · ${escapeHtml(event.authority)} · #${event.id}</small><section><h2>Before</h2><pre>${escapeHtml(pretty(event.before_json))}</pre></section><section><h2>After</h2><pre>${escapeHtml(pretty(event.after_json))}</pre></section></body></html>`,
     );
   });
-  app.use("/api/*", bodyLimit({ maxSize: 64 * 1024 }));
-  app.use("/api/*", async (c, next) => {
-    if (!config.MCP_TOKEN || !bearerTokenAccepted(c.req.raw, config.MCP_TOKEN)) return c.text("unauthorized\n", 401);
-    return next();
-  });
-  const defs = operations(db, config);
+}
 
+/** The registry's HTTP surface: one route for every entry that names one. */
+function operationRoutes(app: Hono, db: Database, defs: OperationMap): void {
   /**
    * One route per registry entry. Validation, the 400 shape, the 404 for a missing entity and the
    * journal entry for a mutation are the same on every route, so they are written once here rather
@@ -128,7 +145,10 @@ export function createHttpApp(config: AppConfig, db: Database): Hono {
     if (route.method === "get") app.get(route.path, respond);
     else app.post(route.path, respond);
   }
+}
 
+/** The same registry as a JSON-RPC tool list, for a client that speaks MCP. */
+function mcpRoute(app: Hono, db: Database, defs: OperationMap): void {
   app.post("/api/mcp", async (c) => {
     const schema = z.object({
       jsonrpc: z.literal("2.0"),
@@ -207,6 +227,4 @@ export function createHttpApp(config: AppConfig, db: Database): Hono {
     const body = redactExternalSecrets(JSON.stringify(redact(Array.isArray(payload) ? responses : responses[0])));
     return c.body(body, 200, { "content-type": "application/json" });
   });
-  app.onError((_error, c) => c.json({ error: "Internal server error" }, 500));
-  return app;
 }

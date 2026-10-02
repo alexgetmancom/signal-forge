@@ -64,48 +64,61 @@ export function databaseOperations(db: Database, config: AppConfig, _all: () => 
   // outright when it arrives during a write, and these run against the live file by definition.
   const readOnly = () => readonlyDatabase(config.DATABASE_URL);
   return {
-    sql: {
-      section: "evidence",
-      summary: "Run one read-only query and get the rows as JSON.",
-      startHere: "a question about the stored data that no command answers",
-      note:
-        "Read-only: a write fails rather than lands. A gzipped body comes back as text, and any " +
-        "other blob as its size, so `SELECT body FROM snapshots` is readable. Ask `schema` first. " +
-        "`alreadyAnsweredBy` on the answer names the command that already reads these tables: it is " +
-        "not advice, it is the measurement that 38 of the last 44 queries asked here had one.",
-      mutates: false,
-      agent: true,
-      schema: z.object({ query: z.string().min(1), limit: count(2_000, 200) }),
-      cli: {
-        args: [{ name: "query" }, { name: "limit", optional: true }],
-      },
-      handler: (input: { query: string; limit: number }) => {
-        const connection = readOnly();
-        try {
-          const rows: Record<string, unknown>[] = [];
-          // Taken one at a time: a question asked by hand is often a question asked wrongly, and a
-          // missing WHERE should cost the rows asked for rather than the whole table.
-          for (const row of connection.query(input.query).iterate() as Iterable<Record<string, unknown>>) {
-            rows.push(Object.fromEntries(Object.entries(row).map(([key, value]) => [key, readable(value)])));
-            if (rows.length >= input.limit) break;
-          }
-          // Said here rather than only in `usage`, which reports it a week later to somebody who
-          // thought to ask. This is the moment the question was asked and the moment it is cheap
-          // to learn that it already had an answer.
-          const answers = coveredBy(queryShape(input.query));
-          return {
-            rows,
-            count: rows.length,
-            truncated: rows.length >= input.limit,
-            ...(answers ? { alreadyAnsweredBy: answers } : {}),
-          };
-        } catch (error) {
-          throw new Error(teach(connection, input.query, error));
-        } finally {
-          connection.close();
-        }
-      },
+    sql: sqlOperation(readOnly),
+    ...schemaOperations(readOnly),
+    snapshot: snapshotOperation(db),
+  };
+}
+
+/** One read-only query of the operator's own, answered as JSON. */
+function sqlOperation(readOnly: () => Database): OperationMap[string] {
+  return {
+    section: "evidence",
+    summary: "Run one read-only query and get the rows as JSON.",
+    startHere: "a question about the stored data that no command answers",
+    note:
+      "Read-only: a write fails rather than lands. A gzipped body comes back as text, and any " +
+      "other blob as its size, so `SELECT body FROM snapshots` is readable. Ask `schema` first. " +
+      "`alreadyAnsweredBy` on the answer names the command that already reads these tables: it is " +
+      "not advice, it is the measurement that 38 of the last 44 queries asked here had one.",
+    mutates: false,
+    agent: true,
+    schema: z.object({ query: z.string().min(1), limit: count(2_000, 200) }),
+    cli: {
+      args: [{ name: "query" }, { name: "limit", optional: true }],
     },
+    handler: (input: { query: string; limit: number }) => {
+      const connection = readOnly();
+      try {
+        const rows: Record<string, unknown>[] = [];
+        // Taken one at a time: a question asked by hand is often a question asked wrongly, and a
+        // missing WHERE should cost the rows asked for rather than the whole table.
+        for (const row of connection.query(input.query).iterate() as Iterable<Record<string, unknown>>) {
+          rows.push(Object.fromEntries(Object.entries(row).map(([key, value]) => [key, readable(value)])));
+          if (rows.length >= input.limit) break;
+        }
+        // Said here rather than only in `usage`, which reports it a week later to somebody who
+        // thought to ask. This is the moment the question was asked and the moment it is cheap
+        // to learn that it already had an answer.
+        const answers = coveredBy(queryShape(input.query));
+        return {
+          rows,
+          count: rows.length,
+          truncated: rows.length >= input.limit,
+          ...(answers ? { alreadyAnsweredBy: answers } : {}),
+        };
+      } catch (error) {
+        throw new Error(teach(connection, input.query, error));
+      } finally {
+        connection.close();
+      }
+    },
+  };
+}
+
+/** What the tables are and what points at what, before a query is written. */
+function schemaOperations(readOnly: () => Database): OperationMap {
+  return {
     schema: {
       section: "evidence",
       summary: "Every table, its columns and how many rows it holds.",
@@ -170,33 +183,37 @@ export function databaseOperations(db: Database, config: AppConfig, _all: () => 
         }
       },
     },
-    snapshot: {
-      section: "evidence",
-      summary: "The newest payload a source collected, unzipped.",
-      startHere: "what a source actually served last time",
-      mutates: false,
-      agent: true,
-      schema: z.object({ source: z.string().min(1), chars: count(200_000, 4_000) }),
-      cli: {
-        args: [{ name: "source" }, { name: "chars", optional: true }],
-      },
-      notFoundWhenEmpty: true,
-      handler: (input: { source: string; chars: number }) => {
-        const body = readLatestSnapshot(db, input.source);
-        if (body === null) return null;
-        const collected = db
-          .query<{ collected_at: string }, [string]>(
-            "SELECT collected_at FROM snapshots WHERE source=? ORDER BY id DESC LIMIT 1",
-          )
-          .get(input.source);
-        return {
-          source: input.source,
-          collectedAt: collected?.collected_at ?? null,
-          bytes: Buffer.byteLength(body),
-          truncated: body.length > input.chars,
-          body: body.slice(0, input.chars),
-        };
-      },
+  };
+}
+
+/** One stored snapshot of an upstream answer, read back. */
+function snapshotOperation(db: Database): OperationMap[string] {
+  return {
+    section: "evidence",
+    summary: "The newest payload a source collected, unzipped.",
+    startHere: "what a source actually served last time",
+    mutates: false,
+    agent: true,
+    schema: z.object({ source: z.string().min(1), chars: count(200_000, 4_000) }),
+    cli: {
+      args: [{ name: "source" }, { name: "chars", optional: true }],
+    },
+    notFoundWhenEmpty: true,
+    handler: (input: { source: string; chars: number }) => {
+      const body = readLatestSnapshot(db, input.source);
+      if (body === null) return null;
+      const collected = db
+        .query<{ collected_at: string }, [string]>(
+          "SELECT collected_at FROM snapshots WHERE source=? ORDER BY id DESC LIMIT 1",
+        )
+        .get(input.source);
+      return {
+        source: input.source,
+        collectedAt: collected?.collected_at ?? null,
+        bytes: Buffer.byteLength(body),
+        truncated: body.length > input.chars,
+        body: body.slice(0, input.chars),
+      };
     },
   };
 }

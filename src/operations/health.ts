@@ -21,6 +21,16 @@ import { count, flag, type OperationMap, operationCatalog } from "./definition.j
 /** The "health" section of the operation registry; src/operations.ts joins the sections. */
 export function healthOperations(db: Database, config: AppConfig, all: () => OperationMap): OperationMap {
   return {
+    ...overviewOperations(db, config, all),
+    ...inventoryOperations(db, config),
+    ...sourceTroubleOperations(db, config),
+    ...costOperations(db, config),
+  };
+}
+
+/** Where a session starts: the guide, whether the deployment is sound, and what needs attention now. */
+function overviewOperations(db: Database, config: AppConfig, all: () => OperationMap): OperationMap {
+  return {
     guide: {
       section: "health",
       summary: "The command catalog, the symptom index and what to do when the database is unusable.",
@@ -95,6 +105,12 @@ export function healthOperations(db: Database, config: AppConfig, all: () => Ope
       http: { method: "get", path: "/api/broken" },
       handler: (input: { days: number }) => brokenReport(db, config, input.days),
     },
+  };
+}
+
+/** What this deployment has and whether what it stores is sound: integrations, credentials and the dates in its tables. */
+function inventoryOperations(db: Database, config: AppConfig): OperationMap {
+  return {
     capabilities: {
       section: "health",
       summary: "Sanitized readiness of enabled integrations, including credentials an upstream has refused.",
@@ -134,6 +150,12 @@ export function healthOperations(db: Database, config: AppConfig, all: () => Ope
       http: { method: "get", path: "/api/date-integrity" },
       handler: (input: { limit: number }) => dateIntegrity(db, input.limit),
     },
+  };
+}
+
+/** How sources fail: which fail often, which share an upstream that fell over, and why one is failing. */
+function sourceTroubleOperations(db: Database, config: AppConfig): OperationMap {
+  return {
     flaky: {
       section: "health",
       summary:
@@ -191,6 +213,12 @@ export function healthOperations(db: Database, config: AppConfig, all: () => Ope
       http: { method: "get", path: "/api/failures/:source" },
       handler: (input: { source: string; days: number }) => sourceFailures(db, config, input.source, input.days),
     },
+  };
+}
+
+/** What running it costs and whether the build is the one just pushed: time spent, commands used, the release check and memory. */
+function costOperations(db: Database, config: AppConfig): OperationMap {
+  return {
     timings: timingsOperation(db),
     usage: {
       section: "health",

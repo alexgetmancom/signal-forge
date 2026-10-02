@@ -19,6 +19,15 @@ type EventRow = Pick<
 /** The "evidence" section of the operation registry; src/operations.ts joins the sections. */
 export function evidenceOperations(db: Database, config: AppConfig, _all: () => OperationMap): OperationMap {
   return {
+    ...recordOperations(db, config),
+    ...storyOperations(db),
+    ...expectationOperations(db),
+  };
+}
+
+/** What was published and reported, and the events behind it, recent ones and one up close. */
+function recordOperations(db: Database, config: AppConfig): OperationMap {
+  return {
     publications: {
       section: "evidence",
       summary: "Published text and target outcomes read from Solo Publisher, with archive coverage and freshness.",
@@ -85,6 +94,12 @@ export function evidenceOperations(db: Database, config: AppConfig, _all: () => 
       notFoundWhenEmpty: true,
       handler: (input: { id: number }) => db.query("SELECT * FROM events WHERE id=?").get(input.id),
     },
+  };
+}
+
+/** What the events add up to: correlated stories and the structured facts about models. */
+function storyOperations(db: Database): OperationMap {
+  return {
     stories: {
       section: "evidence",
       summary:
@@ -140,6 +155,12 @@ export function evidenceOperations(db: Database, config: AppConfig, _all: () => 
       notFoundWhenEmpty: true,
       handler: (input: { canonicalId: string }) => getModelFacts(db, input.canonicalId),
     },
+  };
+}
+
+/** What is expected next: hypotheses derived from the evidence, and the lifecycle deadlines coming up. */
+function expectationOperations(db: Database): OperationMap {
+  return {
     hypotheses: {
       section: "evidence",
       summary: "Deterministic hypotheses derived from independent story evidence.",

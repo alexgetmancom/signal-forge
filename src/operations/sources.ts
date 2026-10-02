@@ -16,6 +16,14 @@ import { count, type OperationMap } from "./definition.js";
 /** The "sources" section of the operation registry; src/operations.ts joins the sections. */
 export function sourcesOperations(db: Database, config: AppConfig, _all: () => OperationMap): OperationMap {
   return {
+    ...sourceStandingOperations(db, config),
+    ...gapOperations(db),
+  };
+}
+
+/** How the sources are doing: what they are made of, which have gone silent, what collecting costs and which ones lead. */
+function sourceStandingOperations(db: Database, config: AppConfig): OperationMap {
+  return {
     source_kinds: {
       section: "sources",
       summary: "What the registered sources are made of by kind, and which families no kind names yet.",
@@ -94,6 +102,12 @@ export function sourcesOperations(db: Database, config: AppConfig, _all: () => O
       http: { method: "get", path: "/api/source-verdicts" },
       handler: (input: { days: number }) => sourceVerdicts(db, config, input.days),
     },
+  };
+}
+
+/** What the sources miss and what holds them back: coverage gaps, models no catalogue lists, release lag, DeepSeek use and refused credentials. */
+function gapOperations(db: Database): OperationMap {
+  return {
     coverage_gaps: {
       section: "sources",
       summary:
