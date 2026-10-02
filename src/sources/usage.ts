@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Collection } from "../events/types.js";
+import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { nextData } from "./html.js";
 import { fetchText } from "./http.js";
@@ -55,7 +56,8 @@ export function parseOpenRouterUsage(html: string): Collection {
     }
   }
   const ranked = [...totals.values()].sort((one, other) => other.tokens - one.tokens);
-  if (ranked.length < MINIMUM_MODELS) throw new Error("OpenRouter rankings no longer expose per-model usage");
+  if (ranked.length < MINIMUM_MODELS)
+    throw new SourceError("missing-content", "OpenRouter rankings no longer expose per-model usage");
   return {
     source: "openrouter-usage",
     stream: "leaderboards",

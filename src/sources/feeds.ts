@@ -126,7 +126,7 @@ function publishedDate(value: string): string {
 }
 
 function sourceCollection(options: FeedOptions, raw: unknown, records: RecordData[]): Collection {
-  if (!records.length) throw new Error(`${options.source}: feed has no matching entries`);
+  if (!records.length) throw new SourceError("empty", `${options.source}: feed has no matching entries`);
   return {
     source: options.source,
     stream: "news",
@@ -148,7 +148,7 @@ function sourceCollection(options: FeedOptions, raw: unknown, records: RecordDat
  * so it is renamed on its own and nothing else collides.
  */
 export function parseOfficialFeed(text: string, options: FeedOptions): Collection {
-  if (XMLValidator.validate(text) !== true) throw new Error(`${options.source}: invalid XML`);
+  if (XMLValidator.validate(text) !== true) throw new SourceError("schema", `${options.source}: invalid XML`);
   const raw: unknown = new XMLParser({
     ignoreAttributes: false,
     attributeNamePrefix: "@_",
@@ -159,7 +159,7 @@ export function parseOfficialFeed(text: string, options: FeedOptions): Collectio
   const rss = rssSchema.safeParse(raw);
   const atom = atomSchema.safeParse(raw);
   const items = rss.success ? rss.data.rss.channel.item : atom.success ? atom.data.feed.entry : null;
-  if (!items) throw new Error(`${options.source}: unsupported feed shape`);
+  if (!items) throw new SourceError("schema", `${options.source}: unsupported feed shape`);
   // One malformed item is the publisher's mistake in one post. Failing the feed for it stopped every
   // later post from being read until the item was fixed; it is skipped and named instead, and only a
   // feed in which nothing parses is a failed read.
@@ -177,7 +177,7 @@ export function parseOfficialFeed(text: string, options: FeedOptions): Collectio
       return [];
     }
   });
-  if (!records.length && rejected) throw new Error(`${options.source}: no feed item could be read`);
+  if (!records.length && rejected) throw new SourceError("schema", `${options.source}: no feed item could be read`);
   const filtered = options.include
     ? records.filter((record) => options.include?.(record.name, String(record.description ?? "")))
     : records;
@@ -218,7 +218,7 @@ function markdownText(value: string): string {
 }
 
 function releaseCollection(source: string, url: string, raw: string, records: RecordData[]): Collection {
-  if (!records.length) throw new Error(`${source}: release notes have no dated entries`);
+  if (!records.length) throw new SourceError("missing-content", `${source}: release notes have no dated entries`);
   return { source, stream: "news", url, raw, trackChanges: true, records };
 }
 
@@ -397,7 +397,8 @@ export async function collectOpenAIDeploymentSafety(request: Fetch = fetch, cach
   const cards = deploymentSafetyCards(
     await fetchText(OPENAI_DEPLOYMENT_SAFETY_SITEMAP_URL, {}, request, undefined, cache),
   );
-  if (!cards.length) throw new Error("openai-deployment-safety: sitemap listed no system card");
+  if (!cards.length)
+    throw new SourceError("missing-content", "openai-deployment-safety: sitemap listed no system card");
   const records = [...new Map([...cards, ...feed.records].map((record) => [record.id, record])).values()];
   return { ...feed, records };
 }
@@ -451,7 +452,7 @@ export async function collectOpenAIAlignment(request: Fetch = fetch, cache?: Htt
   const reports = parseMisalignmentReports(
     await fetchText(OPENAI_MISALIGNMENT_REPORTS_URL, {}, request, undefined, cache),
   );
-  if (!reports.length) throw new Error("openai-alignment: misalignment reports not found");
+  if (!reports.length) throw new SourceError("missing-content", "openai-alignment: misalignment reports not found");
   const records = [...new Map([...feed.records, ...reports].map((record) => [record.id, record])).values()];
   return { ...feed, records };
 }

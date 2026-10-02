@@ -121,7 +121,7 @@ const STALE_NEWSROOM_MS = 30 * 24 * 3_600_000;
 function freshNewsroom(collection: Collection, now: Date): Collection {
   const newest = Math.max(...collection.records.map((record) => Date.parse(String(record.published ?? ""))));
   if (!Number.isFinite(newest) || now.getTime() - newest > STALE_NEWSROOM_MS)
-    throw new Error(`${collection.source} newest entry is older than thirty days`);
+    throw new SourceError("missing-content", `${collection.source} newest entry is older than thirty days`);
   return collection;
 }
 

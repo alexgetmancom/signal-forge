@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Collection, RecordData } from "../events/types.js";
+import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import type { HttpCache } from "../storage/httpCache.js";
 import { fetchText } from "./http.js";
@@ -37,7 +38,7 @@ export function parseCohereChangelog(markdown: string): Collection {
       ...(entry.summary ? { summary: entry.summary.slice(0, 1_200) } : {}),
     } satisfies RecordData;
   });
-  if (!records.length) throw new Error("cohere-changelog: index listed no entries");
+  if (!records.length) throw new SourceError("empty", "cohere-changelog: index listed no entries");
   return {
     source: "cohere-changelog",
     stream: "web",

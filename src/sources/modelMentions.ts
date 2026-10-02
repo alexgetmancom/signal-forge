@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
 import type { Collection, RecordData, SourceAuthority } from "../events/types.js";
+import { httpFailure, SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { fetchText } from "./http.js";
 import { judgeMentions, type MentionStage, olderThanKnown, stageKnown, stageRecordId } from "./mentionStage.js";
@@ -349,9 +350,9 @@ async function firstReadNames(
   let archive: Uint8Array;
   try {
     const response = await request(`https://api.github.com/repos/${repo}/tarball/${sha}`, { headers });
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    if (!response.ok) throw httpFailure(`HTTP ${response.status}`, response.status);
     const body = await response.arrayBuffer();
-    if (body.byteLength > ARCHIVE_LIMIT) throw new Error("archive too large");
+    if (body.byteLength > ARCHIVE_LIMIT) throw new SourceError("protocol", "archive too large");
     archive = Bun.gunzipSync(new Uint8Array(body));
   } catch {
     // Unreadable for any reason, the repository is watched from its commits, as it was before.
@@ -420,7 +421,7 @@ export async function collectModelMentions(
     .array(commitSchema)
     .min(1)
     .parse(JSON.parse(await fetchText(`${api}/commits?per_page=1`, headers, request)))[0];
-  if (!head) throw new Error(`${watch.repo}: no commits`);
+  if (!head) throw new SourceError("empty", `${watch.repo}: no commits`);
   const at = (sha: string): RecordData => ({ id: CURSOR, name: "Last commit read", sha });
   // The first read is the one chance to see what the repository already holds. `MiniMax-M3.1` sat
   // in five files of minimax-code on 2026-09-24 while the catalogue had M3, and starting from the

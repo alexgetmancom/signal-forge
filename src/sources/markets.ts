@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Collection, RecordData } from "../events/types.js";
+import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import type { HttpCache } from "../storage/httpCache.js";
 import { fetchText } from "./http.js";
@@ -122,7 +123,7 @@ export function parsePolymarket(pages: readonly string[]): Collection {
       });
     }
   }
-  if (!records.length) throw new Error("polymarket: the AI tag listed no release markets");
+  if (!records.length) throw new SourceError("empty", "polymarket: the AI tag listed no release markets");
   return {
     source: "polymarket",
     stream: "markets",
@@ -144,7 +145,7 @@ export async function collectPolymarket(request: Fetch = fetch, cache?: HttpCach
     // A short page is the end of the tag. Asking past it answers an empty array and costs a request.
     const count = marketsSchema.parse(JSON.parse(body)).length;
     if (count < PAGE_SIZE) break;
-    if (page === MAX_PAGES - 1) throw new Error("Polymarket AI markets exceed six pages");
+    if (page === MAX_PAGES - 1) throw new SourceError("protocol", "Polymarket AI markets exceed six pages");
   }
   return parsePolymarket(pages);
 }

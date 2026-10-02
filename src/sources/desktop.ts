@@ -1,4 +1,5 @@
 import type { Collection, RecordData } from "../events/types.js";
+import { httpFailure, SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import type { Vendor } from "./vendors.js";
 
@@ -87,10 +88,11 @@ function newest(versions: readonly string[]): string | undefined {
 export async function collectAptRepository(repository: AptRepository, request: Fetch = fetch): Promise<Collection> {
   const url = `${repository.base}/dists/stable/main/binary-amd64/Packages`;
   const response = await request(url);
-  if (!response.ok) throw new Error(`${repository.source}: HTTP ${response.status}`);
+  if (!response.ok) throw httpFailure(`${repository.source}: HTTP ${response.status}`, response.status);
   const index = await response.text();
   const published = stanzas(index).filter((fields) => fields.Package === repository.package);
-  if (!published.length) throw new Error(`${repository.source}: the index names no ${repository.package}`);
+  if (!published.length)
+    throw new SourceError("missing-content", `${repository.source}: the index names no ${repository.package}`);
   const version = newest(published.map((fields) => fields.Version ?? ""));
   const current = published.find((fields) => fields.Version === version);
   const record: RecordData = {
@@ -150,7 +152,8 @@ export async function collectClaudeDownloads(request: Fetch = fetch): Promise<Co
     if (!version) continue;
     records.push({ id: product, name: product, maker: "Anthropic", version, url: "https://claude.com/download" });
   }
-  if (!records.length) throw new Error("no Anthropic download manifest answered, not even Claude Science");
+  if (!records.length)
+    throw new SourceError("missing-content", "no Anthropic download manifest answered, not even Claude Science");
   return {
     source: "discovery:claude-downloads",
     stream: "apps",

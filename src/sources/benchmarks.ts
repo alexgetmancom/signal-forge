@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Collection, RecordData } from "../events/types.js";
+import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import type { HttpCache } from "../storage/httpCache.js";
 import { fetchText } from "./http.js";
@@ -29,7 +30,7 @@ const SIMPLEBENCH_DATA_URL = "https://simple-bench.com/static/js/leaderboard-dat
 const SIMPLEBENCH_URL = "https://simple-bench.com/";
 
 function leaderboardCollection(source: string, url: string, raw: unknown, records: RecordData[]): Collection {
-  if (!records.length) throw new Error(`${source}: leaderboard listed no models`);
+  if (!records.length) throw new SourceError("empty", `${source}: leaderboard listed no models`);
   return { source, stream: "leaderboards", url, raw, trackChanges: true, records };
 }
 
@@ -108,7 +109,7 @@ function parseCsv(payload: string): Record<string, string>[] {
     rows.push(row);
   }
   const header = rows.shift();
-  if (!header?.length) throw new Error("weirdml: CSV had no header row");
+  if (!header?.length) throw new SourceError("schema", "weirdml: CSV had no header row");
   return rows
     .filter((entry) => entry.some((cell) => cell.trim()))
     .map((entry) => Object.fromEntries(header.map((name, index) => [name.trim(), (entry[index] ?? "").trim()])));
@@ -119,7 +120,7 @@ export function parseWeirdMl(payload: string): Collection {
   const records = rows.map((row) => {
     const entry = weirdmlRowSchema.parse(row);
     const accuracy = Number.parseFloat(entry.avg_acc);
-    if (!Number.isFinite(accuracy)) throw new Error(`weirdml: ${entry.display_name} has no readable accuracy`);
+    if (!Number.isFinite(accuracy)) throw new SourceError("schema", "weirdml: a row has no readable accuracy");
     return {
       id: entry.internal_model_name,
       name: entry.display_name,
@@ -147,7 +148,7 @@ const simplebenchRowSchema = z.object({
 
 export function parseSimpleBench(payload: string): Collection {
   const body = payload.match(/const\s+leaderboardData\s*=\s*\[([\s\S]*?)\];/)?.[1];
-  if (!body) throw new Error("simplebench: page no longer exposes leaderboardData");
+  if (!body) throw new SourceError("missing-content", "simplebench: page no longer exposes leaderboardData");
   const records = [...body.matchAll(/\{([^{}]*)\}/g)].flatMap((match) => {
     const fields = match[1] ?? "";
     const read = (name: string): string | null => {

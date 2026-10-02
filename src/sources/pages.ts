@@ -1,4 +1,5 @@
 import type { Collection, RecordData } from "../events/types.js";
+import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import type { HttpCache } from "../storage/httpCache.js";
 import { fetchText } from "./http.js";
@@ -210,14 +211,15 @@ function decodeEntities(text: string): string {
 
 function parseXml(payload: string): { urls: string[]; children: string[] } {
   const root = /<(urlset|sitemapindex)\b/i.exec(payload);
-  if (!root) throw new Error("Sitemap contained neither a urlset nor a sitemap index");
+  if (!root) throw new SourceError("schema", "Sitemap contained neither a urlset nor a sitemap index");
   const kind = (root[1] ?? "").toLowerCase();
   // A body cut off mid-transfer is a truncated sitemap, and the pages it does carry are real. It
   // must not be read as one: fewer pages than last time is how a shrunk collection is detected, and
   // a network cut would look like a site that deleted half of itself. The closing tag is the whole
   // of the check -- what a vendor's generator emits is well-formed, and what a proxy returns instead
   // has no root element at all, which the line above catches.
-  if (!new RegExp(`</${kind}\\s*>\\s*$`, "i").test(payload.trimEnd())) throw new Error("Sitemap ended mid-document");
+  if (!new RegExp(`</${kind}\\s*>\\s*$`, "i").test(payload.trimEnd()))
+    throw new SourceError("protocol", "Sitemap ended mid-document");
   const locations: string[] = [];
   for (const match of payload.matchAll(LOC)) {
     const location = decodeEntities((match[1] ?? "").replace(CDATA, "$1")).trim();
@@ -280,8 +282,9 @@ export function parseSitemap(payloads: string[], site: WatchedSite, baseline: re
     }
   });
   // An empty sitemap is a failed read of a site that certainly still has pages.
-  if (!seen.size) throw new Error(`Sitemap for ${site.name} listed no usable pages`);
-  if (seen.size > MAX_PAGES) throw new Error(`Sitemap for ${site.name} lists more than ${MAX_PAGES} pages`);
+  if (!seen.size) throw new SourceError("empty", `Sitemap for ${site.name} listed no usable pages`);
+  if (seen.size > MAX_PAGES)
+    throw new SourceError("protocol", `Sitemap for ${site.name} lists more than ${MAX_PAGES} pages`);
   return {
     source: `pages:${site.id}`,
     stream: "pages",
@@ -309,7 +312,7 @@ export async function collectSitePages(
   const { children } = parseXml(root);
   if (!children.length) return parseSitemap([root], site);
   if (children.length > MAX_CHILD_SITEMAPS)
-    throw new Error(`Sitemap for ${site.name} lists more than ${MAX_CHILD_SITEMAPS} child sitemaps`);
+    throw new SourceError("protocol", `Sitemap for ${site.name} lists more than ${MAX_CHILD_SITEMAPS} child sitemaps`);
   const payloads: string[] = [];
   for (const child of children) payloads.push(await fetchText(child, headers, request, undefined, cache));
   // Only a site read for the first time is a baseline. A child sitemap that appears later is how

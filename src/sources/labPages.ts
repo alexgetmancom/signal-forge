@@ -1,4 +1,5 @@
 import type { Collection } from "../events/types.js";
+import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { fetchText } from "./http.js";
 
@@ -42,7 +43,7 @@ const URLS: Record<LabPageSource, string> = {
 export function qwenPosts(json: string): LabPage[] {
   const body = JSON.parse(json) as { data?: { articles?: { id?: unknown; title?: unknown }[] } };
   const articles = body.data?.articles;
-  if (!Array.isArray(articles)) throw new Error("qwen.ai returned no article list");
+  if (!Array.isArray(articles)) throw new SourceError("missing-content", "qwen.ai returned no article list");
   return articles.flatMap((article) =>
     typeof article.id === "string" && typeof article.title === "string"
       ? [{ id: article.id, name: article.title, maker: "Qwen", url: `https://qwen.ai/blog?id=${article.id}` }]
@@ -108,7 +109,7 @@ export async function collectLabPages(source: LabPageSource, request: Fetch = fe
   const url = URLS[source];
   const body = await fetchText(url, {}, request);
   const records = PARSERS[source](body);
-  if (!records.length) throw new Error(`${LAB_PAGE_SOURCES[source]}'s pages list no model`);
+  if (!records.length) throw new SourceError("missing-content", `${LAB_PAGE_SOURCES[source]}'s pages list no model`);
   return {
     source,
     stream: "github",

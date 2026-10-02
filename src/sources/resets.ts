@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Collection } from "../events/types.js";
+import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import type { HttpCache } from "../storage/httpCache.js";
 import { fetchText } from "./http.js";
@@ -79,7 +80,8 @@ const MAX_PAGES = 10;
 /** UTC to the minute: this is read on a card, and the exact second is in the retained snapshot. */
 function minute(time: string): string {
   const parsed = new Date(time);
-  if (Number.isNaN(parsed.getTime())) throw new Error("Codex reset announcement carries an unreadable time");
+  if (Number.isNaN(parsed.getTime()))
+    throw new SourceError("schema", "Codex reset announcement carries an unreadable time");
   return `${parsed.toISOString().slice(0, 16).replace("T", " ")} UTC`;
 }
 
@@ -137,15 +139,18 @@ export async function collectCodexResets(request: Fetch = fetch, cache?: HttpCac
     cursor = parsed.pagination.has_more ? (parsed.pagination.next_cursor ?? null) : null;
     if (!cursor) break;
   }
-  if (cursor) throw new Error("Codex reset history exceeds the pages this collector reads");
+  if (cursor) throw new SourceError("protocol", "Codex reset history exceeds the pages this collector reads");
   const statusBody = await fetchText(`${SITE}/api/v1/status`, {}, request);
   const status = statusResponse.parse(JSON.parse(statusBody));
   const records = resetRecords(entries, status.data.scheduled_reset ?? null);
   // An empty answer is a broken observation, never a history in which no reset ever happened.
-  if (!records.length) throw new Error("Codex reset history came back empty");
+  if (!records.length) throw new SourceError("empty", "Codex reset history came back empty");
   // A scheduled announcement is excluded from the tracker's own count, so it is excluded here too.
   if (status.data.stats.total > entries.length)
-    throw new Error(`Codex reset history is short: ${entries.length} of ${status.data.stats.total} announcements`);
+    throw new SourceError(
+      "missing-content",
+      `Codex reset history is short: ${entries.length} of ${status.data.stats.total} announcements`,
+    );
   return {
     source: "codex-resets",
     stream: "resets",

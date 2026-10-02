@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
 import type { Collection, RecordData } from "../events/types.js";
+import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { log } from "../logger.js";
 import { fetchText } from "./http.js";
@@ -23,16 +24,16 @@ const tokenSchema = z.object({ access_token: z.string().min(1), expires_in: z.nu
 
 function serviceAccount(config: AppConfig): ServiceAccount {
   const value = config.GOOGLE_CLOUD_SERVICE_ACCOUNT;
-  if (!value) throw new Error("Vertex needs GOOGLE_CLOUD_SERVICE_ACCOUNT");
+  if (!value) throw new SourceError("credential", "Vertex needs GOOGLE_CLOUD_SERVICE_ACCOUNT");
   // Neither error may carry the text it failed on: it is a private key.
   let parsed: unknown;
   try {
     parsed = JSON.parse(value);
   } catch {
-    throw new Error("GOOGLE_CLOUD_SERVICE_ACCOUNT is not JSON");
+    throw new SourceError("credential", "GOOGLE_CLOUD_SERVICE_ACCOUNT is not JSON");
   }
   const result = serviceAccountSchema.safeParse(parsed);
-  if (!result.success) throw new Error("GOOGLE_CLOUD_SERVICE_ACCOUNT is not a service account key");
+  if (!result.success) throw new SourceError("credential", "GOOGLE_CLOUD_SERVICE_ACCOUNT is not a service account key");
   return result.data;
 }
 
@@ -171,7 +172,7 @@ export async function collectVertexQuotas(config: AppConfig, request: Fetch = fe
     if (!data.nextPageToken) {
       // A project that lost the API answers with no quotas; that is a broken read, not every
       // partner model leaving Google Cloud at once.
-      if (!quotaCount || !models.size) throw new Error("Vertex quotas have no base_model dimension");
+      if (!quotaCount || !models.size) throw new SourceError("schema", "Vertex quotas have no base_model dimension");
       const records: RecordData[] = [...models.entries()]
         .sort(([left], [right]) => left.localeCompare(right))
         .map(([model, limits]) => ({
@@ -188,10 +189,10 @@ export async function collectVertexQuotas(config: AppConfig, request: Fetch = fe
         records,
       };
     }
-    if (data.nextPageToken === cursor) throw new Error("Vertex quota pagination did not advance");
+    if (data.nextPageToken === cursor) throw new SourceError("protocol", "Vertex quota pagination did not advance");
     cursor = data.nextPageToken;
   }
-  throw new Error("Vertex quota pagination exceeded limit");
+  throw new SourceError("protocol", "Vertex quota pagination exceeded limit");
 }
 
 const publisherModelsSchema = z.object({
@@ -242,7 +243,7 @@ export async function collectVertexModelGarden(config: AppConfig, request: Fetch
     let cursor = "";
     let listed = 0;
     for (let page = 0; ; page++) {
-      if (page >= 100) throw new Error(`Model Garden pagination exceeded limit for ${publisher}`);
+      if (page >= 100) throw new SourceError("protocol", `Model Garden pagination exceeded limit for ${publisher}`);
       const body: unknown = JSON.parse(
         await fetchText(`${apiUrl}${cursor ? `&pageToken=${encodeURIComponent(cursor)}` : ""}`, headers, request),
       );
@@ -262,7 +263,7 @@ export async function collectVertexModelGarden(config: AppConfig, request: Fetch
         });
       }
       if (!data.nextPageToken) break;
-      if (data.nextPageToken === cursor) throw new Error("Model Garden pagination did not advance");
+      if (data.nextPageToken === cursor) throw new SourceError("protocol", "Model Garden pagination did not advance");
       cursor = data.nextPageToken;
     }
     // Every publisher here was chosen for answering with models, so one answering with none is more
@@ -274,7 +275,7 @@ export async function collectVertexModelGarden(config: AppConfig, request: Fetch
     }
   }
   if (silent.length === MODEL_GARDEN_PUBLISHERS.length)
-    throw new Error("Model Garden lists no models for any publisher");
+    throw new SourceError("empty", "Model Garden lists no models for any publisher");
   return {
     source: "vertex-model-garden",
     stream: "api-models",

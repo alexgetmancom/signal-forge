@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Collection } from "../events/types.js";
+import { httpFailure, SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 
 /**
@@ -35,7 +36,7 @@ async function openCodeList(
   request: Fetch,
 ): Promise<Collection> {
   const response = await request(url);
-  if (!response.ok) throw new Error(`${source}: HTTP ${response.status}`);
+  if (!response.ok) throw httpFailure(`${source}: HTTP ${response.status}`, response.status);
   const ids = [...new Set(listSchema.parse(await response.json()).data.map((model) => model.id))]
     // "test" and "test-novita-dsf4.1" are the operator's own plumbing.
     .filter((id) => !/^test\b/.test(id))
@@ -86,13 +87,13 @@ let read: { version: string; collection: Collection } | null = null;
 
 export async function collectCommandCodeModels(request: Fetch = fetch): Promise<Collection> {
   const version = ((await (await request(TAGS)).json()) as Record<string, string>).latest;
-  if (!version) throw new Error("Command Code has no published version");
+  if (!version) throw new SourceError("empty", "Command Code has no published version");
   if (read?.version === version) return read.collection;
   const response = await request(`https://registry.npmjs.org/command-code/-/command-code-${version}.tgz`);
-  if (!response.ok) throw new Error(`Command Code ${version}: HTTP ${response.status}`);
+  if (!response.ok) throw httpFailure(`Command Code: HTTP ${response.status}`, response.status);
   const text = Buffer.from(Bun.gunzipSync(new Uint8Array(await response.arrayBuffer()))).toString("latin1");
   const ids = commandCodeModelIds(text);
-  if (ids.length < 10) throw new Error(`Command Code ${version} names ${ids.length} models`);
+  if (ids.length < 10) throw new SourceError("missing-content", `Command Code names ${ids.length} models`);
   const collection: Collection = {
     source: "command-code-models",
     stream: "api-models",

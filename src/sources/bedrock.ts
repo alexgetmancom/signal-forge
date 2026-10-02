@@ -2,6 +2,7 @@ import { createHash, createHmac } from "node:crypto";
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
 import type { Collection, RecordData } from "../events/types.js";
+import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { fetchText } from "./http.js";
 
@@ -90,7 +91,7 @@ export async function collectBedrock(
   const accessKeyId = config.AWS_ACCESS_KEY_ID;
   const secretAccessKey = config.AWS_SECRET_ACCESS_KEY;
   if (!accessKeyId || !secretAccessKey)
-    throw new Error("Bedrock catalogue needs AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY");
+    throw new SourceError("credential", "Bedrock catalogue needs AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY");
   const models = new Map<string, RecordData & { regions: string[] }>();
   const raw: Record<string, unknown> = {};
   for (const region of BEDROCK_REGIONS) {
@@ -117,7 +118,7 @@ export async function collectBedrock(
       });
     }
   }
-  if (!models.size) throw new Error("Bedrock catalogue has no models");
+  if (!models.size) throw new SourceError("empty", "Bedrock catalogue has no models");
   const records = [...models.values()].map((model) => ({ ...model, regions: [...model.regions].sort() }));
   return {
     source: "bedrock",

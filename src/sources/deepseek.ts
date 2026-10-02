@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
 import type { Collection, RecordData } from "../events/types.js";
+import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import type { HttpCache } from "../storage/httpCache.js";
 import { slug } from "../text.js";
@@ -79,7 +80,7 @@ const pricingRecordsSchema = z.array(pricingRecordSchema).min(1);
 /** Parse the dated update sections from DeepSeek's official API documentation page. */
 export function parseDeepSeekUpdates(html: string): Collection {
   const article = html.match(/<article\b[^>]*>([\s\S]*?)<\/article>/i)?.[1];
-  if (!article) throw new Error("DeepSeek changelog article not found");
+  if (!article) throw new SourceError("missing-content", "DeepSeek changelog article not found");
 
   const dateHeadings = [...article.matchAll(/<h2\b[^>]*>([\s\S]*?)<\/h2>/gi)];
   const parsed = dateHeadings.flatMap((heading, index) => {
@@ -124,7 +125,7 @@ export async function collectDeepSeekUpdates(request: Fetch = fetch, cache?: Htt
 
 function tableRows(html: string): string[][] {
   const table = html.match(/<table\b[^>]*>([\s\S]*?)<\/table>/i)?.[1];
-  if (!table) throw new Error("DeepSeek pricing table not found");
+  if (!table) throw new SourceError("missing-content", "DeepSeek pricing table not found");
   return [...table.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)].map((row) =>
     [...(row[1] ?? "").matchAll(/<t[dh]\b([^>]*)>([\s\S]*?)<\/t[dh]>/gi)].flatMap((cell) => {
       const span = Number(attribute(cell[1] ?? "", "colspan") ?? "1");
@@ -153,7 +154,7 @@ export function parseDeepSeekPricing(html: string): Collection {
     .filter((cell) => cell && cell.toUpperCase() !== "MODEL")
     .map((cell) => cell.replace(/(?:\s*[([]\d+[)\]]|\s+\d+|[\s*†‡¹²³⁴⁵⁶⁷⁸⁹⁰]+)+$/u, "").trim())
     .filter(Boolean);
-  if (!models.length) throw new Error("DeepSeek pricing models not found");
+  if (!models.length) throw new SourceError("missing-content", "DeepSeek pricing models not found");
 
   const records = models.map<RecordData>((model) => ({
     id: model,
@@ -230,7 +231,7 @@ export function parseDeepSeekPricing(html: string): Collection {
     }
   }
   // Price rows that yielded no price are a table this parser no longer understands, not free models.
-  if (priced.rows && !priced.stored) throw new Error("DeepSeek pricing rows carried no readable price");
+  if (priced.rows && !priced.stored) throw new SourceError("schema", "DeepSeek pricing rows carried no readable price");
   const parsed = pricingRecordsSchema.parse(records);
   return {
     source: "deepseek-pricing",

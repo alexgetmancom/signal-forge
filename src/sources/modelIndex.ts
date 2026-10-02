@@ -14,6 +14,7 @@
  */
 
 import type { Collection, RecordData } from "../events/types.js";
+import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import type { HttpCache } from "../storage/httpCache.js";
 import { fetchText } from "./http.js";
@@ -57,7 +58,7 @@ export function parseOpenAIModelIndex(markdown: string): Collection {
       ...(summary ? { summary } : {}),
     });
   }
-  if (!records.length) throw new Error("OpenAI model index named no model");
+  if (!records.length) throw new SourceError("empty", "OpenAI model index named no model");
   return { source: "openai-model-index", stream: "api-models", url: OPENAI_MODELS_URL, raw: [...seen].sort(), records };
 }
 
@@ -77,7 +78,7 @@ export function parseAnthropicModelIndex(markdown: string): Collection {
       source: "documentation",
     });
   }
-  if (!records.length) throw new Error("Anthropic model index named no model");
+  if (!records.length) throw new SourceError("empty", "Anthropic model index named no model");
   return {
     source: "anthropic-model-index",
     stream: "api-models",

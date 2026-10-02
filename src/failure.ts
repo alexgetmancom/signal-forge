@@ -68,3 +68,15 @@ export class SourceError extends Error {
     this.evidence = options.evidence;
   }
 }
+
+/**
+ * A refusal by status, for the collectors that read a response themselves instead of through
+ * `fetchText`: a 429 is a limit and anything else is the upstream refusing.
+ *
+ * It is deliberately not a `SourceHttpError`. The poller turns that one's 401 or 403 into a stop on
+ * every source carrying the credential, and its `retryAt` defers the source: behaviour these sites
+ * have never had, and not something to acquire as a side effect of naming a failure.
+ */
+export function httpFailure(message: string, status: number): SourceError {
+  return new SourceError(status === 429 ? "rate-limited" : "http", message, { evidence: { status } });
+}

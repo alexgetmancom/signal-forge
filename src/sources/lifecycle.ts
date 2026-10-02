@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Collection, RecordData } from "../events/types.js";
+import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { slug } from "../text.js";
 import { htmlText } from "./html.js";
@@ -278,7 +279,7 @@ function parseMarkdownRecords(markdown: string, options: LifecycleTableOptions):
 }
 
 function parseCollection(source: string, url: string, raw: string, records: RecordData[]): Collection {
-  if (!records.length) throw new Error(`${source}: lifecycle records not found`);
+  if (!records.length) throw new SourceError("missing-content", `${source}: lifecycle records not found`);
   return {
     source,
     stream: "deprecations",
@@ -425,7 +426,7 @@ export function parseCohereDeprecations(input: string): Collection {
         });
       }
     }
-    if (!fallback.length) throw new Error("cohere-deprecations: lifecycle records not found");
+    if (!fallback.length) throw new SourceError("missing-content", "cohere-deprecations: lifecycle records not found");
     markdownRecords = lifecycleRecords.parse([...new Map(fallback.map((record) => [record.id, record])).values()]);
   }
   return parseCollection("cohere-deprecations", COHERE_DEPRECATIONS_URL, input, markdownRecords);

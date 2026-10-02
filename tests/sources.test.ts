@@ -1060,7 +1060,7 @@ test("package collectors reject a registry response for a different package", as
         time: { "1.0.0": "2026-09-01T00:00:00.000Z" },
       }),
     ),
-  ).rejects.toThrow("expected @openai/codex");
+  ).rejects.toThrow("different package than @openai/codex");
   await expect(
     collectPypi("openai", async () =>
       Response.json({
@@ -1068,7 +1068,16 @@ test("package collectors reject a registry response for a different package", as
         releases: { "1.0.0": [] },
       }),
     ),
-  ).rejects.toThrow("expected openai");
+  ).rejects.toThrow("different package than openai");
+  // What the registry answered with is its value, not ours, and a failure's sentence is printed.
+  const answered = await collectNpm("@openai/codex", async () =>
+    Response.json({
+      name: "@other/tool",
+      "dist-tags": { latest: "1.0.0" },
+      time: { "1.0.0": "2026-09-01T00:00:00.000Z" },
+    }),
+  ).catch((error: Error) => error.message);
+  expect(answered).not.toContain("@other/tool");
 });
 
 test("an npm package whose channels have not moved is read from its dist-tags alone", async () => {
@@ -1150,7 +1159,19 @@ test("DesignArena refuses a response for a different requested category", () => 
       JSON.stringify({ success: true, category: "image", data: [{ modelId: "model", elo: 1000 }] }),
       "website",
     ),
-  ).toThrow("expected website");
+  ).toThrow("different category than website");
+  const said = (() => {
+    try {
+      parseDesignArena(
+        JSON.stringify({ success: true, category: "image", data: [{ modelId: "model", elo: 1000 }] }),
+        "website",
+      );
+    } catch (error) {
+      return (error as Error).message;
+    }
+    return "";
+  })();
+  expect(said).not.toContain("image");
 });
 test("Cursor changelog takes the slug as identity and refuses a page it cannot read", () => {
   const html =

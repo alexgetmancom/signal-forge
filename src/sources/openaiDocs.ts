@@ -14,6 +14,7 @@
  */
 
 import type { Collection, RecordData } from "../events/types.js";
+import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import type { HttpCache } from "../storage/httpCache.js";
 import { fetchText } from "./http.js";
@@ -151,7 +152,7 @@ function parseSiteIndex(markdown: string, index: SiteIndex): Collection {
     });
   }
   // An index this parser can no longer read looks exactly like a site that documents nothing.
-  if (!entries) throw new Error(`${index.source} listed no page`);
+  if (!entries) throw new SourceError("missing-content", `${index.source} listed no page`);
   return { source: index.source, stream: "pages", url: index.url, raw: [...seen].sort(), records };
 }
 
@@ -293,7 +294,7 @@ export function parseOpenAIPricing(markdown: string): Collection {
       });
   }
   // A table whose shape moved reads as every model losing its price at once, which is not a fact.
-  if (!rows) throw new Error("OpenAI pricing named no priced model");
+  if (!rows) throw new SourceError("missing-content", "OpenAI pricing named no priced model");
   return {
     source: "openai-pricing",
     stream: "api-models",

@@ -1,4 +1,5 @@
 import type { Collection } from "../events/types.js";
+import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { fetchText } from "./http.js";
 
@@ -73,11 +74,12 @@ export async function collectLabSitemap(
   const records = new Map<string, { id: string; name: string; maker: string; url: string }>();
   for (const sitemap of sitemaps) {
     const xml = await fetchText(sitemap.url, {}, request);
-    if (!xml.includes("href=") && !xml.includes("<loc>")) throw new Error(`${sitemap.url} is not a sitemap`);
+    if (!xml.includes("href=") && !xml.includes("<loc>"))
+      throw new SourceError("schema", `${sitemap.url} is not a sitemap`);
     for (const url of modelPages(xml, sitemap.pages))
       records.set(url, { id: url, name: url.split("/").at(-1) ?? url, maker, url });
   }
-  if (!records.size) throw new Error(`${maker}'s sitemap lists no model page`);
+  if (!records.size) throw new SourceError("missing-content", `${maker}'s sitemap lists no model page`);
   return {
     source,
     stream: "github",

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { Collection } from "../events/types.js";
 import { selectMeaningfulWebStrings } from "../events/web.js";
+import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import type { HttpCache } from "../storage/httpCache.js";
 import { fetchText } from "./http.js";
@@ -46,19 +47,20 @@ export async function collectClaude(request: Fetch = fetch, cache?: HttpCache): 
     );
     for (const asset of batch) {
       bytes += asset.code.length;
-      if (bytes > 150_000_000) throw new Error("Public page Claude assets exceed 150 MB limit");
+      if (bytes > 150_000_000) throw new SourceError("protocol", "Public page Claude assets exceed 150 MB limit");
       raw[asset.url] = asset.code;
       if (asset.depth >= 2) continue;
       for (const url of claudeAssetImports(asset.code, asset.url)) {
         if (seen.has(url)) continue;
         seen.add(url);
         queued.push({ url, depth: asset.depth + 1 });
-        if (seen.size > 1200) throw new Error("Public page Claude asset graph exceeds 1200 files at depth 2");
+        if (seen.size > 1200)
+          throw new SourceError("protocol", "Public page Claude asset graph exceeds 1200 files at depth 2");
       }
     }
   }
   const strings = selectMeaningfulWebStrings(Object.values(raw).flatMap(extractStrings));
-  if (!strings.length) throw new Error("Public page Claude strings not found");
+  if (!strings.length) throw new SourceError("missing-content", "Public page Claude strings not found");
   return {
     source: "claude-web",
     stream: "web",

@@ -2,6 +2,7 @@ import { z } from "zod";
 import { attentionScore } from "../attention.js";
 import type { AppConfig } from "../config.js";
 import type { Collection, RecordData } from "../events/types.js";
+import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import type { HttpCache } from "../storage/httpCache.js";
 import { fetchText } from "./http.js";
@@ -129,7 +130,7 @@ export async function collectGithubDiscovery(
   now = new Date(),
   cache?: HttpCache,
 ): Promise<Collection> {
-  if (!config.GITHUB_TOKEN) throw new Error("GITHUB_TOKEN is required for GitHub discovery");
+  if (!config.GITHUB_TOKEN) throw new SourceError("credential", "GITHUB_TOKEN is required for GitHub discovery");
   const q = githubQuery(query, now);
   const url = `https://api.github.com/search/repositories?q=${encodeURIComponent(q)}&sort=created&order=desc&per_page=100`;
   const body: unknown = JSON.parse(
@@ -143,7 +144,7 @@ export async function collectGithubDiscovery(
   );
   const data = githubSearchSchema.parse(body);
   // GitHub stops a search that runs out of time and says so; a partial page is not the ranking.
-  if (data.incomplete_results) throw new Error("GitHub search returned incomplete results");
+  if (data.incomplete_results) throw new SourceError("protocol", "GitHub search returned incomplete results");
   const records: RecordData[] = data.items
     .filter((repository) => !repository.fork && !repository.archived)
     .map((repository) => {

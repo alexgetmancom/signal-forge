@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Collection, RecordData } from "../events/types.js";
+import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import type { HttpCache } from "../storage/httpCache.js";
 import { fetchText } from "./http.js";
@@ -142,7 +143,7 @@ export async function collectModelsDev(request: Fetch = fetch, cache?: HttpCache
       };
     })
     .sort((left, right) => left.id.localeCompare(right.id));
-  if (!records.length) throw new Error("models.dev catalogue has no models");
+  if (!records.length) throw new SourceError("empty", "models.dev catalogue has no models");
   return { source: "models-dev", stream: "api-models", url: "https://models.dev", raw, records };
 }
 
@@ -193,7 +194,7 @@ export async function collectTrueFoundryAzure(
   request: Fetch = fetch,
   cache?: HttpCache,
 ): Promise<Collection> {
-  if (!token) throw new Error("GITHUB_TOKEN is required for the TrueFoundry catalogue");
+  if (!token) throw new SourceError("credential", "GITHUB_TOKEN is required for the TrueFoundry catalogue");
   const raw: unknown = JSON.parse(
     await fetchText(
       TRUEFOUNDRY_TREE_URL,
@@ -204,7 +205,8 @@ export async function collectTrueFoundryAzure(
     ),
   );
   const tree = treeSchema.parse(raw);
-  if (tree.truncated) throw new Error("TrueFoundry tree was truncated; the catalogue would be incomplete");
+  if (tree.truncated)
+    throw new SourceError("protocol", "TrueFoundry tree was truncated; the catalogue would be incomplete");
   const providersBySlug = new Map<string, Set<string>>();
   const entries: { provider: string; slug: string; path: string }[] = [];
   for (const node of tree.tree) {
@@ -221,7 +223,7 @@ export async function collectTrueFoundryAzure(
     if (seen) seen.add(provider);
     else providersBySlug.set(slug, new Set([provider]));
   }
-  if (!providersBySlug.size) throw new Error("TrueFoundry tree has no provider catalogue");
+  if (!providersBySlug.size) throw new SourceError("missing-content", "TrueFoundry tree has no provider catalogue");
   // The same deployment is filed twice: `grok-3.yaml` and `azure_ai/global/grok-3.yaml` are one
   // model in one provider, and emitting both is a duplicate record ID rather than two sightings.
   // The shallower path is the catalogue entry; the nested one is a routing variant of it.
@@ -256,7 +258,7 @@ export async function collectTrueFoundryAzure(
       };
     })
     .sort((left, right) => left.id.localeCompare(right.id));
-  if (!records.length) throw new Error("TrueFoundry tree has no Azure catalogue");
+  if (!records.length) throw new SourceError("missing-content", "TrueFoundry tree has no Azure catalogue");
   return {
     source: "truefoundry-azure",
     stream: "api-models",

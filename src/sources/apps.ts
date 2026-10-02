@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Collection } from "../events/types.js";
+import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import type { HttpCache } from "../storage/httpCache.js";
 import { fetchText } from "./http.js";
@@ -63,7 +64,7 @@ export function parseAppStore(payload: string, app: WatchedApp): Collection {
   const data = lookupSchema.parse(JSON.parse(payload));
   const result = data.results[0];
   // An empty lookup is a failed observation, never an app that stopped existing.
-  if (!result) throw new Error(`App Store returned no listing for ${app.name}`);
+  if (!result) throw new SourceError("empty", `App Store returned no listing for ${app.name}`);
   return {
     source: `app:ios:${app.id}`,
     stream: "apps",

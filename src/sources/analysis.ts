@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
 import type { Collection } from "../events/types.js";
+import { SourceError } from "../failure.js";
 import { finite } from "../finite.js";
 import type { Fetch } from "../http-client.js";
 import { fetchText } from "./http.js";
@@ -98,7 +99,7 @@ function parseArtificialAnalysis(payload: string): Collection {
 
 export async function collectArtificialAnalysis(config: AppConfig, request: Fetch = fetch): Promise<Collection> {
   const key = config.ARTIFICIAL_ANALYSIS_API_KEY;
-  if (!key) throw new Error("Artificial Analysis needs ARTIFICIAL_ANALYSIS_API_KEY");
+  if (!key) throw new SourceError("credential", "Artificial Analysis needs ARTIFICIAL_ANALYSIS_API_KEY");
   return parseArtificialAnalysis(
     await fetchText(
       "https://artificialanalysis.ai/api/v2/data/llms/models",
@@ -162,7 +163,7 @@ export async function collectMediaArena(
   request: Fetch = fetch,
 ): Promise<Collection> {
   const key = config.ARTIFICIAL_ANALYSIS_API_KEY;
-  if (!key) throw new Error("Artificial Analysis needs ARTIFICIAL_ANALYSIS_API_KEY");
+  if (!key) throw new SourceError("credential", "Artificial Analysis needs ARTIFICIAL_ANALYSIS_API_KEY");
   return parseMediaArena(
     arena,
     await fetchText(

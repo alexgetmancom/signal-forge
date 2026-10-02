@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { AppConfig } from "../config.js";
 import type { Collection } from "../events/types.js";
 import { vendorOfName } from "../events/vendors.js";
+import { httpFailure, SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { googleCloudHeaders } from "./vertex.js";
 
@@ -40,16 +41,16 @@ export async function collectGoogleSkus(config: AppConfig, request: Fetch = fetc
     const descriptions: string[] = [];
     let cursor = "";
     for (let page = 0; ; page++) {
-      if (page >= 20) throw new Error(`Google Cloud SKU pagination exceeded limit for ${label}`);
+      if (page >= 20) throw new SourceError("protocol", `Google Cloud SKU pagination exceeded limit for ${label}`);
       const url = `https://cloudbilling.googleapis.com/v1/services/${service}/skus?pageSize=5000${cursor ? `&pageToken=${encodeURIComponent(cursor)}` : ""}`;
       const response = await request(url, { headers });
-      if (!response.ok) throw new Error(`Google Cloud SKUs for ${label}: HTTP ${response.status}`);
+      if (!response.ok) throw httpFailure(`Google Cloud SKUs for ${label}: HTTP ${response.status}`, response.status);
       const data = skusSchema.parse(await response.json());
       descriptions.push(...(data.skus ?? []).map((sku) => sku.description));
       if (!data.nextPageToken || data.nextPageToken === cursor) break;
       cursor = data.nextPageToken;
     }
-    if (!descriptions.length) throw new Error(`Google Cloud lists no SKUs for ${label}`);
+    if (!descriptions.length) throw new SourceError("empty", `Google Cloud lists no SKUs for ${label}`);
     for (const model of skuModels(descriptions)) {
       // The service is not the maker. GLM 5, Qwen 3.6, Llama 4 and GPT-OSS are all priced here and
       // were all filed under "Google Cloud", so a card for any of them named the wrong company.

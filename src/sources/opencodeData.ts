@@ -19,6 +19,7 @@
 import type { Database } from "bun:sqlite";
 import type { Collection, RecordData } from "../events/types.js";
 import { vendorOfName } from "../events/vendors.js";
+import { httpFailure, SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { USER_AGENT } from "./http.js";
 
@@ -129,11 +130,15 @@ function alreadyListed(db: Database, slug: string): boolean {
 export async function collectOpenCodeData(db: Database, request: Fetch = fetch): Promise<Collection> {
   const seed = await probe(opencodeLabUrl(OPENCODE_SEED_LAB), request);
   if (seed.status !== 200)
-    throw new Error(`discovery:opencode-data: /data/${OPENCODE_SEED_LAB} answered HTTP ${seed.status}`);
+    throw httpFailure(`discovery:opencode-data: /data/${OPENCODE_SEED_LAB} answered HTTP ${seed.status}`, seed.status);
   const labs = parseOpenCodeLabs(seed.body);
   // An empty list is the page shape having moved, which is the one thing a catalogue source must
   // not read as "the catalogue is empty": every model it ever listed would retire at once.
-  if (!labs.length) throw new Error("discovery:opencode-data: the page named no lab, so its shape has changed");
+  if (!labs.length)
+    throw new SourceError(
+      "missing-content",
+      "discovery:opencode-data: the page named no lab, so its shape has changed",
+    );
   const followed = labs.filter((lab) => vendorOfName(lab.name) !== "Unknown" || vendorOfName(lab.id) !== "Unknown");
   const records: RecordData[] = [...parseOpenCodeModels(seed.body, OPENCODE_SEED_LAB)];
   const read: Record<string, number> = { [OPENCODE_SEED_LAB]: records.length };

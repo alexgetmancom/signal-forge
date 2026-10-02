@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
 import type { Collection, RecordData } from "../events/types.js";
+import { httpFailure } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { fetchText } from "./http.js";
 import { judgeMentions, olderThanKnown, stageKnown, stageRecordId } from "./mentionStage.js";
@@ -108,7 +109,7 @@ async function posts(
       body: JSON.stringify({ query: DISCUSSIONS_QUERY, variables: { owner, name } }),
       signal: AbortSignal.timeout(30_000),
     });
-    if (!response.ok) throw new Error(`${repo} discussions: HTTP ${response.status}`);
+    if (!response.ok) throw httpFailure(`${repo} discussions: HTTP ${response.status}`, response.status);
     const discussions = discussionsSchema.parse(await response.json()).data.repository?.discussions.nodes ?? [];
     for (const discussion of discussions) {
       if (discussion.updatedAt <= since) continue;

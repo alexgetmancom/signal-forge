@@ -409,7 +409,8 @@ export async function collectProviderCatalogue(
   request: Fetch = fetch,
 ): Promise<Collection> {
   const key = config[provider.key];
-  if (typeof key !== "string" || !key) throw new Error(`${provider.name} catalogue needs ${String(provider.key)}`);
+  if (typeof key !== "string" || !key)
+    throw new SourceError("credential", `${provider.name} catalogue needs ${String(provider.key)}`);
   const raw: unknown = JSON.parse(
     await fetchText(provider.apiUrl, { Authorization: `Bearer ${key}`, accept: "application/json" }, request),
   );

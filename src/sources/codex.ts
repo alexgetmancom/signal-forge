@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { Collection } from "../events/types.js";
+import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import type { HttpCache } from "../storage/httpCache.js";
 import { fetchText } from "./http.js";
@@ -17,12 +18,13 @@ export function codexPages(index: string): { name: string; url: string }[] {
     if (url.pathname.endsWith("codex-manual.md")) continue; // Generated duplicate of individual guides.
     pages.set(url.href, { name: match[1] ?? url.pathname, url: url.href });
   }
-  if (!pages.size || pages.size > 200) throw new Error("Public page Codex index invalid or exceeds 200 pages");
+  if (!pages.size || pages.size > 200)
+    throw new SourceError("schema", "Public page Codex index invalid or exceeds 200 pages");
   return [...pages.values()].sort((a, b) => a.url.localeCompare(b.url));
 }
 export function markdownParagraphs(text: string): string[] {
   if (!text.trimStart().startsWith("# ") || /<!doctype html/i.test(text))
-    throw new Error("Public page expected Markdown");
+    throw new SourceError("schema", "Public page expected Markdown");
   return text
     .split(/\n\s*\n/)
     .map((s) => s.replace(/\s+/g, " ").trim())
@@ -44,7 +46,7 @@ export async function collectCodexDocs(request: Fetch = fetch, cache?: HttpCache
     );
     for (const { page, text, strings } of results) {
       bytes += text.length;
-      if (bytes > 15_000_000) throw new Error("Public page Codex documentation exceeds 15 MB");
+      if (bytes > 15_000_000) throw new SourceError("protocol", "Public page Codex documentation exceeds 15 MB");
       raw[page.url] = text;
       records.push({ id: page.url, name: page.name, url: page.url.replace(/\.md(?=\?|$)/, ""), strings });
     }

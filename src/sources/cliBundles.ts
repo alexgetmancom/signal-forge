@@ -1,4 +1,5 @@
 import type { Collection } from "../events/types.js";
+import { httpFailure, SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { type BundleMemory, forgetful } from "./bundleMemory.js";
 import { scanGzipStream } from "./gzipScan.js";
@@ -91,7 +92,7 @@ export async function collectCliBundle(
   memory: BundleMemory = forgetful,
 ): Promise<Collection> {
   const version = await publishedVersion(bundle.package, ["latest"], request);
-  if (!version) throw new Error(`${bundle.package} has no published version`);
+  if (!version) throw new SourceError("empty", `${bundle.package} has no published version`);
   // Only a new version is downloaded, and what counts as already read lives in the database rather
   // than in this process: see src/sources/bundleMemory.ts.
   if (memory.lastVersion() === version) {
@@ -100,10 +101,11 @@ export async function collectCliBundle(
   }
   const name = bundle.package.split("/").at(-1);
   const response = await request(`https://registry.npmjs.org/${bundle.package}/-/${name}-${version}.tgz`);
-  if (!response.ok) throw new Error(`${bundle.package} ${version}: HTTP ${response.status}`);
-  if (!response.body) throw new Error(`${bundle.package} ${version}: no body`);
+  if (!response.ok) throw httpFailure(`${bundle.package}: HTTP ${response.status}`, response.status);
+  if (!response.body) throw new SourceError("protocol", `${bundle.package}: no body`);
   const ids = await bundleIdsFromStream(response.body, bundle.pattern);
-  if (ids.length < bundle.floor) throw new Error(`${bundle.package} ${version} names ${ids.length} models`);
+  if (ids.length < bundle.floor)
+    throw new SourceError("missing-content", `${bundle.package} names ${ids.length} models`);
   memory.remember(version);
   return collected(bundle, version, ids);
 }

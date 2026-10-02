@@ -105,6 +105,11 @@ export const BENCH: Bench[] = [
   },
   {
     group: "prove",
+    command: "check-failures",
+    when: "Part of the gate. A collector in src/sources throws SourceError(kind, message), or httpFailure(message, status) for a response that was not ok, and never a bare Error: that is filed as unknown and its sentence is not kept. registry.ts, which validates the registry at boot, is the one exception.",
+  },
+  {
+    group: "prove",
     command: "test",
     when: "`bun test <word>` narrows to matching files. Reach for tests/fixtures/build.ts before writing an INSERT: anEvent, aSnapshot, anAttempt and aCall produce rows that satisfy the CHECK constraints.",
   },

@@ -89,7 +89,7 @@ export const HF_LABS = new Set([
 
 export function parseHuggingFace(payload: string, author: string): Collection {
   const models = hfModels.parse(JSON.parse(payload)).filter((model) => !model.private);
-  if (!models.length) throw new Error(`Hugging Face catalogue for ${author} has no public models`);
+  if (!models.length) throw new SourceError("empty", `Hugging Face catalogue for ${author} has no public models`);
   return {
     source: `huggingface:${author}`,
     stream: "weights",
@@ -208,7 +208,7 @@ const PLATFORM_TAG = /(^|-)(win32|darwin|linux|freebsd|android|x64|arm64|arm|ia3
 /** npm stamps every version it publishes; a tagged version without a stamp is a malformed document. */
 function publishedAt(time: Record<string, string>, name: string, version: string): string {
   const published = time[version];
-  if (!published) throw new Error(`npm package ${name} has no publication time for ${version}`);
+  if (!published) throw new SourceError("schema", `npm package ${name} has no publication time for a version it tags`);
   return published;
 }
 
@@ -298,7 +298,8 @@ export async function collectNpm(
     if (unchanged) {
       const published = (version: string): string => {
         const channel = [...known.values()].find((entry) => entry.version === version);
-        if (!channel) throw new Error(`npm package ${name} has no publication time for ${version}`);
+        if (!channel)
+          throw new SourceError("schema", `npm package ${name} has no publication time for a version it tags`);
         return channel.published;
       };
       // The same document the full read keeps, assembled from what is already known: one source
@@ -311,7 +312,7 @@ export async function collectNpm(
   const url = `https://registry.npmjs.org/${encoded}`;
   const collection = parseNpm(await fetchText(url, { accept: "application/json" }, request, undefined, cache));
   if (collection.source !== `npm:${name}`)
-    throw new Error(`npm returned package ${collection.source.slice("npm:".length)}, expected ${name}`);
+    throw new SourceError("schema", `npm returned a different package than ${name}`);
   return collection;
 }
 
@@ -345,7 +346,7 @@ export async function collectPypi(name: string, request: Fetch = fetch, cache?: 
     await fetchText(`https://pypi.org/pypi/${name}/json`, { accept: "application/json" }, request, undefined, cache),
   );
   if (collection.source.toLowerCase() !== `pypi:${name}`.toLowerCase())
-    throw new Error(`PyPI returned package ${collection.source.slice("pypi:".length)}, expected ${name}`);
+    throw new SourceError("schema", `PyPI returned a different package than ${name}`);
   return collection;
 }
 

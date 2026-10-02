@@ -1,4 +1,5 @@
 import type { Collection } from "../events/types.js";
+import { httpFailure, SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { type BundleMemory, forgetful } from "./bundleMemory.js";
 import { scanGzipStream } from "./gzipScan.js";
@@ -37,19 +38,19 @@ export async function collectClaudeCodeModels(
   memory: BundleMemory = forgetful,
 ): Promise<Collection> {
   const version = await publishedVersion(PACKAGE, CHANNELS, request);
-  if (!version) throw new Error("Claude Code has no published version");
+  if (!version) throw new SourceError("empty", "Claude Code has no published version");
   // The version has not moved, so the 230 MB it would take to learn nothing is not spent.
   if (memory.lastVersion() === version) {
     const known = memory.ids();
     if (known.length) return collection(version, known);
   }
   const response = await request(`${BINARY}${version}.tgz`);
-  if (!response.ok) throw new Error(`Claude Code ${version} binary: HTTP ${response.status}`);
-  if (!response.body) throw new Error(`Claude Code ${version} binary: no body`);
+  if (!response.ok) throw httpFailure(`Claude Code binary: HTTP ${response.status}`, response.status);
+  if (!response.body) throw new SourceError("protocol", `Claude Code binary: no body`);
   const found = new Set<string>();
   await scanGzipStream(response.body, (text) => collectIds(found, text));
   const ids = [...found].sort();
-  if (!ids.length) throw new Error(`Claude Code ${version} names no model`);
+  if (!ids.length) throw new SourceError("missing-content", `Claude Code names no model`);
   memory.remember(version);
   return collection(version, ids);
 }
