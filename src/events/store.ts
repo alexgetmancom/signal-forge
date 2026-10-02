@@ -9,7 +9,7 @@ import { isRoutine } from "./interpretation.js";
 import { hasNotificationContent } from "./notification.js";
 import { isStealthLaunch } from "./resellers.js";
 import type { SignalClass } from "./signals.js";
-import type { Collection, Event } from "./types.js";
+import type { Collection, Confidence, Event, EvidenceType, SourceAuthority } from "./types.js";
 
 export const COLLECTION_DEGRADED_PREFIX = "Collection degraded:";
 
@@ -243,66 +243,29 @@ function hasEnded(body: string): boolean {
   }
 }
 
-/** Persists one validated observation and its immutable evidence in the caller's transaction. */
-export function persistCollection(
+/** Who vouches for a collection and how far; every event it emits carries the same three. */
+type Contract = {
+  authority: SourceAuthority;
+  evidence_type: EvidenceType;
+  confidence: Confidence;
+};
+
+/** A record as the last collection left it. */
+type Stored = { id: string; body: string; missing_count: number; candidate_body: string | null };
+
+type Emit = (id: string, kind: Event["kind"], before: string | null, after: string | null) => void;
+
+/** Writes an event and remembers it, so what was emitted can be classified and routed afterwards. */
+function openEmitter(
   db: Database,
   c: Collection,
-  destinations: Destination[],
-  now = new Date().toISOString(),
-): number {
-  if (!c.records.length && !c.appendOnly) throw new SourceError("empty", `${c.source}: empty collection rejected`);
-  validateRecords(c.source, c.records);
-  // The registry declares the contract and the poller carries it; a collection without one claims
-  // the least: nobody's authority, no evidence type that fits, the bottom of the scale.
-  const authority = c.authority ?? "third_party";
-  const evidence_type = c.evidence ?? "unknown";
-  const confidence = c.confidence ?? "observed";
-  const initialized = db.query("SELECT last_success,accept_shrink FROM sources WHERE id=?").get(c.source) as {
-    last_success: string | null;
-    accept_shrink: number;
-  } | null;
-  const snapshot = storeSnapshot(db, c.source, now, JSON.stringify(c.raw)).id;
-  const old = db
-    .query<{ id: string; body: string; missing_count: number; candidate_body: string | null }, [string]>(
-      "SELECT id,body,missing_count,candidate_body FROM records WHERE source=?",
-    )
-    .all(c.source);
-  const previous = new Map(old.map((row) => [row.id, row]));
-  // The boards a scoreboard already had. A board appearing is one fact, not ten debuts: Arena opened
-  // image-to-code on 2026-09-13 with fifty models on it, seven of them in a top ten nobody had
-  // entered, because there was no board to enter before.
-  const boardsBefore =
-    c.stream === "leaderboards"
-      ? new Set(old.map((row) => (JSON.parse(row.body) as { category?: unknown }).category))
-      : null;
-  const onANewBoard = (event: Event) =>
-    boardsBefore !== null &&
-    event.kind === "new" &&
-    !boardsBefore.has((JSON.parse(event.after_json ?? "{}") as { category?: unknown }).category);
-  // A section the collector stopped reading on purpose is not a catalogue that shrank. On 2026-09-16
-  // dropping OpenAI's `index` and Claude Docs' translations left 116 of 788 and 643 of 3,415 records,
-  // and the guard below refused both sites until a migration deleted the rows by hand.
-  if (c.forget)
-    for (const id of [...previous.keys()])
-      if (c.forget(id)) {
-        db.query("DELETE FROM records WHERE source=? AND id=?").run(c.source, id);
-        previous.delete(id);
-      }
-  if (c.keepMissing) for (const id of [...previous.keys()]) if (c.keepMissing(id)) previous.delete(id);
-  // An operator who accepted a smaller catalogue spends that acceptance here, on this one answer.
-  const accepted = Boolean(initialized?.accept_shrink);
-  if (accepted) db.query("UPDATE sources SET accept_shrink=0 WHERE id=?").run(c.source);
-  if (
-    !accepted &&
-    !c.churns &&
-    !c.appendOnly &&
-    initialized?.last_success &&
-    suspiciousShrink(previous.size, c.records.length)
-  )
-    throw new CollectionDegradedError(c.source, previous.size, c.records.length);
-  let count = 0;
+  now: string,
+  snapshot: number,
+  contract: Contract,
+): { emit: Emit; emitted: Event[] } {
+  const { authority, evidence_type, confidence } = contract;
   const emitted: Event[] = [];
-  const emit = (id: string, kind: Event["kind"], before: string | null, after: string | null) => {
+  const emit: Emit = (id, kind, before, after) => {
     const row = db
       .query<
         { id: number },
@@ -326,16 +289,83 @@ export function persistCollection(
       evidence_type,
       authority,
     });
-    count++;
   };
+  return { emit, emitted };
+}
+
+/**
+ * Whether an event is a debut on a board the scoreboard did not have before this collection.
+ *
+ * A board appearing is one fact, not ten debuts: Arena opened image-to-code on 2026-09-13 with fifty
+ * models on it, seven of them in a top ten nobody had entered, because there was no board to enter
+ * before.
+ */
+function onNewBoard(stream: string, old: Stored[]): (event: Event) => boolean {
+  if (stream !== "leaderboards") return () => false;
+  const boardsBefore = new Set(old.map((row) => (JSON.parse(row.body) as { category?: unknown }).category));
+  return (event) =>
+    event.kind === "new" &&
+    !boardsBefore.has((JSON.parse(event.after_json ?? "{}") as { category?: unknown }).category);
+}
+
+/**
+ * Drops what this collection is not to be measured against, and says whether an operator has
+ * accepted a smaller answer. Throws when the answer looks like a broken one instead.
+ *
+ * `previous` is edited in place: the rows left in it afterwards are the ones a shrink guard and a
+ * removal both consider.
+ */
+function admitAnswer(
+  db: Database,
+  c: Collection,
+  previous: Map<string, Stored>,
+  initialized: { last_success: string | null; accept_shrink: number } | null,
+): boolean {
+  // A section the collector stopped reading on purpose is not a catalogue that shrank. On 2026-09-16
+  // dropping OpenAI's `index` and Claude Docs' translations left 116 of 788 and 643 of 3,415 records,
+  // and the guard below refused both sites until a migration deleted the rows by hand.
+  if (c.forget)
+    for (const id of [...previous.keys()])
+      if (c.forget(id)) {
+        db.query("DELETE FROM records WHERE source=? AND id=?").run(c.source, id);
+        previous.delete(id);
+      }
+  if (c.keepMissing) for (const id of [...previous.keys()]) if (c.keepMissing(id)) previous.delete(id);
+  // An operator who accepted a smaller catalogue spends that acceptance here, on this one answer.
+  const accepted = Boolean(initialized?.accept_shrink);
+  if (accepted) db.query("UPDATE sources SET accept_shrink=0 WHERE id=?").run(c.source);
+  if (
+    !accepted &&
+    !c.churns &&
+    !c.appendOnly &&
+    initialized?.last_success &&
+    suspiciousShrink(previous.size, c.records.length)
+  )
+    throw new CollectionDegradedError(c.source, previous.size, c.records.length);
+  return accepted;
+}
+
+/**
+ * Compares every answered record with what was stored, emits what moved, and writes each record that
+ * stands. A record is taken out of `previous` as it is met, so what is left in it afterwards is
+ * exactly what the answer no longer contains.
+ */
+function writeRecords(
+  db: Database,
+  c: Collection,
+  previous: Map<string, Stored>,
+  established: boolean,
+  now: string,
+  emit: Emit,
+): void {
   for (const record of c.records) {
     const body = canonical(record);
     const comparableBody = comparisonBody(c.stream, body);
     const before = previous.get(record.id);
     previous.delete(record.id);
-    if (initialized?.last_success && !before && !c.silentIds?.includes(record.id)) emit(record.id, "new", null, body);
+    if (established && !before && !c.silentIds?.includes(record.id)) emit(record.id, "new", null, body);
     else if (
-      initialized?.last_success &&
+      established &&
       before &&
       (c.stream === "leaderboards"
         ? leaderboardChange(before.body, body)
@@ -365,67 +395,84 @@ export function persistCollection(
       "INSERT INTO records(source,id,body,stream,observed_at) VALUES(?,?,?,?,?) ON CONFLICT(source,id) DO UPDATE SET body=excluded.body,stream=excluded.stream,observed_at=excluded.observed_at,missing_count=0,candidate_body=NULL",
     ).run(c.source, record.id, body, c.stream, now);
   }
-  if (!c.appendOnly || c.resolveMissing)
-    for (const row of previous.values()) {
-      // What the operator accepted is exactly these rows leaving. Reporting 781 arena entries gone
-      // one card at a time is the same answer as refusing the collection, said more loudly, and
-      // keeping them would leave the next poll measured against a roster that no longer exists.
-      if (accepted) {
-        db.query("DELETE FROM records WHERE source=? AND id=?").run(c.source, row.id);
-        continue;
-      }
-      if (c.resolveMissing) {
-        if (hasEnded(row.body)) {
-          db.query("UPDATE records SET stream=?,observed_at=?,missing_count=0 WHERE source=? AND id=?").run(
-            c.stream,
-            now,
-            c.source,
-            row.id,
-          );
-        } else if (row.missing_count >= 1) {
-          const after = unlistedRecord(row.body);
-          emit(row.id, "changed", row.body, after);
-          db.query("UPDATE records SET body=?,stream=?,observed_at=?,missing_count=0 WHERE source=? AND id=?").run(
-            after,
-            c.stream,
-            now,
-            c.source,
-            row.id,
-          );
-        } else {
-          db.query("UPDATE records SET missing_count=missing_count+1 WHERE source=? AND id=?").run(c.source, row.id);
-        }
-        continue;
-      }
-      if (row.missing_count >= 1) {
-        emit(row.id, "removed", row.body, null);
-        db.query("DELETE FROM records WHERE source=? AND id=?").run(c.source, row.id);
-      } else db.query("UPDATE records SET missing_count=missing_count+1 WHERE source=? AND id=?").run(c.source, row.id);
+}
+
+/** What happens to the records an answer no longer contains: kept, resolved, counted as missing, or removed. */
+function settleDeparted(
+  db: Database,
+  c: Collection,
+  departed: Iterable<Stored>,
+  accepted: boolean,
+  now: string,
+  emit: Emit,
+): void {
+  for (const row of departed) {
+    // What the operator accepted is exactly these rows leaving. Reporting 781 arena entries gone
+    // one card at a time is the same answer as refusing the collection, said more loudly, and
+    // keeping them would leave the next poll measured against a roster that no longer exists.
+    if (accepted) {
+      db.query("DELETE FROM records WHERE source=? AND id=?").run(c.source, row.id);
+      continue;
     }
-  /**
-   * How long a stealth launch waits for its other venues.
-   *
-   * Space Bunny reached OpenCode Go and Zen two seconds apart on 2026-09-23, so a couple of minutes
-   * is all the venues that matter need to agree, and being early is the whole point of watching
-   * them. What a longer wait was really buying -- the context and the modalities, which OpenCode's
-   * own row does not carry -- the card now borrows from the catalogues that already hold the model,
-   * so there is nothing left to wait for.
-   */
-  const STEALTH_HOLD_MS = 2 * 60_000;
-
-  /** When an event is told: at once, after the stealth hold, or in the next hour's digest. */
-  function paceOf(event: Event): "now" | "held" | "hourly" {
-    if (isRoutine(event)) return "hourly";
-    return isStealthLaunch(event) ? "held" : "now";
+    if (c.resolveMissing) {
+      if (hasEnded(row.body)) {
+        db.query("UPDATE records SET stream=?,observed_at=?,missing_count=0 WHERE source=? AND id=?").run(
+          c.stream,
+          now,
+          c.source,
+          row.id,
+        );
+      } else if (row.missing_count >= 1) {
+        const after = unlistedRecord(row.body);
+        emit(row.id, "changed", row.body, after);
+        db.query("UPDATE records SET body=?,stream=?,observed_at=?,missing_count=0 WHERE source=? AND id=?").run(
+          after,
+          c.stream,
+          now,
+          c.source,
+          row.id,
+        );
+      } else {
+        db.query("UPDATE records SET missing_count=missing_count+1 WHERE source=? AND id=?").run(c.source, row.id);
+      }
+      continue;
+    }
+    if (row.missing_count >= 1) {
+      emit(row.id, "removed", row.body, null);
+      db.query("DELETE FROM records WHERE source=? AND id=?").run(c.source, row.id);
+    } else db.query("UPDATE records SET missing_count=missing_count+1 WHERE source=? AND id=?").run(c.source, row.id);
   }
+}
 
-  // Every record is saved by now, so a rule asking what the catalogues list sees this collection too.
-  //
-  // `speaks` is written in the same pass for the same reason the class is: the store has the event in
-  // hand and has to decide anyway, and a reader that asks the question again has to read the body
-  // back to answer it -- 105 MB of a floor that is never given back for one report, measured on a
-  // copy of production. It is the verdict that was acted on, which is what a report about what this
-  // service did should be counting, rather than what today's rules would say about last week's event.
+/**
+ * How long a stealth launch waits for its other venues.
+ *
+ * Space Bunny reached OpenCode Go and Zen two seconds apart on 2026-09-23, so a couple of minutes
+ * is all the venues that matter need to agree, and being early is the whole point of watching
+ * them. What a longer wait was really buying -- the context and the modalities, which OpenCode's
+ * own row does not carry -- the card now borrows from the catalogues that already hold the model,
+ * so there is nothing left to wait for.
+ */
+const STEALTH_HOLD_MS = 2 * 60_000;
+
+/** When an event is told: at once, after the stealth hold, or in the next hour's digest. */
+function paceOf(event: Event): "now" | "held" | "hourly" {
+  if (isRoutine(event)) return "hourly";
+  return isStealthLaunch(event) ? "held" : "now";
+}
+
+/**
+ * Gives every emitted event its class and its verdict.
+ *
+ * Every record is saved by now, so a rule asking what the catalogues list sees this collection too.
+ *
+ * `speaks` is written in the same pass for the same reason the class is: the store has the event in
+ * hand and has to decide anyway, and a reader that asks the question again has to read the body
+ * back to answer it -- 105 MB of a floor that is never given back for one report, measured on a
+ * copy of production. It is the verdict that was acted on, which is what a report about what this
+ * service did should be counting, rather than what today's rules would say about last week's event.
+ */
+function classifyEmitted(db: Database, emitted: Event[]): void {
   for (const event of emitted) {
     event.signal = classify(db, event);
     db.query("UPDATE events SET signal=?,speaks=? WHERE id=?").run(
@@ -434,6 +481,17 @@ export function persistCollection(
       event.id,
     );
   }
+}
+
+/** Puts each emitted event into the batch it will be told in, for every destination that wants its class. */
+function routeEmitted(
+  db: Database,
+  c: Collection,
+  destinations: Destination[],
+  emitted: Event[],
+  now: string,
+  onANewBoard: (event: Event) => boolean,
+): void {
   for (const pace of ["now", "held", "hourly"] as const) {
     const digest = pace === "hourly";
     const events = emitted.filter((event) => paceOf(event) === pace && !onANewBoard(event));
@@ -480,6 +538,10 @@ export function persistCollection(
         JSON.stringify(destination),
       );
   }
+}
+
+/** What the collection did, as numbers; then the source's own row, and the snapshots nothing points at. */
+function recordOutcome(db: Database, c: Collection, emitted: Event[], contract: Contract, now: string): void {
   db.query(
     `INSERT INTO source_collection_metrics(
        source,collected_at,success,records_processed,events_created,new_events,changed_events,removed_events
@@ -498,9 +560,44 @@ export function persistCollection(
     // this source is ours, and a catalogue that hands us ten years of history on its first call is
     // not late by any of it. See migration 062 and `passedOver`.
     "INSERT INTO sources(id,last_success,checked_at,authority,vendor,evidence_type,confidence,first_observed_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET last_success=excluded.last_success,checked_at=excluded.checked_at,last_error=NULL,authority=excluded.authority,vendor=excluded.vendor,evidence_type=excluded.evidence_type,confidence=excluded.confidence,first_observed_at=COALESCE(sources.first_observed_at,excluded.first_observed_at)",
-  ).run(c.source, now, now, authority, c.vendor ?? null, evidence_type, confidence, now);
+  ).run(c.source, now, now, contract.authority, c.vendor ?? null, contract.evidence_type, contract.confidence, now);
   db.query(
     "DELETE FROM snapshots WHERE source=? AND id NOT IN (SELECT snapshot_id FROM events) AND id NOT IN (SELECT id FROM snapshots WHERE source=? ORDER BY id DESC LIMIT 2)",
   ).run(c.source, c.source);
-  return count;
+}
+
+/** Persists one validated observation and its immutable evidence in the caller's transaction. */
+export function persistCollection(
+  db: Database,
+  c: Collection,
+  destinations: Destination[],
+  now = new Date().toISOString(),
+): number {
+  if (!c.records.length && !c.appendOnly) throw new SourceError("empty", `${c.source}: empty collection rejected`);
+  validateRecords(c.source, c.records);
+  // The registry declares the contract and the poller carries it; a collection without one claims
+  // the least: nobody's authority, no evidence type that fits, the bottom of the scale.
+  const contract: Contract = {
+    authority: c.authority ?? "third_party",
+    evidence_type: c.evidence ?? "unknown",
+    confidence: c.confidence ?? "observed",
+  };
+  const initialized = db.query("SELECT last_success,accept_shrink FROM sources WHERE id=?").get(c.source) as {
+    last_success: string | null;
+    accept_shrink: number;
+  } | null;
+  const snapshot = storeSnapshot(db, c.source, now, JSON.stringify(c.raw)).id;
+  const old = db
+    .query<Stored, [string]>("SELECT id,body,missing_count,candidate_body FROM records WHERE source=?")
+    .all(c.source);
+  const previous = new Map(old.map((row) => [row.id, row]));
+  const onANewBoard = onNewBoard(c.stream, old);
+  const accepted = admitAnswer(db, c, previous, initialized);
+  const { emit, emitted } = openEmitter(db, c, now, snapshot, contract);
+  writeRecords(db, c, previous, Boolean(initialized?.last_success), now, emit);
+  if (!c.appendOnly || c.resolveMissing) settleDeparted(db, c, previous.values(), accepted, now, emit);
+  classifyEmitted(db, emitted);
+  routeEmitted(db, c, destinations, emitted, now, onANewBoard);
+  recordOutcome(db, c, emitted, contract, now);
+  return emitted.length;
 }

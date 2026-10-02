@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { boardFailures } from "../boards/failures.js";
-import { sourceHealth } from "../boards/health.js";
-import { capabilityReport } from "../capabilities.js";
+import { type SourceHealth, sourceHealth } from "../boards/health.js";
+import { type CapabilityReportEntry, capabilityReport } from "../capabilities.js";
 import type { AppConfig } from "../config.js";
 import { openCredentialCircuits } from "../credentials.js";
 import { readState } from "../storage/appState.js";
@@ -133,7 +133,6 @@ function sharedUpstream(
   }
 }
 
-/** The single read model for failures that require the owner's attention right now. */
 /**
  * A judge that answers unusably costs money and reports nothing: the collection around it succeeds,
  * the entry is simply left unjudged, and the next poll asks again. Between 2026-09-24 and
@@ -221,14 +220,22 @@ function workerIssues(db: Database, now: number): ActionableIssue[] {
   return issues;
 }
 
-export function listActionableIssues(db: Database, config: AppConfig, now = Date.now()): ActionableIssue[] {
+/**
+ * Sources that are failing, stale, short or silent.
+ *
+ * A source behind a refused credential is left out: that is one fix, and its capability issue
+ * already counts the sources it stopped.
+ */
+function sourceIssues(
+  db: Database,
+  now: number,
+  health: readonly SourceHealth[],
+  capabilities: readonly CapabilityReportEntry[],
+): ActionableIssue[] {
   const issues: ActionableIssue[] = [];
-  const health = sourceHealth(db, config, now);
   const sourceWorker = readState(db, "worker:sources");
   const sourceWorkerState = sourceWorker ? readJson<WorkerState>(sourceWorker, {}) : {};
   const sourceCycleFinished = sourceWorkerState.state === "idle" && Boolean(sourceWorkerState.lastFinishedAt);
-  const capabilities = capabilityReport(db, config);
-  const circuits = new Map(openCredentialCircuits(db).map((circuit) => [circuit.capabilityId, circuit]));
   // A refused credential is one fix, and its capability issue already counts the sources it stopped.
   // Listing each of them again turned one expired Artificial Analysis key into six issues on
   // production on 2026-09-18.
@@ -298,7 +305,12 @@ export function listActionableIssues(db: Database, config: AppConfig, now = Date
             : "Inspect the collector and its upstream response.",
     });
   }
+  return issues;
+}
 
+/** Deliveries that failed, or that may or may not have reached the audience. */
+function failedDeliveryIssues(db: Database, now: number): ActionableIssue[] {
+  const issues: ActionableIssue[] = [];
   const deliveries = db
     .query<
       {
@@ -347,7 +359,11 @@ export function listActionableIssues(db: Database, config: AppConfig, now = Date
         : "Inspect the stored platform response and destination configuration.",
     });
   }
+  return issues;
+}
 
+function blockedDestinationIssues(db: Database, now: number): ActionableIssue[] {
+  const issues: ActionableIssue[] = [];
   // A destination that refuses the bot holds its messages rather than losing them; that is only
   // useful if somebody is told the door is shut. One issue per destination, dated from its oldest
   // waiting message, carrying the platform's reason.
@@ -376,7 +392,11 @@ export function listActionableIssues(db: Database, config: AppConfig, now = Date
       hint: "Give the bot View Channel, Send Messages, Embed Links and Attach Files there; waiting messages are sent in order within ten minutes.",
     });
   }
+  return issues;
+}
 
+function stuckDeliveryIssues(db: Database, now: number): ActionableIssue[] {
+  const issues: ActionableIssue[] = [];
   const stuckDeliveries = db
     .query<{ id: number; destination_id: string; updated_at: string }, [string]>(
       "SELECT id,destination_id,updated_at FROM deliveries WHERE status='sending' AND updated_at<? ORDER BY updated_at",
@@ -396,7 +416,11 @@ export function listActionableIssues(db: Database, config: AppConfig, now = Date
       hint: "Inspect the provider and process before deciding whether this delivery needs manual verification; do not retry it automatically.",
     });
   }
+  return issues;
+}
 
+function databaseIssues(db: Database, now: number): ActionableIssue[] {
+  const issues: ActionableIssue[] = [];
   // Growth was invisible until somebody went looking, by which time the database was a gigabyte
   // and the payloads behind two thirds of it had already been deleted by hand.
   const size = databaseSize(db);
@@ -413,7 +437,11 @@ export function listActionableIssues(db: Database, config: AppConfig, now = Date
       hint: "Check which sources serve the largest payloads before widening retention; deleting a payload an event points at destroys its evidence.",
     });
   }
+  return issues;
+}
 
+function boardIssues(db: Database, now: number): ActionableIssue[] {
+  const issues: ActionableIssue[] = [];
   // A board Discord refuses keeps showing its last accepted version, so the channel looks current
   // while it is frozen. Nothing else can tell the difference.
   for (const failure of boardFailures(db))
@@ -427,9 +455,11 @@ export function listActionableIssues(db: Database, config: AppConfig, now = Date
       message: `The ${failure.board} board is frozen at its last accepted version: ${failure.reason}`,
       hint: "Inspect the render and the channel's permissions; the board in the channel is stale until this clears.",
     });
+  return issues;
+}
 
-  issues.push(...workerIssues(db, now));
-
+function restartLoopIssues(db: Database, now: number): ActionableIssue[] {
+  const issues: ActionableIssue[] = [];
   const runtime = readState(db, "runtime");
   const runtimeState = runtime ? readJson<{ uncleanRestarts?: string[] }>(runtime, {}) : {};
   const restarts = (runtimeState.uncleanRestarts ?? []).filter((value) => Date.parse(value) >= now - 30 * 60 * 1000);
@@ -447,7 +477,16 @@ export function listActionableIssues(db: Database, config: AppConfig, now = Date
       hint: "Stop the loop and inspect the failing worker or process exit before allowing another restart.",
     });
   }
+  return issues;
+}
 
+function capabilityIssues(
+  db: Database,
+  capabilities: readonly CapabilityReportEntry[],
+  now: number,
+): ActionableIssue[] {
+  const issues: ActionableIssue[] = [];
+  const circuits = new Map(openCredentialCircuits(db).map((circuit) => [circuit.capabilityId, circuit]));
   for (const capability of capabilities) {
     if (capability.status !== "missing" && capability.status !== "rejected") continue;
     const rejected = capability.status === "rejected";
@@ -468,9 +507,11 @@ export function listActionableIssues(db: Database, config: AppConfig, now = Date
         : "Provide the credential, or set `sourceEnabled` false for the sources that want it: an integration nobody intends to run is a configuration decision, not an open issue.",
     });
   }
+  return issues;
+}
 
-  issues.push(...judgeIssues(db, now));
-
+function backupIssues(config: AppConfig, now: number): ActionableIssue[] {
+  const issues: ActionableIssue[] = [];
   // The nightly backup runs on the host, outside this process. Nothing here could see it stop, so
   // a backup that quietly stopped stayed invisible until the day it was needed.
   const backup = backupStatus(config.BACKUP_DIRECTORY, now);
@@ -487,6 +528,27 @@ export function listActionableIssues(db: Database, config: AppConfig, now = Date
       hint: "Check the nightly backup job on the host; an archive that has not been verified is not a backup.",
     });
   }
+  return issues;
+}
+
+/** The single read model for failures that require the owner's attention right now. */
+export function listActionableIssues(db: Database, config: AppConfig, now = Date.now()): ActionableIssue[] {
+  const health = sourceHealth(db, config, now);
+  const capabilities = capabilityReport(db, config);
+  // Kept in this order: issues of equal severity and age are listed as they were found.
+  const issues = [
+    ...sourceIssues(db, now, health, capabilities),
+    ...failedDeliveryIssues(db, now),
+    ...blockedDestinationIssues(db, now),
+    ...stuckDeliveryIssues(db, now),
+    ...databaseIssues(db, now),
+    ...boardIssues(db, now),
+    ...workerIssues(db, now),
+    ...restartLoopIssues(db, now),
+    ...capabilityIssues(db, capabilities, now),
+    ...judgeIssues(db, now),
+    ...backupIssues(config, now),
+  ];
 
   const severity = { critical: 0, error: 1, warning: 2 } satisfies Record<IssueSeverity, number>;
   sharedUpstream(issues, health);
