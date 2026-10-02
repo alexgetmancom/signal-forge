@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import type { AppConfig } from "../config.js";
+import type { AppConfig, CredentialName } from "../config.js";
 import { openCredentialCircuits } from "../credentials.js";
 import { buildSourceRegistry } from "../sources/registry.js";
 
@@ -39,10 +39,10 @@ export type KeyReport = {
 };
 
 export function keyStandings(db: Database, config: AppConfig, scope: "attention" | "all"): KeyReport {
-  const required = new Map<string, Set<string>>();
+  const required = new Map<string, Set<CredentialName>>();
   const sources = new Map<string, Set<string>>();
-  const note = (capability: string, names: readonly string[], source: string): void => {
-    const names_ = required.get(capability) ?? new Set<string>();
+  const note = (capability: string, names: readonly CredentialName[], source: string): void => {
+    const names_ = required.get(capability) ?? new Set<CredentialName>();
     for (const name of names) names_.add(name);
     required.set(capability, names_);
     const owned = sources.get(capability) ?? new Set<string>();
@@ -58,11 +58,10 @@ export function keyStandings(db: Database, config: AppConfig, scope: "attention"
   if (config.destinations.some((destination) => destination.platform === "discord"))
     note("discord", ["DISCORD_BOT_TOKEN"], "discord");
 
-  const values = config as unknown as Record<string, unknown>;
   const refusals = new Map(openCredentialCircuits(db).map((circuit) => [circuit.capabilityId, circuit]));
   const standings = [...required.entries()]
     .map(([capability, names]): KeyStanding => {
-      const missing = [...names].filter((name) => !values[name]).sort();
+      const missing = [...names].filter((name) => !config[name]).sort();
       const refusal = refusals.get(capability);
       return {
         capability,

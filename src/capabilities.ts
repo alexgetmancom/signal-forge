@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import type { AppConfig } from "./config.js";
+import type { AppConfig, CredentialName } from "./config.js";
 import { openCredentialCircuitIds } from "./credentials.js";
 import { buildSourceRegistry } from "./sources/registry.js";
 
@@ -18,7 +18,7 @@ export type CapabilityReportEntry = {
 };
 
 type CapabilityState = {
-  required: Set<string>;
+  required: Set<CredentialName>;
   enabledSources: Set<string>;
   enabled: boolean;
 };
@@ -29,8 +29,12 @@ type CapabilityState = {
  */
 export function capabilityReport(db: Database, config: AppConfig): CapabilityReportEntry[] {
   const states = new Map<string, CapabilityState>();
-  const add = (id: string, required: readonly string[], enabled: boolean, source: string): void => {
-    const state = states.get(id) ?? { required: new Set<string>(), enabledSources: new Set<string>(), enabled: false };
+  const add = (id: string, required: readonly CredentialName[], enabled: boolean, source: string): void => {
+    const state = states.get(id) ?? {
+      required: new Set<CredentialName>(),
+      enabledSources: new Set<string>(),
+      enabled: false,
+    };
     for (const name of required) state.required.add(name);
     state.enabled ||= enabled;
     if (enabled) state.enabledSources.add(source);
@@ -47,11 +51,10 @@ export function capabilityReport(db: Database, config: AppConfig): CapabilityRep
   add("telegram", ["TELEGRAM_BOT_TOKEN"], telegramEnabled, "telegram");
   add("discord", ["DISCORD_BOT_TOKEN"], discordEnabled, "discord");
 
-  const values = config as unknown as Record<string, unknown>;
   const rejected = openCredentialCircuitIds(db);
   return [...states.entries()]
     .map(([id, state]) => {
-      const missingCount = [...state.required].filter((name) => !values[name]).length;
+      const missingCount = [...state.required].filter((name) => !config[name]).length;
       return {
         id,
         status: !state.enabled ? "disabled" : missingCount ? "missing" : rejected.has(id) ? "rejected" : "ready",

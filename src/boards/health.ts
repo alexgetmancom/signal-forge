@@ -33,7 +33,6 @@ export type SourceHealth = {
 
 /** A source is late once it has missed three of its own intervals — one slow cycle is not news. */
 export function sourceHealth(db: Database, config: AppConfig, now = Date.now()): SourceHealth[] {
-  const values = config as unknown as Record<string, unknown>;
   return buildSourceRegistry(db, config).map((source) => {
     const sourceBase = {
       id: source.id,
@@ -43,7 +42,7 @@ export function sourceHealth(db: Database, config: AppConfig, now = Date.now()):
       authority: source.authority,
       mode: source.mode,
     };
-    const missing = (source.requiredCapabilities ?? []).filter((name) => !values[name]);
+    const missing = (source.requiredCapabilities ?? []).filter((name) => !config[name]);
     if (!source.enabled)
       return {
         ...sourceBase,
