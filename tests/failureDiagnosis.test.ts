@@ -1,7 +1,6 @@
 import { expect, test } from "bun:test";
 import { z } from "zod";
-import { CollectionDegradedError } from "../src/events/store.js";
-import { SourceError } from "../src/failure.js";
+import { collectionDegraded, SourceError } from "../src/failure.js";
 import { classifyFailure } from "../src/failureDiagnosis.js";
 import { nextData } from "../src/sources/html.js";
 import { SourceHttpError } from "../src/sources/http.js";
@@ -32,7 +31,7 @@ test("a collector wording a new failure differently keeps its kind", () => {
 });
 
 test("every failure that carries structure of its own is classified from the type", () => {
-  expect(classifyFailure(new CollectionDegradedError("arena", 1083, 301))).toMatchObject({
+  expect(classifyFailure(collectionDegraded("arena", 1083, 301))).toMatchObject({
     kind: "degraded",
     evidence: { previousCount: 1083, retainedCount: 301 },
   });

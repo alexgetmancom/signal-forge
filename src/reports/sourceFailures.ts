@@ -3,6 +3,7 @@ import type { AppConfig } from "../config.js";
 import { buildSourceRegistry } from "../sources/registry.js";
 import { listFailureEvidence } from "../storage/failureEvidence.js";
 import { listSourceShapes, shapeDifference } from "../storage/sourceShapes.js";
+import { FAILURE_KIND } from "./failureKind.js";
 
 /**
  * Everything recorded about why one source is failing: the kinds, the sentences, the structure.
@@ -63,8 +64,7 @@ export function sourceFailures(
       { kind: string; failures: number; first_at: string; last_at: string; example: string | null },
       [string, string]
     >(
-      `SELECT COALESCE(failure_kind, CASE WHEN error LIKE 'Collection degraded:%' THEN 'degraded' ELSE 'before_kinds_were_recorded' END)
-                AS kind,
+      `SELECT ${FAILURE_KIND} AS kind,
               COUNT(*) AS failures,
               MIN(collected_at) AS first_at,
               MAX(collected_at) AS last_at,

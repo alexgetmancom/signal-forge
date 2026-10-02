@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { Destination } from "../config.js";
-import { SourceError } from "../failure.js";
+import { collectionDegraded, SourceError } from "../failure.js";
 import { finite } from "../finite.js";
 import { storeSnapshot } from "../storage/snapshots.js";
 import { canonical } from "./canonical.js";
@@ -11,20 +11,6 @@ import { hasNotificationContent } from "./notification.js";
 import { isStealthLaunch } from "./resellers.js";
 import type { SignalClass } from "./signals.js";
 import type { Collection, Confidence, Event, EvidenceType, SourceAuthority } from "./types.js";
-
-const COLLECTION_DEGRADED_PREFIX = "Collection degraded:";
-
-export class CollectionDegradedError extends Error {
-  readonly previousCount: number;
-  readonly retainedCount: number;
-
-  constructor(source: string, previousCount: number, retainedCount: number) {
-    super(`${COLLECTION_DEGRADED_PREFIX} ${source} retained ${retainedCount} of ${previousCount} records`);
-    this.name = "CollectionDegradedError";
-    this.previousCount = previousCount;
-    this.retainedCount = retainedCount;
-  }
-}
 
 const normalizedRecord = z.object({
   id: z.string().trim().min(1),
@@ -344,7 +330,7 @@ function admitAnswer(
     initialized?.last_success &&
     suspiciousShrink(previous.size, c.records.length)
   )
-    throw new CollectionDegradedError(c.source, previous.size, c.records.length);
+    throw collectionDegraded(c.source, previous.size, c.records.length);
   return accepted;
 }
 

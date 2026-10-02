@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { loadConfig } from "../src/config.js";
+import { collectionDegraded } from "../src/failure.js";
 import { flakySources } from "../src/reports/flakySources.js";
 import { buildSourceRegistry } from "../src/sources/registry.js";
 import { openDatabase } from "../src/storage/database.js";
@@ -137,5 +138,33 @@ test("failures written before the kind existed are still told apart by what the 
   expect(entry?.kinds).toEqual({ degraded: 1, before_kinds_were_recorded: 1 });
   expect(entry?.refusedByGuard).toBe(1);
   expect(entry?.faults).toBe(1);
+  db.close();
+});
+
+test("failures written before kinds were recorded are still told apart by the guard's own sentence", () => {
+  const { db, config, enabled } = setup();
+  const source = enabled[0] as string;
+  let clock = NOW - 30 * 3_600_000;
+  // No kind at all, as every row written before the column was: the sentence is all there is.
+  const old = (error: string) => {
+    clock += 60_000;
+    db.query("INSERT INTO source_collection_metrics(source,collected_at,success,error) VALUES(?,?,0,?)").run(
+      source,
+      new Date(clock).toISOString(),
+      error,
+    );
+  };
+  for (let index = 0; index < 60; index++) {
+    clock += 60_000;
+    db.query("INSERT INTO source_collection_metrics(source,collected_at,success) VALUES(?,?,1)").run(
+      source,
+      new Date(clock).toISOString(),
+    );
+  }
+  for (let index = 0; index < 5; index++) old(collectionDegraded("arena", 1083, 301).message);
+  for (let index = 0; index < 2; index++) old("something that was never given a kind");
+  const [entry] = flakySources(db, config, 3, NOW);
+  // The wording the guard writes now is the wording the recognition reads: change one and this fails.
+  expect(entry?.kinds).toEqual({ degraded: 5, before_kinds_were_recorded: 2 });
   db.close();
 });

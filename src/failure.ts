@@ -70,6 +70,19 @@ export class SourceError extends Error {
 }
 
 /**
+ * The guard refused a collection that came back much smaller than what is stored, and kept what it
+ * had. The counts are ours, so they are the evidence; `reports/failureKind.ts` still recognises the
+ * sentence in rows written before a kind was recorded, so the wording is part of that contract.
+ */
+export function collectionDegraded(source: string, previousCount: number, retainedCount: number): SourceError {
+  return new SourceError(
+    "degraded",
+    `Collection degraded: ${source} retained ${retainedCount} of ${previousCount} records`,
+    { evidence: { previousCount, retainedCount } },
+  );
+}
+
+/**
  * A refusal by status, for the collectors that read a response themselves instead of through
  * `fetchText`: a 429 is a limit and anything else is the upstream refusing.
  *

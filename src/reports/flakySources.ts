@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { AppConfig } from "../config.js";
 import { buildSourceRegistry } from "../sources/registry.js";
+import { FAILURE_KIND } from "./failureKind.js";
 
 /**
  * Sources that fail often but not always -- the third kind of broken, and the one nothing reported.
@@ -102,8 +103,7 @@ export function flakySources(db: Database, config: AppConfig, days = 3, now = Da
   const kindRows = db
     .query<{ source: string; kind: string; failures: number }, [string]>(
       `SELECT source,
-              COALESCE(failure_kind, CASE WHEN error LIKE 'Collection degraded:%' THEN 'degraded' ELSE 'before_kinds_were_recorded' END)
-                AS kind,
+              ${FAILURE_KIND} AS kind,
               COUNT(*) AS failures
        FROM source_collection_metrics
        WHERE collected_at >= ? AND success = 0

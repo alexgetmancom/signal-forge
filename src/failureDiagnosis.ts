@@ -1,5 +1,4 @@
 import { isCredentialRejection } from "./credentials.js";
-import { CollectionDegradedError } from "./events/store.js";
 import type { FailureKind } from "./failure.js";
 import { SourceError } from "./failure.js";
 import { SourceHttpError } from "./sources/http.js";
@@ -131,12 +130,6 @@ function schemaEvidence(error: unknown): Record<string, unknown> | null {
  * repository, so their text is ours and is kept. Everything else is described rather than quoted.
  */
 export function classifyFailure(error: unknown): Diagnosis {
-  if (error instanceof CollectionDegradedError)
-    return {
-      kind: "degraded",
-      message: error.message,
-      evidence: { previousCount: error.previousCount, retainedCount: error.retainedCount },
-    };
   if (error instanceof SourceError)
     return { kind: error.kind, message: error.message, evidence: error.evidence ? { ...error.evidence } : null };
   if (error instanceof SourceHttpError) {

@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { AppConfig } from "../config.js";
 import { buildSourceRegistry } from "../sources/registry.js";
+import { FAILURE_KIND } from "./failureKind.js";
 
 /**
  * One host falling over, reported once instead of once per source that was pointed at it.
@@ -58,8 +59,7 @@ export function outages(db: Database, config: AppConfig, days = 7, now = Date.no
     .query<{ source: string; minute: string; kind: string; failures: number }, [string]>(
       `SELECT source,
               substr(collected_at, 1, 16) AS minute,
-              COALESCE(failure_kind, CASE WHEN error LIKE 'Collection degraded:%' THEN 'degraded' ELSE 'before_kinds_were_recorded' END)
-                AS kind,
+              ${FAILURE_KIND} AS kind,
               COUNT(*) AS failures
        FROM source_collection_metrics
        WHERE collected_at >= ? AND success = 0
