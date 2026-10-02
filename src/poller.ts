@@ -52,6 +52,36 @@ export type PollOutcome = { collected: boolean; sources: number; heldBy?: string
  */
 const COLLECTION_LEASE_MS = 2 * 60_000;
 
+/**
+ * One named source, collected now, under the same lock a whole cycle takes.
+ *
+ * For a source being investigated. `poll` forces all of them, which is two hundred requests to
+ * answer a question about one, and a paced source can still be skipped by the group's slot -- so
+ * the narrow version takes no slot and spends no other source's.
+ *
+ * It does wait out a `Retry-After` the server set for itself, as a forced cycle does: asking early
+ * is what earned it, and spending an operator's command on a request that is already refused
+ * answers nothing.
+ */
+export async function collectNamedSource(
+  db: Database,
+  config: AppConfig,
+  source: string,
+): Promise<SourceOutcome | { source: string; status: "deferred"; retryAt: string } | { heldBy: string }> {
+  const job = sourceJobs(db, config).find((definition) => definition.id === source);
+  if (!job) throw new Error(`${source} is not a source this deployment collects`);
+  const retryAt = db
+    .query<{ retry_at: string | null }, [string]>("SELECT retry_at FROM sources WHERE id=?")
+    .get(source)?.retry_at;
+  if (retryAt && Date.parse(retryAt) > Date.now()) return { source, status: "deferred", retryAt };
+  const outcome = await withActionLock(db, "collection", lockHolder("collect-one"), COLLECTION_LEASE_MS, () =>
+    collectSource(db, config, job),
+  );
+  if (outcome.acquired) return outcome.result;
+  log("info", "Collection skipped", { source, heldBy: outcome.heldBy.holder });
+  return { heldBy: outcome.heldBy.holder };
+}
+
 export async function pollSources(db: Database, config: AppConfig, force = false): Promise<PollOutcome> {
   const outcome = await withActionLock(db, "collection", lockHolder("poller"), COLLECTION_LEASE_MS, ({ signal }) =>
     collectDueSources(db, config, force, signal),
@@ -122,6 +152,135 @@ function underContract(job: SourceDefinition, collected: Collection): Collection
   };
 }
 
+/**
+ * What one collection did, as the poller's log line says it and as `collect` answers with it.
+ *
+ * `unchanged` is not a smaller `collected`: upstream said the body has not moved, so nothing was
+ * downloaded, nothing was parsed and no record was touched. Reporting it as zero records collected
+ * would read as a source that went empty.
+ */
+export type SourceOutcome =
+  | { source: string; status: "unchanged"; at: string }
+  | { source: string; status: "collected"; records: number; events: number }
+  | { source: string; status: "failed"; kind: string; error: string };
+
+/**
+ * One source, collected and stored, or its failure recorded against it. Never throws: a collector
+ * that fails is a row in `sources` and `source_collection_metrics`, not an exception that ends the
+ * cycle the other sources are sharing.
+ *
+ * `paced` is how the caller learns that this source has just spent its group's slot, which the
+ * poller holds per cycle and a single forced collection does not need at all.
+ */
+async function collectSource(
+  db: Database,
+  config: AppConfig,
+  job: SourceDefinition,
+  paced: (at: number) => void = () => {},
+): Promise<SourceOutcome> {
+  try {
+    // A heavy source is collected in a child process: what parsing a large body costs is
+    // never given back to the operating system, so it is spent somewhere that ends. See
+    // src/sources/subprocess.ts.
+    //
+    // Not wrapped in `measure` here, however tempting: the registry already wraps every
+    // definition's collector under `source.collect:<id>`, and the child builds that same
+    // registry against the same database file, so a heavy collection is timed by the child and
+    // a light one in this process. Timing it here as well recorded each collection twice under
+    // one name, which inflates the call count and the total of the very report that is supposed
+    // to catch a collector getting slower.
+    // Upstream has not moved, so there is nothing to download and nothing to store. Timed under
+    // its own name: this is the read that now happens every few minutes, and `timings` should be
+    // able to say what asking that often costs.
+    const unchangedAt = await markedUnchanged(db, job);
+    if (unchangedAt) {
+      paced(Date.parse(unchangedAt));
+      return { source: job.id, status: "unchanged", at: unchangedAt };
+    }
+    const child = job.heavy ? await collectInSubprocess(db, job.id) : null;
+    const collected = child ? child.collection : await job.collector();
+    const collection = underContract(job, collected);
+    const checkedAt = new Date().toISOString();
+    const destinations = job.mode === "shadow" ? [] : config.destinations;
+    // The backoff is cleared in the transaction that stores the read: a crash between the two
+    // would otherwise leave a source that just succeeded waiting out an old retry time.
+    const saved = measure(db, `source.persist:${job.id}`, () =>
+      db.transaction(() => {
+        const emitted = saveCollection(
+          db,
+          collection,
+          destinations,
+          checkedAt,
+          config.vendorRoles,
+          config.allSignalsRole,
+        );
+        db.query(
+          "UPDATE sources SET failures=0,retry_at=NULL,failure_started_at=NULL,last_error_kind=NULL WHERE id=?",
+        ).run(job.id);
+        // The shape of an answer that worked, so the next failure has something to be
+        // compared against. Paths and types only: see src/shape.ts for why no value is kept.
+        recordSourceShape(db, job.id, collection.raw, checkedAt);
+        // What the child cost, onto the row `saveCollection` has just written for this moment.
+        // Here rather than inside the store: the store persists evidence, and how much memory
+        // another process took to fetch it is this loop's observation, not the collection's.
+        // Keyed by the instant the same transaction wrote, so it can match no other run.
+        if (child?.peakRssMb !== null && child?.peakRssMb !== undefined)
+          db.query("UPDATE source_collection_metrics SET peak_rss_mb=? WHERE source=? AND collected_at=?").run(
+            child.peakRssMb,
+            job.id,
+            checkedAt,
+          );
+        return emitted;
+      })(),
+    );
+    // Past the commit, so the cached projection describes stories that are actually stored.
+    if (saved.projection) rememberStoryProjection(db, saved.projection);
+    const events = saved.events;
+    paced(Date.parse(checkedAt));
+    log("info", "Source collected", { source: job.id, records: collection.records.length, events });
+    return { source: job.id, status: "collected", records: collection.records.length, events };
+  } catch (error) {
+    // The kind comes off the type of the error, never off the shape of its message: see
+    // sources/failureDiagnosis.ts for what the regular expression that used to live here let
+    // through and what it withheld.
+    const diagnosis = classifyFailure(error);
+    const message = diagnosis.message;
+    const checkedAt = new Date().toISOString();
+    const retryAt = error instanceof SourceHttpError ? error.retryAt : null;
+    db.transaction(() => {
+      // The first failure of a run stamps when the outage began; later ones leave it alone, so
+      // the duration is measured from the start rather than from the latest confirmation.
+      db.query(
+        `INSERT INTO sources(id,last_error,last_error_kind,checked_at,failures,retry_at,failure_started_at,first_observed_at) VALUES(?,?,?,?,1,?,?,?)
+         ON CONFLICT(id) DO UPDATE SET last_error=excluded.last_error,last_error_kind=excluded.last_error_kind,checked_at=excluded.checked_at,
+           failures=MIN(sources.failures+1,6),retry_at=excluded.retry_at,
+           failure_started_at=COALESCE(sources.failure_started_at,excluded.failure_started_at),
+           first_observed_at=COALESCE(sources.first_observed_at,excluded.first_observed_at)`,
+      ).run(job.id, message, diagnosis.kind, checkedAt, retryAt, checkedAt, checkedAt);
+      db.query(
+        "INSERT INTO source_collection_metrics(source,collected_at,success,error,failure_kind) VALUES(?,?,0,?,?)",
+      ).run(job.id, checkedAt, message, diagnosis.kind);
+      if (diagnosis.evidence) recordFailureEvidence(db, job.id, checkedAt, diagnosis.kind, diagnosis.evidence);
+      // A failure breaks consecutive confirmation of a disappearance.
+      db.query("UPDATE records SET missing_count=0 WHERE source=?").run(job.id);
+    })();
+    // A refused credential is not a link that dropped: the backoff would keep asking, and the
+    // answer would keep being no. Stop every source carrying that credential until it is
+    // replaced, and say which credential it was rather than which collector noticed.
+    const status = error instanceof SourceHttpError && !error.rateLimited ? error.status : null;
+    if (isCredentialRejection(status) && (job.requiredCapabilities ?? []).length)
+      recordCredentialRejection(db, {
+        capabilityId: job.capabilityId ?? job.id,
+        source: job.id,
+        statusCode: status,
+        detail: message,
+      });
+    paced(Date.parse(checkedAt));
+    log("warn", "Source collection failed", { source: job.id, kind: diagnosis.kind, error: message });
+    return { source: job.id, status: "failed", kind: diagnosis.kind, error: message };
+  }
+}
+
 async function collectDueSources(
   db: Database,
   config: AppConfig,
@@ -180,105 +339,9 @@ async function collectDueSources(
       }
       const job = queue.shift();
       if (!job) return;
-      try {
-        // A heavy source is collected in a child process: what parsing a large body costs is
-        // never given back to the operating system, so it is spent somewhere that ends. See
-        // src/sources/subprocess.ts.
-        //
-        // Not wrapped in `measure` here, however tempting: the registry already wraps every
-        // definition's collector under `source.collect:<id>`, and the child builds that same
-        // registry against the same database file, so a heavy collection is timed by the child and
-        // a light one in this process. Timing it here as well recorded each collection twice under
-        // one name, which inflates the call count and the total of the very report that is supposed
-        // to catch a collector getting slower.
-        // Upstream has not moved, so there is nothing to download and nothing to store. Timed under
-        // its own name: this is the read that now happens every few minutes, and `timings` should be
-        // able to say what asking that often costs.
-        const unchangedAt = await markedUnchanged(db, job);
-        if (unchangedAt) {
-          if (job.pace) pacedAt.set(job.pace.group, Date.parse(unchangedAt));
-          continue;
-        }
-        const child = job.heavy ? await collectInSubprocess(db, job.id) : null;
-        const collected = child ? child.collection : await job.collector();
-        const collection = underContract(job, collected);
-        const checkedAt = new Date().toISOString();
-        const destinations = job.mode === "shadow" ? [] : config.destinations;
-        // The backoff is cleared in the transaction that stores the read: a crash between the two
-        // would otherwise leave a source that just succeeded waiting out an old retry time.
-        const saved = measure(db, `source.persist:${job.id}`, () =>
-          db.transaction(() => {
-            const emitted = saveCollection(
-              db,
-              collection,
-              destinations,
-              checkedAt,
-              config.vendorRoles,
-              config.allSignalsRole,
-            );
-            db.query(
-              "UPDATE sources SET failures=0,retry_at=NULL,failure_started_at=NULL,last_error_kind=NULL WHERE id=?",
-            ).run(job.id);
-            // The shape of an answer that worked, so the next failure has something to be
-            // compared against. Paths and types only: see src/shape.ts for why no value is kept.
-            recordSourceShape(db, job.id, collection.raw, checkedAt);
-            // What the child cost, onto the row `saveCollection` has just written for this moment.
-            // Here rather than inside the store: the store persists evidence, and how much memory
-            // another process took to fetch it is this loop's observation, not the collection's.
-            // Keyed by the instant the same transaction wrote, so it can match no other run.
-            if (child?.peakRssMb !== null && child?.peakRssMb !== undefined)
-              db.query("UPDATE source_collection_metrics SET peak_rss_mb=? WHERE source=? AND collected_at=?").run(
-                child.peakRssMb,
-                job.id,
-                checkedAt,
-              );
-            return emitted;
-          })(),
-        );
-        // Past the commit, so the cached projection describes stories that are actually stored.
-        if (saved.projection) rememberStoryProjection(db, saved.projection);
-        const events = saved.events;
-        if (job.pace) pacedAt.set(job.pace.group, Date.parse(checkedAt));
-        log("info", "Source collected", { source: job.id, records: collection.records.length, events });
-      } catch (error) {
-        // The kind comes off the type of the error, never off the shape of its message: see
-        // sources/failureDiagnosis.ts for what the regular expression that used to live here let
-        // through and what it withheld.
-        const diagnosis = classifyFailure(error);
-        const message = diagnosis.message;
-        const checkedAt = new Date().toISOString();
-        const retryAt = error instanceof SourceHttpError ? error.retryAt : null;
-        db.transaction(() => {
-          // The first failure of a run stamps when the outage began; later ones leave it alone, so
-          // the duration is measured from the start rather than from the latest confirmation.
-          db.query(
-            `INSERT INTO sources(id,last_error,last_error_kind,checked_at,failures,retry_at,failure_started_at,first_observed_at) VALUES(?,?,?,?,1,?,?,?)
-           ON CONFLICT(id) DO UPDATE SET last_error=excluded.last_error,last_error_kind=excluded.last_error_kind,checked_at=excluded.checked_at,
-             failures=MIN(sources.failures+1,6),retry_at=excluded.retry_at,
-             failure_started_at=COALESCE(sources.failure_started_at,excluded.failure_started_at),
-             first_observed_at=COALESCE(sources.first_observed_at,excluded.first_observed_at)`,
-          ).run(job.id, message, diagnosis.kind, checkedAt, retryAt, checkedAt, checkedAt);
-          db.query(
-            "INSERT INTO source_collection_metrics(source,collected_at,success,error,failure_kind) VALUES(?,?,0,?,?)",
-          ).run(job.id, checkedAt, message, diagnosis.kind);
-          if (diagnosis.evidence) recordFailureEvidence(db, job.id, checkedAt, diagnosis.kind, diagnosis.evidence);
-          // A failure breaks consecutive confirmation of a disappearance.
-          db.query("UPDATE records SET missing_count=0 WHERE source=?").run(job.id);
-        })();
-        // A refused credential is not a link that dropped: the backoff would keep asking, and the
-        // answer would keep being no. Stop every source carrying that credential until it is
-        // replaced, and say which credential it was rather than which collector noticed.
-        const status = error instanceof SourceHttpError && !error.rateLimited ? error.status : null;
-        if (isCredentialRejection(status) && (job.requiredCapabilities ?? []).length)
-          recordCredentialRejection(db, {
-            capabilityId: job.capabilityId ?? job.id,
-            source: job.id,
-            statusCode: status,
-            detail: message,
-          });
-        if (job.pace) pacedAt.set(job.pace.group, Date.parse(checkedAt));
-        log("warn", "Source collection failed", { source: job.id, kind: diagnosis.kind, error: message });
-      }
+      await collectSource(db, config, job, (at) => {
+        if (job.pace) pacedAt.set(job.pace.group, at);
+      });
     }
   };
   const lightLanes = Math.min(MAX_CONCURRENT_SOURCES - (heavy.length ? 1 : 0), light.length);

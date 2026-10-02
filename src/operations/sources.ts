@@ -6,76 +6,16 @@ import { collectionCost } from "../reports/collectionCost.js";
 import { coverageGaps } from "../reports/coverageGaps.js";
 import { deepSeekUsage } from "../reports/deepseekUsage.js";
 import { leadTime } from "../reports/leadTime.js";
+import { pricedUncatalogued } from "../reports/pricedUncatalogued.js";
 import { releaseAudit } from "../reports/releaseAudit.js";
 import { silentSources } from "../reports/silentSources.js";
 import { sourceKinds } from "../reports/sourceKinds.js";
 import { sourceVerdicts } from "../reports/sourceVerdicts.js";
-import { mentionSource } from "../sources/modelMentions.js";
-import { buildSourceRegistry } from "../sources/registry.js";
-import { count, nearest, type OperationMap } from "./definition.js";
+import { count, type OperationMap } from "./definition.js";
 
 /** The "sources" section of the operation registry; src/operations.ts joins the sections. */
-/**
- * A source id that has never been collected, answered with the ones that could be.
- *
- * The names come from the registry rather than from the table: `sources` keeps a row for every
- * source that ever ran, and offering a retired one as a suggestion is offering a name that will
- * fail differently.
- */
-function mustBeCollected(db: Database, config: AppConfig, source: string): void {
-  if (db.query("SELECT 1 FROM sources WHERE id=?").get(source)) return;
-  const known = buildSourceRegistry(db, config).map((definition) => definition.id);
-  throw new Error(`${source} is not a source that has ever been collected. ${nearest(source, known)}`);
-}
-
 export function sourcesOperations(db: Database, config: AppConfig, _all: () => OperationMap): OperationMap {
   return {
-    rescan_repository: {
-      section: "sources",
-      summary: "Forget where a watched repository was read to, so its next poll reads the whole tree again.",
-      note:
-        "For a repository subscribed to before the first read scanned its tree: the names already " +
-        "sitting in it were never reported, and nothing will add them again. Reports only names no " +
-        "catalogue holds, so a repository full of shipped models stays quiet.",
-      mutates: true,
-      // A poll that re-reads a repository can deliver, which is routine work, but the operator asks for it.
-      agent: false,
-      schema: z.object({ repo: z.string().min(3) }),
-      cli: { args: [{ name: "repo", rest: true }] },
-      handler: (input: { repo: string }) => {
-        const source = mentionSource(input.repo);
-        const removed = db.query("DELETE FROM records WHERE source=? AND id='@head'").run(source).changes;
-        if (!removed) throw new Error(`${input.repo} is not a watched repository, or has never been read`);
-        return { repo: input.repo, source, message: "The next poll of this repository reads its tree in full" };
-      },
-    },
-    accept_shrink: {
-      section: "sources",
-      summary:
-        "Accept that a catalogue is genuinely smaller now, so its next collection is stored however far it shrank.",
-      startHere: 'a source is stuck on "collection degraded"',
-      note:
-        "The guard refuses an answer that lost a quarter of a source's rows, because a partial " +
-        "answer reads as a mass removal and the rows come back on the next poll. When the loss is " +
-        "real the guard never clears by itself: arena.ai stopped publishing its anonymous models " +
-        "and the source has been frozen against 1083 rows it will never serve again. Check the " +
-        "live page before spending this -- it is spent on the next collection, whatever it holds.",
-      mutates: true,
-      // Accepting a mass removal is a judgement about the outside world, which is the operator's.
-      agent: false,
-      schema: z.object({ source: z.string().min(2) }),
-      cli: { args: [{ name: "source" }] },
-      handler: (input: { source: string }) => {
-        mustBeCollected(db, config, input.source);
-        db.query(
-          "UPDATE sources SET accept_shrink=1,failures=0,retry_at=NULL,failure_started_at=NULL,last_error=NULL WHERE id=?",
-        ).run(input.source);
-        return {
-          source: input.source,
-          message: "The next collection of this source is stored at whatever size it comes back, once",
-        };
-      },
-    },
     source_kinds: {
       section: "sources",
       summary: "What the registered sources are made of by kind, and which families no kind names yet.",
@@ -165,6 +105,18 @@ export function sourcesOperations(db: Database, config: AppConfig, _all: () => O
       cli: { args: [{ name: "days", optional: true }] },
       http: { method: "get", path: "/api/coverage-gaps" },
       handler: (input: { days: number }) => coverageGaps(db, input.days),
+    },
+    priced_uncatalogued: {
+      section: "sources",
+      summary:
+        "Models OpenAI charges for that neither its model index nor its API catalogue lists; dated fine-tuning builds of a catalogued model are set aside as snapshots.",
+      startHere: "is OpenAI pricing a model it has not published",
+      mutates: false,
+      agent: true,
+      schema: z.object({}),
+      cli: { args: [] },
+      http: { method: "get", path: "/api/priced-uncatalogued" },
+      handler: () => pricedUncatalogued(db),
     },
     release_audit: {
       section: "sources",

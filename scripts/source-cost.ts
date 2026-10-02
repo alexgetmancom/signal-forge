@@ -17,6 +17,14 @@
  * long page, a vendor's sitemap that doubles, a feed that starts carrying whole posts. Anything this
  * reports above the threshold and not already marked is the next one.
  *
+ * Re-measured 2026-10-02, 189 light sources: the first pass claimed 239 MB where it claimed 587 in
+ * September, 176 of the 189 added nothing on the second pass, and nothing at all was above the
+ * threshold -- the largest was `openrouter` at 26 MB. `prod timings` disagrees loudly and is the
+ * one to distrust: it had `github:openai/codex:talk` at 172 MB of growth, which this measures at 0,
+ * because `timings` attributes to one source a mark that moved while three were running. That is
+ * the first caveat below, in numbers. `discovery:docs-openai` is the one real drop, 37 MB to 7:
+ * it used to read a 330 KB body to learn a status code.
+ *
  *   bun run source-cost                 every light source
  *   bun run source-cost pages:          only those whose id starts with it
  *

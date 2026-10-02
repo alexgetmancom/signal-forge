@@ -1,7 +1,13 @@
 import { expect, test } from "bun:test";
 import { z } from "zod";
+import { loadConfig } from "../src/config.js";
 import { unexplainedFailure } from "../src/failureDiagnosis.js";
-import { byLongestWait } from "../src/poller.js";
+import { byLongestWait, collectNamedSource } from "../src/poller.js";
+import { sourceJobs } from "../src/sources/registry.js";
+import { openDatabase } from "../src/storage/database.js";
+import { aSource } from "./fixtures/build.js";
+
+const pollerConfig = () => loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname });
 
 test("a withheld failure still says which kind it was, and nothing an upstream wrote", () => {
   const parsed = z.object({ data: z.array(z.string()) }).safeParse({ data: "sk-live-secret" });
@@ -45,4 +51,15 @@ test("a paced group's turn goes to the source that has waited longest, not to th
     "huggingface:internlm",
     "huggingface:google",
   ]);
+});
+
+test("collecting one named source refuses a name the registry does not have, and waits out a Retry-After", async () => {
+  const db = openDatabase(":memory:");
+  const config = pollerConfig();
+  await expect(collectNamedSource(db, config, "openai-prcing")).rejects.toThrow("is not a source this deployment");
+  const source = sourceJobs(db, config)[0]?.id as string;
+  aSource(db, source, { retryAt: new Date(Date.now() + 600_000).toISOString() });
+  // Even an operator's forced collection honours the wait the server set for itself.
+  expect(await collectNamedSource(db, config, source)).toMatchObject({ source, status: "deferred" });
+  db.close();
 });

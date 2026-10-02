@@ -273,8 +273,14 @@ export function parseOpenAIPricing(markdown: string): Collection {
      * heading alone told 84, and the four it still could not separate were tool rows.
      */
     const modality = namedCell(row, /^modality$/i);
-    const tier = [row.heading, row.mode, modality, named.variant].filter(Boolean).join(" / ");
-    const id = `${tier}:${named.model}`;
+    /**
+     * The heading is the name of a component in OpenAI's build -- `Grouped Pricing Table data` --
+     * so it separates rows well and reads badly. It stays in the id and out of what is stored:
+     * what an operator needs is the mode, the modality and the ceiling, and for the one table that
+     * states none of them the heading is all there is.
+     */
+    const tier = [row.mode, modality, named.variant].filter(Boolean).join(" / ") || row.heading;
+    const id = `${[row.heading, row.mode, modality, named.variant].filter(Boolean).join(" / ")}:${named.model}`;
     if (!records.has(id))
       records.set(id, {
         id,

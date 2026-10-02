@@ -106,7 +106,7 @@ test("one model priced in two modes is two rows, each under the column names of 
   ]);
   expect(collection.records[0]).toMatchObject({
     model: "gpt-6.1-sol",
-    tier: "Standard pricing data / Standard",
+    tier: "Standard",
     prices: { Input: 2, Output: 10 },
   });
   // A price that moved has to be re-read before it is believed, like every other price here.
@@ -159,6 +159,16 @@ test("a table says which of its columns is the model, and the rest of the row is
     "Grouped Pricing Table data / Text:gpt-realtime-2.1",
     // A table that states no mode is not priced in the mode of the table above it.
     "Pricing Table data:gpt-live-1",
+  ]);
+  // The heading separates ids and reads as noise, so what is stored is what the row says instead --
+  // except for the one table that says nothing, where the heading is all there is.
+  expect(collection.records.map((record) => record.tier)).toEqual([
+    "Standard",
+    "Standard",
+    "Fast",
+    "Audio",
+    "Text",
+    "Pricing Table data",
   ]);
 });
 
