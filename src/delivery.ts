@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import { applyCardAmendments, queueIncidentAmendments } from "./amendments.js";
 import type { AppConfig, Destination } from "./config.js";
 import { BLOCKED_PREFIX, type Settlement, settle } from "./deliveryOutcome.js";
-import { type Job, multipart, type PreparedDelivery, prepareRequest } from "./deliveryRequest.js";
+import { type Job, multipart, PreparationError, type PreparedDelivery, prepareRequest } from "./deliveryRequest.js";
 import { prepareDeliveries } from "./events/batching.js";
 import { releaseSettledMoves } from "./events/cooldown.js";
 import type { Fetch } from "./http-client.js";
@@ -10,6 +10,9 @@ import { log } from "./logger.js";
 import { measure } from "./runtime/metricRecording.js";
 import { writeTransaction } from "./storage/transaction.js";
 import { fillSummaries } from "./summary.js";
+
+/** What a delivery says when it never reached the provider; the reason follows. */
+const REJECTED_BEFORE_REQUEST = "Delivery rejected before external request";
 
 /** Retry clocks and send times are stored as instants, like everything else in this database. */
 const instant = (epochMs: number): string => new Date(epochMs).toISOString();
@@ -82,7 +85,7 @@ export async function deliverPending(db: Database, config: AppConfig, request: F
 
         let settlement: Settlement = {
           status: "failed",
-          error: "Delivery rejected before external request: invalid destination or missing credentials",
+          error: `${REJECTED_BEFORE_REQUEST}: the request could not be built`,
           externalId: null,
           retryAt: 0,
         };
@@ -91,8 +94,10 @@ export async function deliverPending(db: Database, config: AppConfig, request: F
         // the provider has not received a request yet, which is why the default above says so.
         try {
           prepared = await prepareRequest(job, config);
-        } catch {
+        } catch (error) {
           prepared = null;
+          if (error instanceof PreparationError)
+            settlement = { ...settlement, error: `${REJECTED_BEFORE_REQUEST}: ${error.message}` };
         }
 
         if (prepared) {

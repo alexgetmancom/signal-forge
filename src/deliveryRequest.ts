@@ -10,6 +10,16 @@ import { log } from "./logger.js";
 
 export type Job = { id: number; destination_json: string; body: string; attempts: number };
 
+/**
+ * Why a delivery could not be prepared, in words written here.
+ *
+ * Everything before the request is a local failure, and it used to be filed as "invalid destination
+ * or missing credentials" whatever it was -- so a stored message that could not be read sent whoever
+ * saw it to the tokens. The sentence is stored on the delivery and shown by `issues`, so it names
+ * the thing that is wrong and never quotes what was stored.
+ */
+export class PreparationError extends Error {}
+
 export type PreparedDelivery = {
   destination: Destination;
   url: string;
@@ -64,7 +74,7 @@ async function telegramRequest(
   destination: Extract<Destination, { platform: "telegram" }>,
   config: AppConfig,
 ): Promise<PreparedDelivery> {
-  if (!config.TELEGRAM_BOT_TOKEN) throw new Error("missing Telegram token");
+  if (!config.TELEGRAM_BOT_TOKEN) throw new PreparationError("TELEGRAM_BOT_TOKEN is not set");
   const message = telegramMessage(job.body);
   const text = visibleLength(message.html) > TEXT_LIMIT ? clipHtml(message.html) : message.html;
   let photo: { filename: string; content: Uint8Array } | null = null;
@@ -99,8 +109,13 @@ async function discordRequest(
   destination: Extract<Destination, { platform: "discord" }>,
   config: AppConfig,
 ): Promise<PreparedDelivery> {
-  if (!config.DISCORD_BOT_TOKEN) throw new Error("missing Discord token");
-  const parsed = job.body.startsWith("{") ? (JSON.parse(job.body) as Record<string, unknown>) : { content: job.body };
+  if (!config.DISCORD_BOT_TOKEN) throw new PreparationError("DISCORD_BOT_TOKEN is not set");
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = job.body.startsWith("{") ? (JSON.parse(job.body) as Record<string, unknown>) : { content: job.body };
+  } catch {
+    throw new PreparationError("the stored message could not be read");
+  }
   const {
     files: text = [],
     banners = [],
@@ -151,8 +166,24 @@ async function discordRequest(
  * made. Nothing in here may send.
  */
 export async function prepareRequest(job: Job, config: AppConfig): Promise<PreparedDelivery> {
-  const destination = destinationSchema.parse(JSON.parse(job.destination_json));
-  return destination.platform === "telegram"
-    ? await telegramRequest(job, destination, config)
-    : await discordRequest(job, destination, config);
+  let destination: Destination;
+  try {
+    destination = destinationSchema.parse(JSON.parse(job.destination_json));
+  } catch {
+    throw new PreparationError("the stored destination is invalid");
+  }
+  try {
+    return destination.platform === "telegram"
+      ? await telegramRequest(job, destination, config)
+      : await discordRequest(job, destination, config);
+  } catch (error) {
+    if (error instanceof PreparationError) throw error;
+    // Our own renderer failing on what was stored. It is not a destination or a credential, and the
+    // class of the error is the only part of it that is ours to keep.
+    log("warn", "Delivery could not be built", {
+      deliveryId: job.id,
+      errorType: error instanceof Error ? error.name : typeof error,
+    });
+    throw new PreparationError("the request could not be built");
+  }
 }

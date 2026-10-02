@@ -157,7 +157,7 @@ test("a rate limit does not block another destination on the same platform", asy
   expect(local.query("SELECT status FROM deliveries WHERE id=2").get()).toEqual({ status: "sent" });
   local.close();
 });
-test("preflight delivery failures are failed without making a provider request", async () => {
+test("preflight delivery failures are failed without making a provider request, each saying which it was", async () => {
   const local = openDatabase(":memory:");
   const telegram = {
     id: "tg",
@@ -165,30 +165,46 @@ test("preflight delivery failures are failed without making a provider request",
     chatId: "1",
     signals: ["launch", "codename", "evidence", "change"],
   };
-  local.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(1,'test','1970-01-01T00:00:00.000Z',1)").run();
-  local
-    .query(
-      "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,updated_at) VALUES(1,1,'tg',?,'body',0,'1970-01-01T00:00:00.000Z'),(2,1,'bad','{','body',1,'1970-01-01T00:00:00.000Z')",
-    )
-    .run(JSON.stringify(telegram));
+  const discord = { id: "dc", platform: "discord" as const, channelId: "1", signals: ["launch"] };
+  // One batch each, so that a refusal of one part does not also refuse the parts after it.
+  const stored = (id: number, destinationId: string, destinationJson: string, body: string) => {
+    local.query("INSERT INTO batches(id,source,ready_at,sealed) VALUES(?,'test','1970-01-01T00:00:00.000Z',1)").run(id);
+    local
+      .query(
+        "INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,updated_at) VALUES(?,?,?,?,?,0,'1970-01-01T00:00:00.000Z')",
+      )
+      .run(id, id, destinationId, destinationJson, body);
+  };
+  stored(1, "tg", JSON.stringify(telegram), "body");
+  stored(2, "bad", "{", "body");
+  stored(3, "dc", JSON.stringify(discord), '{"embeds": [ {"title": "ok"} ]');
+  stored(4, "tg-2", JSON.stringify({ ...telegram, id: "tg-2" }), '{"embeds":"not a list"}');
   let calls = 0;
-  await deliverPending(local, { ...config, TELEGRAM_BOT_TOKEN: undefined }, async () => {
+  const refuse = async () => {
     calls += 1;
     throw new Error("must not send");
-  });
-  expect(calls).toBe(0);
-  expect(local.query("SELECT id,status,error FROM deliveries ORDER BY id").all()).toEqual([
-    {
-      id: 1,
-      status: "failed",
-      error: "Delivery rejected before external request: invalid destination or missing credentials",
-    },
-    {
-      id: 2,
-      status: "failed",
-      error: "Delivery rejected before external request: invalid destination or missing credentials",
-    },
+  };
+  await deliverPending(local, { ...config, TELEGRAM_BOT_TOKEN: undefined }, refuse);
+  // The Telegram credential is missing for the first and the fourth; the second never reaches it.
+  const sentences = () =>
+    local
+      .query<{ id: number; status: string; error: string }, []>("SELECT id,status,error FROM deliveries ORDER BY id")
+      .all()
+      .map((row) => `${row.id} ${row.status} ${row.error}`);
+  expect(sentences()).toEqual([
+    "1 failed Delivery rejected before external request: TELEGRAM_BOT_TOKEN is not set",
+    "2 failed Delivery rejected before external request: the stored destination is invalid",
+    "3 failed Delivery rejected before external request: the stored message could not be read",
+    "4 failed Delivery rejected before external request: TELEGRAM_BOT_TOKEN is not set",
   ]);
+  // With the credential there, the body that is JSON but not a card says what is wrong with it,
+  // and that is not a destination or a credential.
+  local.exec("UPDATE deliveries SET status='pending',attempts=0,error=NULL WHERE id=4");
+  await deliverPending(local, config, refuse);
+  expect(sentences().filter((line) => line.startsWith("4 "))).toEqual([
+    "4 failed Delivery rejected before external request: the request could not be built",
+  ]);
+  expect(calls).toBe(0);
   local.close();
 });
 test("network timeout and 5xx are ambiguous, not retried", async () => {
