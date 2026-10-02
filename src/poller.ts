@@ -12,6 +12,7 @@ import { type SourceDefinition, sourceJobs } from "./sources/registry.js";
 import { collectInSubprocess } from "./sources/subprocess.js";
 import { recordFailureEvidence } from "./storage/failureEvidence.js";
 import { recordSourceShape } from "./storage/sourceShapes.js";
+import { writeTransaction } from "./storage/transaction.js";
 import { rememberStoryProjection } from "./stories.js";
 
 const MAX_CONCURRENT_SOURCES = 4;
@@ -205,7 +206,7 @@ async function collectSource(
     // The backoff is cleared in the transaction that stores the read: a crash between the two
     // would otherwise leave a source that just succeeded waiting out an old retry time.
     const saved = measure(db, `source.persist:${job.id}`, () =>
-      db.transaction(() => {
+      writeTransaction(db, () => {
         const emitted = saveCollection(
           db,
           collection,
@@ -231,7 +232,7 @@ async function collectSource(
             checkedAt,
           );
         return emitted;
-      })(),
+      }),
     );
     // Past the commit, so the cached projection describes stories that are actually stored.
     if (saved.projection) rememberStoryProjection(db, saved.projection);
@@ -247,7 +248,7 @@ async function collectSource(
     const message = diagnosis.message;
     const checkedAt = new Date().toISOString();
     const retryAt = error instanceof SourceHttpError ? error.retryAt : null;
-    db.transaction(() => {
+    writeTransaction(db, () => {
       // The first failure of a run stamps when the outage began; later ones leave it alone, so
       // the duration is measured from the start rather than from the latest confirmation.
       db.query(
@@ -263,7 +264,7 @@ async function collectSource(
       if (diagnosis.evidence) recordFailureEvidence(db, job.id, checkedAt, diagnosis.kind, diagnosis.evidence);
       // A failure breaks consecutive confirmation of a disappearance.
       db.query("UPDATE records SET missing_count=0 WHERE source=?").run(job.id);
-    })();
+    });
     // A refused credential is not a link that dropped: the backoff would keep asking, and the
     // answer would keep being no. Stop every source carrying that credential until it is
     // replaced, and say which credential it was rather than which collector noticed.

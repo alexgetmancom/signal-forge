@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { Destination } from "../config.js";
 import { readState, writeState } from "../storage/appState.js";
+import { writeTransaction } from "../storage/transaction.js";
 import { isUnfollowedMakerAtAReseller, resellerMaker } from "./resellers.js";
 import { wasReleasedLongBefore } from "./retoldWorth.js";
 import type { Event } from "./types.js";
@@ -174,7 +175,7 @@ export function detectBreakouts(db: Database, destinations: readonly Destination
     if (!token) continue;
     const measured = measure(db, event, token, now);
     if (!tookOff(measured)) continue;
-    db.transaction(() => {
+    writeTransaction(db, () => {
       writeState(db, `${BREAKOUT_PREFIX}${event.id}`, JSON.stringify(measured));
       if (maker) writeState(db, `${FOLLOWED_PREFIX}${normalMaker(maker)}`, measured.at);
       if (!targets.length) return;
@@ -196,7 +197,7 @@ export function detectBreakouts(db: Database, destinations: readonly Destination
           destination.id,
           JSON.stringify(destination),
         );
-    })();
+    });
     broke.push(event.id);
   }
   return broke;

@@ -6,6 +6,7 @@ import { eventEmbed } from "../events/render/discord.js";
 import type { Event } from "../events/types.js";
 import { destinationStandings } from "../reports/destinations.js";
 import { sentByChannel } from "../reports/news.js";
+import { writeTransaction } from "../storage/transaction.js";
 import { count, identifier, type OperationMap } from "./definition.js";
 
 /** The "delivery" section of the operation registry; src/operations.ts joins the sections. */
@@ -68,7 +69,7 @@ export function deliveryOperations(db: Database, config: AppConfig, _all: () => 
           .all(input.eventId);
         if (sent.length === 0)
           throw new Error(`Event ${input.eventId} was never delivered, so there is nowhere to send it again`);
-        const queued = db.transaction(() => {
+        const queued = writeTransaction(db, () => {
           const batch = db
             .query<{ id: number }, [string, string]>(
               "INSERT INTO batches(source,digest,ready_at,kind,context_json) VALUES(?,0,?,'event',NULL) RETURNING id",
@@ -88,7 +89,7 @@ export function deliveryOperations(db: Database, config: AppConfig, _all: () => 
               target.destination_json,
             );
           return batch.id;
-        })();
+        });
         return {
           event: event.entity_id,
           batch: queued,

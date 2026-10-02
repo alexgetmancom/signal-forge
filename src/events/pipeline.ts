@@ -4,6 +4,7 @@ import { updateHypotheses } from "../hypotheses.js";
 import { rebuildLifecycleDeadlines } from "../lifecycle.js";
 import { type FactsDirty, updateModelFacts } from "../modelFacts.js";
 import { measure } from "../runtime/metricRecording.js";
+import { writeTransaction } from "../storage/transaction.js";
 import { rememberStoryProjection, type StoryProjection, updateStories } from "../stories.js";
 import { markNovelWeights } from "../weights.js";
 import { prepareDeliveries } from "./batching.js";
@@ -61,7 +62,7 @@ export function saveCollection(
   allSignalsRole?: string,
 ): SavedCollection {
   let projection: StoryProjection | null = null;
-  const count = db.transaction(() => {
+  const count = writeTransaction(db, () => {
     const previousEventId = Number(
       db.query<{ id: number | null }, []>("SELECT MAX(id) AS id FROM events").get()?.id ?? 0,
     );
@@ -100,7 +101,7 @@ export function saveCollection(
       prepareDeliveries(db, Date.parse(now), vendorRoles, allSignalsRole, false),
     );
     return count;
-  })();
+  });
   // Inside an enclosing transaction the projection is the caller's to file once its own commit
   // lands; standing alone, this was that commit.
   if (!db.inTransaction) {

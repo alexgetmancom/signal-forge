@@ -7,6 +7,7 @@ import { log } from "./logger.js";
 import { type ActionableIssue, type IssueKind, listActionableIssues } from "./reports/issues.js";
 import { measure } from "./runtime/metricRecording.js";
 import { readState, writeState } from "./storage/appState.js";
+import { writeTransaction } from "./storage/transaction.js";
 import { clip } from "./text.js";
 
 /**
@@ -126,9 +127,9 @@ function readStateVersion(db: Database): number {
 
 function writeAlertState(db: Database, active: Set<string>, version: number): void {
   const value = JSON.stringify([...active].sort());
-  db.transaction(() => {
+  writeTransaction(db, () => {
     writeAlertStateRows(db, value, version);
-  })();
+  });
 }
 
 function writeAlertStateRows(db: Database, value: string, version: number): void {
@@ -154,7 +155,7 @@ export function recoverInterruptedAlerts(db: Database): void {
     )
     .all();
   if (!interrupted.length) return;
-  db.transaction(() => {
+  writeTransaction(db, () => {
     for (const attempt of interrupted) {
       db.query(
         "UPDATE alert_attempts SET status='ambiguous',error='Process stopped during alert send; verify the alert channel before retrying',updated_at=? WHERE status='sending' AND state_version=?",
@@ -162,7 +163,7 @@ export function recoverInterruptedAlerts(db: Database): void {
       const active = parseAlertState(attempt.to_state_json);
       if (active) writeAlertStateRows(db, JSON.stringify([...active].sort()), attempt.state_version);
     }
-  })();
+  });
 }
 
 function attemptForState(
@@ -173,7 +174,7 @@ function attemptForState(
   body: string,
   now: number,
 ): AlertAttempt {
-  db.transaction(() => {
+  writeTransaction(db, () => {
     db.query(
       `INSERT INTO alert_attempts(
          state_version,from_state_json,to_state_json,body,status,attempts,created_at,updated_at
@@ -187,7 +188,7 @@ function attemptForState(
       `UPDATE alert_attempts SET from_state_json=?,to_state_json=?,body=?,updated_at=?
        WHERE state_version=? AND status IN ('pending','failed') AND (from_state_json<>? OR to_state_json<>?)`,
     ).run(fromState, toState, body, instant(now), version, fromState, toState);
-  })();
+  });
   const attempt = db
     .query<AlertAttempt, [number]>(
       "SELECT id,state_version,from_state_json,to_state_json,body,status,attempts,next_attempt_at,error FROM alert_attempts WHERE state_version=?",
@@ -218,7 +219,7 @@ function settleAlertAttempt(
   version: number,
   now: number,
 ): void {
-  db.transaction(() => {
+  writeTransaction(db, () => {
     db.query(
       "UPDATE alert_attempts SET status=?,error=?,next_attempt_at='1970-01-01T00:00:00.000Z',updated_at=? WHERE id=?",
     ).run(status, error, instant(now), attempt.id);
@@ -226,7 +227,7 @@ function settleAlertAttempt(
       const value = JSON.stringify([...active].sort());
       writeAlertStateRows(db, value, version);
     }
-  })();
+  });
 }
 
 function retryAlertAttempt(db: Database, attempt: AlertAttempt, now: number): void {

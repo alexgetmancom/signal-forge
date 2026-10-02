@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { Destination } from "../config.js";
 import { readState, writeState } from "../storage/appState.js";
+import { writeTransaction } from "../storage/transaction.js";
 import { sourceIndependenceFamily } from "./sourceFamily.js";
 import type { Confidence, Event, SourceAuthority } from "./types.js";
 
@@ -213,7 +214,7 @@ export function detectCorroborated(db: Database, destinations: readonly Destinat
       eventIds: evidence.map((entry) => entry.id),
       at: new Date(now).toISOString(),
     };
-    db.transaction(() => {
+    writeTransaction(db, () => {
       writeState(db, `${SEEN_PREFIX}${row.story_id}`, JSON.stringify(corroboration));
       writeState(db, `${CARD_PREFIX}${event.id}`, JSON.stringify(corroboration));
       if (!targets.length) return;
@@ -235,7 +236,7 @@ export function detectCorroborated(db: Database, destinations: readonly Destinat
           destination.id,
           JSON.stringify(destination),
         );
-    })();
+    });
     spoke.push(row.story_id);
   }
   return spoke;

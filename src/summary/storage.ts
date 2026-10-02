@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { log } from "../logger.js";
 import { type DeepSeekAttemptResult, finishDeepSeekUsage, safeErrorType } from "../runtime/deepseekLedger.js";
+import { writeTransaction } from "../storage/transaction.js";
 
 /**
  * The attempt and the sentence it produced, written together or not at all.
@@ -21,7 +22,7 @@ export function settleSummary(
   sentence: { eventIds: readonly number[]; text: string; at: string } | null,
 ): number {
   try {
-    return db.transaction(() => {
+    return writeTransaction(db, () => {
       finishDeepSeekUsage(db, usageId, result);
       if (!sentence) return 0;
       for (const eventId of sentence.eventIds)
@@ -31,7 +32,7 @@ export function settleSummary(
           sentence.at,
         );
       return sentence.eventIds.length;
-    })();
+    });
   } catch (error) {
     log("warn", "Summary could not be stored", { errorType: safeErrorType(error) });
     finishDeepSeekUsage(db, usageId, {

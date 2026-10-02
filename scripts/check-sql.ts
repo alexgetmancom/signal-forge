@@ -247,6 +247,33 @@ for (const file of Object.keys(MAY_READ_EVERY_EVENT).sort())
   if (!wholeArchiveReaders.has(file))
     findings.push(`${file}: listed in MAY_READ_EVERY_EVENT and no longer reads every event -- delete the line.`);
 
+/**
+ * The fifth rule: a transaction in `src/` starts as a writer.
+ *
+ * A deferred `BEGIN` that reads before it writes is refused the moment another connection holds the
+ * lock or commits first, without waiting for the `busy_timeout` that was set so that it would. On
+ * production that was twenty-seven collections a week recorded as failed -- `SQLITE_BUSY` sixteen
+ * times and `SQLITE_BUSY_SNAPSHOT` eleven -- each one a red source for the cycle it took to try again.
+ * `writeTransaction` in `src/storage/transaction.ts` is `BEGIN IMMEDIATE`, and a bare
+ * `db.transaction(...)` is how the fault comes back: it compiles, passes every test that has only one
+ * connection, and fails on the one machine that has two.
+ */
+const TRANSACTION_HELPER = "src/storage/transaction.ts";
+for (const file of walk(join(root, "src"))) {
+  const name = relative(root, file);
+  if (name === TRANSACTION_HELPER) continue;
+  readFileSync(file, "utf8")
+    .split("\n")
+    .forEach((line, index) => {
+      if (/^\s*(\*|\/\/)/.test(line)) return;
+      if (!/\.(?:transaction|deferred|exclusive)\(/.test(line)) return;
+      findings.push(
+        `${name}:${index + 1}: a bare transaction is deferred, and one that reads first is refused instead of ` +
+          `waiting for the lock -- use writeTransaction(db, work) from ${TRANSACTION_HELPER}: ${line.trim().slice(0, 100)}`,
+      );
+    });
+}
+
 if (findings.length) {
   console.error(`SQL the gate refuses:\n${findings.map((finding) => `- ${finding}`).join("\n")}`);
   process.exit(1);
@@ -257,6 +284,6 @@ console.log(
     "every read of `sources` goes through the registry, and every read of an event body is one of the " +
     `${Object.keys(MAY_READ_BODIES).length} that answer with one, and every read of \`events\` is bounded by a ` +
     `window, a key, an aggregate or a limit apart from the ${Object.keys(MAY_READ_EVERY_EVENT).length} that are ` +
-    "projections of all of it" +
+    "projections of all of it, and every transaction in src/ starts as a writer" +
     `${unparsed ? ` (${unparsed} assembled at run time and not parsed)` : ""}.`,
 );

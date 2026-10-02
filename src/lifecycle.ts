@@ -8,6 +8,7 @@ import type { Event, RecordData } from "./events/types.js";
 import { featureEnabled } from "./features.js";
 import { calendarDate } from "./sources/feeds.js";
 import { buildSourceRegistry } from "./sources/registry.js";
+import { writeTransaction } from "./storage/transaction.js";
 import { text } from "./text.js";
 
 const REMINDER_OFFSETS = [30, 7, 1] as const;
@@ -287,7 +288,7 @@ function eventUrl(event: Event): string {
 /** Creates idempotent lifecycle reminder batches and materializes their normal delivery rows. */
 export function scheduleLifecycleReminders(db: Database, config: AppConfig, now = Date.now()): number {
   if (!featureEnabled(config, "lifecycle-reminders")) return 0;
-  return db.transaction(() => {
+  return writeTransaction(db, () => {
     const destinations = config.destinations.filter((destination) => destination.signals.includes("reminder"));
     if (!destinations.length) return 0;
     const shadowSources = new Set(
@@ -358,5 +359,5 @@ export function scheduleLifecycleReminders(db: Database, config: AppConfig, now 
     }
     prepareDeliveries(db, now, config.vendorRoles, config.allSignalsRole);
     return batches;
-  })();
+  });
 }

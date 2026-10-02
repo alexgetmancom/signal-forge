@@ -7,6 +7,7 @@ import { eventEmbed } from "../events/render/discord.js";
 import type { Event } from "../events/types.js";
 import { readRuntime } from "../runtime/observability.js";
 import { readState, writeState } from "../storage/appState.js";
+import { writeTransaction } from "../storage/transaction.js";
 
 /**
  * What this build renders, as one number and a list, so a deploy can be asked what it changed.
@@ -130,9 +131,9 @@ function cardsOf(db: Database, bootId: string): Map<number, string> {
 
 function storeCards(db: Database, bootId: string, byEvent: Map<number, string>): void {
   const insert = db.query("INSERT OR REPLACE INTO release_render_cards(boot_id,event_id,hash) VALUES(?,?,?)");
-  db.transaction(() => {
+  writeTransaction(db, () => {
     for (const [eventId, hash] of byEvent) insert.run(bootId, eventId, hash);
-  })();
+  });
   db.query(
     `DELETE FROM release_render_cards WHERE boot_id NOT IN
        (SELECT boot_id FROM release_renders ORDER BY booted_at DESC LIMIT ?)`,

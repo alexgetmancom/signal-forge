@@ -35,6 +35,7 @@ import {
   pruneSourceCollectionMetrics,
   pruneSourceShapes,
 } from "./storage/retention.js";
+import { writeTransaction } from "./storage/transaction.js";
 import { rebuildStories, rememberStoryProjection } from "./stories.js";
 import { readTelegramReactions } from "./telegramReactions.js";
 
@@ -47,7 +48,7 @@ const db = openDatabase(config.DATABASE_URL);
 // service stands on for the rest of its life. They run in sequence inside one transaction, which is
 // what makes the numbers each phase's own: one mark, one process, and nothing overlapping to charge
 // twice. Until this, every number about it came from one run of a script on a laptop.
-const storyProjection = db.transaction(() => {
+const storyProjection = writeTransaction(db, () => {
   const retired = measure(db, "boot.source-identities", () =>
     recordSourceIdentities(db, buildSourceRegistry(db, config)),
   );
@@ -57,7 +58,7 @@ const storyProjection = db.transaction(() => {
   measure(db, "boot.hypotheses", () => rebuildHypotheses(db));
   measure(db, "boot.lifecycle-deadlines", () => rebuildLifecycleDeadlines(db));
   return projection;
-})();
+});
 rememberStoryProjection(db, storyProjection);
 recordRuntimeStart(db);
 recoverInterruptedDeliveries(db);

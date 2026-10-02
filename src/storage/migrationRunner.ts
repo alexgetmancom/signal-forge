@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { CURRENT_SCHEMA_VERSION, type Migration, readMigrations, splitStatements } from "./migrations.js";
+import { writeTransaction } from "./transaction.js";
 
 function schemaVersion(db: Database): number {
   return db.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version ?? 0;
@@ -34,7 +35,7 @@ export function applyMigrations(db: Database, pending: readonly Migration[]): nu
   db.exec("PRAGMA foreign_keys=OFF; PRAGMA legacy_alter_table=ON");
   try {
     for (const migration of pending) {
-      db.transaction(() => {
+      writeTransaction(db, () => {
         for (const statement of splitStatements(migration.sql)) db.run(statement);
         // Inside the transaction, so a migration that orphans a row is rolled back rather than
         // reported after the fact.
@@ -46,7 +47,7 @@ export function applyMigrations(db: Database, pending: readonly Migration[]): nu
             ].join(", ")}`,
           );
         db.exec(`PRAGMA user_version = ${migration.version}`);
-      })();
+      });
       version = migration.version;
     }
   } finally {

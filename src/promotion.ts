@@ -4,6 +4,7 @@ import type { AppConfig, Destination } from "./config.js";
 import { featureEnabled } from "./features.js";
 import type { Fetch } from "./http-client.js";
 import { log } from "./logger.js";
+import { writeTransaction } from "./storage/transaction.js";
 
 /**
  * The readers of `radar` deciding what a stranger should see.
@@ -191,7 +192,7 @@ export async function promoteVouchedMessages(
 
       const context: PromotionContext = { deliveryId: delivery.id, reason: "readers", votes: readerVotes };
       promotionContextSchema.parse(context);
-      db.transaction(() => {
+      writeTransaction(db, () => {
         const batch = db
           .query<{ id: number }, [string, string]>(
             "INSERT INTO batches(source,digest,ready_at,kind,context_json) VALUES('scout-promotion',0,?,'promotion',?) RETURNING id",
@@ -207,7 +208,7 @@ export async function promoteVouchedMessages(
         db.query(
           "INSERT INTO promoted_deliveries(delivery_id,batch_id,reason,votes,promoted_at) VALUES(?,?,?,?,?)",
         ).run(delivery.id, batch.id, context.reason, context.votes, new Date(now).toISOString());
-      })();
+      });
       promoted += 1;
     }
   }

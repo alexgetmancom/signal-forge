@@ -4,6 +4,7 @@ import type { AppConfig } from "./config.js";
 import { featureEnabled } from "./features.js";
 import type { Fetch } from "./http-client.js";
 import { log } from "./logger.js";
+import { writeTransaction } from "./storage/transaction.js";
 
 /**
  * The readers' 👍 and 👎 under the Telegram posts, counted like Discord's.
@@ -68,7 +69,7 @@ export async function readTelegramReactions(db: Database, config: AppConfig, req
   });
   if (!read.length) return 0;
   const touched = new Set<string>();
-  db.transaction(() => {
+  writeTransaction(db, () => {
     for (const change of read) {
       const person = change.message_reaction;
       if (person) {
@@ -136,6 +137,6 @@ export async function readTelegramReactions(db: Database, config: AppConfig, req
            ON CONFLICT(delivery_id) DO UPDATE SET votes=excluded.votes,against=excluded.against,read_at=excluded.read_at`,
         ).run(delivery.id, totals.votes, totals.against, now);
     }
-  })();
+  });
   return read.length;
 }

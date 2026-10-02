@@ -8,6 +8,7 @@ import { releaseSettledMoves } from "./events/cooldown.js";
 import type { Fetch } from "./http-client.js";
 import { log } from "./logger.js";
 import { measure } from "./runtime/metricRecording.js";
+import { writeTransaction } from "./storage/transaction.js";
 import { fillSummaries } from "./summary.js";
 
 /** Retry clocks and send times are stored as instants, like everything else in this database. */
@@ -48,11 +49,11 @@ export function recoverInterruptedDeliveries(db: Database): void {
 export async function deliverPending(db: Database, config: AppConfig, request: Fetch = fetch): Promise<void> {
   // Summaries are written before the message is built; a failure here leaves the message unchanged.
   await fillSummaries(db, config, request);
-  db.transaction(() => {
+  writeTransaction(db, () => {
     releaseSettledMoves(db, Date.now());
     prepareDeliveries(db, Date.now(), config.vendorRoles, config.allSignalsRole);
     queueIncidentAmendments(db);
-  })();
+  });
   await applyCardAmendments(db, config, request);
 
   const destinationIds = db

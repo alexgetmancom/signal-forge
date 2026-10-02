@@ -4,6 +4,7 @@ import type { AppConfig } from "./config.js";
 import type { Fetch } from "./http-client.js";
 import { lockHolder, withActionLock } from "./runtime/actionLock.js";
 import { readState, writeState } from "./storage/appState.js";
+import { writeTransaction } from "./storage/transaction.js";
 
 /**
  * The editorial archive, read from Solo Publisher and never written to.
@@ -144,7 +145,7 @@ export async function syncPublications(db: Database, config: AppConfig, request:
           !rows.some((row) => previous.windowRefs.includes(row.ref))),
     );
     const checkedAt = new Date().toISOString();
-    db.transaction(() => {
+    writeTransaction(db, () => {
       const lease = db
         .query<{ holder: string }, [string]>(
           "SELECT holder FROM action_locks WHERE name=? AND expires_at > strftime('%Y-%m-%dT%H:%M:%fZ','now')",
@@ -171,7 +172,7 @@ export async function syncPublications(db: Database, config: AppConfig, request:
         STATE_KEY,
         JSON.stringify({ endpoint, checkedAt, windowRefs: rows.map((row) => row.ref), gapDetected }),
       );
-    })();
+    });
     if (gapDetected) throw new Error("Solo Publisher publication window lost overlap; archive coverage has a gap");
     return { refreshed: values.length, checkedAt };
   });
