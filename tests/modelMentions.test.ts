@@ -2,8 +2,16 @@ import { expect, test } from "bun:test";
 import { loadConfig } from "../src/config.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import { pingWorthy, signalClass } from "../src/events/signals.js";
+import { SourceError } from "../src/failure.js";
 import type { Fetch } from "../src/http-client.js";
-import { familyVersion, guessStage, judgeMentions, olderThanKnown, stageKnown } from "../src/sources/mentionStage.js";
+import {
+  familyVersion,
+  guessStage,
+  judgeMentions,
+  olderThanKnown,
+  stageKnown,
+  undated,
+} from "../src/sources/mentionStage.js";
 import {
   collectModelMentions,
   crossesMakers,
@@ -13,7 +21,6 @@ import {
   modelIdInField,
   modelIdsInPatch,
   modelIdsInText,
-  undated,
 } from "../src/sources/modelMentions.js";
 import { collectRepoTalk } from "../src/sources/repoTalk.js";
 import { openDatabase } from "../src/storage/database.js";
@@ -54,6 +61,9 @@ test("a proxy's tests are recognised, and a dated snapshot is its undated model"
   expect(undated("gpt-6-luna")).toBe("gpt-6-luna");
 });
 
+/** A first read of a repository with nothing in it: the commit tests are about what comes after. */
+const EMPTY_ARCHIVE = Bun.gzipSync(tar([]));
+
 const sha = (n: number) => String(n).padStart(40, "0");
 const commit = (n: number, message: string) => ({
   sha: sha(n),
@@ -78,6 +88,7 @@ test("the first read is a cursor; a later commit tells only the model nothing he
   );
   let head = commit(1, "Initial");
   const request = async (url: string) => {
+    if (url.includes("/tarball/")) return new Response(EMPTY_ARCHIVE);
     if (url.includes("/commits?per_page=1")) return Response.json([head]);
     if (url.includes("/compare/")) return Response.json({ status: "ahead", commits: [head] });
     return Response.json({
@@ -149,6 +160,7 @@ test("a model named, then served, is told twice; neither pings; another repo rep
   let head = commit(1, "Initial");
   const files = { current: [{ filename: "models.json", patch: '+  { "slug": "gpt-7-nova" }' }] };
   const request = async (url: string, init?: RequestInit) => {
+    if (url.includes("/tarball/")) return new Response(EMPTY_ARCHIVE);
     if (url.includes("deepseek")) return stages.answer(String(init?.body));
     if (url.includes("/commits?per_page=1")) return Response.json([head]);
     if (url.includes("/compare/")) return Response.json({ status: "ahead", commits: [head] });
@@ -191,6 +203,7 @@ test("users reporting a model they were served are told without a ping; a model 
   const watch: MentionWatch = { repo: "openai/codex", vendor: "OpenAI", authority: "vendor_owned" };
   const stages = judge({ "gpt-6-luna": "served", "gpt-7": "noise", "gpt-6-astra": "named" });
   const request = async (url: string, init?: RequestInit) => {
+    if (url.includes("/tarball/")) return new Response(EMPTY_ARCHIVE);
     if (url.includes("deepseek")) return stages.answer(String(init?.body));
     if (url.endsWith("/graphql"))
       return Response.json({
@@ -325,6 +338,7 @@ test("a gateway is read only in its price table, never for an old model, and the
   };
   let head = commit(1, "Initial");
   const request = async (url: string) => {
+    if (url.includes("/tarball/")) return new Response(EMPTY_ARCHIVE);
     if (url.includes("deepseek"))
       return Response.json({
         choices: [{ message: { content: '{"gpt-6-nova":"named"}' } }],
@@ -482,6 +496,96 @@ test("a repository first watched is read whole, and reports only what no catalog
   // `minimax-m3-thinking`, which are a test's provider and a dedup key that the code made up.
   expect(collection.records.map((record) => record.id)).toEqual(["@head", "minimax-m3.1"]);
   expect(collection.records[1]).toMatchObject({ file: "src/models.ts", stage: "named" });
+  db.close();
+});
+
+/** What a repository answers while it is first read: its newest commit, and then its archive. */
+function firstReadRequest(archive: () => Response) {
+  const sha = "a".repeat(40);
+  const calls = { archive: 0 };
+  const request = (async (url: string) => {
+    if (String(url).endsWith(`/tarball/${sha}`)) {
+      calls.archive++;
+      return archive();
+    }
+    if (String(url).endsWith("/commits?per_page=1"))
+      return Response.json([
+        { sha, html_url: "https://github.com/x/y/commit/a", commit: { message: "release", author: null } },
+      ]);
+    return new Response("", { status: 404 });
+  }) as unknown as Fetch;
+  return { sha, calls, request };
+}
+
+const MINIMAX = { repo: "MiniMax-AI/minimax-code", vendor: "MiniMax", authority: "vendor_owned" } as const;
+
+test("a first read the archive refused is tried again, not given up as an empty one", async () => {
+  // The first read is the only look at what a repository already holds: the cursor it sets is the
+  // head, so a name that was in the code that day is never added again. An archive that answered
+  // 403 -- a rate limit, a blip -- must therefore fail the read, and leave the cursor unset, rather
+  // than finish it with nothing found.
+  const db = openDatabase(":memory:");
+  const archive = Bun.gzipSync(
+    tar([{ path: "minimax-code-aaaaaaa/src/models.ts", text: 'export const catalogue = ["MiniMax-M3.1"];' }]),
+  );
+  let status = 403;
+  const { request } = firstReadRequest(() =>
+    status === 200 ? new Response(archive) : new Response("rate limited", { status }),
+  );
+
+  const refused = await collectModelMentions(db, config, MINIMAX, request).catch((error: unknown) => error);
+  expect(refused).toBeInstanceOf(SourceError);
+  expect((refused as SourceError).kind).toBe("http");
+
+  status = 429;
+  const limited = await collectModelMentions(db, config, MINIMAX, request).catch((error: unknown) => error);
+  expect((limited as SourceError).kind).toBe("rate-limited");
+
+  // Nothing was stored by the failed reads, so the next one is still a first read.
+  status = 200;
+  const found = await collectModelMentions(db, config, MINIMAX, request);
+  expect(found.records.map((record) => record.id)).toEqual(["@head", "minimax-m3.1"]);
+  db.close();
+});
+
+test("an archive that is not an archive fails the read as a protocol error", async () => {
+  const db = openDatabase(":memory:");
+  const { request } = firstReadRequest(() => new Response("<html>maintenance</html>"));
+  const failed = await collectModelMentions(db, config, MINIMAX, request).catch((error: unknown) => error);
+  expect(failed).toBeInstanceOf(SourceError);
+  expect((failed as SourceError).kind).toBe("protocol");
+  expect((failed as SourceError).message).not.toContain("maintenance");
+  db.close();
+});
+
+test("a repository too large to read whole is watched from its commits, and the read still ends", async () => {
+  const db = openDatabase(":memory:");
+  const { request, calls } = firstReadRequest(() => new Response(new Uint8Array(64 * 1024 * 1024 + 1)));
+  const collection = await collectModelMentions(db, config, MINIMAX, request);
+  expect(collection.records.map((record) => record.id)).toEqual(["@head"]);
+  expect(calls.archive).toBe(1);
+  db.close();
+});
+
+test("a repository whose range is gone is read from its head by status, whatever the page says", async () => {
+  const db = openDatabase(":memory:");
+  const watch = { repo: "d4rken/clankermux", authority: "third_party" } as const;
+  const stored = commit(1, "Initial");
+  db.query("INSERT INTO records(source,id,body,missing_count,stream,observed_at) VALUES(?,?,?,0,?,?)").run(
+    "github:d4rken/clankermux:models",
+    "@head",
+    JSON.stringify({ sha: stored.sha }),
+    "github",
+    "2026-09-24T00:00:00.000Z",
+  );
+  const head = commit(2, "Rewritten history");
+  const request = (async (url: string) => {
+    if (url.includes("/commits?per_page=1")) return Response.json([head]);
+    // The page text is nothing a reader could rely on; the status is.
+    return new Response("<html>Not Found</html>", { status: 404, statusText: "Missing" });
+  }) as unknown as Fetch;
+  const collection = await collectModelMentions(db, config, watch, request);
+  expect(collection.records).toEqual([{ id: "@head", name: "Last commit read", sha: head.sha }]);
   db.close();
 });
 

@@ -4,11 +4,10 @@ import type { AppConfig } from "../config.js";
 import type { Collection, RecordData, SourceAuthority } from "../events/types.js";
 import { httpFailure, SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
-import { fetchText } from "./http.js";
+import { log } from "../logger.js";
+import { fetchText, SourceHttpError } from "./http.js";
 import { judgeMentions, type MentionStage, olderThanKnown, stageKnown, stageRecordId } from "./mentionStage.js";
 import type { Vendor } from "./vendors.js";
-
-export { undated } from "./mentionStage.js";
 
 /**
  * A model is written into code before it is announced. `gpt-6-astra` entered the Codex client's
@@ -85,12 +84,32 @@ export const MODEL_MENTION_REPOS: readonly MentionWatch[] = [
 ];
 
 /**
- * The families whose IDs are specific enough to find in prose and code without a list of known
+ * The makers whose IDs are specific enough to find in prose and code without a list of known
  * models: a family word, a version number, then suffixes. `o3`-style IDs and bare family names are
  * left out; they match too much that is not a model.
+ *
+ * One entry is a maker. `shape` is a family and a version, and nothing after them; `words` are the
+ * names the maker's IDs are written with, which is how an ID that carries two makers' words is
+ * told. A maker added here is found in prose, kept by a first read and caught when crossed -- the
+ * three used to be three lists, and a name missing from one of them failed without a sound.
  */
-const MODEL_ID =
-  /(?<![a-z0-9.-])(?:gpt-\d+(?:\.\d+)?|claude-(?:opus|sonnet|haiku|fable|[a-z]+)-\d+(?:[.-]\d+)*|gemini-\d+(?:\.\d+)?|grok-\d+(?:\.\d+)?|glm-\d+(?:\.\d+)?|kimi-k\d+(?:\.\d+)?|deepseek-[vr]\d+(?:\.\d+)?|qwen\d+(?:\.\d+)?|minimax-m\d+(?:\.\d+)?|(?:mistral|magistral|devstral|codestral)-(?:large-|medium-|small-)?\d+(?:\.\d+)?)(?:-[a-z0-9]+(?:\.\d+)*)*(?![a-z0-9])/g;
+const MAKERS: readonly { words: readonly string[]; shape: string }[] = [
+  { words: ["gpt"], shape: String.raw`gpt-\d+(?:\.\d+)?` },
+  { words: ["claude"], shape: String.raw`claude-[a-z]+-\d+(?:[.-]\d+)*` },
+  { words: ["gemini"], shape: String.raw`gemini-\d+(?:\.\d+)?` },
+  { words: ["grok"], shape: String.raw`grok-\d+(?:\.\d+)?` },
+  { words: ["glm"], shape: String.raw`glm-\d+(?:\.\d+)?` },
+  { words: ["kimi"], shape: String.raw`kimi-k\d+(?:\.\d+)?` },
+  { words: ["deepseek"], shape: String.raw`deepseek-[vr]\d+(?:\.\d+)?` },
+  { words: ["qwen"], shape: String.raw`qwen\d+(?:\.\d+)?` },
+  { words: ["minimax"], shape: String.raw`minimax-m\d+(?:\.\d+)?` },
+  {
+    words: ["mistral", "magistral", "devstral", "codestral"],
+    shape: String.raw`(?:mistral|magistral|devstral|codestral)-(?:large-|medium-|small-)?\d+(?:\.\d+)?`,
+  },
+];
+const FAMILY_SHAPE = MAKERS.map((maker) => maker.shape).join("|");
+const MODEL_ID = new RegExp(String.raw`(?<![a-z0-9.-])(?:${FAMILY_SHAPE})(?:-[a-z0-9]+(?:\.\d+)*)*(?![a-z0-9])`, "g");
 
 /**
  * "GPT-6-specific defaults" and "Claude-4-based agents" are prose about a family, not a model.
@@ -122,21 +141,7 @@ const CHECKPOINT =
  * codename nobody had catalogued. Nobody had: OpenAI does not ship a Claude GPT, and the half of
  * the name that is real was already known.
  */
-const MAKER_WORDS = new Set([
-  "gpt",
-  "claude",
-  "gemini",
-  "grok",
-  "glm",
-  "kimi",
-  "deepseek",
-  "qwen",
-  "minimax",
-  "mistral",
-  "magistral",
-  "devstral",
-  "codestral",
-]);
+const MAKER_WORDS = new Set(MAKERS.flatMap((maker) => maker.words));
 
 /** Whether an ID carries two makers' words, which no maker's own model does. */
 export function crossesMakers(id: string): boolean {
@@ -179,8 +184,7 @@ function familyShape(id: string): string | null {
  * `gpt-6-astra-wm` first appeared in a Codex test -- so only the invented family is dropped, and
  * only where a test wrote it.
  */
-/** The same reading, over ids already extracted: a whole file is not a patch. */
-function inventedIn(ids: readonly string[]): Set<string> {
+function inventedIn(ids: Iterable<string>): Set<string> {
   const counts = new Map<string, Set<string>>();
   for (const id of ids) {
     const shape = familyShape(id);
@@ -189,13 +193,9 @@ function inventedIn(ids: readonly string[]): Set<string> {
   return new Set([...counts].filter(([, found]) => found.size >= 3).map(([shape]) => shape));
 }
 
+/** The same reading over a patch's added lines, where a whole file is read by `inventedIn`. */
 export function inventedFamilies(patch: string): Set<string> {
-  const counts = new Map<string, Set<string>>();
-  for (const [id] of modelIdsInPatch(patch)) {
-    const shape = familyShape(id);
-    if (shape) counts.set(shape, (counts.get(shape) ?? new Set()).add(id));
-  }
-  return new Set([...counts].filter(([, ids]) => ids.size >= 3).map(([shape]) => shape));
+  return inventedIn(modelIdsInPatch(patch).keys());
 }
 
 /** Model IDs on the added lines of one file's patch, each with the first line that carried it. */
@@ -295,8 +295,7 @@ const VENDORED = /(^|\/)(third_party|third-party|vendor|vendored|node_modules|si
  * beside `minimax-m3-provider` and `minimax-m3-thinking`, which are a test's provider name and a
  * dedup key. Live sources still report a suffixed codename; only the sweep through old code does not.
  */
-const BARE_NAME =
-  /^(?:gpt-\d+(?:\.\d+)?|claude-[a-z]+-\d+(?:[.-]\d+)*|gemini-\d+(?:\.\d+)?|grok-\d+(?:\.\d+)?|glm-\d+(?:\.\d+)?|kimi-k\d+(?:\.\d+)?|deepseek-[vr]\d+(?:\.\d+)?|qwen\d+(?:\.\d+)?|minimax-m\d+(?:\.\d+)?|(?:mistral|magistral|devstral|codestral)-(?:large-|medium-|small-)?\d+(?:\.\d+)?)$/;
+const BARE_NAME = new RegExp(`^(?:${FAMILY_SHAPE})$`);
 /** A repository larger than this is read from its commits alone; nothing watched here comes close. */
 const ARCHIVE_LIMIT = 64 * 1024 * 1024;
 
@@ -306,11 +305,12 @@ const ARCHIVE_LIMIT = 64 * 1024 * 1024;
  * The archive is one request where opening the files is thousands: minimax-code has 3,988 readable
  * files, and the first version of this read two hundred of them and missed the name it was written
  * for. A tar entry is a 512-byte header -- the path at its start, the size in octal at 124 -- and
- * then its content padded to the next 512.
+ * then its content padded to the next 512. The content is handed back as the archive's own bytes:
+ * most of a repository is images and lockfiles, and only the files worth reading are decoded.
  */
-function tarEntries(archive: Uint8Array): { path: string; text: string }[] {
+function tarEntries(archive: Uint8Array): { path: string; content: Buffer }[] {
   const bytes = Buffer.from(archive);
-  const entries: { path: string; text: string }[] = [];
+  const entries: { path: string; content: Buffer }[] = [];
   const field = (header: Buffer, from: number, to: number) =>
     header.subarray(from, to).toString("utf8").replace(/\0.*$/, "");
   for (let offset = 0; offset + 512 <= bytes.length; ) {
@@ -328,7 +328,7 @@ function tarEntries(archive: Uint8Array): { path: string; text: string }[] {
     const start = offset + 512;
     // "0" and "\0" are files; a directory, link or long-name entry carries no content worth reading.
     if (/^[0\0]$/.test(header.subarray(156, 157).toString("ascii")))
-      entries.push({ path, text: bytes.subarray(start, start + size).toString("utf8") });
+      entries.push({ path, content: bytes.subarray(start, start + size) });
     offset = start + Math.ceil(size / 512) * 512;
   }
   return entries;
@@ -347,16 +347,23 @@ async function firstReadNames(
   watch: MentionWatch,
 ): Promise<{ records: RecordData[]; scanned: number }> {
   if (watch.talkOnly) return { records: [], scanned: 0 };
+  // Nothing but "too large" is let go. This read is the only look at what the repository already
+  // holds -- the cursor it sets is the head, and no commit will add those names again -- so an
+  // archive that answered 403 or 429, or dropped the connection, fails the collection and the
+  // cursor stays unset. It used to end as an empty read, and a name in the code that day was lost.
+  const response = await request(`https://api.github.com/repos/${repo}/tarball/${sha}`, { headers });
+  if (!response.ok) throw httpFailure(`HTTP ${response.status}`, response.status);
+  const body = await response.arrayBuffer();
+  if (body.byteLength > ARCHIVE_LIMIT) {
+    log("warn", "Repository too large to read whole; watched from its commits", { repo });
+    return { records: [], scanned: 0 };
+  }
   let archive: Uint8Array;
   try {
-    const response = await request(`https://api.github.com/repos/${repo}/tarball/${sha}`, { headers });
-    if (!response.ok) throw httpFailure(`HTTP ${response.status}`, response.status);
-    const body = await response.arrayBuffer();
-    if (body.byteLength > ARCHIVE_LIMIT) throw new SourceError("protocol", "archive too large");
     archive = Bun.gunzipSync(new Uint8Array(body));
   } catch {
-    // Unreadable for any reason, the repository is watched from its commits, as it was before.
-    return { records: [], scanned: 0 };
+    // A cut-off transfer or an error page under a 200: the next poll asks again.
+    throw new SourceError("protocol", `${repo}: the archive is not a gzip stream`);
   }
   const files = tarEntries(archive)
     // The archive's paths are prefixed with a directory named for the commit.
@@ -366,7 +373,8 @@ async function firstReadNames(
       watch.paths
         ? watch.paths.includes(entry.path)
         : READABLE.test(entry.path) && !IGNORED_FILE.test(entry.path) && !VENDORED.test(entry.path),
-    );
+    )
+    .map((entry) => ({ path: entry.path, text: entry.content.toString("utf8") }));
   const records: RecordData[] = [];
   const seen = new Set<string>();
   // A file that lists or prices models is read before one that merely mentions them, so the first
@@ -375,7 +383,7 @@ async function firstReadNames(
     (left, right) => Number(NAMES_MODELS.test(right.path)) - Number(NAMES_MODELS.test(left.path)),
   )) {
     const found = modelIdsInText(file.text);
-    const invented = isTestFile(file.path) ? inventedIn([...found.keys()]) : null;
+    const invented = isTestFile(file.path) ? inventedIn(found.keys()) : null;
     for (const [id, line] of found) {
       if (seen.has(id) || invented?.has(familyShape(id) ?? "")) continue;
       seen.add(id);
@@ -443,7 +451,8 @@ export async function collectModelMentions(
       JSON.parse(await fetchText(`${api}/compare/${cursor}...${head.sha}`, headers, request)),
     );
   } catch (error) {
-    if (error instanceof Error && /HTTP 404/.test(error.message))
+    // The range is gone when history was rewritten under the cursor; read from the head again.
+    if (error instanceof SourceHttpError && error.status === 404)
       return { ...base, raw: head, records: [at(head.sha)], silentIds: [CURSOR] };
     throw error;
   }
