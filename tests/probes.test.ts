@@ -270,8 +270,8 @@ test("the questions follow the catalogue: what is out is never asked for again",
   if (!openai) throw new Error("the OpenAI probe is gone");
   const asked: string[] = [];
   const watching = (async (input: string | URL) => {
-    asked.push(String(input).split("/").at(-1) ?? "");
-    return new Response("a page", { status: String(input).endsWith("gpt-6-sol") ? 200 : 404 });
+    asked.push((String(input).split("/").at(-1) ?? "").replace(/\.md$/, ""));
+    return new Response("a page", { status: String(input).endsWith("gpt-6-sol.md") ? 200 : 404 });
   }) as unknown as typeof fetch;
   await collectDocsProbe(catalogue(["gpt-6-sol", "gpt-6-astra", "gpt-5.6-cyber"]), openai, watching);
   // Six is out, so the probe asks past it and never for it.
@@ -298,7 +298,7 @@ test("a tier behind the rest is asked the questions the furthest tier earns", as
   if (!google) throw new Error("the Google probe is gone");
   const asked: string[] = [];
   const watching = (async (input: string | URL) => {
-    asked.push(String(input).split("/").at(-1) ?? "");
+    asked.push((String(input).split("/").at(-1) ?? "").replace(/\.md$/, ""));
     return new Response("a page", { status: String(input).endsWith("gemini-3.8-flash") ? 200 : 404 });
   }) as unknown as typeof fetch;
   await collectDocsProbe(catalogue(["gemini-3.8-flash", "gemini-3.1-pro"]), google, watching);
@@ -375,8 +375,8 @@ test("a name that answered 404 is left alone for a day, and the version guesses 
   ).run();
   const asked: string[][] = [];
   const watching = (async (input: string | URL) => {
-    asked.at(-1)?.push(String(input).split("/").at(-1) ?? "");
-    return new Response("a page", { status: String(input).endsWith("gpt-6-sol") ? 200 : 404 });
+    asked.at(-1)?.push((String(input).split("/").at(-1) ?? "").replace(/\.md$/, ""));
+    return new Response("a page", { status: String(input).endsWith("gpt-6-sol.md") ? 200 : 404 });
   }) as unknown as typeof fetch;
   const minute = Date.parse("2026-09-24T00:00:00.000Z");
   for (const at of [minute, minute + 300_000, minute + 25 * 3_600_000]) {
@@ -438,8 +438,8 @@ test("a codename already in use is asked for at the versions the maker has not s
   if (!openai) throw new Error("the OpenAI probe is gone");
   const asked: string[] = [];
   const watching = (async (input: string | URL) => {
-    asked.push(String(input).split("/").at(-1) ?? "");
-    return new Response("a page", { status: String(input).endsWith("gpt-6-sol") ? 200 : 404 });
+    asked.push((String(input).split("/").at(-1) ?? "").replace(/\.md$/, ""));
+    return new Response("a page", { status: String(input).endsWith("gpt-6-sol.md") ? 200 : 404 });
   }) as unknown as typeof fetch;
   await collectDocsProbe(catalogue(["gpt-6-astra", "gpt-6-sol"]), openai, watching);
   // The release this was written for: `gpt-6-sol` is out, and the next Sol is not `gpt-6.1`.

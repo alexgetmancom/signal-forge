@@ -81,7 +81,15 @@ export type Site = {
   spell: (observed: string) => string;
   /** The shape of a name this maker gives a model beside its number, as `gpt-6-astra` is. */
   codename?: RegExp;
+  /** The address a sighting is recorded against, which is the one a reader opens. */
   url: (slug: string) => string;
+  /**
+   * The address asked, when the site answers the same status at a cheaper one. OpenAI serves a
+   * Markdown twin of every model page: on 2026-10-02 the page answered 200 in 441 849 bytes and a
+   * missing one answered 404 in 330 416, while the twin answered in 3 791 and 9. The status is the
+   * whole test, so the twin is what gets asked and `url` is still what gets stored.
+   */
+  ask?: (slug: string) => string;
 };
 
 /** A dotted version, with the trailing `.0` dropped the way makers write it: `6`, `5.5`, `6.5`. */
@@ -104,7 +112,13 @@ export const PROBE_SITES: readonly Site[] = [
     slug: (family, version) => `${family}-${dotted(version)}`,
     spell: (observed) => observed,
     codename: /^gpt-\d+(?:\.\d+)?-[a-z]{3,12}$/,
-    url: (slug) => `https://platform.openai.com/docs/models/${slug}`,
+    /**
+     * `platform.openai.com` has been a redirect since the developer site moved, and it answers 301
+     * to a slug it does not have as readily as to one it does, so every question here was two
+     * requests and the answer came from the second.
+     */
+    url: (slug) => `https://developers.openai.com/api/docs/models/${slug}`,
+    ask: (slug) => `https://developers.openai.com/api/docs/models/${slug}.md`,
   },
   {
     id: "discovery:docs-anthropic",
@@ -395,6 +409,24 @@ async function probe(url: string, request: Fetch): Promise<{ status: number; bod
 }
 
 /**
+ * Ask an address what it answers, without reading what it answers with.
+ *
+ * `HEAD` would be the request for this and cannot be used: on 2026-10-02
+ * `platform.claude.com/docs/en/models/opus-99/overview` answered HEAD with 200 for a slug it does
+ * not have, which would have turned every guess into a sighting. So the request stays a GET and the
+ * body is thrown away unread -- three sites at two guesses each were downloading about a megabyte
+ * per poll to read one number off the status line.
+ */
+async function askStatus(url: string, request: Fetch): Promise<number> {
+  const response = await request(url, {
+    headers: { "user-agent": USER_AGENT, accept: "text/markdown,text/html" },
+    signal: AbortSignal.timeout(20_000),
+  });
+  await response.body?.cancel();
+  return response.status;
+}
+
+/**
  * Every unannounced address a site answers for. Nothing is stored for a 404, which is the usual
  * answer, and the questions move on their own: they are the next versions of what the vendor has
  * out today, read from the catalogue at the moment of asking.
@@ -471,17 +503,22 @@ export async function collectDocsProbe(
   candidates.delete(control);
   const records: RecordData[] = [];
   const tried: Asked = { ...asked };
+  const ask = (slug: string): string => (site.ask ?? site.url)(slug);
   for (const slug of [...candidates].sort()) {
-    const url = site.url(slug);
-    const answer = await probe(url, request).catch(() => null);
-    if (!answer) continue;
-    tried[slug] = { status: answer.status, at: new Date(now).toISOString() };
-    if (answer.status !== 200) continue;
-    records.push({ id: slug, name: slug, url, maker: site.vendor, source: "documentation" });
+    const status = await askStatus(ask(slug), request).catch(() => null);
+    if (status === null) continue;
+    tried[slug] = { status, at: new Date(now).toISOString() };
+    if (status !== 200) continue;
+    records.push({ id: slug, name: slug, url: site.url(slug), maker: site.vendor, source: "documentation" });
   }
-  const answered = await probe(site.url(control), request);
-  if (answered.status !== 200) throw new Error(`${site.id}: ${control} answered HTTP ${answered.status}`);
-  tried[control] = { status: answered.status, at: new Date(now).toISOString() };
+  /**
+   * The control is asked at the same address as the guesses: it is there to prove the site still
+   * answers 200 for a model it has, and an address that is not the one being asked proves nothing
+   * about the one that is.
+   */
+  const answered = await askStatus(ask(control), request);
+  if (answered !== 200) throw new Error(`${site.id}: ${control} answered HTTP ${answered}`);
+  tried[control] = { status: answered, at: new Date(now).toISOString() };
   // A question asked a month ago is no longer a reason not to ask again.
   const kept = Object.fromEntries(
     Object.entries(tried).filter(([, when]) => Date.parse(when.at) > now - HEARD_DAYS * 24 * 3_600_000),
