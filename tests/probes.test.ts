@@ -285,6 +285,17 @@ test("a control that fails says which kind of failure it is, by type and not by 
   }
 });
 
+test("a control that could not be reached at all says so by type, not as an unexpected error", async () => {
+  if (!anthropic) throw new Error("the Anthropic probe is gone");
+  // What `askStatus` throws when the request itself fails: no status, no kind, nothing to recognise.
+  const unreachable = (async () => {
+    throw new Error("fetch failed");
+  }) as unknown as typeof fetch;
+  const error = await collectDocsProbe(catalogue(["claude-opus-5-5"]), anthropic, unreachable).catch((e) => e);
+  expect(error).toBeInstanceOf(SourceError);
+  expect((error as SourceError).kind).toBe("network");
+});
+
 test("a catalogue with no model of any shape the probe follows is an empty answer, by type", async () => {
   if (!anthropic) throw new Error("the Anthropic probe is gone");
   const error = await collectDocsProbe(catalogue([]), anthropic, answering({})).catch((e) => e);

@@ -139,13 +139,21 @@ export function webSources({ db, cache }: SourceContext): SourceEntry[] {
         // Every JavaScript bundle claude.ai loads, about 22 MB a read.
         heavy: true,
         vendor: "Anthropic",
-        // Four hours, because an hour is being refused. Measured on production 2026-09-25: 29 of the
-        // last 46 reads failed, every one of them a 403 or a challenge page, which is the worst rate
-        // of any source here -- and the answer to being challenged is to ask less often, never to
-        // look like something else. The bundles carry interface strings that change when a deploy
-        // changes them, so nothing here is hourly news; six reads a day of 22 MB is also the largest
-        // single share of what this service downloads and stores.
-        intervalSeconds: 14400,
+        // A day, because four hours is being refused as an hour was. The answer to being challenged
+        // is to ask less often, never to look like something else. Measured on production
+        // 2026-09-25 at an hour: 29 of the last 46 reads failed, every one a 403 or a challenge
+        // page. Measured again 2026-10-03 at four hours: 72 of 267 failed over thirty days and the
+        // last success was 2026-09-30, three days of challenges in a row.
+        //
+        // A day costs nothing it was earning. Those thirty days produced 37 events, every one of
+        // them `changed` and none `new`, which is about one a day: the bundles carry interface
+        // strings that change when a deploy changes them, so nothing here was ever hourly news. It
+        // is also the largest single share of what this service downloads and stores, 22 MB a read.
+        //
+        // If a day is still challenged, the frequency was never what was being refused, and the
+        // decision is to disable the source rather than to ask more quietly: `source claude-web 7`
+        // answers which it was.
+        intervalSeconds: 86400,
         collector: () => collectClaude(fetch, cache),
       },
       {

@@ -468,7 +468,16 @@ export async function collectDocsProbe(
    * nothing about the one that is.
    */
   const control = site.spell(furthest.observed);
-  const answered = await askStatus(ask(control), request);
+  /**
+   * The guesses swallow a transport failure, because an address that could not be asked is not an
+   * address that answered 404. The control cannot swallow it -- a probe that cannot reach the site
+   * has nothing to report -- but it has to say so by its type: `askStatus` calls `request` directly,
+   * so what comes out of it is a bare `Error` and would be filed as "unexpected error" with the one
+   * line explaining the outage replaced by the fact that there was one.
+   */
+  const answered = await askStatus(ask(control), request).catch(() => {
+    throw new SourceError("network", `${site.id}: the control address did not answer`);
+  });
   if (answered !== 200) throw controlFailure(site, control, answered);
   const asked = previouslyAsked(db, site.id);
   const candidates = new Set<string>();
