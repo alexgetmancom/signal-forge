@@ -22,6 +22,24 @@ export function subjectKey(name: string): string {
     .replace(/\s+/g, "");
 }
 
+/**
+ * A stored record body as an object, or null for one that is not.
+ *
+ * The service writes every body itself, so a row that does not parse is damage rather than input.
+ * Each reader here treats the row as absent -- a model it cannot read is a model it does not
+ * witness -- instead of failing a whole report over one row.
+ */
+function parseRecord(body: string): Record<string, unknown> | null {
+  try {
+    const parsed: unknown = JSON.parse(body);
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export function witnessedSubjects(db: Database): Set<string> {
   const witnessed = new Set<string>();
   // Where a model is known by something other than the catalogue selling it: a benchmark ranks it,
@@ -30,12 +48,8 @@ export function witnessedSubjects(db: Database): Set<string> {
     .query<{ body: string }, []>("SELECT body FROM records WHERE stream IN ('leaderboards','arena','api-models')")
     .all();
   for (const row of rows) {
-    let record: Record<string, unknown>;
-    try {
-      record = JSON.parse(row.body) as Record<string, unknown>;
-    } catch {
-      continue;
-    }
+    const record = parseRecord(row.body);
+    if (!record) continue;
     for (const value of [record.name, record.model, record.modelKey, record.id])
       if (typeof value === "string" && value.trim()) witnessed.add(subjectKey(value));
   }
@@ -58,12 +72,7 @@ export function listingsBySubject(db: Database): Map<string, Set<string>> {
     .all();
   for (const row of rows) {
     if (MIRRORS.has(row.source)) continue;
-    let name: unknown;
-    try {
-      name = (JSON.parse(row.body) as Record<string, unknown>).name;
-    } catch {
-      name = null;
-    }
+    const name = parseRecord(row.body)?.name;
     for (const value of new Set([row.id, typeof name === "string" ? name : row.id])) {
       const key = subjectKey(value);
       const sources = listings.get(key) ?? new Set<string>();
@@ -89,12 +98,7 @@ export function releasedSubjects(db: Database): Set<string> {
     )
     .all();
   for (const row of rows) {
-    let name: unknown;
-    try {
-      name = (JSON.parse(row.body) as Record<string, unknown>).name;
-    } catch {
-      name = null;
-    }
+    const name = parseRecord(row.body)?.name;
     for (const value of new Set([row.id, typeof name === "string" ? name : row.id]))
       released.add(releasedModelSubject(value));
   }
@@ -138,14 +142,13 @@ export function firstSightingBySubject(db: Database): Map<string, { at: number; 
 export function usageRanks(db: Database): Map<string, number> {
   const ranks = new Map<string, number>();
   for (const row of db.query<{ body: string }, []>("SELECT body FROM records WHERE source='openrouter-usage'").all()) {
-    try {
-      const record = JSON.parse(row.body) as { id?: unknown; rank?: unknown };
-      const place = Number(record.rank);
-      if (typeof record.id === "string" && Number.isFinite(place)) {
-        const key = subjectKey(record.id);
-        if (!ranks.has(key) || place < (ranks.get(key) ?? place)) ranks.set(key, place);
-      }
-    } catch {}
+    const record = parseRecord(row.body);
+    if (!record) continue;
+    const place = Number(record.rank);
+    if (typeof record.id === "string" && Number.isFinite(place)) {
+      const key = subjectKey(record.id);
+      if (!ranks.has(key) || place < (ranks.get(key) ?? place)) ranks.set(key, place);
+    }
   }
   return ranks;
 }
@@ -172,11 +175,8 @@ export function rosterSiblings(
     .query<{ id: string; body: string }, [string, string]>("SELECT id,body FROM records WHERE source=? AND id<>?")
     .all(source, id)
     .flatMap((row) => {
-      try {
-        return [JSON.parse(row.body) as Record<string, unknown>];
-      } catch {
-        return [];
-      }
+      const record = parseRecord(row.body);
+      return record ? [record] : [];
     })
     .filter(
       (record) =>
