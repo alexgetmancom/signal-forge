@@ -58,7 +58,9 @@ test("actionable issues use stable identities across source, delivery, worker an
 test("collection shrinkage is a distinct actionable issue once it repeats", () => {
   const db = openDatabase(":memory:");
   const config = loadConfig({ CONFIG_PATH: configPath });
-  db.query("INSERT INTO sources(id,last_error,last_success,checked_at,failures) VALUES('openrouter',?,?,?,1)").run(
+  db.query(
+    "INSERT INTO sources(id,last_error,last_error_kind,last_success,checked_at,failures) VALUES('openrouter',?,'degraded',?,?,1)",
+  ).run(
     "Collection degraded: openrouter retained 4 of 10 records",
     "2026-09-08T11:00:00.000Z",
     "2026-09-08T12:00:00.000Z",

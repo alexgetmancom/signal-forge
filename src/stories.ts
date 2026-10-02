@@ -219,15 +219,17 @@ function compatibleVendor(left: string, right: string): boolean {
   return left === "Unknown" || right === "Unknown" || left === right;
 }
 
+/** Counted over the smaller set and without building an array: this runs once per group the fallback scan reaches. */
 function similarTitle(left: Set<string>, right: Set<string>): boolean {
   if (left.size < 2 || right.size < 2) return false;
-  const overlap = [...left].filter((term) => right.has(term)).length;
-  const smaller = Math.min(left.size, right.size);
-  return overlap >= 3 || (overlap >= 2 && overlap / smaller >= 0.75);
+  const smaller = left.size <= right.size ? left : right;
+  const larger = smaller === left ? right : left;
+  let overlap = 0;
+  for (const term of smaller) if (larger.has(term)) overlap += 1;
+  return overlap >= 3 || (overlap >= 2 && overlap / smaller.size >= 0.75);
 }
 
-function withinCorrelationWindow(group: StoryGroup, event: Event): boolean {
-  const eventTime = Date.parse(event.detected_at);
+function withinCorrelationWindow(group: StoryGroup, eventTime: number): boolean {
   return (
     Number.isFinite(group.lastTime) &&
     Number.isFinite(eventTime) &&
@@ -245,11 +247,16 @@ function subjectFor(event: Event, record: RecordData | null): string {
   return normalized(explicit ?? record?.name ?? event.entity_id) || `event ${event.id}`;
 }
 
-function baseKeyFor(event: Event, record: RecordData | null): { key: string; subject: string; vendor: string } {
-  const identity = identityFor(event, record);
-  const subject = identity.canonicalId ? normalizeIdentity(identity.canonicalId) : subjectFor(event, record);
+/** `canonical` is the event's normalized canonical id, or null; the caller already has it from the identity. */
+function baseKeyFor(
+  event: Event,
+  record: RecordData | null,
+  canonical: string | null,
+): { key: string; subject: string; vendor: string; vendorKey: string } {
+  const subject = canonical ?? subjectFor(event, record);
   const vendor = vendorOf(event, record);
-  return { key: `${normalized(vendor)}:${subject}`, subject, vendor };
+  const vendorKey = normalized(vendor);
+  return { key: `${vendorKey}:${subject}`, subject, vendor, vendorKey };
 }
 
 function cloneProjection(projection: StoryProjection): StoryProjection {
@@ -360,10 +367,9 @@ export const storyScanWork = { scans: 0, comparisons: 0 };
  * the scan it replaces; only the array copy and the repeated date parsing are gone. */
 function findLatestMatch(
   projection: StoryProjection,
-  event: StoryEvent,
+  eventTime: number,
   subject: MatchSubject,
 ): StoryGroup | undefined {
-  const eventTime = Date.parse(event.detected_at);
   if (!Number.isFinite(eventTime)) return undefined;
   const expiresBefore = eventTime - CORRELATION_WINDOW_MS;
   storyScanWork.scans += 1;
@@ -396,37 +402,41 @@ function findLatestMatch(
 function projectEvent(projection: StoryProjection, event: StoryEvent): StoryGroup {
   const record = recordFor(event);
   const identity = identityFor(event, record);
+  const eventTime = Date.parse(event.detected_at);
   // GitHub records carry repository scope but no model identity. Their display names are not
   // evidence that two independent repository events describe the same subject.
-  const repositoryEvent = event.source.startsWith("github:") && !event.source.startsWith("discovery:github-");
+  const repositoryEvent = event.source.startsWith("github:");
   const terms = repositoryEvent ? [] : identityTerms(identity);
   const url = repositoryEvent ? null : canonicalUrl(record?.url);
   const titles = repositoryEvent ? new Set<string>() : titleTerms(record);
-  const { key, subject, vendor } = baseKeyFor(event, record);
-  const family = sourceFamily(event.source, event.stream);
   const canonical = identity.canonicalId ? normalizeIdentity(identity.canonicalId) : null;
+  const { key, subject, vendor, vendorKey } = baseKeyFor(event, record, canonical);
+  const family = sourceFamily(event.source, event.stream);
   const candidate = isolatedCandidate(event);
   const scope = candidate ? "candidate" : "confirmed";
+  const aliasKey = (term: string) => `${scope}:${vendorKey}:${term}`;
   // A repository event claims no identity, so it has no version to disagree with.
   const signatures = repositoryEvent ? [] : identitySignatures(identity);
   const agrees = (group: StoryGroup) => !signaturesConflict(group.signatures, signatures);
   const identityMatch = terms
-    .map((term) => projection.aliases.get(`${scope}:${normalized(vendor)}:${term}`))
-    .find((group) => group !== undefined && withinCorrelationWindow(group, event) && agrees(group));
+    .map((term) => projection.aliases.get(aliasKey(term)))
+    .find((group) => group !== undefined && withinCorrelationWindow(group, eventTime) && agrees(group));
   const currentMatch = projection.current.get(key);
+  // Every path below already guarantees the match lies within the correlation window of this event,
+  // so a group that is found is always one it may join.
   const previous =
     identityMatch ??
     (currentMatch &&
     currentMatch.candidate === candidate &&
-    withinCorrelationWindow(currentMatch, event) &&
+    withinCorrelationWindow(currentMatch, eventTime) &&
     agrees(currentMatch)
       ? currentMatch
       : undefined) ??
     // Newest group first, walked in place. Copying and reversing the array here turned one boot's
     // projection into 42 seconds: the copy is eleven thousand allocations of a ten-thousand-element
     // array, and it happens before the first candidate is even looked at.
-    findLatestMatch(projection, event, { candidate, vendor, family, canonical, terms, url, titles, signatures });
-  if (!previous || Date.parse(event.detected_at) - previous.lastTime > CORRELATION_WINDOW_MS) {
+    findLatestMatch(projection, eventTime, { candidate, vendor, family, canonical, terms, url, titles, signatures });
+  if (!previous) {
     const group = {
       baseKey: key,
       subject,
@@ -434,7 +444,7 @@ function projectEvent(projection: StoryProjection, event: StoryEvent): StoryGrou
       firstEventId: event.id,
       firstDetectedAt: event.detected_at,
       last: latestOf(event, record),
-      lastTime: Date.parse(event.detected_at),
+      lastTime: eventTime,
       identity,
       terms: new Set(terms),
       urls: new Set(url ? [url] : []),
@@ -450,11 +460,11 @@ function projectEvent(projection: StoryProjection, event: StoryEvent): StoryGrou
     projection.groups.push(group);
     projection.active.push(group);
     projection.current.set(key, group);
-    for (const term of terms) projection.aliases.set(`${scope}:${normalized(vendor)}:${term}`, group);
+    for (const term of terms) projection.aliases.set(aliasKey(term), group);
     return group;
   }
   previous.last = latestOf(event, record);
-  previous.lastTime = Date.parse(event.detected_at);
+  previous.lastTime = eventTime;
   raiseClaims(previous, event, canonical !== null);
   // A model is released once; a later catalogue carrying an older date is the better witness.
   const released = recordReleaseDate(record);
@@ -468,7 +478,7 @@ function projectEvent(projection: StoryProjection, event: StoryEvent): StoryGrou
   projection.current.set(key, previous);
   for (const term of terms) {
     previous.terms.add(term);
-    projection.aliases.set(`${scope}:${normalized(vendor)}:${term}`, previous);
+    projection.aliases.set(aliasKey(term), previous);
   }
   if (url) previous.urls.add(url);
   for (const term of titles) previous.titleTerms.add(term);
@@ -599,7 +609,8 @@ function storyEventPage(db: Database, after: { detectedAt: string; id: number } 
     .all(after.detectedAt, after.detectedAt, after.id, REBUILD_PAGE_SIZE);
 }
 
-function rebuildProjection(db: Database): StoryProjection {
+/** Rebuilds the derived story projection; event evidence is never rewritten. The caller owns the transaction. */
+export function rebuildStories(db: Database): StoryProjection {
   const projection = emptyProjection();
   const existing = db.query<{ stable_key: string }, []>("SELECT stable_key FROM stories").all();
   // A rebuild is authoritative over both derived tables: a claim the current rules no longer draw
@@ -628,17 +639,12 @@ function rebuildProjection(db: Database): StoryProjection {
   return projection;
 }
 
-/** Rebuilds the derived story projection; event evidence is never rewritten. The caller owns the transaction. */
-export function rebuildStories(db: Database): StoryProjection {
-  return rebuildProjection(db);
-}
-
 /** Projects only events appended after the last committed projection. Out-of-order timestamps use a full rebuild. */
 export function updateStories(db: Database): StoryProjection {
   const cached = projections.get(db);
-  if (!cached) return rebuildProjection(db);
+  if (!cached) return rebuildStories(db);
   const currentEventId = Number(db.query<{ id: number | null }, []>("SELECT MAX(id) AS id FROM events").get()?.id ?? 0);
-  if (currentEventId < cached.lastEventId) return rebuildProjection(db);
+  if (currentEventId < cached.lastEventId) return rebuildStories(db);
   const events = storyEvents(db, cached.lastEventId);
   if (!events.length) return { ...cached, rebuilt: false };
   const lastTime = cached.lastDetectedAt ? Date.parse(cached.lastDetectedAt) : null;
@@ -646,7 +652,7 @@ export function updateStories(db: Database): StoryProjection {
     lastTime !== null &&
     (!Number.isFinite(lastTime) || events.some((event) => Date.parse(event.detected_at) < lastTime))
   )
-    return rebuildProjection(db);
+    return rebuildStories(db);
   const projection = cloneProjection(cached);
   projection.rebuilt = false;
   for (const event of events) {

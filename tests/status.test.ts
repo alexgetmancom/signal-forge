@@ -86,6 +86,7 @@ test("a suspicious collection shrink is visible as degraded", () => {
   const db = openDatabase(":memory:");
   aSource(db, "openrouter", {
     lastError: "Collection degraded: openrouter retained 4 of 10 records",
+    lastErrorKind: "degraded",
     lastSuccess: "2026-09-08T11:00:00.000Z",
     checkedAt: "2026-09-08T12:00:00.000Z",
   });
@@ -94,6 +95,19 @@ test("a suspicious collection shrink is visible as degraded", () => {
     state: "degraded",
     lastSuccess: "2026-09-08T11:00:00.000Z",
   });
+  db.close();
+});
+
+test("a failure is degraded by its kind, not by what its sentence happens to say", () => {
+  const db = openDatabase(":memory:");
+  aSource(db, "openrouter", {
+    lastError: "Collection degraded: openrouter retained 4 of 10 records",
+    lastErrorKind: "http",
+    lastSuccess: "2026-09-08T11:00:00.000Z",
+    checkedAt: "2026-09-08T12:00:00.000Z",
+  });
+  const health = sourceHealth(db, withStatus, Date.parse("2026-09-08T12:00:00.000Z"));
+  expect(health.find((entry) => entry.id === "openrouter")?.state).not.toBe("degraded");
   db.close();
 });
 

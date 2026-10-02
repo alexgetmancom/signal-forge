@@ -707,3 +707,27 @@ test("a claim only rises, and a withdrawal is read from the story's status inste
   expect(story?.currentStatus).toBe("removed");
   db.close();
 });
+
+test("a release date no calendar can hold is ignored instead of failing the whole projection", () => {
+  const db = openDatabase(":memory:");
+  const at = "2026-09-01T00:00:00.000Z";
+  saveCollection(db, collection("openrouter", "openrouter", [{ id: "vendor/seed", name: "Seed" }]), [], at);
+  // An epoch past the last instant a Date can represent: finite, later than 2015, and the story row
+  // is written from it as an ISO string. One such field took `rebuildStories` down at boot.
+  saveCollection(
+    db,
+    collection("openrouter", "openrouter", [
+      { id: "vendor/seed", name: "Seed" },
+      { id: "vendor/odd", name: "Odd", created: 1e17 },
+    ]),
+    [],
+    "2026-09-02T00:00:00.000Z",
+  );
+
+  expect(() => rebuildStories(db)).not.toThrow();
+  const story = db
+    .query<{ released_at: string | null }, []>("SELECT released_at FROM stories WHERE normalized_subject LIKE '%odd%'")
+    .get();
+  expect(story?.released_at).toBeNull();
+  db.close();
+});

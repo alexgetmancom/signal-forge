@@ -60,6 +60,11 @@ export const BENCH: Bench[] = [
   },
   {
     group: "change",
+    command: "squash-migrations",
+    when: "The migrations directory has grown past its baseline and production has run them: every new database and every test replays each file for nothing. This folds everything up to the version on origin/main into one baseline file, keeps what is above it, and writes nothing unless a replay of the old journal and of the new one produce the same schema. `--dry-run` says what it would do. Run it after a deploy, never before: a version production does not hold yet must stay a migration.",
+  },
+  {
+    group: "change",
     command: "format",
     when: "After any generated or mechanical edit, before the gate.",
   },
