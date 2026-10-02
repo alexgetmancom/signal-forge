@@ -4,9 +4,32 @@ import { dirname } from "node:path";
 import { runMigrations } from "./migrationRunner.js";
 
 export function openDatabase(path: string): Database {
+  if (path === ":memory:") return openMemoryDatabase();
   const db = openWithoutMigrating(path);
   runMigrations(db);
   return db;
+}
+
+/** The schema as the migrations leave it, taken once per process and copied for every later caller. */
+let migratedSchema: Uint8Array | undefined;
+
+/**
+ * An in-memory database is only ever opened to be used once, and the tests open about five hundred
+ * of them: replaying seventy migrations took 61 ms each and 30 of the suite's 41 seconds
+ * (measured 2026-10-02). The migrated schema is the same bytes every time, so the first call
+ * builds it and the rest deserialize a copy, which takes 0.07 ms. Each caller still gets a database
+ * of its own; nothing is shared but the bytes it started from.
+ */
+function openMemoryDatabase(): Database {
+  if (migratedSchema) {
+    const copy = Database.deserialize(migratedSchema, { strict: true });
+    applyPragmas(copy);
+    return copy;
+  }
+  const first = openWithoutMigrating(":memory:");
+  runMigrations(first);
+  migratedSchema = first.serialize();
+  return first;
 }
 
 /**
@@ -20,6 +43,12 @@ export function openDatabase(path: string): Database {
 export function openWithoutMigrating(path: string): Database {
   if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
   const db = new Database(path, { create: true, strict: true });
+  applyPragmas(db);
+  return db;
+}
+
+/** The settings of a connection, which are not stored in the file and so are set on every open. */
+function applyPragmas(db: Database): void {
   db.exec("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;");
   // WAL already makes the durability question "is the last commit lost on a host crash", not "is
   // the database intact": a torn write cannot corrupt it either way, because recovery replays the
@@ -47,7 +76,6 @@ export function openWithoutMigrating(path: string): Database {
   // process that once filled 64 MB of cache never gives the mark back, and each heavy collector
   // runs in a child that would have paid the same ceiling for one collection.
   db.exec("PRAGMA cache_size=-16000; PRAGMA mmap_size=0;");
-  return db;
 }
 
 /**
