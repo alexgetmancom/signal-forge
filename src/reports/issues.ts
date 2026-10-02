@@ -13,6 +13,11 @@ function gigabytes(bytes: number): string {
   return (bytes / 1024 ** 3).toFixed(1);
 }
 
+/** What an upstream or a platform said, on one line and short enough to sit in a sentence. */
+function excerpt(text: string): string {
+  return text.replace(/\s+/g, " ").trim().slice(0, 160);
+}
+
 export type IssueKind =
   | "source_failed"
   | "collection_degraded"
@@ -84,6 +89,7 @@ type WorkerState = {
 };
 
 const STUCK_DELIVERY_MS = 5 * 60 * 1000;
+const COLLECTION_FAILURES: ReadonlySet<IssueKind> = new Set(["source_failed", "collection_degraded"]);
 
 function issueTime(value: string | null | undefined, now: number): string {
   if (value && Number.isFinite(Date.parse(value))) return value;
@@ -114,14 +120,19 @@ function sharedUpstream(
   const upstreamOf = new Map(health.map((entry) => [entry.id, entry.upstream]));
   const size = new Map<string, number>();
   for (const entry of health) if (entry.upstream) size.set(entry.upstream, (size.get(entry.upstream) ?? 0) + 1);
-  const failing = new Map<string, string[]>();
+  // Only a collection that is failing says anything about its host. A judge answering badly names a
+  // source too, and counting it made one broken page read as two failing sources: the collection
+  // around a judge usually succeeds. A source is also counted once, however many issues name it.
+  const hostOf = (issue: ActionableIssue): string | null =>
+    issue.source && COLLECTION_FAILURES.has(issue.kind) ? (upstreamOf.get(issue.source) ?? null) : null;
+  const failing = new Map<string, Set<string>>();
   for (const issue of issues) {
-    const upstream = issue.source ? upstreamOf.get(issue.source) : null;
-    if (upstream && issue.source) failing.set(upstream, [...(failing.get(upstream) ?? []), issue.source]);
+    const upstream = hostOf(issue);
+    if (upstream && issue.source) failing.set(upstream, (failing.get(upstream) ?? new Set()).add(issue.source));
   }
   for (const issue of issues) {
-    const upstream = issue.source ? upstreamOf.get(issue.source) : null;
-    const peers = upstream ? (failing.get(upstream) ?? []) : [];
+    const upstream = hostOf(issue);
+    const peers = upstream ? [...(failing.get(upstream) ?? [])] : [];
     if (!upstream || peers.length < 2) continue;
     const group = issue.source ? groupOf.get(issue.source) : undefined;
     if (group) issue.group = group;
@@ -176,6 +187,7 @@ function workerIssues(db: Database, now: number): ActionableIssue[] {
       // the worker's own state because a cycle is the only unit that means anything here, and it is
       // what keeps a blink out of the alert channel: alerts.ts sends errors, not warnings.
       const cycles = Number.isInteger(state.consecutiveFailures) ? Number(state.consecutiveFailures) : 1;
+      const reason = state.lastError ? `: ${excerpt(state.lastError)}` : "";
       issues.push({
         id: `worker:${worker}`,
         kind: "worker_failed",
@@ -186,8 +198,8 @@ function workerIssues(db: Database, now: number): ActionableIssue[] {
         consecutiveFailures: cycles,
         message:
           cycles > 1
-            ? `Worker ${worker} has failed ${cycles} cycles in a row${state.lastError ? `: ${state.lastError.replace(/\s+/g, " ").slice(0, 160)}` : ""}`
-            : `Worker ${worker} failed its last cycle and has not run since${state.lastError ? `: ${state.lastError.replace(/\s+/g, " ").slice(0, 160)}` : ""}`,
+            ? `Worker ${worker} has failed ${cycles} cycles in a row${reason}`
+            : `Worker ${worker} failed its last cycle and has not run since${reason}`,
         hint:
           cycles > 1
             ? "Inspect the worker log and restore the failed dependency before restarting it repeatedly."
@@ -241,7 +253,7 @@ function sourceIssues(
   );
   for (const entry of health) {
     if (refused.has(entry.id)) continue;
-    const rateLimited = entry.state === "blocked" && entry.detail.startsWith("rate limited");
+    const rateLimited = entry.blockedBy === "rate-limit";
     const unobservedAfterCycle = entry.state === "idle" && sourceCycleFinished;
     if (
       !(
@@ -349,7 +361,7 @@ function failedDeliveryIssues(db: Database, now: number): ActionableIssue[] {
       // The platform's own words, trimmed: "is failed" sends the reader to the database, where
       // "403 Missing Permissions" sends them to the channel's permissions, which is the fix.
       message: `Delivery ${delivery.id} to ${delivery.destination_id} is ${delivery.status}${
-        delivery.error ? `: ${delivery.error.replace(/\s+/g, " ").slice(0, 160)}` : ""
+        delivery.error ? `: ${excerpt(delivery.error)}` : ""
       }`,
       hint: ambiguous
         ? "Verify the destination before any retry; the send may already have reached the audience."
@@ -368,7 +380,10 @@ function blockedDestinationIssues(db: Database, now: number): ActionableIssue[] 
     .query<{ destination_id: string; waiting: number; oldest: string; error: string }, []>(
       `SELECT b.destination_id,
               (SELECT COUNT(*) FROM deliveries w WHERE w.destination_id=b.destination_id AND w.status='pending') AS waiting,
-              MIN(b.updated_at) AS oldest,MAX(b.error) AS error
+              MIN(b.updated_at) AS oldest,
+              (SELECT n.error FROM deliveries n
+                WHERE n.destination_id=b.destination_id AND n.status='pending' AND n.error LIKE 'Blocked:%'
+                ORDER BY n.updated_at DESC,n.id DESC LIMIT 1) AS error
        FROM deliveries b WHERE b.status='pending' AND b.error LIKE 'Blocked:%' GROUP BY b.destination_id`,
     )
     .all();
@@ -382,10 +397,7 @@ function blockedDestinationIssues(db: Database, now: number): ActionableIssue[] 
       destination: row.destination_id,
       firstSeenAt: since,
       updatedAt: since,
-      message: `${row.destination_id} refuses the bot; ${row.waiting} message${row.waiting === 1 ? "" : "s"} waiting — ${row.error
-        .slice("Blocked:".length)
-        .trim()
-        .slice(0, 160)}`,
+      message: `${row.destination_id} refuses the bot; ${row.waiting} message${row.waiting === 1 ? "" : "s"} waiting — ${excerpt(row.error.slice("Blocked:".length))}`,
       hint: "Give the bot View Channel, Send Messages, Embed Links and Attach Files there; waiting messages are sent in order within ten minutes.",
     });
   }

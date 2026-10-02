@@ -25,6 +25,11 @@ export type SourceHealth = {
   authority: SourceAuthority;
   mode: SourceMode;
   state: SourceState;
+  /**
+   * Why a blocked source is waiting, so that nobody has to read `detail` to find out: a rate limit
+   * clears by itself and everything else needs somebody to look. `detail` is words for a reader.
+   */
+  blockedBy?: "restriction" | "bot-protection" | "rate-limit";
   detail: string;
   lastSuccess: string | null;
   checkedAt: string | null;
@@ -100,22 +105,26 @@ export function sourceHealth(db: Database, config: AppConfig, now = Date.now()):
           ...observationBase,
           group,
           state: "blocked",
+          blockedBy: "restriction",
           detail: restriction,
         };
-      if (/bot protection|captcha|challenge/i.test(row.last_error))
+      if (row.last_error_kind === "bot-protection")
         return {
           ...sourceBase,
           ...observationBase,
           group,
           state: "blocked",
+          blockedBy: "bot-protection",
           detail: "upstream bot protection — waiting for a readable status response",
         };
-      if (/HTTP 429$/.test(row.last_error))
+      // GitHub answers an exhausted limit with a 403, so the status in the sentence is not the test.
+      if (row.last_error_kind === "rate-limited")
         return {
           ...sourceBase,
           ...observationBase,
           group,
           state: "blocked",
+          blockedBy: "rate-limit",
           detail: row.retry_at ? `rate limited — waiting until ${row.retry_at}` : "rate limited — backing off",
         };
       return {

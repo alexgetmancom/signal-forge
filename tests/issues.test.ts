@@ -6,7 +6,7 @@ import { recordCredentialRejection } from "../src/credentials.js";
 import { listActionableIssues } from "../src/reports/issues.js";
 import { recordDeepSeekCall } from "../src/runtime/deepseekLedger.js";
 import { openDatabase } from "../src/storage/database.js";
-import { aSource } from "./fixtures/build.js";
+import { aBatch, aDelivery, aSource } from "./fixtures/build.js";
 
 const configPath = new URL("./fixtures/config.json", import.meta.url).pathname;
 
@@ -295,5 +295,146 @@ test("a repeatedly checked thing carries how many checks in a row have failed, a
   // A delivery that failed for good is not a check that can pass next time; counting it would say
   // nothing but how long nobody has acted.
   expect(issues.find((issue) => issue.id === "delivery:7")?.consecutiveFailures).toBeUndefined();
+  db.close();
+});
+
+test("a host's failing share counts the sources whose collection is failing, once each", () => {
+  const db = openDatabase(":memory:");
+  const config = loadConfig({ CONFIG_PATH: configPath, ARTIFICIAL_ANALYSIS_API_KEY: "test-key" });
+  const now = Date.parse("2026-09-08T12:00:00.000Z");
+  const at = "2026-09-08T11:59:00.000Z";
+  aSource(db, "arena", { lastError: "Public page no longer exposes initialModels", checkedAt: at, failures: 3 });
+  aSource(db, "arena-leaderboards", { lastSuccess: at, checkedAt: at });
+  // The judge is a different fault from the host's: arena-leaderboards collects, and its verdicts
+  // stopped. Counted as a failing source it made one broken page read as two.
+  for (const source of ["arena", "arena-leaderboards"])
+    for (const hour of ["08", "09", "10"])
+      recordDeepSeekCall(
+        db,
+        {
+          operation: "audience.judge",
+          source,
+          stream: "news",
+          inputChars: 16_000,
+          attemptedAt: new Date(`2026-09-08T${hour}:00:00.000Z`),
+        },
+        {
+          outcome: "invalid",
+          responseStatus: 200,
+          usage: {
+            promptTokens: 3_900,
+            completionTokens: 6_000,
+            totalTokens: 9_900,
+            promptCacheHitTokens: null,
+            promptCacheMissTokens: null,
+          },
+          errorType: "SyntaxError",
+        },
+      );
+  const issues = listActionableIssues(db, config, now);
+  expect(issues.filter((issue) => issue.kind === "judge_unusable")).toHaveLength(2);
+  const arena = issues.find((issue) => issue.id === "arena");
+  expect(arena?.kind).toBe("source_failed");
+  // One source on the host is failing, so there is no shared cause to point at.
+  expect(arena?.groupFailing).toBeUndefined();
+  expect(arena?.hint).not.toContain("are failing");
+  for (const judge of issues.filter((issue) => issue.kind === "judge_unusable")) {
+    expect(judge.groupFailing).toBeUndefined();
+    expect(judge.hint).not.toContain("inspect that host");
+  }
+  db.close();
+});
+
+test("a source counts once in its host's share however many issues it has", () => {
+  const db = openDatabase(":memory:");
+  const config = loadConfig({ CONFIG_PATH: configPath, ARTIFICIAL_ANALYSIS_API_KEY: "test-key" });
+  const now = Date.parse("2026-09-08T12:00:00.000Z");
+  const at = "2026-09-08T11:59:00.000Z";
+  aSource(db, "arena", { lastError: "Public page no longer exposes initialModels", checkedAt: at, failures: 3 });
+  aSource(db, "arena-leaderboards", {
+    lastError: "Public page no longer exposes leaderboards",
+    checkedAt: at,
+    failures: 3,
+  });
+  const arena = listActionableIssues(db, config, now).find((issue) => issue.id === "arena");
+  expect(arena?.groupFailing).toBe(2);
+  expect(arena?.hint).toContain("(arena, arena-leaderboards)");
+  db.close();
+});
+
+test("a source is waiting on a rate limit by the kind its failure was stored with", () => {
+  const db = openDatabase(":memory:");
+  const config = loadConfig({ CONFIG_PATH: configPath });
+  const now = Date.parse("2026-09-08T12:00:00.000Z");
+  const at = "2026-09-08T11:59:00.000Z";
+  // GitHub answers an exhausted limit with 403, so the sentence never says 429; the kind does.
+  aSource(db, "openrouter", {
+    lastError: "Source returned HTTP 403 (rate limited)",
+    lastErrorKind: "rate-limited",
+    checkedAt: at,
+    failures: 2,
+    retryAt: "2026-09-08T12:30:00.000Z",
+  });
+  // A sentence that merely mentions the words is not a limit: the kind is what the poller decided.
+  aSource(db, "huggingface:openai", {
+    lastError: "HTTP 429 rate limited — waiting until tomorrow, says the page",
+    lastErrorKind: "schema",
+    checkedAt: at,
+    failures: 2,
+  });
+  const issues = listActionableIssues(db, config, now);
+  expect(issues.find((issue) => issue.id === "openrouter")).toMatchObject({
+    kind: "source_failed",
+    severity: "warning",
+    retryAt: "2026-09-08T12:30:00.000Z",
+  });
+  expect(issues.find((issue) => issue.id === "openrouter")?.hint).toContain("do not increase polling");
+  expect(issues.find((issue) => issue.id === "huggingface:openai")).toMatchObject({
+    kind: "source_failed",
+    severity: "error",
+  });
+  db.close();
+});
+
+test("a refused destination says why it is refusing now, not the alphabetically last thing it ever said", () => {
+  const db = openDatabase(":memory:");
+  const config = loadConfig({ CONFIG_PATH: configPath });
+  const batch = aBatch(db);
+  const blocked = (part: number, reason: string, updatedAt: string) =>
+    aDelivery(db, {
+      batchId: batch,
+      destinationId: "dc",
+      part,
+      status: "pending",
+      error: `Blocked: ${reason}`,
+      updatedAt,
+    });
+  blocked(0, "Platform returned HTTP 403: 50013 Missing Permissions", "2026-09-08T10:00:00.000Z");
+  // The bot was given View Channel and is now missing a different permission. That is the live
+  // reason, and it sorts before the stale one.
+  blocked(1, "Platform returned HTTP 403: 50001 Missing Access", "2026-09-08T11:00:00.000Z");
+  const issue = listActionableIssues(db, config, Date.parse("2026-09-08T12:00:00.000Z")).find(
+    (entry) => entry.kind === "delivery_blocked",
+  );
+  expect(issue?.message).toContain("50001 Missing Access");
+  expect(issue?.message).not.toContain("50013");
+  expect(issue?.message).toContain("2 messages waiting");
+  expect(issue?.firstSeenAt).toBe("2026-09-08T10:00:00.000Z");
+  db.close();
+});
+
+test("a reason that spans lines reads as one line in an issue", () => {
+  const db = openDatabase(":memory:");
+  const config = loadConfig({ CONFIG_PATH: configPath });
+  const batch = aBatch(db);
+  aDelivery(db, {
+    batchId: batch,
+    destinationId: "dc",
+    status: "pending",
+    error: "Blocked:   Platform returned\n  HTTP 403:\n\n50013 Missing Permissions  ",
+  });
+  const issue = listActionableIssues(db, config, Date.now()).find((entry) => entry.kind === "delivery_blocked");
+  expect(issue?.message).toContain("— Platform returned HTTP 403: 50013 Missing Permissions");
+  expect(issue?.message).not.toMatch(/\s{2}|\n/);
   db.close();
 });

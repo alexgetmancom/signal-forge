@@ -28,6 +28,7 @@ function seed(db: ReturnType<typeof openDatabase>, id: string, row: Record<strin
   aSource(db, id, {
     lastSuccess: row.last_success ?? null,
     lastError: row.last_error ?? null,
+    lastErrorKind: row.last_error_kind ?? null,
     checkedAt: row.checked_at ?? null,
   });
 }
@@ -35,18 +36,41 @@ function seed(db: ReturnType<typeof openDatabase>, id: string, row: Record<strin
 test("a rate-limited source waits on upstream instead of reporting a broken collector", () => {
   const db = openDatabase(":memory:");
   const recent = new Date(now - 60_000).toISOString();
-  seed(db, "huggingface:openai", { last_error: "Source returned HTTP 429", checked_at: recent });
+  seed(db, "huggingface:openai", {
+    last_error: "Source returned HTTP 429",
+    last_error_kind: "rate-limited",
+    checked_at: recent,
+  });
   const health = sourceHealth(db, withStatus, now).find((entry) => entry.id === "huggingface:openai");
-  expect(health).toMatchObject({ state: "blocked", detail: "rate limited — backing off" });
+  expect(health).toMatchObject({ state: "blocked", blockedBy: "rate-limit", detail: "rate limited — backing off" });
+  db.close();
+});
+
+test("a failure whose sentence says 429 but whose kind is something else is a failure", () => {
+  const db = openDatabase(":memory:");
+  const recent = new Date(now - 60_000).toISOString();
+  seed(db, "huggingface:openai", {
+    last_error: "page said HTTP 429",
+    last_error_kind: "schema",
+    checked_at: recent,
+  });
+  expect(sourceHealth(db, withStatus, now).find((entry) => entry.id === "huggingface:openai")).toMatchObject({
+    state: "failing",
+  });
   db.close();
 });
 
 test("bot protection is blocked upstream, not reported as a broken parser", () => {
   const db = openDatabase(":memory:");
   const recent = new Date(now - 60_000).toISOString();
-  seed(db, "status:anthropic", { last_error: "Source challenged by bot protection", checked_at: recent });
+  seed(db, "status:anthropic", {
+    last_error: "Source challenged by bot protection",
+    last_error_kind: "bot-protection",
+    checked_at: recent,
+  });
   expect(sourceHealth(db, withStatus, now).find((entry) => entry.id === "status:anthropic")).toMatchObject({
     state: "blocked",
+    blockedBy: "bot-protection",
     detail: "upstream bot protection — waiting for a readable status response",
   });
   db.close();
