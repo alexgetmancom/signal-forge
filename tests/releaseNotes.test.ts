@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 import { saveCollection } from "../src/events/pipeline.js";
 import { SourceError } from "../src/failure.js";
 import {
+  parseGeminiApiChangelog,
+  parseKimiCodeChangelog,
   parseMiniMaxCodeChangelog,
   parseMistralReleaseNotes,
   parseOpenAIChatGPTReleaseNotes,
@@ -76,4 +78,45 @@ test("a page without repeated titles keeps every id and its order", () => {
     "2026-09-18:beta",
     "2026-09-18:gamma",
   ]);
+});
+
+test("a heading that is written as a date and does not read as one fails the read, whatever it is the heading of", () => {
+  // The newest entries are the ones a vendor's new format reaches first, and skipping them as
+  // "not a date" left the source healthy and the newest release missing from it.
+  const page = (newest: string) =>
+    `<article><h1>${newest}</h1><h2>New</h2><p>Newest.</p><h1>September 17, 2026</h1><h2>Old</h2><p>Older.</p></article>`;
+  for (const written of [
+    "Sep. 18, 2026",
+    "18 September 2026",
+    "9/18/2026",
+    "September 31, 2026",
+    "September 18, 2026 (updated)",
+  ])
+    expect(failure(() => parseOpenAIChatGPTReleaseNotes(page(written))).kind).toBe("schema");
+  // A heading that is not a date at all is navigation, and is still left out.
+  const navigation = parseOpenAIChatGPTReleaseNotes(
+    `<article><h1>Release notes</h1><h1>Version 2 notes</h1><h1>September 17, 2026</h1><h2>Old</h2><p>Older.</p></article>`,
+  );
+  expect(navigation.records.map((record) => record.id)).toEqual(["2026-09-17:old"]);
+
+  const gemini = (heading: string) =>
+    `<main><h1>Changelog</h1><h2 data-text="${heading}">${heading}</h2><p>New.</p><h2 data-text="September 2, 2026">September 2, 2026</h2><p>Old.</p></main>`;
+  expect(failure(() => parseGeminiApiChangelog(gemini("Sep. 3, 2026"))).kind).toBe("schema");
+  expect(failure(() => parseGeminiApiChangelog(gemini("September 31, 2026"))).kind).toBe("schema");
+  expect(parseGeminiApiChangelog(gemini("September 3, 2026")).records).toHaveLength(2);
+  const related = parseGeminiApiChangelog(
+    `<main><h2>Related pages</h2><h2 data-text="September 2, 2026">September 2, 2026</h2><p>Old.</p></main>`,
+  );
+  expect(related.records.map((record) => record.id)).toEqual(["2026-09-02"]);
+});
+
+test("Kimi leaves out the one entry it knows is dated to a month, and fails on any other date it cannot read", () => {
+  const entry = (date: string, version: string) =>
+    `<div class="wn-entry"><div class="wn-meta"><span class="wn-product">Kimi Code CLI</span><h2><span class="ignore-header">${version}</span> <span class="wn-date">${date}</span></h2></div><div class="wn-content"><p>Notes.</p></div></div>`;
+  const known = parseKimiCodeChangelog(entry("September 14, 2026", "v0.43.0") + entry("May 2026", "v0.1.0"));
+  expect(known.records).toHaveLength(1);
+  for (const written of ["14 Sept 2026", "September 31, 2026", "yesterday"])
+    expect(
+      failure(() => parseKimiCodeChangelog(entry(written, "v0.44.0") + entry("September 14, 2026", "v0.43.0"))).kind,
+    ).toBe("schema");
 });

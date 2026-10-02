@@ -65,13 +65,14 @@ const monthNumbers: Record<string, number> = {
 };
 
 /**
- * A date is read exactly or the read fails. The one parser that skips an entry instead is Kimi's, for
- * an entry it knows about.
+ * A date is read exactly or the read fails. The one parser that skips an entry instead is Kimi's, and
+ * only for the single entry it knows is dated to a month.
  *
  * Skipping is the kind thing to do for a stray typo and the wrong thing for a vendor changing how it
  * writes dates: the newest entries are the ones that would stop parsing while the older ones carried
  * on, and the source would look healthy while missing every new release, which is the one thing it is
  * read for. Failing says so on the board, by type, and the entries are all there once it is fixed.
+ * That holds for a heading deciding whether it is an entry at all: see `isDate`.
  */
 function invalidDate(source: string): SourceError {
   return new SourceError("schema", `${source}: invalid publication date`);
@@ -109,14 +110,27 @@ function publicationDate(value: string, source: string, fallbackYear?: number): 
   throw invalidDate(source);
 }
 
-/** Whether a heading carries a date at all, which is what separates entries from navigation. */
-function isDate(value: string, source: string, fallbackYear?: number): boolean {
-  try {
-    publicationDate(value, source, fallbackYear);
-    return true;
-  } catch {
-    return false;
-  }
+/**
+ * What a heading starts with when it is written as a date, in any of the ways a vendor writes one:
+ * `September 18, 2026`, `Sep. 18, 2026`, `18 September 2026`, `2026-09-18`, `9/18/2026`.
+ */
+const WRITTEN_AS_DATE =
+  /^(?:[A-Za-z]{3,9}\.?\s+\d{1,2},?\s+\d{4}|\d{1,2}\s+[A-Za-z]{3,9}\.?,?\s+\d{4}|\d{4}-\d{1,2}-\d{1,2}|\d{1,2}\/\d{1,2}\/\d{2,4})/;
+
+/**
+ * Whether a heading is an entry's date, which is what separates entries from navigation.
+ *
+ * It used to be "whether the date parses", and a heading that did not parse was navigation: so the
+ * day a vendor wrote `Sep. 18, 2026`, or added `(updated)` to one heading, that day was dropped
+ * without a word and every other day carried on. A heading that is *written as* a date is an entry,
+ * and one that then does not read as a date is the failure `publicationDate` throws. What is not
+ * written as a date at all -- "Release notes", "Version 2 notes" -- is still navigation.
+ */
+function isDate(value: string, source: string): boolean {
+  const normalized = htmlText(value).replace(/\s+/g, " ").trim();
+  if (!WRITTEN_AS_DATE.test(normalized)) return false;
+  publicationDate(normalized, source);
+  return true;
 }
 
 /** The calendar day of a publication instant, which is what every record id is built from. */
@@ -465,15 +479,12 @@ export function parseKimiCodeChangelog(html: string): Collection {
     const product = htmlText(meta.match(/<span class="wn-product">([\s\S]*?)<\/span>/)?.[1] ?? "Kimi Code");
     const summary = summaryOf(match[2] ?? "", "");
     if (!version || !date || !summary) return [];
-    // One historical entry is dated to a month with no day. A publication date is not invented
-    // here; the entry is left out, and a wholesale format change empties the collection instead,
-    // which the collector reports as a failed read.
-    let published: string;
-    try {
-      published = publicationDate(date, "kimi-code-changelog");
-    } catch {
-      return [];
-    }
+    // One historical entry is dated to a month with no day (`May 2026`). A publication date is not
+    // invented here, so that entry is left out. Any other date that does not read fails the read like
+    // every other parser's: a catch-all here skipped `14 Sept 2026` as quietly as `May 2026`, and the
+    // newest release was the one it would have skipped.
+    if (/^[A-Za-z]+\s+\d{4}$/.test(date)) return [];
+    const published = publicationDate(date, "kimi-code-changelog");
     return [
       {
         id: `kimi-code:${dayOf(published)}:${slug(version)}`,
