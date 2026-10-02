@@ -72,65 +72,84 @@ const monthNumbers: Record<string, number> = {
  * writes dates: the newest entries are the ones that would stop parsing while the older ones carried
  * on, and the source would look healthy while missing every new release, which is the one thing it is
  * read for. Failing says so on the board, by type, and the entries are all there once it is fixed.
- * That holds for a heading deciding whether it is an entry at all: see `isDate`.
+ * That holds for a heading deciding whether it is an entry at all: see `readDate`.
  */
 function invalidDate(source: string): SourceError {
   return new SourceError("schema", `${source}: invalid publication date`);
 }
 
-function utcDate(year: number, month: number, day: number, source: string): string {
-  const time = Date.UTC(year, month, day);
-  const date = new Date(time);
+/**
+ * What a heading starts with when it is written as a date, in any of the ways a vendor writes one:
+ * `September 18, 2026`, `September 18 2026`, `Sep. 18, 2026`, `18 September 2026`, `2026-09-18`,
+ * `9/18/2026`. Wider than what `readDate` reads, and deliberately so: the gap between the two is
+ * every heading that must fail loudly rather than be taken for navigation.
+ */
+const WRITTEN_AS_DATE =
+  /^(?:[A-Za-z]{3,9}\.?\s+\d{1,2},?\s+\d{4}|\d{1,2}\s+[A-Za-z]{3,9}\.?,?\s+\d{4}|\d{4}-\d{1,2}-\d{1,2}|\d{1,2}\/\d{1,2}\/\d{2,4})/;
+
+/** The forms a date is read from. A comma is optional: `December 13 2023` is on Gemini's own page. */
+const MONTH_DAY_YEAR = /^([A-Za-z]{3,9})\s+(\d{1,2}),?\s+(\d{4})$/;
+const ISO_DAY = /^(\d{4})-(\d{1,2})-(\d{1,2})$/;
+const MONTH_DAY = /^([A-Za-z]{3,9})\s+(\d{1,2})$/;
+
+/**
+ * What a heading is, which is the one question both callers ask and the one place it is answered.
+ *
+ * `not-a-date` is navigation -- "Release notes", "Version 2 notes", "Related pages" -- and is left
+ * out. `unreadable` is a heading written as a date that this parser does not read, and is a failure:
+ * the newest entries are the ones a vendor's new format reaches first, so a format that is dropped
+ * quietly leaves the source looking healthy while the release it exists to report is missing.
+ *
+ * It used to be two: `WRITTEN_AS_DATE` decided whether a heading was an entry and a separate set of
+ * patterns read it, and the comma they disagreed about took both Gemini and ChatGPT down on
+ * 2026-10-02 over `December 13 2023`, an entry from the page's own archive. One reading, so the two
+ * cannot disagree again: a shape that is read is a date, and anything else written as one is a
+ * failure by construction.
+ */
+type DateReading = "not-a-date" | "unreadable" | { published: string };
+
+function calendarDay(year: number, month: number | undefined, day: number): DateReading {
+  if (month === undefined) return "unreadable";
+  const date = new Date(Date.UTC(year, month, day));
   if (
     !Number.isFinite(date.getTime()) ||
     date.getUTCFullYear() !== year ||
     date.getUTCMonth() !== month ||
     date.getUTCDate() !== day
   )
-    throw invalidDate(source);
-  return date.toISOString();
+    return "unreadable";
+  return { published: date.toISOString() };
 }
 
+function readDate(value: string, fallbackYear?: number): DateReading {
+  const text = htmlText(value).replace(/\s+/g, " ").trim();
+  const monthDayYear = MONTH_DAY_YEAR.exec(text);
+  if (monthDayYear)
+    return calendarDay(
+      Number(monthDayYear[3]),
+      monthNumbers[(monthDayYear[1] ?? "").toLowerCase()],
+      Number(monthDayYear[2]),
+    );
+  const iso = ISO_DAY.exec(text);
+  if (iso) return calendarDay(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]));
+  const monthDay = MONTH_DAY.exec(text);
+  if (monthDay && fallbackYear !== undefined)
+    return calendarDay(fallbackYear, monthNumbers[(monthDay[1] ?? "").toLowerCase()], Number(monthDay[2]));
+  return WRITTEN_AS_DATE.test(text) ? "unreadable" : "not-a-date";
+}
+
+/** The date of something already known to be an entry: anything but a date it reads is the failure. */
 function publicationDate(value: string, source: string, fallbackYear?: number): string {
-  const normalized = htmlText(value).replace(/\s+/g, " ").trim();
-  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(normalized);
-  if (iso) return utcDate(Number(iso[1]), Number(iso[2]) - 1, Number(iso[3]), source);
-  const full = /^([A-Za-z]+)\s+(\d{1,2}),\s+(\d{4})$/.exec(normalized);
-  if (full) {
-    const month = monthNumbers[(full[1] ?? "").toLowerCase()];
-    if (month === undefined) throw invalidDate(source);
-    return utcDate(Number(full[3]), month, Number(full[2]), source);
-  }
-  const monthDay = /^([A-Za-z]+)\s+(\d{1,2})$/.exec(normalized);
-  if (monthDay && fallbackYear !== undefined) {
-    const month = monthNumbers[(monthDay[1] ?? "").toLowerCase()];
-    if (month === undefined) throw invalidDate(source);
-    return utcDate(fallbackYear, month, Number(monthDay[2]), source);
-  }
-  throw invalidDate(source);
+  const reading = readDate(value, fallbackYear);
+  if (typeof reading === "string") throw invalidDate(source);
+  return reading.published;
 }
 
-/**
- * What a heading starts with when it is written as a date, in any of the ways a vendor writes one:
- * `September 18, 2026`, `Sep. 18, 2026`, `18 September 2026`, `2026-09-18`, `9/18/2026`.
- */
-const WRITTEN_AS_DATE =
-  /^(?:[A-Za-z]{3,9}\.?\s+\d{1,2},?\s+\d{4}|\d{1,2}\s+[A-Za-z]{3,9}\.?,?\s+\d{4}|\d{4}-\d{1,2}-\d{1,2}|\d{1,2}\/\d{1,2}\/\d{2,4})/;
-
-/**
- * Whether a heading is an entry's date, which is what separates entries from navigation.
- *
- * It used to be "whether the date parses", and a heading that did not parse was navigation: so the
- * day a vendor wrote `Sep. 18, 2026`, or added `(updated)` to one heading, that day was dropped
- * without a word and every other day carried on. A heading that is *written as* a date is an entry,
- * and one that then does not read as a date is the failure `publicationDate` throws. What is not
- * written as a date at all -- "Release notes", "Version 2 notes" -- is still navigation.
- */
+/** Whether a heading is an entry's date, which is what separates entries from navigation. */
 function isDate(value: string, source: string): boolean {
-  const normalized = htmlText(value).replace(/\s+/g, " ").trim();
-  if (!WRITTEN_AS_DATE.test(normalized)) return false;
-  publicationDate(normalized, source);
-  return true;
+  const reading = readDate(value);
+  if (reading === "unreadable") throw invalidDate(source);
+  return reading !== "not-a-date";
 }
 
 /** The calendar day of a publication instant, which is what every record id is built from. */

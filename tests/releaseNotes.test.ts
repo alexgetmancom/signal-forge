@@ -110,6 +110,19 @@ test("a heading that is written as a date and does not read as one fails the rea
   expect(related.records.map((record) => record.id)).toEqual(["2026-09-02"]);
 });
 
+test("a date written without its comma is read, on the page that has one", () => {
+  // `December 13 2023` is in Gemini's own archive. "Written as a date" allowed the comma to be
+  // missing and the reader required it, so that one old entry failed the whole read -- 139 entries
+  // and every new release with it -- while the heading had been plain all along.
+  const gemini = (heading: string) => `<main><h2 data-text="${heading}">${heading}</h2><p>New.</p></main>`;
+  expect(parseGeminiApiChangelog(gemini("December 13 2023")).records[0]?.published).toBe("2023-12-13T00:00:00.000Z");
+  expect(parseGeminiApiChangelog(gemini("December 13, 2023")).records[0]?.published).toBe("2023-12-13T00:00:00.000Z");
+  const chatgpt = parseOpenAIChatGPTReleaseNotes(
+    `<article><h1>September 18 2026</h1><h2>New</h2><p>Newest.</p></article>`,
+  );
+  expect(chatgpt.records.map((record) => record.id)).toEqual(["2026-09-18:new"]);
+});
+
 test("Kimi leaves out the one entry it knows is dated to a month, and fails on any other date it cannot read", () => {
   const entry = (date: string, version: string) =>
     `<div class="wn-entry"><div class="wn-meta"><span class="wn-product">Kimi Code CLI</span><h2><span class="ignore-header">${version}</span> <span class="wn-date">${date}</span></h2></div><div class="wn-content"><p>Notes.</p></div></div>`;
