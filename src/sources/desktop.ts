@@ -1,5 +1,6 @@
 import type { Collection, RecordData } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
+import type { Vendor } from "./vendors.js";
 
 /**
  * The desktop clients, read from the package repositories their vendors actually publish.
@@ -26,7 +27,7 @@ import type { Fetch } from "../http-client.js";
  */
 type AptRepository = {
   source: string;
-  vendor: string;
+  vendor: Vendor;
   /** The Debian package name, which is also the application. */
   package: string;
   name: string;

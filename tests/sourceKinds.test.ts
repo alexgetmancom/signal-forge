@@ -32,8 +32,19 @@ function registry() {
  * the repository being read, which is the only thing that made those 38 look alike from outside and
  * the whole difference between them from inside: `watched-repository` is somebody else's and
  * `vendor-repository` is the maker's own. The same before-and-after comparison held.
+ *
+ * 9 once every family of two or more was named: iOS apps, Debian repositories, watched sites, a
+ * maker's own web pages, repository searches, coding-plan lists and the leaderboards. Both
+ * registries -- the fixture's and the example's, 214 sources each -- were dumped field by field
+ * before and after, and the only difference is `kind` on 46 of them.
+ *
+ * What is left is nine sources that are the only one of their kind: the arena roster, OpenRouter's
+ * catalogue and its usage ranking, Xiaomi's training dashboard, Polymarket, OpenCode's catalogue,
+ * Hugging Face trending, the Claude download endpoint and the Codex limit tracker. Each differs from
+ * every other source in its stream, its evidence or its group, so a kind would hold one member and
+ * say what the entry already says. There is nothing to copy from, which is what a kind is for.
  */
-const UNNAMED_BUDGET = 55;
+const UNNAMED_BUDGET = 9;
 
 test("a source names the maker it belongs to the way the registry spells it", () => {
   const spellings = new Set<string>(VENDOR_NAMES);
@@ -51,18 +62,29 @@ test("no two sources are registered under one id", () => {
 });
 
 test("the sources belonging to no kind only ever get fewer", () => {
+  const unnamed = registry()
+    .filter((definition) => !definition.kind)
+    .map((definition) => definition.id);
+  expect(
+    unnamed.length,
+    `${unnamed.length} sources belong to no kind, and the budget is ${UNNAMED_BUDGET}: ${unnamed.join(", ")}. ` +
+      "Give a family a kind in the pack that declares it and lower the budget. `source-kinds` is the whole list.",
+  ).toBeLessThanOrEqual(UNNAMED_BUDGET);
+});
+
+/**
+ * No three sources that share an authority, a group and a stream may be left without a kind.
+ *
+ * The count above lets a source be added without one, which is right for a lone one and wrong for
+ * the third copy of the same shape: that is the entry the next one is pasted from, and it inherits
+ * whatever the first got wrong. `unnamedFamilies` is exactly those, so it is held at nothing.
+ */
+test("a family of three sources that no kind names is never left to grow", () => {
   const report = sourceKinds(
     openDatabase(":memory:"),
     loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname }),
   );
-  const biggest = report.unnamedFamilies[0];
-  expect(
-    report.unnamed,
-    `${report.unnamed} sources belong to no kind, and the budget is ${UNNAMED_BUDGET}. ` +
-      `The largest family nobody has named is ${biggest?.sources} sources in ` +
-      `${biggest?.group}/${biggest?.stream} (${biggest?.examples.join(", ")}): give it a kind in ` +
-      `src/sources/kinds.ts and lower the budget. \`source-kinds\` is the whole list.`,
-  ).toBeLessThanOrEqual(UNNAMED_BUDGET);
+  expect(report.unnamedFamilies).toEqual([]);
 });
 
 /**

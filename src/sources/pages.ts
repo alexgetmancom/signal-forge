@@ -2,6 +2,7 @@ import type { Collection, RecordData } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
 import type { HttpCache } from "../storage/httpCache.js";
 import { fetchText } from "./http.js";
+import type { Vendor } from "./vendors.js";
 
 /**
  * A product page is published before it is announced. A vendor's own sitemap lists every page it
@@ -15,7 +16,7 @@ import { fetchText } from "./http.js";
 export type WatchedSite = {
   id: string;
   name: string;
-  vendor: string;
+  vendor: Vendor;
   sitemap: string;
   /**
    * Sections that never carry product news. This is a list of what to ignore rather than a list of

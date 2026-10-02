@@ -130,6 +130,46 @@ const DOCUMENTATION_PROBE: SourceKind = {
 };
 
 /**
+ * A search over repositories nobody here chose to watch.
+ *
+ * It finds a repository by what it is about rather than by who owns it, and every member is
+ * append-only because none of them reads a state anyone maintains. They share one pacing group, so
+ * the four searches are one request a minute between them.
+ */
+const REPOSITORY_SEARCH: SourceKind = {
+  kind: "repository-search",
+  appendOnly: true,
+  authority: "third_party",
+  evidence: "github_activity",
+  confidence: "observed",
+  group: "Discovery",
+  stream: "github",
+  intervalSeconds: 3600,
+  pace: { group: "github-search", seconds: 60 },
+};
+
+/**
+ * The coding subscriptions' model lists: small JSON answers, read every two minutes.
+ *
+ * This is where a stealth model appears first and free, and it is the fastest hand this tracker
+ * has: Space Bunny was on Zen and Go on 2026-09-23 a quarter of an hour before OpenRouter listed
+ * it. A quarter-hour poll spent most of that lead waiting. The cost is nothing a database sees --
+ * a snapshot is stored only when the body changes, and Zen wrote three rows in the day to
+ * 2026-09-23 -- so the only thing spent is a small request against a small file.
+ *
+ * What a subscription will serve is availability from somebody who is not the maker.
+ */
+const CODING_PLAN_LIST: SourceKind = {
+  kind: "coding-plan-list",
+  authority: "third_party",
+  evidence: "availability_catalogue",
+  confidence: "observed",
+  group: "Catalogues",
+  stream: "api-models",
+  intervalSeconds: 120,
+};
+
+/**
  * Sources that look for a name nobody has published: a search, a probe, a trending list.
  *
  * Its own declaration rather than the tail of `communitySources`, on the same grounds as
@@ -139,21 +179,16 @@ const DOCUMENTATION_PROBE: SourceKind = {
  */
 function discoverySources({ db, config, cache }: SourceContext): SourceEntry[] {
   const definitions: SourceEntry[] = [];
-  for (const query of GITHUB_DISCOVERY_QUERIES)
-    definitions.push({
-      id: `discovery:github-${query.id}`,
-      appendOnly: true,
-      authority: "third_party",
-      // A search over repositories nobody here chose to watch.
-      evidence: "github_activity",
-      confidence: "observed",
-      group: "Discovery",
-      stream: "github",
-      intervalSeconds: 3600,
-      requiredCapabilities: ["GITHUB_TOKEN"],
-      pace: { group: "github-search", seconds: 60 },
-      collector: () => collectGithubDiscovery(config, query, fetch, new Date(), cache),
-    });
+  definitions.push(
+    ...sourcesOfKind(
+      REPOSITORY_SEARCH,
+      GITHUB_DISCOVERY_QUERIES.map((query) => ({
+        id: `discovery:github-${query.id}`,
+        requiredCapabilities: ["GITHUB_TOKEN"],
+        collector: () => collectGithubDiscovery(config, query, fetch, new Date(), cache),
+      })),
+    ),
+  );
 
   definitions.push(
     ...sourcesOfKind(
@@ -337,52 +372,16 @@ export function communitySources({ db, config, cache }: SourceContext): SourceEn
       pace: { group: "polymarket.com", seconds: 60 },
       collector: () => collectPolymarket(fetch, cache),
     },
-    /**
-     * The coding subscriptions' model lists: small JSON answers, read every two minutes.
-     *
-     * This is where a stealth model appears first and free, and it is the fastest hand this tracker
-     * has: Space Bunny was on Zen and Go on 2026-09-23 a quarter of an hour before OpenRouter listed
-     * it. A quarter-hour poll spent most of that lead waiting. The cost is nothing a database sees --
-     * a snapshot is stored only when the body changes, and Zen wrote three rows in the day to
-     * 2026-09-23 -- so the only thing spent is a small request against a small file.
-     */
-    {
-      id: "opencode-zen",
-      authority: "third_party",
-      // A coding subscription's model list: what it will serve, which is availability from somebody
-      // who is not the maker.
-      evidence: "availability_catalogue",
-      confidence: "observed",
-      group: "Catalogues",
-      stream: "api-models",
-      intervalSeconds: 120,
-      collector: () => collectOpenCodeZen(fetch),
-    },
-    {
-      id: "opencode-go",
-      authority: "third_party",
-      // A coding subscription's model list: what it will serve, which is availability from somebody
-      // who is not the maker.
-      evidence: "availability_catalogue",
-      confidence: "observed",
-      group: "Catalogues",
-      stream: "api-models",
-      intervalSeconds: 120,
-      collector: () => collectOpenCodeGo(fetch),
-    },
-    {
-      id: "command-code-models",
-      authority: "third_party",
-      // A coding subscription's model list: what it will serve, which is availability from somebody
-      // who is not the maker.
-      evidence: "availability_catalogue",
-      confidence: "observed",
-      group: "Catalogues",
-      stream: "api-models",
-      // A 2 MB package, downloaded only when its version moves.
-      intervalSeconds: 1800,
-      collector: () => collectCommandCodeModels(fetch),
-    },
+    ...sourcesOfKind(CODING_PLAN_LIST, [
+      { id: "opencode-zen", collector: () => collectOpenCodeZen(fetch) },
+      { id: "opencode-go", collector: () => collectOpenCodeGo(fetch) },
+      {
+        id: "command-code-models",
+        // A 2 MB package, downloaded only when its version moves.
+        intervalSeconds: 1800,
+        collector: () => collectCommandCodeModels(fetch),
+      },
+    ]),
   ];
 
   definitions.push(...discoverySources({ db, config, cache }));

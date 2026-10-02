@@ -3,13 +3,14 @@ import type { Collection } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
 import type { HttpCache } from "../storage/httpCache.js";
 import { fetchText } from "./http.js";
+import type { Vendor } from "./vendors.js";
 
 /**
  * The app a person actually opens is where a change reaches them first: a model, a mode or a
  * feature ships in a release before it is written about. Apple publishes the version, the release
  * date and the vendor's own notes for every listing, with no key and no scraping.
  */
-export type WatchedApp = { id: string; name: string; vendor: string; appStoreId: string };
+export type WatchedApp = { id: string; name: string; vendor: Vendor; appStoreId: string };
 
 export const APP_STORE_APPS: readonly WatchedApp[] = [
   { id: "chatgpt", name: "ChatGPT", vendor: "OpenAI", appStoreId: "6448311069" },
