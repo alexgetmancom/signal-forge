@@ -11,7 +11,7 @@ import { isStealthLaunch } from "./resellers.js";
 import type { SignalClass } from "./signals.js";
 import type { Collection, Confidence, Event, EvidenceType, SourceAuthority } from "./types.js";
 
-export const COLLECTION_DEGRADED_PREFIX = "Collection degraded:";
+const COLLECTION_DEGRADED_PREFIX = "Collection degraded:";
 
 export class CollectionDegradedError extends Error {
   readonly previousCount: number;

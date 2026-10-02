@@ -7,7 +7,6 @@
 
 import type { Database } from "bun:sqlite";
 import type { AppConfig, SourceMode } from "../config.js";
-import { COLLECTION_DEGRADED_PREFIX } from "../events/store.js";
 import type { SourceAuthority } from "../events/types.js";
 import { buildSourceRegistry } from "../sources/registry.js";
 
@@ -65,11 +64,12 @@ export function sourceHealth(db: Database, config: AppConfig, now = Date.now()):
         {
           last_success: string | null;
           last_error: string | null;
+          last_error_kind: string | null;
           checked_at: string | null;
           retry_at: string | null;
         },
         [string]
-      >("SELECT last_success,last_error,checked_at,retry_at FROM sources WHERE id=?")
+      >("SELECT last_success,last_error,last_error_kind,checked_at,retry_at FROM sources WHERE id=?")
       .get(source.id);
     const group = source.group;
     const restriction = source.restrictedReason;
@@ -85,7 +85,8 @@ export function sourceHealth(db: Database, config: AppConfig, now = Date.now()):
       };
     const observationBase = { lastSuccess: row.last_success, checkedAt: row.checked_at };
     if (row.last_error) {
-      if (row.last_error.startsWith(COLLECTION_DEGRADED_PREFIX))
+      // The kind the poller stored, not the sentence: a failure is told apart by its type.
+      if (row.last_error_kind === "degraded")
         return {
           ...sourceBase,
           ...observationBase,
