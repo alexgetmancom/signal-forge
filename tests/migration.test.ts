@@ -26,7 +26,7 @@ test("migration files form one journal ending at the current version", () => {
   expect(() => validateMigrationSequence([{ ...baseline, version: 1 }])).toThrow("does not match files");
 });
 
-test("fresh databases use every migration and finish with a valid current schema", () => {
+test("a fresh database runs the journal and finishes with a valid current schema", () => {
   const db = openDatabase(":memory:");
   expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: CURRENT_SCHEMA_VERSION });
   expect(
@@ -106,6 +106,17 @@ test("a database already at the baseline version is left alone", () => {
   expect(() => runMigrations(db)).not.toThrow();
   expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: CURRENT_SCHEMA_VERSION });
   expect(db.query("SELECT value FROM app_state WHERE key='marker'").get()).toEqual({ value: "kept" });
+  db.close();
+});
+
+test("a database stamped below the baseline is refused by name, and left as it was", () => {
+  // An archive from before the squash has no path forward through a file that creates every table.
+  // Without the guard it fails on the first CREATE TABLE as if the migration were broken.
+  const db = new Database(":memory:");
+  db.exec("CREATE TABLE sources(id TEXT PRIMARY KEY); PRAGMA user_version = 40");
+  expect(() => runMigrations(db)).toThrow("older than the baseline");
+  expect(db.query("PRAGMA user_version").get()).toEqual({ user_version: 40 });
+  expect(db.query("SELECT name FROM sqlite_master WHERE type='table'").all()).toEqual([{ name: "sources" }]);
   db.close();
 });
 

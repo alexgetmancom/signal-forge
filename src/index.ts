@@ -48,7 +48,10 @@ const db = openDatabase(config.DATABASE_URL);
 // what makes the numbers each phase's own: one mark, one process, and nothing overlapping to charge
 // twice. Until this, every number about it came from one run of a script on a laptop.
 const storyProjection = db.transaction(() => {
-  measure(db, "boot.source-identities", () => recordSourceIdentities(db, buildSourceRegistry(db, config)));
+  const retired = measure(db, "boot.source-identities", () =>
+    recordSourceIdentities(db, buildSourceRegistry(db, config)),
+  );
+  if (retired.length) log("info", "Sources left the registry", { sources: retired });
   const projection = measure(db, "boot.stories", () => rebuildStories(db));
   measure(db, "boot.model-facts", () => rebuildModelFacts(db));
   measure(db, "boot.hypotheses", () => rebuildHypotheses(db));

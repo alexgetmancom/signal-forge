@@ -29,6 +29,15 @@ export function runMigrations(db: Database): void {
   let version = schemaVersion(db);
   if (version > CURRENT_SCHEMA_VERSION)
     throw new Error(`Database schema version ${version} is newer than ${CURRENT_SCHEMA_VERSION}`);
+  // The baseline is the whole schema at its own version, so a database stamped below it has no
+  // path forward from here. Left to run it would fail on the first table that already exists, which
+  // reads as a broken migration rather than as an archive from before the squash.
+  const baseline = migrations[0];
+  if (baseline && version > 0 && version < baseline.version)
+    throw new Error(
+      `Database schema version ${version} is older than the baseline ${baseline.version}, which cannot walk it ` +
+        `forward: check out the commit before the squash, migrate it there, and come back`,
+    );
   const pending = migrations.filter((candidate) => candidate.version > version);
   if (pending.length) {
     const enforced = db.query<{ foreign_keys: number }, []>("PRAGMA foreign_keys").get()?.foreign_keys ?? 0;
