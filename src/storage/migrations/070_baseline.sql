@@ -1,11 +1,12 @@
 -- The whole schema, as one statement list.
 --
 -- Migrations 025 to 070 were squashed into this file once production had reached the end of that
--- journal. Forty-five steps, most of them a table rebuilt to add a constraint SQLite cannot add in
--- place -- a copy, a drop, a rename, and a foreign-key check around each -- were replayed by every
--- new database and every test to arrive at a shape no database was ever going to start from again.
--- What they did and why is in the git log; the numbers that comments elsewhere give ("migration
--- 059", "see 062") are the numbers of that journal.
+-- journal. Forty-five files -- seventeen creating a table, sixteen adding a column, fifteen adding
+-- an index and four rebuilding a table, some doing more than one -- were replayed by every new
+-- database and every test, each in a transaction of its own with a foreign-key check after it, to
+-- arrive at a shape no database was ever going to start from again. What they did and why is in the
+-- git log; the numbers that comments elsewhere give ("migration 059", "see 062") are the numbers of
+-- that journal.
 --
 -- It is numbered 070 because that is the version it produces. Production already holds that
 -- version and so has nothing to run; a new database runs this one file and arrives there directly.
