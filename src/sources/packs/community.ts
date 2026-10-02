@@ -10,7 +10,8 @@ import { collectGithubCommits, collectGithubPulls, collectGithubReleases } from 
 import { type KindMember, type SourceKind, sourcesOfKind } from "../kinds.js";
 import { collectPolymarket } from "../markets.js";
 import { collectModelMentions, MODEL_MENTION_REPOS, mentionSource } from "../modelMentions.js";
-import { collectDocsProbe, collectOpenCodeData, PROBE_SITES } from "../probes.js";
+import { collectOpenCodeData } from "../opencodeData.js";
+import { collectDocsProbe, PROBE_SITES } from "../probes.js";
 import { collectRepoTalk, talkSource } from "../repoTalk.js";
 import { collectMimoTraining } from "../training.js";
 import type { Vendor } from "../vendors.js";

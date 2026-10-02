@@ -1,6 +1,5 @@
 import type { Database } from "bun:sqlite";
 import type { Collection, RecordData } from "../events/types.js";
-import { vendorOfName } from "../events/vendors.js";
 import type { Fetch } from "../http-client.js";
 import { readLatestSnapshot } from "../storage/snapshots.js";
 import { USER_AGENT } from "./http.js";
@@ -9,14 +8,13 @@ import type { Vendor } from "./vendors.js";
 /**
  * Asking a documentation site for a model that has not been announced.
  *
- * Every other source here waits to be told. These five ask: a vendor writes the page for a model
+ * Every other source here waits to be told. These four ask: a vendor writes the page for a model
  * before it says the model exists, and the page answers 200 to anyone who guesses its address
  * while no link anywhere points at it. Measured on 2026-09-24: `platform.claude.com`'s
  * `/docs/en/models/opus-5-5/overview` answers 200 and `opus-9-9` answers 404;
- * `ai.google.dev/gemini-api/docs/models/<slug>` answers 104 KB against an 83 KB not-found;
- * `platform.openai.com/docs/models/gpt-6-luna` answers 200 and a nonsense slug 404; and
- * `opencode.ai/data/<maker>/<slug>` renders "Completed sessions" only for a model it actually has;
- * and `z.ai/blog/<model>` answers 200 for `glm-5.3` and 404 for `glm-5.4`, which is a maker whose
+ * `ai.google.dev/gemini-api/docs/models/<slug>` answers 104 KB against an 83 KB not-found; and
+ * `platform.openai.com/docs/models/gpt-6-luna` answers 200 and a nonsense slug 404. On 2026-09-27
+ * `z.ai/blog/<model>` answered 200 for `glm-5.3` and 404 for `glm-5.4`, which is a maker whose
  * announcement is the address of the model itself.
  *
  * Nothing here defeats a protection: these are plain GETs identified as SignalForge, and a site
@@ -25,22 +23,13 @@ import type { Vendor } from "./vendors.js";
  *
  * Each probe is a `discovery:` source, which makes every hit a radar sighting and never a
  * catalogue: a page is evidence that a name exists, not that the model is out.
- */
-/**
- * The version a probe asks past is read from the catalogue, never written down here. A constant in
- * this file is a guess that rots: the first version of this probe asked OpenAI for `gpt-5.7` and
- * `gpt-6` while `gpt-6-astra`, `gpt-6-luna` and `gpt-6-sol` had all been out for days, so two of
- * its three questions were about the past. Asking `model_facts` instead means the probe moves the
- * day a model lands, without anybody remembering to edit it.
+ *
+ * OpenCode's data pages were asked this way once and are read as a catalogue now, in
+ * `opencodeData.ts`.
  */
 
 /**
- * The versions a vendor could publish next. A maker moves a minor ("5.5" after "5.4"), a major
- * ("6"), or opens the next major at its half step ("6.5"), and nothing else has been seen: the
- * guess list stays at three per family so a poll is three requests, not a crawl.
- */
-/**
- * No maker of these three is anywhere near a tenth major, so a bigger number is a spelling, not a
+ * No maker of these four is anywhere near a tenth major, so a bigger number is a spelling, not a
  * version: `model_facts` holds `gpt-56-sol`, which is `gpt-5.6-sol` with the dot taken out by an
  * identity that normalises punctuation away. Read as a version it makes the probe ask OpenAI for
  * `gpt-57`, and every question that follows is nonsense.
@@ -48,8 +37,12 @@ import type { Vendor } from "./vendors.js";
 const MAX_PLAUSIBLE_MAJOR = 10;
 
 /**
- * A half step inside the current number, for the makers that use one. Anthropic goes 4.5, 5, 5.5
- * and Haiku sat at 4.5 for months; from 5.1 the three steps above reach 5.2, 6 and 6.5 and skip
+ * The versions a vendor could publish next. A maker moves a minor ("5.5" after "5.4"), a major
+ * ("6"), or opens the next major at its half step ("6.5"), and nothing else has been seen: the
+ * guess list stays at three or four per family so a poll is a handful of requests, not a crawl.
+ *
+ * The half step inside the current number is for the makers that use one. Anthropic goes 4.5, 5,
+ * 5.5 and Haiku sat at 4.5 for months; from 5.1 the three steps above reach 5.2, 6 and 6.5 and skip
  * 5.5 entirely, which is the release everyone is waiting for as this is written.
  */
 function nextVersions([major, minor]: readonly [number, number]): (readonly [number, number])[] {
@@ -69,11 +62,6 @@ export type Site = {
   shapes: readonly { family: string; version: RegExp }[];
   /** How the site spells one guess: the slug it would live at. */
   slug: (family: string, version: readonly [number, number]) => string;
-  /**
-   * A model the site certainly documents. A probe whose every guess is a 404 looks the same whether
-   * nothing has shipped or the addresses moved, and the second is how a source dies quietly. The
-   * control has to answer 200 or the poll is a failure, and the board says so.
-   */
   /**
    * How this site spells a model id the catalogues use: `claude-opus-5-5` is `opus-5-5` in
    * Anthropic's documentation. Used both for the control and for a name heard elsewhere.
@@ -99,8 +87,8 @@ function dotted([major, minor]: readonly [number, number]): string {
 
 /**
  * The four sites answer 404 for a slug they do not have and 200 for one they do, checked against
- * both a live model and a nonsense name on 2026-09-24, and Z.ai again on 2026-09-27. The status is the whole test: no body is
- * parsed, so a redesign of the page cannot turn a miss into a sighting.
+ * both a live model and a nonsense name on 2026-09-24, and Z.ai again on 2026-09-27. The status is
+ * the whole test: no body is parsed, so a redesign of the page cannot turn a miss into a sighting.
  */
 export const PROBE_SITES: readonly Site[] = [
   {
@@ -186,14 +174,6 @@ export const PROBE_SITES: readonly Site[] = [
 ];
 
 /**
- * The highest version of each shape this tracker has ever recorded, and the id that carried it.
- *
- * `model_facts` is the one place every catalogue's names end up under one spelling, so it answers
- * "what is out" without asking a vendor. Where several ids tie at the top version the shortest is
- * kept: `claude-opus-5-5` over `claude-opus-5-5-fast`, which is the name a documentation page is
- * written for.
- */
-/**
  * A catalogue id as the sites here spell a model: without the maker that a catalogue puts in front
  * of it, and without the variant a serving platform puts after it.
  *
@@ -208,6 +188,20 @@ function bareId(canonicalId: string): string {
   return (canonicalId.split("/").pop() ?? "").split(":")[0] ?? "";
 }
 
+/**
+ * The highest version of each shape this tracker has ever recorded, and the id that carried it.
+ *
+ * `model_facts` is the one place every catalogue's names end up under one spelling, so it answers
+ * "what is out" without asking a vendor. Where several ids tie at the top version the shortest is
+ * kept: `claude-opus-5-5` over `claude-opus-5-5-fast`, which is the name a documentation page is
+ * written for.
+ *
+ * The version a probe asks past is read from here, never written down in this file. A constant is a
+ * guess that rots: the first version of this probe asked OpenAI for `gpt-5.7` and `gpt-6` while
+ * `gpt-6-astra`, `gpt-6-luna` and `gpt-6-sol` had all been out for days, so two of its three
+ * questions were about the past. Asking `model_facts` instead means the probe moves the day a model
+ * lands, without anybody remembering to edit it.
+ */
 export function observedFamilies(
   db: Database,
   site: Site,
@@ -399,15 +393,6 @@ export function heardNames(db: Database, site: Site, now = Date.now()): string[]
   return heard;
 }
 
-/** Read a page that may reveal a model before the vendor announces it. */
-async function probe(url: string, request: Fetch): Promise<{ status: number; body: string }> {
-  const response = await request(url, {
-    headers: { "user-agent": USER_AGENT, accept: "text/html" },
-    signal: AbortSignal.timeout(20_000),
-  });
-  return { status: response.status, body: await response.text() };
-}
-
 /**
  * Ask an address what it answers, without reading what it answers with.
  *
@@ -426,11 +411,6 @@ async function askStatus(url: string, request: Fetch): Promise<number> {
   return response.status;
 }
 
-/**
- * Every unannounced address a site answers for. Nothing is stored for a 404, which is the usual
- * answer, and the questions move on their own: they are the next versions of what the vendor has
- * out today, read from the catalogue at the moment of asking.
- */
 /**
  * How long a name that answered 404 is left alone.
  *
@@ -475,6 +455,11 @@ export async function collectDocsProbe(
       : top,
   );
   const highest = furthest.version;
+  /**
+   * A model the site certainly documents. A probe whose every guess is a 404 looks the same whether
+   * nothing has shipped or the addresses moved, and the second is how a source dies quietly. The
+   * control has to answer 200 or the poll is a failure, and the board says so.
+   */
   const control = site.spell(furthest.observed);
   const asked = previouslyAsked(db, site.id);
   const candidates = new Set<string>();
@@ -528,160 +513,6 @@ export async function collectDocsProbe(
     stream: "pages",
     url: site.url("*"),
     raw: kept,
-    records,
-  };
-}
-
-/**
- * OpenCode's data catalogue, read as the catalogue it is.
- *
- * Every page under `/data` ships its data with it: a lab page carries `models:`, which is that lab's
- * whole catalogue -- id, slug, name, description and release date -- and `labs:`, which is all 44
- * labs OpenCode knows. So nothing here has to be guessed, and the version guessing this replaced was
- * wrong in both directions at once. Measured 2026-09-27: it never asked Moonshot, Zhipu, DeepSeek or
- * Alibaba at all, because a hand-written list of five makers decided who could be asked; and
- * `alibaba/qwen3.8-max-prime` was in this catalogue, announced nowhere, with no event of it anywhere
- * in our history -- a listed model that a rule about the next version number cannot reach.
- *
- * The old test for "is this page real" was the words `Completed sessions` and `Token Share` in the
- * HTML, which turned out to answer a different question than it was asked. Those words are the usage
- * section, so `alibaba/qwen3-max` -- listed, released 2025-09-23 -- failed the test for having no
- * sessions, while `moonshotai/kimi-k4`, which this catalogue does not contain, passed it for having
- * a usage row. The catalogue is what says a model exists; a session count says somebody typed an id.
- */
-/**
- * A lab page carries every lab, so one page names them all. Moonshot's is the smallest of the ones
- * we follow, and which lab is read first has no effect on what is found.
- */
-const OPENCODE_SEED_LAB = "moonshotai";
-
-function opencodeLabUrl(lab: string): string {
-  return `https://opencode.ai/data/${lab}`;
-}
-
-function opencodeUrl(maker: string, slug: string): string {
-  return `https://opencode.ai/data/${maker}/${slug}`;
-}
-
-/** The labs a page names, in OpenCode's spelling of each. */
-function parseOpenCodeLabs(body: string): { id: string; name: string }[] {
-  const labs = new Map<string, string>();
-  for (const [, id = "", name = ""] of body.matchAll(/\{id:"([a-z0-9][a-z0-9.-]*)",name:"([^"]+)",description:/g))
-    labs.set(id, name);
-  return [...labs].map(([id, name]) => ({ id, name }));
-}
-
-/**
- * The models a lab page lists.
- *
- * The slug is read rather than spelled: OpenCode writes `qwen3-8-max-prime` in the address of a
- * model it calls `Qwen 3.8 Max Prime`, and the rule that turned one into the other by hand is the
- * reason `muse-spark-1-4-contributor` and `muse-spark-1.4-contributor` were both asked for.
- */
-function parseOpenCodeModels(body: string, lab: string): RecordData[] {
-  const records = new Map<string, RecordData>();
-  // One entry at a time, because the fields after the name are optional and in no fixed order: a
-  // single expression over the whole entry matched the shortest thing that satisfied it and read
-  // every release date as absent.
-  for (const start of [...body.matchAll(new RegExp(`\\{id:"[^"]+",lab:"${lab}",slug:"`, "g"))]) {
-    const entry = body.slice(start.index, start.index + 1200);
-    const head = /^\{id:"([^"]+)",lab:"[^"]+",slug:"([^"]+)",name:"([^"]*)"/.exec(entry);
-    if (!head) continue;
-    const [, id = "", slug = "", name = ""] = head;
-    if (!id || records.has(id)) continue;
-    // The date the lab gave the model, which is the one thing here no other catalogue of ours
-    // carries for a model nobody has announced.
-    const released = /,releaseDate:"(\d{4}-\d{2}-\d{2})"/.exec(entry)?.[1];
-    records.set(id, {
-      id,
-      name,
-      url: opencodeUrl(lab, slug),
-      maker: lab,
-      source: "opencode-data",
-      ...(released ? { created: released } : {}),
-    });
-  }
-  return [...records.values()];
-}
-
-/**
- * Whether this is a page for a model at all.
- *
- * A structural test, not a wording one: the payload carries `entry:` for a model the catalogue has
- * and `entry:null` for one it does not, so a redesign of the page cannot turn a miss into a
- * sighting. `moonshotai/kimi-k5` and `alibaba/qwen4-max` answer 200 with `entry:null`, which is the
- * whole reason a status code cannot be the test here.
- */
-function opencodeHasEntry(body: string): boolean {
-  return /entry:(?:\$R\[\d+\]=)?\{id:"/.test(body);
-}
-
-/** Stealth names, which no catalogue lists and no version rule reaches. */
-const OPENCODE_STEALTH: readonly { maker: string; slug: string }[] = [
-  { maker: "unknown", slug: "space-bunny" },
-  { maker: "unknown", slug: "sonoma-sky" },
-  { maker: "unknown", slug: "stealth-model" },
-];
-
-/**
- * Whether a source other than the probes already has this model. A data page spells the version
- * with a hyphen -- `gpt-5-6` for `gpt-5.6` -- so both spellings are asked about.
- */
-function alreadyListed(db: Database, slug: string): boolean {
-  // OpenCode's own suffix for a model served on contributed capacity is not part of the name.
-  const bare = slug.replace(/-contributor(?:-free)?$/, "");
-  const spellings = [...new Set([bare, bare.replace(/-(\d)-(\d)(?=-|$)/, "-$1.$2")])];
-  const query = db.query(
-    "SELECT 1 FROM records WHERE source NOT LIKE 'discovery:%' AND (lower(id)=?1 OR lower(id) LIKE '%/' || ?1) LIMIT 1",
-  );
-  return spellings.some((spelling) => Boolean(query.get(spelling.toLowerCase())));
-}
-
-/**
- * Every model OpenCode lists for a lab this tracker follows, and the stealth names it does not list.
- *
- * One page per followed lab, which is where the records are, plus the seed page that names the labs.
- * A lab nobody here follows is skipped rather than stored: OpenCode names 44 of them, most of a
- * single model, and a recap that counts them counts the catalogue rather than the field.
- */
-export async function collectOpenCodeData(db: Database, request: Fetch = fetch): Promise<Collection> {
-  const seed = await probe(opencodeLabUrl(OPENCODE_SEED_LAB), request);
-  if (seed.status !== 200)
-    throw new Error(`discovery:opencode-data: /data/${OPENCODE_SEED_LAB} answered HTTP ${seed.status}`);
-  const labs = parseOpenCodeLabs(seed.body);
-  // An empty list is the page shape having moved, which is the one thing a catalogue source must
-  // not read as "the catalogue is empty": every model it ever listed would retire at once.
-  if (!labs.length) throw new Error("discovery:opencode-data: the page named no lab, so its shape has changed");
-  const followed = labs.filter((lab) => vendorOfName(lab.name) !== "Unknown" || vendorOfName(lab.id) !== "Unknown");
-  const records: RecordData[] = [...parseOpenCodeModels(seed.body, OPENCODE_SEED_LAB)];
-  const read: Record<string, number> = { [OPENCODE_SEED_LAB]: records.length };
-  for (const lab of followed) {
-    if (lab.id === OPENCODE_SEED_LAB) continue;
-    const page = await probe(opencodeLabUrl(lab.id), request).catch(() => null);
-    if (!page || page.status !== 200) continue;
-    const listed = parseOpenCodeModels(page.body, lab.id);
-    read[lab.id] = listed.length;
-    records.push(...listed);
-  }
-  for (const { maker, slug } of OPENCODE_STEALTH) {
-    if (alreadyListed(db, slug)) continue;
-    const url = opencodeUrl(maker, slug);
-    const answer = await probe(url, request).catch(() => null);
-    if (!answer || answer.status !== 200 || !opencodeHasEntry(answer.body)) continue;
-    records.push({
-      id: `${maker}/${slug}`,
-      name: slug,
-      url,
-      maker: maker === "unknown" ? null : maker,
-      source: "opencode-data",
-    });
-  }
-  return {
-    source: "discovery:opencode-data",
-    stream: "api-models",
-    url: "https://opencode.ai/data",
-    // How many each lab listed, which is what says a lab went quiet rather than empty.
-    raw: read,
     records,
   };
 }
