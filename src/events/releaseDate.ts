@@ -19,6 +19,15 @@ const CREATED_FIELDS = ["created", "createdAt", "created_at", "releaseDate", "re
 const EARLIEST_RELEASE = Date.parse("2015-01-01T00:00:00.000Z");
 
 /**
+ * The last instant a `Date` can hold. A catalogue field beyond it is finite and later than 2015 and
+ * still not a date: `toISOString` throws on it, and the story row is written from this value, so one
+ * such field in one record failed the collection that carried it on every poll. The bound is the
+ * language's own rather than a judgement about what a plausible release is, so no value that was
+ * read before is read differently now.
+ */
+const LATEST_INSTANT = 8.64e15;
+
+/**
  * One field's value read as an instant, or null when it is not a date a model could have.
  *
  * A catalogue writes an epoch in seconds on OpenRouter and in milliseconds elsewhere, and the two
@@ -32,7 +41,7 @@ function releaseDateOf(value: unknown): number | null {
       : typeof value === "string"
         ? Date.parse(value)
         : Number.NaN;
-  return Number.isFinite(at) && at >= EARLIEST_RELEASE ? at : null;
+  return Number.isFinite(at) && at >= EARLIEST_RELEASE && at <= LATEST_INSTANT ? at : null;
 }
 
 /** The earliest date a record claims for the model it describes, across every spelling of the field. */
