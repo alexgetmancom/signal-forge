@@ -117,10 +117,20 @@ export function validateSourceRegistry(definitions: readonly SourceDefinition[])
  * registry says, so projections rebuilt from stored rows read the values the poller collected with
  * rather than a second list. Model Facts projects from current records, which carry no event to read
  * a contract from, and its old answer was a hand-kept list that had fallen behind on 37 of 120.
+ *
+ * It also settles which rows still belong to anything. A source the registry names is live, and one
+ * a boot finds missing is stamped `retired_at` once -- the instant it was first noticed, not the
+ * latest boot -- so `live_sources` is the registry as a table. The ids it retired this time are
+ * returned for the boot to say out loud: a source disappearing from the registry should never be
+ * something that is only discovered later by a report that stopped counting it.
  */
-export function recordSourceIdentities(db: Database, definitions: readonly SourceDefinition[]): void {
+export function recordSourceIdentities(
+  db: Database,
+  definitions: readonly SourceDefinition[],
+  now = new Date().toISOString(),
+): string[] {
   const upsert = db.query(
-    "INSERT INTO sources(id,authority,vendor,evidence_type,confidence) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET authority=excluded.authority,vendor=excluded.vendor,evidence_type=excluded.evidence_type,confidence=excluded.confidence",
+    "INSERT INTO sources(id,authority,vendor,evidence_type,confidence) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET authority=excluded.authority,vendor=excluded.vendor,evidence_type=excluded.evidence_type,confidence=excluded.confidence,retired_at=NULL",
   );
   for (const definition of definitions)
     upsert.run(
@@ -130,6 +140,12 @@ export function recordSourceIdentities(db: Database, definitions: readonly Sourc
       definition.evidence,
       definition.confidence,
     );
+  return db
+    .query<{ id: string }, [string, string]>(
+      "UPDATE sources SET retired_at=? WHERE retired_at IS NULL AND id NOT IN (SELECT value FROM json_each(?)) RETURNING id",
+    )
+    .all(now, JSON.stringify(definitions.map((definition) => definition.id)))
+    .map((row) => row.id);
 }
 
 /** Scheduler projection: all operational metadata still comes from buildSourceRegistry. */

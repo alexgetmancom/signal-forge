@@ -33,7 +33,7 @@ function teach(connection: Database, query: string, error: unknown): string {
   const tableNames = (): string[] =>
     connection
       .query<{ name: string }, []>(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+        "SELECT name FROM sqlite_master WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%' ORDER BY name",
       )
       .all()
       .map((row) => row.name);
@@ -127,8 +127,11 @@ function schemaOperations(readOnly: () => Database): OperationMap {
         "Name a table for its columns alone; without one, every table is listed. A table is not a " +
         "report: `sources` and `deliveries` keep a row for everything that ever ran or was ever " +
         "sent to, retired included, so counting them answers a different question from " +
-        "`silent-sources` and `destinations`, which read the registry. For `sources` this is " +
-        "enforced -- `check-sql` fails the gate on a read of it as a list that skips the registry.",
+        "`silent-sources` and `destinations`, which read the registry. A source the registry no " +
+        "longer names carries a `retired_at`, and the view `live_sources` is the table without " +
+        'them: a hand-written read of "the sources" names that, not `sources`, and `source <id>` ' +
+        "answers for one by name. `check-sql` fails the gate on a read of `sources` as a list that " +
+        "skips the registry.",
       mutates: false,
       agent: true,
       schema: z.object({ table: z.string().min(1).optional() }),
@@ -138,7 +141,7 @@ function schemaOperations(readOnly: () => Database): OperationMap {
         try {
           const tables = connection
             .query<{ name: string }, []>(
-              "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+              "SELECT name FROM sqlite_master WHERE type IN ('table','view') AND name NOT LIKE 'sqlite_%' ORDER BY name",
             )
             .all()
             .map((row) => row.name)
