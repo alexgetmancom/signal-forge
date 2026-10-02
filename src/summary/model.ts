@@ -153,13 +153,23 @@ export async function summarize(
   if (!response.ok) {
     await response.body?.cancel();
     log("warn", "Summary rejected", { status: response.status });
+    // A 429 or a 5xx says the provider could not serve the request, which is nothing about the
+    // event and costs nothing: it is `failed`, which the ledger asks again about, not `rejected`,
+    // which it treats as an answer and settles the event on. Filed as `rejected` it sent the event
+    // out without its sentence for good on the strength of a busy minute.
+    if (response.status === 429 || response.status >= 500)
+      return result("failed", content.length, null, response.status, null, "Unavailable");
     return result("rejected", content.length, null, response.status);
   }
   let raw: unknown;
   try {
     raw = await response.json();
   } catch (error) {
-    return result("invalid", content.length, null, response.status, null, safeErrorType(error));
+    // A body that broke off is the link failing, and one that arrived whole and is not JSON is an
+    // answer of the wrong shape. Only the second is worth settling on.
+    if (error instanceof SyntaxError)
+      return result("invalid", content.length, null, response.status, null, safeErrorType(error));
+    return result("failed", content.length, null, response.status, null, safeErrorType(error));
   }
   const parsed = responseSchema.safeParse(raw);
   if (!parsed.success) return result("invalid", content.length, null, response.status, null, "InvalidResponse");

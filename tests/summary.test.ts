@@ -321,3 +321,66 @@ test("what is left of a record is read before what is being replaced", () => {
   });
   expect(material.indexOf("CURRENT:")).toBeLessThan(material.indexOf("PREVIOUS:"));
 });
+
+/** A model whose attribute changed in twenty fields, waiting in a batch for its sentence. */
+function aChangedModel(db: ReturnType<typeof openDatabase>): void {
+  const destination = {
+    id: "d",
+    platform: "discord" as const,
+    channelId: "1",
+    signals: ["launch", "codename", "evidence", "change"] as ("launch" | "codename" | "evidence" | "change")[],
+  };
+  const record: RecordData = { id: "m", name: "Model" };
+  for (let index = 0; index < 20; index++) record[`field${index}`] = "before";
+  const collection = { source: "openrouter", stream: "api-models", url: "https://e.test", raw: [], records: [record] };
+  saveCollection(db, collection, [destination], "2026-09-08T10:00:00.000Z");
+  const changed: RecordData = { ...record };
+  for (let index = 0; index < 20; index++) changed[`field${index}`] = "after";
+  collection.records = [changed];
+  saveCollection(db, collection, [destination], "2026-09-08T10:05:00.000Z");
+}
+
+test("a provider that could not serve the request is not an answer about the event", async () => {
+  // A 429 or a 5xx says the service was busy, and a body that broke off says the link was. Filed as
+  // `rejected` and `invalid` they settled the event, and it went out without its sentence for good.
+  const status = (code: number) => async () => new Response("busy", { status: code });
+  expect(await summarize("noise", config, status(503))).toMatchObject({ outcome: "failed", responseStatus: 503 });
+  expect(await summarize("noise", config, status(429))).toMatchObject({ outcome: "failed", responseStatus: 429 });
+  const broken = async () =>
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode('{"choices":[{"mess'));
+          controller.error(new TypeError("socket closed"));
+        },
+      }),
+      { status: 200, headers: { "content-type": "application/json" } },
+    );
+  expect(await summarize("noise", config, broken)).toMatchObject({ outcome: "failed", errorType: "TypeError" });
+  // What did arrive and is not what was asked for is an answer, and asking twice pays twice for it.
+  expect(await summarize("noise", config, status(400))).toMatchObject({ outcome: "rejected", responseStatus: 400 });
+  expect(await summarize("noise", config, async () => new Response("not json at all"))).toMatchObject({
+    outcome: "invalid",
+    errorType: "SyntaxError",
+  });
+});
+
+test("an event whose first attempt met a busy provider is asked again, within the same ceiling", async () => {
+  const db = openDatabase(":memory:");
+  aChangedModel(db);
+  const now = new Date("2026-09-08T12:00:00.000Z");
+  const busy = async () => new Response("overloaded", { status: 503 });
+  expect(await fillSummaries(db, config, busy, now)).toBe(0);
+  expect(await fillSummaries(db, config, reply("Twenty fields changed."), now)).toBe(1);
+  expect(await fillSummaries(db, config, reply("Asked a third time."), now)).toBe(0);
+  expect(db.query("SELECT attempt,outcome FROM deepseek_usage ORDER BY attempt").all()).toEqual([
+    { attempt: 1, outcome: "failed" },
+    { attempt: 2, outcome: "summarized" },
+  ]);
+
+  // A provider that stays busy is asked twice and then left alone, as one that throws is.
+  const down = openDatabase(":memory:");
+  aChangedModel(down);
+  for (let attempt = 0; attempt < 4; attempt++) expect(await fillSummaries(down, config, busy, now)).toBe(0);
+  expect(down.query<{ n: number }, []>("SELECT COUNT(*) n FROM deepseek_usage").get()?.n).toBe(2);
+});

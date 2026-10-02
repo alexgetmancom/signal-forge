@@ -40,9 +40,10 @@ export const DEEPSEEK_MAX_ATTEMPTS = 2;
  * True while this event may still be attempted: no settled answer, and the ceiling not yet spent.
  *
  * 'unclear' and 'failed' are the outcomes worth asking again about -- the model was reached and said
- * nothing usable, or it was not reached at all. A summarised, rejected or invalid answer is an
- * answer, and asking twice would only pay twice for it. A claim left 'pending' by a crash counts as
- * settled, as it did when one claim per event was the whole rule.
+ * nothing usable, or it was not reached at all: a connection that dropped, a body that broke off, a
+ * 429 or a 5xx, which is the provider saying it could not serve the request. A summarised, rejected
+ * or invalid answer is an answer, and asking twice would only pay twice for it. A claim left
+ * 'pending' by a crash counts as settled, as it did when one claim per event was the whole rule.
  */
 function deepSeekAttemptsLeft(db: Database, eventId: number): boolean {
   const row = db
