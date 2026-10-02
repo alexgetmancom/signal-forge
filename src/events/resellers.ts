@@ -9,6 +9,7 @@
 import { text } from "../text.js";
 import { MODALITY_VARIANT } from "./modality.js";
 import { recordFor } from "./record.js";
+import { parseRecord } from "./recordBody.js";
 import type { Event, RecordData, SignalClass } from "./types.js";
 import { vendorOfName } from "./vendors.js";
 
@@ -169,10 +170,8 @@ export function sellsAnotherMakersModel(event: Event): boolean {
  * nowhere, as raw evidence.
  */
 export function becameSelectable(event: Event): boolean {
-  if (event.kind !== "changed" || !event.before_json || !event.after_json) return false;
-  const before = JSON.parse(event.before_json) as { selectable?: unknown };
-  const after = JSON.parse(event.after_json) as { selectable?: unknown };
-  return before.selectable === false && after.selectable === true;
+  if (event.kind !== "changed") return false;
+  return parseRecord(event.before_json)?.selectable === false && parseRecord(event.after_json)?.selectable === true;
 }
 
 /** What a row in an API catalogue, a reseller's gateway or a weights registry is. */

@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { AppConfig } from "./config.js";
 import { incidentEnded } from "./events/incidents.js";
+import { parseRecord } from "./events/recordBody.js";
 import { CAPTION_LIMIT, clipHtml, TEXT_LIMIT, telegramMessage, visibleLength } from "./events/render/telegramCard.js";
 import type { Event } from "./events/types.js";
 import type { Fetch } from "./http-client.js";
@@ -79,7 +80,7 @@ function endingOf(db: Database, eventId: number): Ending | null {
       "SELECT after_json,detected_at,kind FROM events WHERE source=? AND entity_id=? AND id<=? ORDER BY id",
     )
     .all(ending.source, ending.entity_id, ending.id);
-  const records = history.map((row) => (row.after_json ? (JSON.parse(row.after_json) as Record<string, unknown>) : {}));
+  const records = history.map((row): Record<string, unknown> => parseRecord(row.after_json) ?? {});
   const started = records.map((record) => record.started).find((value) => typeof value === "string") as
     | string
     | undefined;

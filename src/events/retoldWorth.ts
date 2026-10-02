@@ -10,6 +10,7 @@
 import type { Database } from "bun:sqlite";
 import { normalizeIdentity } from "./identity.js";
 import { recordFor } from "./record.js";
+import { parseRecord } from "./recordBody.js";
 import { createdBefore } from "./releaseDate.js";
 import { CATALOGUE_MAKER } from "./resellers.js";
 import type { Event } from "./types.js";
@@ -78,8 +79,8 @@ export function retellsToldModels(
  */
 export function namesOnlyKnownModels(event: Event, known: readonly string[][]): boolean {
   if (event.stream !== "web" || event.kind !== "changed") return false;
-  const before = event.before_json ? (JSON.parse(event.before_json) as { strings?: unknown }) : null;
-  const after = event.after_json ? (JSON.parse(event.after_json) as { strings?: unknown }) : null;
+  const before = parseRecord(event.before_json);
+  const after = parseRecord(event.after_json);
   const old = new Set(Array.isArray(before?.strings) ? before.strings : []);
   const telling = (Array.isArray(after?.strings) ? after.strings : []).filter(
     (value): value is string =>

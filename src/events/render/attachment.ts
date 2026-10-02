@@ -1,5 +1,6 @@
 import { slug } from "../../text.js";
-import type { Event, RecordData } from "../types.js";
+import { parseRecord } from "../recordBody.js";
+import type { Event } from "../types.js";
 import { webStringChanges } from "./common.js";
 
 /**
@@ -33,8 +34,8 @@ function withinBytes(text: string, limit: number): string {
 
 export function eventAttachment(event: Event): Attachment | null {
   if (event.stream !== "web" || event.kind !== "changed") return null;
-  const before = event.before_json ? (JSON.parse(event.before_json) as RecordData) : null;
-  const after = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
+  const before = parseRecord(event.before_json);
+  const after = parseRecord(event.after_json);
   if (!Array.isArray(before?.strings) || !Array.isArray(after?.strings)) return null;
 
   const { meaningfulAdded, meaningfulRemoved } = webStringChanges(before.strings, after.strings);

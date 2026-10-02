@@ -1,8 +1,9 @@
+import { recordFor } from "../events/record.js";
 import type { Event } from "../events/types.js";
 import { vendorOf } from "../events/vendors.js";
 import { isNewsworthyStory, worthCutoffs } from "../insights.js";
 import { judgementOf } from "../jev.js";
-import { nameOf, type PeriodReading, recordOf } from "./reading.js";
+import { nameOf, type PeriodReading } from "./reading.js";
 import type { RecapContext } from "./schema.js";
 
 /**
@@ -65,7 +66,7 @@ export function periodHeadlines(reading: PeriodReading): RecapContext["headlines
         )
         .sort((one, other) => order(one.event.source) - order(other.event.source) || one.event.id - other.event.id)
         .map(({ event }) => {
-          const record = recordOf(event);
+          const record = recordFor(event);
           // Site pages are titled "OpenAI: Detecting wildfires early"; the vendor is the line's own label.
           const title = nameOf(event).replace(/^[^:]{1,40}:\s+/, "");
           // A front-page story is somebody else's; when it names no maker, the line says where it was read.

@@ -1,9 +1,10 @@
 import { boardPlace, DEBUT_PLACES, isMainBoard } from "../events/boardSignals.js";
 import { readableName } from "../events/naming.js";
-import type { RecordData } from "../events/types.js";
+import { recordFor } from "../events/record.js";
+import { parseRecord } from "../events/recordBody.js";
 import { vendorOfName, vendorRank } from "../events/vendors.js";
 import { sourceLabel } from "../sources/labels.js";
-import { nameOf, type PeriodReading, recordOf } from "./reading.js";
+import { nameOf, type PeriodReading } from "./reading.js";
 import type { RecapContext } from "./schema.js";
 
 /** A climb this steep into the top ten is a model the experts will ask about; smaller moves are churn. */
@@ -35,8 +36,8 @@ export function periodBoards(reading: PeriodReading): {
       : classified
           .filter(({ event }) => event.stream === "leaderboards" && event.kind === "changed")
           .flatMap(({ event }) => {
-            const before = event.before_json ? (JSON.parse(event.before_json) as RecordData) : null;
-            const after = recordOf(event);
+            const before = parseRecord(event.before_json);
+            const after = recordFor(event);
             const from = Number(before?.rank);
             const to = Number(after?.rank);
             if (!isMainBoard(after?.category) || !Number.isInteger(from) || !Number.isInteger(to)) return [];
@@ -59,7 +60,7 @@ export function periodBoards(reading: PeriodReading): {
       : classified
           .filter(({ event }) => event.source === "artificial-analysis" && event.kind === "new")
           .flatMap(({ event }) => {
-            const record = recordOf(event);
+            const record = recordFor(event);
             const score = record?.score as Record<string, unknown> | undefined;
             const index = score?.artificial_analysis_intelligence_index;
             if (typeof index !== "number") return [];
@@ -78,7 +79,7 @@ export function periodBoards(reading: PeriodReading): {
     const byBoard = new Map<string, { source: string; category: string; leader: string | null; arrived: number }>();
     for (const { event } of classified) {
       if (event.stream !== "leaderboards" || event.kind !== "new") continue;
-      const record = recordOf(event);
+      const record = recordFor(event);
       const category = String(record?.category ?? "");
       const key = `${event.source}\u0000${category}`;
       const board = byBoard.get(key) ?? { source: event.source, category, leader: null, arrived: 0 };

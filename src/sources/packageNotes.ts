@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
-import type { Event, RecordData } from "../events/types.js";
+import { parseRecord } from "../events/recordBody.js";
+import type { Event } from "../events/types.js";
 import type { Fetch } from "../http-client.js";
 import { fetchText } from "./http.js";
 
@@ -37,7 +38,7 @@ const releases = z.array(
 const MAX_NOTES_CHARS = 6000;
 
 function version(event: Event): string | null {
-  const record = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
+  const record = parseRecord(event.after_json);
   const value = record?.version;
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }

@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { AppConfig } from "./config.js";
 import { signalOf } from "./events/classify.js";
 import { knownModelNames, namesAModelKnownHere } from "./events/nameWorth.js";
+import { parseRecord } from "./events/recordBody.js";
 import type { Event } from "./events/types.js";
 import { featureEnabled } from "./features.js";
 import type { Fetch } from "./http-client.js";
@@ -267,8 +268,8 @@ const NAMED_MODEL_STREAMS = new Set(["arena", "api-models", "openrouter", "weigh
  * it is a scan of every catalogue record, and `judgeEvents` asks it for the whole batch.
  */
 function evidenceOf(event: Event, known: readonly string[][]): Record<string, unknown> {
-  const after = event.after_json ? (JSON.parse(event.after_json) as Record<string, unknown>) : {};
-  const before = event.before_json ? (JSON.parse(event.before_json) as Record<string, unknown>) : null;
+  const after: Record<string, unknown> = parseRecord(event.after_json) ?? {};
+  const before = parseRecord(event.before_json);
   const state: Record<string, unknown> = {
     source: event.source,
     kind_of_source: event.stream,

@@ -1,3 +1,4 @@
+import { parseRecord } from "./recordBody.js";
 import type { Event, RecordData } from "./types.js";
 
 /**
@@ -16,8 +17,8 @@ const SEVERE = new Set(["major", "critical"]);
 const IGNORED_IMPACT = new Set(["none", "maintenance"]);
 
 function record(event: Event): RecordData | null {
-  const after = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
-  return after ?? (event.before_json ? (JSON.parse(event.before_json) as RecordData) : null);
+  const after = parseRecord(event.after_json);
+  return after ?? parseRecord(event.before_json);
 }
 
 function impactOf(event: Event): string {
@@ -39,7 +40,7 @@ export function incidentEnded(event: Event): boolean {
   return event.stream === "incidents" && resolved(event);
 }
 function resolved(event: Event): boolean {
-  const current = stage((event.after_json ? (JSON.parse(event.after_json) as RecordData) : null)?.stage);
+  const current = stage(parseRecord(event.after_json)?.stage);
   return ENDED.has(current) || event.kind === "removed";
 }
 
@@ -57,8 +58,8 @@ export function incidentSilence(event: Event): string | null {
    * outage three times in forty-seven minutes on 2026-09-16.
    */
   if (resolved(event)) return "The incident ended, and its start was already reported";
-  const before = event.before_json ? (JSON.parse(event.before_json) as RecordData) : null;
-  const after = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
+  const before = parseRecord(event.before_json);
+  const after = parseRecord(event.after_json);
   return stage(before?.stage) === stage(after?.stage)
     ? "The incident wording changed but its stage did not"
     : "The incident moved between working stages";

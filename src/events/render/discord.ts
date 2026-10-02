@@ -10,6 +10,7 @@
 import { sourceLabel } from "../../sources/labels.js";
 import { vendorOf } from "../interpretation.js";
 import { displayTitle } from "../naming.js";
+import { parseRecord } from "../recordBody.js";
 import { isStealthLaunch } from "../resellers.js";
 import type { Event, RecordData } from "../types.js";
 import type { Banner } from "./banner.js";
@@ -87,8 +88,8 @@ export function eventEmbed(
   summary?: string,
   detail: Detail = "evidence",
 ): Record<string, unknown> {
-  const before = event.before_json ? (JSON.parse(event.before_json) as RecordData) : null;
-  const after = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
+  const before = parseRecord(event.before_json);
+  const after = parseRecord(event.after_json);
   const record = after ?? before;
   const link =
     typeof record?.url === "string" && record.url.trim()
@@ -362,7 +363,7 @@ export function rosterEmbed(
 ): Record<string, unknown> {
   const cards = events.map((event) => eventEmbed(event, event.url, undefined, detail));
   const first = events[0] as Event & { url: string };
-  const record = first.after_json ? (JSON.parse(first.after_json) as RecordData) : null;
+  const record = parseRecord(first.after_json);
   const vendor = vendorOf(first, record);
   const maker = vendor === "Unknown" ? null : vendor;
   const lines = cards.map((card, index) => {
@@ -432,8 +433,7 @@ function clipLines(lines: string[], limit: number): string {
 export function isRoster(events: readonly Event[]): boolean {
   const first = events[0];
   if (!first || events.length < 2 || events.length > MAX_ROSTER) return false;
-  const maker = (event: Event) =>
-    vendorOf(event, event.after_json ? (JSON.parse(event.after_json) as RecordData) : null);
+  const maker = (event: Event) => vendorOf(event, parseRecord(event.after_json));
   const vendor = maker(first);
   return (
     vendor !== "Unknown" &&

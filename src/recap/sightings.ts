@@ -1,11 +1,12 @@
 import { breakoutOf } from "../events/breakouts.js";
 import { readableName } from "../events/naming.js";
+import { recordFor } from "../events/record.js";
 import { isUnfollowedMakerAtAReseller } from "../events/resellers.js";
 import { oneLinePerModel } from "../events/variants.js";
 import { vendorOf } from "../events/vendors.js";
 import { notableCommits } from "../insights.js";
 import { sourceLabel } from "../sources/labels.js";
-import { nameOf, type PeriodReading, recordOf } from "./reading.js";
+import { nameOf, type PeriodReading } from "./reading.js";
 import type { RecapContext } from "./schema.js";
 
 /** Small companies' models at resellers, and the commits worth a sentence. */
@@ -25,11 +26,11 @@ export function periodSightings(reading: PeriodReading): {
           // registry dates them August and July, and "New at huggingface-router" was a year late on
           // one of them. When the catalogue gives the model's own date, it has to be inside the day.
           .filter(({ event }) => {
-            const created = Date.parse(String(recordOf(event)?.created ?? ""));
+            const created = Date.parse(String(recordFor(event)?.created ?? ""));
             return !Number.isFinite(created) || created >= Date.parse(from);
           })
           .map(({ event }) => {
-            const record = recordOf(event);
+            const record = recordFor(event);
             const maker = vendorOf(event, record);
             return {
               // The name as the catalogue wrote it. `readableName` is applied after the grouping

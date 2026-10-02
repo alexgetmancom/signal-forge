@@ -1,4 +1,5 @@
 import { readableName } from "../events/naming.js";
+import { recordFor } from "../events/record.js";
 import { ANNOUNCEMENT_STREAMS } from "../events/signals.js";
 import type { Event } from "../events/types.js";
 import {
@@ -13,7 +14,7 @@ import {
   tierBase,
 } from "../events/variants.js";
 import { vendorOf, vendorOfName, vendorRank } from "../events/vendors.js";
-import { nameOf, type PeriodReading, recordOf } from "./reading.js";
+import { nameOf, type PeriodReading } from "./reading.js";
 import type { RecapContext } from "./schema.js";
 
 export const ARRIVAL_GROUPS = 6;
@@ -51,7 +52,7 @@ const CATALOGUE_STREAMS = new Set(["api-models", "openrouter", "weights"]);
  * thirty-seven models in a week that had nine, and led with a batch tier of a model from July.
  */
 function isRealArrival(event: Event, renamed: Set<number>): boolean {
-  const record = recordOf(event);
+  const record = recordFor(event);
   const name = String(record?.name ?? event.entity_id);
   if (renamed.has(event.id)) return false;
   // Only a stream that lists models can say a model arrived. `launch` is a class about what a
@@ -112,7 +113,7 @@ export function periodArrivals(reading: PeriodReading): {
   const datedThisPeriod = new Set(
     events
       .filter((event) => {
-        const created = Date.parse(String(recordOf(event)?.created ?? ""));
+        const created = Date.parse(String(recordFor(event)?.created ?? ""));
         return Number.isFinite(created) && created >= Date.parse(from) && created < Date.parse(to);
       })
       .map((event) => modelSubject(nameOf(event))),
@@ -135,7 +136,7 @@ export function periodArrivals(reading: PeriodReading): {
     // exists, and the weighting below already prefers the maker's own word over a reseller's.
     const arrived = signal === "launch" || signal === "codename";
     if (!arrived || event.kind !== "new" || !isRealArrival(event, renamed)) continue;
-    const record = recordOf(event);
+    const record = recordFor(event);
     // A catalogue adding a row is not a model being born. Groq listed Compound Mini and OpenRouter
     // re-listed gpt-oss inside one week, and the week read as though GPT-OSS had just come out. The
     // registry's own date settles it: dated before the week, it is a listing, not an arrival.

@@ -10,6 +10,7 @@
 import type { Database } from "bun:sqlite";
 import { canonical } from "./canonical.js";
 import { recordFor } from "./record.js";
+import { parseRecord } from "./recordBody.js";
 import { CATALOGUE_MAKER } from "./resellers.js";
 import type { Event } from "./types.js";
 
@@ -24,8 +25,8 @@ import type { Event } from "./types.js";
  */
 export function isLeftToTheDailyRecap(event: Event): boolean {
   if (event.kind !== "changed" || event.source !== "openrouter") return false;
-  const before = event.before_json ? (JSON.parse(event.before_json) as Record<string, unknown>) : null;
-  const after = event.after_json ? (JSON.parse(event.after_json) as Record<string, unknown>) : null;
+  const before = parseRecord(event.before_json);
+  const after = parseRecord(event.after_json);
   if (!before || !after) return false;
   const changed = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter(
     (key) => canonical(before[key]) !== canonical(after[key]),
@@ -44,8 +45,8 @@ export function isLeftToTheDailyRecap(event: Event): boolean {
 export function isAResellerFillingInAPrice(event: Event): boolean {
   if (event.kind !== "changed" || CATALOGUE_MAKER[event.source]) return false;
   if (event.stream !== "api-models" && event.stream !== "openrouter") return false;
-  const before = event.before_json ? (JSON.parse(event.before_json) as Record<string, unknown>) : null;
-  const after = event.after_json ? (JSON.parse(event.after_json) as Record<string, unknown>) : null;
+  const before = parseRecord(event.before_json);
+  const after = parseRecord(event.after_json);
   if (!before || !after) return false;
   const changed = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter(
     (key) => canonical(before[key]) !== canonical(after[key]),

@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { AppConfig } from "./config.js";
 import { signalOf } from "./events/classify.js";
+import { parseRecord } from "./events/recordBody.js";
 import type { Event } from "./events/types.js";
 import type { Fetch } from "./http-client.js";
 import { type Judgement, judgeEvents, judgementOf, worthCutoff } from "./jev.js";
@@ -69,8 +70,9 @@ const FINDING_GUIDANCE =
  * scouts read it as a sighting.
  */
 function addsOnlyOlderModels(db: Database, event: Event): boolean {
-  const record = event.after_json ? (JSON.parse(event.after_json) as { name?: string; summary?: string }) : {};
-  const added = `${record.name ?? ""}\n${(record.summary ?? "")
+  const record = parseRecord(event.after_json);
+  const summary = typeof record?.summary === "string" ? record.summary : "";
+  const added = `${record?.name ?? ""}\n${summary
     .split("\n")
     .filter((line) => line.startsWith("+"))
     .join("\n")}`;

@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { Destination } from "../config.js";
 import { readState, writeState } from "../storage/appState.js";
+import { parseRecord } from "./recordBody.js";
 import { isUnfollowedMakerAtAReseller, resellerMaker } from "./resellers.js";
 import { wasReleasedLongBefore } from "./retoldWorth.js";
 import type { Event } from "./types.js";
@@ -74,10 +75,10 @@ export function breakoutOf(db: Database, eventId: number): Breakout | null {
 
 /** The word a model is called by: "jev" for Typesafe's Jev, "toast" for Mixedbread's Toast 1. */
 function nameToken(event: Event): string | null {
-  const record = JSON.parse(event.after_json ?? "{}") as { id?: unknown; name?: unknown };
-  const name = String(record.name ?? "").replace(/^[^:]{1,40}:\s+/, "");
+  const record = parseRecord(event.after_json);
+  const name = String(record?.name ?? "").replace(/^[^:]{1,40}:\s+/, "");
   const id =
-    String(record.id ?? event.entity_id)
+    String(record?.id ?? event.entity_id)
       .split("/")
       .at(-1) ?? "";
   for (const word of `${name} ${id}`.toLowerCase().split(/[^a-z0-9]+/))
@@ -102,8 +103,7 @@ function measure(db: Database, event: Event, token: string, now: number): Breako
       .all(event.source, event.detected_at)
       .filter((row) => {
         if (MIRRORS.has(row.source)) return false;
-        const record = JSON.parse(row.after_json ?? "{}") as { name?: unknown };
-        return mentions(token, `${row.entity_id} ${String(record.name ?? "")}`);
+        return mentions(token, `${row.entity_id} ${String(parseRecord(row.after_json)?.name ?? "")}`);
       })
       .map((row) => row.source),
   );
@@ -127,8 +127,7 @@ function measure(db: Database, event: Event, token: string, now: number): Breako
   };
   const repos = split(around("source LIKE 'discovery:github%'"), (row) => row.entity_id.split("/").at(-1) ?? "");
   const stories = split(around("source='hackernews'"), (row) => {
-    const record = JSON.parse(row.after_json ?? "{}") as { name?: unknown };
-    return String(record.name ?? "");
+    return String(parseRecord(row.after_json)?.name ?? "");
   });
   return {
     catalogues: [...catalogues].sort(),
@@ -184,11 +183,11 @@ export function detectBreakouts(db: Database, destinations: readonly Destination
         )
         .get(event.source, measured.at);
       if (!batch) throw new Error("Breakout batch insert failed");
-      const record = JSON.parse(event.after_json ?? "{}") as { url?: unknown };
+      const record = parseRecord(event.after_json);
       db.query("INSERT INTO batch_events(batch_id,event_id,url,signal) VALUES(?,?,?,'codename')").run(
         batch.id,
         event.id,
-        typeof record.url === "string" ? record.url : "",
+        typeof record?.url === "string" ? record.url : "",
       );
       for (const destination of targets)
         db.query("INSERT INTO batch_targets(batch_id,destination_id,destination_json) VALUES(?,?,?)").run(
@@ -204,8 +203,7 @@ export function detectBreakouts(db: Database, destinations: readonly Destination
 
 /** The line above a breakout's card, in the counts that made it one: "🔥 Typesafe Jev is taking off". */
 export function breakoutLine(event: Event, breakout: Breakout): string {
-  const record = JSON.parse(event.after_json ?? "{}") as { name?: unknown };
-  const name = String(record.name ?? event.entity_id).replace(/^[^:]{1,40}:\s+/, "");
+  const name = String(parseRecord(event.after_json)?.name ?? event.entity_id).replace(/^[^:]{1,40}:\s+/, "");
   const maker = (resellerMaker(event) ?? "").replace(/^~/, "").replace(/[-_](?:ai|labs?)$/i, "");
   const label =
     maker && !name.toLowerCase().includes(maker.toLowerCase())

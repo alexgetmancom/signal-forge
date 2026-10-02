@@ -2,7 +2,8 @@ import type { Destination } from "../../config.js";
 import { sourceLabel } from "../../sources/labels.js";
 import { eventEvidenceType, evidenceLabel } from "../confidence.js";
 import { displayTitle } from "../naming.js";
-import type { Event, RecordData } from "../types.js";
+import { parseRecord } from "../recordBody.js";
+import type { Event } from "../types.js";
 import { utcStamp } from "./common.js";
 import { type CardContext, eventFacts } from "./facts.js";
 
@@ -12,8 +13,8 @@ export function renderEvent(
   platform: Destination["platform"] = "telegram",
   summary?: string,
 ): string {
-  const before = event.before_json ? (JSON.parse(event.before_json) as RecordData) : null;
-  const after = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
+  const before = parseRecord(event.before_json);
+  const after = parseRecord(event.after_json);
   const record = after ?? before;
   const labels = { new: "🆕 New", changed: "✏️ Changed", removed: "🗑️ Removed" };
   const link =

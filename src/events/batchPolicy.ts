@@ -8,6 +8,7 @@ import { hasNotificationContent } from "./notification.js";
 import { departedAs, isOscillating, isReappearance } from "./oscillation.js";
 import { pageModel } from "./pageWorth.js";
 import { borrowedFacts } from "./priceWorth.js";
+import { parseRecord } from "./recordBody.js";
 import type { LeadTime } from "./render/facts.js";
 import { stealthSubject } from "./resellers.js";
 import { retellsToldModels } from "./retoldWorth.js";
@@ -28,7 +29,7 @@ import {
   releaseTold,
   repeatsDeliveredStory,
 } from "./toldBefore.js";
-import type { Event, RecordData } from "./types.js";
+import type { Event } from "./types.js";
 import { rosterSiblings } from "./witness.js";
 
 /**
@@ -218,7 +219,7 @@ export function withBorrowedContext(work: Delivering, speaking: BatchEvent[]): v
       if (Object.keys(borrowed).length) Object.assign(event, { borrowed });
     }
     if (listings && sighted(event)) {
-      const record = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
+      const record = parseRecord(event.after_json);
       const elsewhere = elsewhereOf(event);
       // An arena entry nobody lists is the ordinary case and its card already says so.
       if (elsewhere.length || event.stream !== "arena") Object.assign(event, { elsewhere });

@@ -3,6 +3,7 @@ import { claimType } from "../events/claim.js";
 import { INDEPENDENT_SOURCES } from "../events/corroboration.js";
 import { identityFor, normalizeIdentity } from "../events/identity.js";
 import { recordFor } from "../events/record.js";
+import { parseRecord } from "../events/recordBody.js";
 import { sourceFamily } from "../events/sourceFamily.js";
 import type { ClaimType, Event } from "../events/types.js";
 import { sourceLabel } from "../sources/labels.js";
@@ -96,7 +97,7 @@ function slugModel(event: Event): string | null {
  */
 function upstreamTime(event: Event & { authority?: string | null }): string | null {
   if (event.authority !== "first_party") return null;
-  const created = (JSON.parse(event.after_json ?? "{}") as { created?: unknown }).created;
+  const created = parseRecord(event.after_json)?.created;
   if (typeof created !== "string" || !Number.isFinite(Date.parse(created))) return null;
   return /:00:00(?:\.000)?Z$/.test(created) ? null : new Date(created).toISOString();
 }

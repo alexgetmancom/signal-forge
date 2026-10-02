@@ -4,6 +4,7 @@ import { incidentIsSevere, incidentTouchesSubscribers } from "./incidents.js";
 import { NEWSROOMS, newsClass, PRODUCT_BLOGS, patchBuild, RELEASE_NOTE_PAGES } from "./newsrooms.js";
 import { pageClass } from "./pageSignals.js";
 import { recordFor } from "./record.js";
+import { parseRecord } from "./recordBody.js";
 import { becameSelectable, catalogueClass, isStealthLaunch } from "./resellers.js";
 import type { Event, SignalClass } from "./types.js";
 import { meaningfulWebString, tellingWebString } from "./web.js";
@@ -117,7 +118,7 @@ export function signalClass(event: Event): SignalClass {
   // An interface that starts naming a versioned model or a preview is a sighting; the rest of its
   // copy edits are a trail.
   if (event.stream === "web") {
-    const before = event.before_json ? (JSON.parse(event.before_json) as { strings?: unknown }) : null;
+    const before = parseRecord(event.before_json);
     const after = recordFor(event) as { strings?: unknown } | null;
     const old = new Set(Array.isArray(before?.strings) ? before.strings : []);
     const added = (Array.isArray(after?.strings) ? after.strings : []).filter(
@@ -150,7 +151,7 @@ export function signalClass(event: Event): SignalClass {
   if (event.source === "codex-models") {
     if (event.kind === "new") return "codename";
     if (event.kind !== "changed") return "evidence";
-    const before = event.before_json ? (JSON.parse(event.before_json) as Record<string, unknown>) : null;
+    const before = parseRecord(event.before_json);
     const after = recordFor(event);
     return before?.visibility !== after?.visibility || JSON.stringify(before?.plans) !== JSON.stringify(after?.plans)
       ? "codename"
@@ -160,7 +161,7 @@ export function signalClass(event: Event): SignalClass {
   // use it today. Any other name entering those lists is a sighting.
   if (["opencode-zen", "opencode-go", "command-code-models"].includes(event.source)) {
     const after = recordFor(event);
-    const before = event.before_json ? (JSON.parse(event.before_json) as Record<string, unknown>) : null;
+    const before = parseRecord(event.before_json);
     const freed = after?.headline === true && before?.headline !== true;
     if (freed && event.kind !== "removed") return "launch";
     return event.kind === "new" ? "codename" : "evidence";

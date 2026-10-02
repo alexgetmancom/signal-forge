@@ -10,6 +10,7 @@ import { sourceLabel } from "../../sources/labels.js";
 import { boardPlace, DEBUT_PLACES, scoredDebutIndex } from "../boardSignals.js";
 import { eventEvidenceType } from "../confidence.js";
 import { readableName } from "../naming.js";
+import { parseRecord } from "../recordBody.js";
 import type { Event, RecordData } from "../types.js";
 import { excerpt, pageName, place } from "./words.js";
 
@@ -100,7 +101,7 @@ export function eventHeadline(event: Event, name: string, incident: Incident | n
   if (event.stream === "deprecations" && event.kind === "new") return `⚠️ ${name} is being retired`;
   if (incident) return `${incident.icon} ${incident.icon === "🟢" ? "Resolved · " : ""}${name}`;
   if (mentionSighting(event)) {
-    const record = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
+    const record = parseRecord(event.after_json);
     const model = typeof record?.model === "string" ? record.model : name;
     // The handle is the evidence and the card prints it underneath, quoted from the file it was
     // read in; the headline is where a reader decides whether to keep reading, and `minimax-m3.1`
@@ -123,7 +124,7 @@ export function eventHeadline(event: Event, name: string, incident: Incident | n
   // A docs page for a model nobody sells yet: the page is the sighting, not a new model.
   if (event.stream === "pages" && event.kind === "new") return `📄 New page: ${pageName(name)}`;
   if (event.stream === "training") {
-    const record = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
+    const record = parseRecord(event.after_json);
     const maker = typeof record?.maker === "string" ? `${record.maker} ` : "";
     if (record?.ended) return `🏁 ${maker}finished training ${name}`;
     if (event.kind === "new") return `🧪 ${maker}is training ${name}`;
@@ -138,13 +139,13 @@ export function eventHeadline(event: Event, name: string, incident: Incident | n
     if (index !== null) return `🧠 ${name} enters at ${index} on the Intelligence Index`;
   }
   // A release is its name and version; "Released on npm." under "🆕 codex@latest" was the title again.
-  const release = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
+  const release = parseRecord(event.after_json);
   const version = typeof release?.version === "string" ? release.version : null;
   if (event.stream === "packages" && event.kind !== "removed" && version)
     return `📦 ${name.replace(/@[^@/]+$/, "")} ${version} on ${place(event.source)}`;
   if (event.stream === "apps" && event.kind !== "removed" && version) return `📱 ${name} ${version}`;
   if (event.stream === "resets") {
-    const reset = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
+    const reset = parseRecord(event.after_json);
     // Confirmed: the tracker moved it into its history once the announcer said it had propagated.
     if (reset?.stage === "Applied")
       return reset.resetType === "banked"

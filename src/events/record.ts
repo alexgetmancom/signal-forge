@@ -1,3 +1,4 @@
+import { parseRecord } from "./recordBody.js";
 import type { Event, RecordData } from "./types.js";
 
 /**
@@ -5,11 +6,5 @@ import type { Event, RecordData } from "./types.js";
  * the event removed something. Every reader of event evidence goes through here.
  */
 export function recordFor(event: Pick<Event, "after_json" | "before_json">): RecordData | null {
-  const raw = event.after_json ?? event.before_json;
-  if (!raw) return null;
-  try {
-    return JSON.parse(raw) as RecordData;
-  } catch {
-    return null;
-  }
+  return parseRecord(event.after_json ?? event.before_json);
 }

@@ -17,6 +17,7 @@ import { isAliasRow, isAnotherServing, isAnotherTierOfAListedModel, knownModelNa
 import { isScheduledPricingRotation } from "./oscillation.js";
 import { isPageWithoutAProduct } from "./pageWorth.js";
 import { isAResellerFillingInAPrice, isLeftToTheDailyRecap, isTheModalityOfAPricedModel } from "./priceWorth.js";
+import { parseRecord } from "./recordBody.js";
 import { renamedEvents } from "./rename.js";
 import { listsAnotherMakersModel } from "./resellers.js";
 import {
@@ -27,7 +28,7 @@ import {
 } from "./retoldWorth.js";
 import { isModelSighting } from "./signals.js";
 import type { SuppressionReason } from "./suppression.js";
-import type { Event, RecordData } from "./types.js";
+import type { Event } from "./types.js";
 import { displayName } from "./variants.js";
 import { isLongPublishedWeights, isTrendingFromAnUnfollowedLab, isWeightsBesideTheRelease } from "./weightsWorth.js";
 import { firstSightingBySubject, listingsBySubject, releasedSubjects, subjectKey } from "./witness.js";
@@ -195,7 +196,7 @@ export function batchViewOf(db: Database, events: readonly Event[]): BatchView {
   if (catchingUp.length) {
     const first = firstSightingBySubject(db);
     for (const event of catchingUp) {
-      const record = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
+      const record = parseRecord(event.after_json);
       const keys = [
         ...new Set([subjectKey(event.entity_id), subjectKey(displayName(String(record?.name ?? event.entity_id)))]),
       ];
@@ -215,7 +216,7 @@ export function batchViewOf(db: Database, events: readonly Event[]): BatchView {
   const listings = events.some(sighted) ? listingsBySubject(db) : null;
   /** The other catalogues that already carry a sighted model, by the card's own name for it. */
   const elsewhereOf = (event: Event): string[] => {
-    const record = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
+    const record = parseRecord(event.after_json);
     const name = displayName(String(record?.name ?? event.entity_id));
     const keys = new Set([subjectKey(event.entity_id), subjectKey(name)]);
     return [...new Set([...keys].flatMap((key) => [...(listings?.get(key) ?? [])]))]

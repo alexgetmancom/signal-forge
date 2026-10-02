@@ -1,5 +1,6 @@
 import { eventEvidenceType } from "./confidence.js";
 import { recordFor } from "./record.js";
+import { parseRecord } from "./recordBody.js";
 import { isModelSighting } from "./signals.js";
 import type { ClaimType, Event, EvidenceType } from "./types.js";
 
@@ -45,7 +46,7 @@ const CATALOGUES = new Set<ClaimType>(["model_available", "model_listed"]);
  */
 function onlyPriceMoved(event: Event): boolean {
   if (event.kind !== "changed") return false;
-  const before = event.before_json ? (JSON.parse(event.before_json) as Record<string, unknown>) : {};
+  const before: Record<string, unknown> = parseRecord(event.before_json) ?? {};
   const after: Record<string, unknown> = recordFor(event) ?? {};
   const moved = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter(
     (key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]),

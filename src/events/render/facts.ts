@@ -3,6 +3,7 @@ import { canonical } from "../canonical.js";
 import { identityFor, normalizeIdentity } from "../identity.js";
 import { readableName } from "../naming.js";
 import { SUBSTANTIVE_FIELDS } from "../oscillation.js";
+import { parseRecord } from "../recordBody.js";
 import { isStealthLaunch } from "../resellers.js";
 import type { Event, RecordData } from "../types.js";
 import { vendorOfName } from "../vendors.js";
@@ -231,8 +232,8 @@ function sameHandle(value: unknown, handle: unknown): boolean {
 }
 
 export function eventFactParts(event: Event & CardContext, summary?: string): Fact[] {
-  const before = event.before_json ? (JSON.parse(event.before_json) as RecordData) : null;
-  const after = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
+  const before = parseRecord(event.before_json);
+  const after = parseRecord(event.after_json);
   const record = after ?? before;
   const title = String(record?.name ?? event.entity_id);
   const lines: Fact[] = [];

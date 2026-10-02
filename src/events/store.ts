@@ -7,6 +7,7 @@ import { canonical } from "./canonical.js";
 import { classify } from "./classify.js";
 import { isRoutine } from "./interpretation.js";
 import { hasNotificationContent } from "./notification.js";
+import { parseRecord } from "./recordBody.js";
 import { isStealthLaunch } from "./resellers.js";
 import type { SignalClass } from "./signals.js";
 import type { Collection, Confidence, Event, EvidenceType, SourceAuthority } from "./types.js";
@@ -302,10 +303,8 @@ function openEmitter(
  */
 function onNewBoard(stream: string, old: Stored[]): (event: Event) => boolean {
   if (stream !== "leaderboards") return () => false;
-  const boardsBefore = new Set(old.map((row) => (JSON.parse(row.body) as { category?: unknown }).category));
-  return (event) =>
-    event.kind === "new" &&
-    !boardsBefore.has((JSON.parse(event.after_json ?? "{}") as { category?: unknown }).category);
+  const boardsBefore = new Set(old.map((row) => parseRecord(row.body)?.category));
+  return (event) => event.kind === "new" && !boardsBefore.has(parseRecord(event.after_json)?.category);
 }
 
 /**

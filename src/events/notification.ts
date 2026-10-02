@@ -1,6 +1,7 @@
 import { DEBUT_PLACES, isTellableDebut } from "./boardSignals.js";
 import { canonical } from "./canonical.js";
 import { incidentSilence } from "./incidents.js";
+import { parseRecord } from "./recordBody.js";
 import { MIN_PRICE_CHANGE_RATIO, priceMoveRatio, significantPriceChange, webStringChanges } from "./render/common.js";
 import { eventFacts } from "./render/facts.js";
 import type { Event } from "./types.js";
@@ -30,8 +31,8 @@ function significantTokenLimitChange(before: unknown, after: unknown): boolean {
  */
 function leaderboardSilence(event: Event): string | null {
   if (event.stream !== "leaderboards") return null;
-  const before = event.before_json ? (JSON.parse(event.before_json) as Record<string, unknown>) : null;
-  const after = event.after_json ? (JSON.parse(event.after_json) as Record<string, unknown>) : null;
+  const before = parseRecord(event.before_json);
+  const after = parseRecord(event.after_json);
   const beforeRank = rank(before?.rank);
   const afterRank = rank(after?.rank);
   const outsideTop = `Leaderboard movement outside the top ${TOP_PLACES}`;
@@ -85,8 +86,8 @@ export function notificationBlock(event: Event): string | null {
   if (event.stream === "packages" && !["latest", "stable"].includes(event.entity_id.toLowerCase()))
     return `Package tag "${event.entity_id}" is not a release channel`;
   if (event.kind === "changed" && event.stream === "web") {
-    const before = event.before_json ? (JSON.parse(event.before_json) as Record<string, unknown>) : null;
-    const after = event.after_json ? (JSON.parse(event.after_json) as Record<string, unknown>) : null;
+    const before = parseRecord(event.before_json);
+    const after = parseRecord(event.after_json);
     if (Array.isArray(before?.strings) && Array.isArray(after?.strings)) {
       const { meaningfulAdded, meaningfulRemoved } = webStringChanges(before.strings, after.strings);
       return meaningfulAdded.length || meaningfulRemoved.length ? null : "The page changed only boilerplate";
@@ -99,8 +100,8 @@ export function notificationBlock(event: Event): string | null {
   // A host starting or stopping to serve a model is the router's weather; the model arriving is the
   // sighting, and on 2026-09-17 each of its 142 models already had between one and a dozen hosts.
   if (event.source === "huggingface-router") return "A host joined or left a model, the model did not change";
-  const before = event.before_json ? (JSON.parse(event.before_json) as Record<string, unknown>) : {};
-  const after = event.after_json ? (JSON.parse(event.after_json) as Record<string, unknown>) : {};
+  const before: Record<string, unknown> = parseRecord(event.before_json) ?? {};
+  const after: Record<string, unknown> = parseRecord(event.after_json) ?? {};
   const changed = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter(
     (key) => canonical(before[key]) !== canonical(after[key]),
   );

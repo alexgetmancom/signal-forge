@@ -1,8 +1,9 @@
 import type { Database } from "bun:sqlite";
 import { signalOf } from "../events/classify.js";
+import { recordFor } from "../events/record.js";
 import { renamedEvents } from "../events/rename.js";
 import type { SignalClass } from "../events/signals.js";
-import type { Event, RecordData } from "../events/types.js";
+import type { Event } from "../events/types.js";
 import { usageRanks, witnessedSubjects } from "../events/witness.js";
 
 /**
@@ -50,13 +51,8 @@ export function lastRecapPeriod(now: number, period: RecapPeriod = "week"): stri
   return end.toISOString();
 }
 
-export function recordOf(event: Event): RecordData | null {
-  const body = event.after_json ?? event.before_json;
-  return body ? (JSON.parse(body) as RecordData) : null;
-}
-
 export function nameOf(event: Event): string {
-  return String(recordOf(event)?.name ?? event.entity_id);
+  return String(recordFor(event)?.name ?? event.entity_id);
 }
 
 /**

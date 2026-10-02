@@ -1,10 +1,11 @@
 import { readableName } from "../events/naming.js";
 import { isScheduledPricingRotation } from "../events/oscillation.js";
+import { recordFor } from "../events/record.js";
 import { priceMoveRatio, pricePair, significantPriceChange } from "../events/render/common.js";
 import type { Event, RecordData } from "../events/types.js";
 import { isModelVariant, modelSubject } from "../events/variants.js";
 import { subjectKey } from "../events/witness.js";
-import { nameOf, type PeriodReading, recordOf } from "./reading.js";
+import { nameOf, type PeriodReading } from "./reading.js";
 import type { RecapContext } from "./schema.js";
 
 /**
@@ -142,7 +143,7 @@ export function periodPriceMoves(reading: PeriodReading): RecapContext["priceMov
       // A price that rises weeks after a model first appeared is almost always the launch
       // promotion ending rather than a decision to charge more, and saying so is the difference
       // between a fact and a scare.
-      discountEnded: !steepest.cheaper && recentlyListed(recordOf(last), to),
+      discountEnded: !steepest.cheaper && recentlyListed(recordFor(last), to),
     });
     bySubjectMove.set(subject, held);
   }

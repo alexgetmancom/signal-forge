@@ -6,6 +6,8 @@
  * about the model, and which numbers may be borrowed from another catalogue when the maker's own
  * row carries neither. Moved out of discord.ts unchanged.
  */
+
+import { parseRecord } from "../recordBody.js";
 import { isStealthLaunch, listsAnotherMakersModel, stealthSubject } from "../resellers.js";
 import type { Event } from "../types.js";
 import { type Fact, prices } from "./common.js";
@@ -67,7 +69,7 @@ const VENUE_ORDER = ["opencode-zen", "openrouter", "opencode-go"];
  */
 export function stealthChips(event: Event & CardContext, found: readonly string[]): string[] {
   const borrowed = event.borrowed ?? {};
-  const record = (event.after_json ? JSON.parse(event.after_json) : {}) as Record<string, unknown>;
+  const record: Record<string, unknown> = parseRecord(event.after_json) ?? {};
   const context = found.find((chip) => chip.endsWith("context")) ?? contextChip(borrowed.context);
   const accepts = [record.input, borrowed.input].find(Array.isArray);
   return ["free", ...(context ? [context] : []), ...(accepts ? [accepts.join(", ")] : [])].slice(0, 3);

@@ -4,7 +4,8 @@ import { canonical } from "./canonical.js";
 import { normalizeIdentity } from "./identity.js";
 import { opensByAnnouncing } from "./newsrooms.js";
 import { recordFor } from "./record.js";
-import type { Event, RecordData } from "./types.js";
+import { parseRecord } from "./recordBody.js";
+import type { Event } from "./types.js";
 
 /**
  * Observations that are true, cheap to make, and not worth a message.
@@ -40,8 +41,8 @@ export const TOP_PLACES = 3;
  */
 export function isMinorBoardMove(event: Event): boolean {
   if (event.stream !== "leaderboards") return false;
-  const before = event.before_json ? (JSON.parse(event.before_json) as RecordData) : null;
-  const after = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
+  const before = parseRecord(event.before_json);
+  const after = parseRecord(event.after_json);
   const place = Number(after?.rank ?? Number.NaN);
   // A debut is told to the tenth place on a board people quote; a row moving is told to the third.
   if (event.kind === "new") return !(isTellableDebut(event) || (Number.isFinite(place) && place <= TOP_PLACES));
@@ -63,8 +64,8 @@ const LABELS = new Set(["name", "model", "modelKey", "slug", "title"]);
  */
 export function isLabelOnlyChange(event: Event): boolean {
   if (event.kind !== "changed" || event.stream === "arena" || event.stream === "leaderboards") return false;
-  const before = event.before_json ? (JSON.parse(event.before_json) as Record<string, unknown>) : null;
-  const after = event.after_json ? (JSON.parse(event.after_json) as Record<string, unknown>) : null;
+  const before = parseRecord(event.before_json);
+  const after = parseRecord(event.after_json);
   if (!before || !after) return false;
   const changed = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter(
     (key) => canonical(before[key]) !== canonical(after[key]),
@@ -82,9 +83,10 @@ export function isLabelOnlyChange(event: Event): boolean {
  * a source's records at once is recognised as the schema moving, not the models.
  */
 export function addedFieldSignature(event: Event): string | null {
-  if (event.kind !== "changed" || !event.before_json || !event.after_json) return null;
-  const before = JSON.parse(event.before_json) as Record<string, unknown>;
-  const after = JSON.parse(event.after_json) as Record<string, unknown>;
+  if (event.kind !== "changed") return null;
+  const before = parseRecord(event.before_json);
+  const after = parseRecord(event.after_json);
+  if (!before || !after) return null;
   const added: string[] = [];
   for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
     if (canonical(before[key]) === canonical(after[key])) continue;
@@ -102,9 +104,10 @@ export function addedFieldSignature(event: Event): string | null {
  * the news; the other five are the same news with another model's name on it.
  */
 export function changeSignature(event: Event): string | null {
-  if (event.kind !== "changed" || !event.before_json || !event.after_json) return null;
-  const before = JSON.parse(event.before_json) as Record<string, unknown>;
-  const after = JSON.parse(event.after_json) as Record<string, unknown>;
+  if (event.kind !== "changed") return null;
+  const before = parseRecord(event.before_json);
+  const after = parseRecord(event.after_json);
+  if (!before || !after) return null;
   const moves = [...new Set([...Object.keys(before), ...Object.keys(after)])]
     .filter((key) => canonical(before[key]) !== canonical(after[key]))
     .sort()

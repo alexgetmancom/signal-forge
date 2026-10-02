@@ -18,7 +18,6 @@ import { renderEvent } from "./render/telegram.js";
 import { pingWorthy } from "./signals.js";
 import { recordSuppression } from "./suppression.js";
 import { firstTelling } from "./toldBefore.js";
-import type { RecordData } from "./types.js";
 
 /** How many stories an hourly digest shows before it stops being read at all. */
 const DIGEST_STORIES = 5;
@@ -192,12 +191,7 @@ function cardPings(
   const vendors = [
     ...new Set(
       pinged.map((event) => {
-        const record = event.after_json
-          ? (JSON.parse(event.after_json) as RecordData)
-          : event.before_json
-            ? (JSON.parse(event.before_json) as RecordData)
-            : null;
-        return vendorOf(event, record);
+        return vendorOf(event, recordFor(event));
       }),
     ),
   ];

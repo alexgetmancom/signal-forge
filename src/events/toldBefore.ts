@@ -11,10 +11,11 @@
 import type { Database } from "bun:sqlite";
 import { CONFIDENCE_LEVELS } from "./confidence.js";
 import { pageModel } from "./pageWorth.js";
+import { parseRecord } from "./recordBody.js";
 import { isStealthLaunch, stealthSubject } from "./resellers.js";
 import { isMakersAnnouncement } from "./signals.js";
 import { sourceFamily } from "./sourceFamily.js";
-import type { Event, RecordData } from "./types.js";
+import type { Event } from "./types.js";
 import { displayName } from "./variants.js";
 import { subjectKey } from "./witness.js";
 
@@ -89,7 +90,7 @@ export function announcementModel(event: Event): string | null {
   if (isStealthLaunch(event)) return `stealth:${stealthSubject(event)}`;
   const isPage = event.signal === "release" && (event.stream === "pages" || event.source.endsWith("-sitemap"));
   if (!isPage && !isMakersAnnouncement(event)) return null;
-  const record = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
+  const record = parseRecord(event.after_json);
   const slug = isPage
     ? (event.entity_id.split("?")[0]?.replace(/\/+$/, "").split("/").at(-1) ?? "")
     : // A post is titled the way a post is: the model is what is left once the verb is taken off.
@@ -186,7 +187,7 @@ export function announcementsBySubject(db: Database, now: number): Map<string, A
 
 /** What this database knows about the maker having announced the model an event is about. */
 export function announcementOf(event: Event, announcements: ReadonlyMap<string, Announcement>): Announcement | null {
-  const record = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
+  const record = parseRecord(event.after_json);
   const names = [record?.name, record?.model, event.entity_id].filter(
     (value): value is string => typeof value === "string" && value.trim().length > 0,
   );

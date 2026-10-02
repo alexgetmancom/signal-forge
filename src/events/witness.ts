@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { parseRecord } from "./recordBody.js";
 import { modelSubject, releasedModelSubject } from "./variants.js";
 
 /**
@@ -20,24 +21,6 @@ export function subjectKey(name: string): string {
   return modelSubject(name)
     .replace(/\s+\d{8}$/, "")
     .replace(/\s+/g, "");
-}
-
-/**
- * A stored record body as an object, or null for one that is not.
- *
- * The service writes every body itself, so a row that does not parse is damage rather than input.
- * Each reader here treats the row as absent -- a model it cannot read is a model it does not
- * witness -- instead of failing a whole report over one row.
- */
-function parseRecord(body: string): Record<string, unknown> | null {
-  try {
-    const parsed: unknown = JSON.parse(body);
-    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : null;
-  } catch {
-    return null;
-  }
 }
 
 export function witnessedSubjects(db: Database): Set<string> {

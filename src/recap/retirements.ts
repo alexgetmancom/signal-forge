@@ -1,6 +1,7 @@
 import { readableName } from "../events/naming.js";
+import { recordFor } from "../events/record.js";
 import { modelSubject } from "../events/variants.js";
-import { nameOf, type PeriodReading, recordOf } from "./reading.js";
+import { nameOf, type PeriodReading } from "./reading.js";
 import type { RecapContext } from "./schema.js";
 
 /**
@@ -30,7 +31,7 @@ export function periodRetirements(
       ({ event, signal }) => (signal === "retirement" || event.stream === "deprecations") && event.stream !== "news",
     )
     .map(({ event }) => {
-      const record = recordOf(event);
+      const record = recordFor(event);
       const date = [record?.shutdown, record?.retirement, record?.deprecated].find(
         (value): value is string => typeof value === "string" && value.trim().length > 0,
       );

@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { Destination } from "../config.js";
 import { readState, writeState } from "../storage/appState.js";
+import { parseRecord } from "./recordBody.js";
 import { sourceIndependenceFamily } from "./sourceFamily.js";
 import type { Confidence, Event, SourceAuthority } from "./types.js";
 
@@ -70,7 +71,7 @@ const WATCH_MS = 72 * 3_600_000;
 function gatheredQuickly(row: CorroboratedRow, evidence: readonly StoryEvidence[], since: number): boolean {
   if (!(Date.parse(row.first_seen_at) >= since)) return false;
   return !evidence.some((event) => {
-    const created = Date.parse(String((JSON.parse(event.after_json ?? "{}") as { created?: unknown }).created ?? ""));
+    const created = Date.parse(String(parseRecord(event.after_json)?.created ?? ""));
     return Number.isFinite(created) && created < since;
   });
 }
@@ -223,11 +224,11 @@ export function detectCorroborated(db: Database, destinations: readonly Destinat
         )
         .get(event.source, corroboration.at);
       if (!batch) throw new Error("Corroboration batch insert failed");
-      const record = JSON.parse(event.after_json ?? "{}") as { url?: unknown };
+      const record = parseRecord(event.after_json);
       db.query("INSERT INTO batch_events(batch_id,event_id,url,signal) VALUES(?,?,?,'codename')").run(
         batch.id,
         event.id,
-        typeof record.url === "string" ? record.url : "",
+        typeof record?.url === "string" ? record.url : "",
       );
       for (const destination of targets)
         db.query("INSERT INTO batch_targets(batch_id,destination_id,destination_json) VALUES(?,?,?)").run(

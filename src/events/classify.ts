@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { listedInCatalogue, olderThanKnown } from "../sources/mentionStage.js";
 import { isLearnedMaker } from "./breakouts.js";
 import { recordFor } from "./record.js";
+import { parseRecord } from "./recordBody.js";
 import { isUnfollowedMakerAtAReseller, resellerMaker, sellsAnotherMakersModel } from "./resellers.js";
 import { type SignalClass, signalClass } from "./signals.js";
 import type { Event } from "./types.js";
@@ -119,7 +120,7 @@ function supersededModel(db: Database, event: Event): boolean {
  */
 const ACTED_ON = ["pricing", "deprecation", "deprecated", "retirement", "retires", "expiration_date", "sunset"];
 function movesWhatAReaderActsOn(event: Event): boolean {
-  const before = event.before_json ? (JSON.parse(event.before_json) as Record<string, unknown>) : {};
+  const before: Record<string, unknown> = parseRecord(event.before_json) ?? {};
   const after: Record<string, unknown> = recordFor(event) ?? {};
   return ACTED_ON.some((field) => JSON.stringify(before[field]) !== JSON.stringify(after[field]));
 }
@@ -132,7 +133,7 @@ function movesWhatAReaderActsOn(event: Event): boolean {
  */
 function learnedARateItDidNotKnow(event: Event): boolean {
   if (event.kind !== "changed") return false;
-  const before = event.before_json ? (JSON.parse(event.before_json) as Record<string, unknown>) : {};
+  const before: Record<string, unknown> = parseRecord(event.before_json) ?? {};
   const after: Record<string, unknown> = recordFor(event) ?? {};
   const rates = (value: unknown) => (value && typeof value === "object" ? (value as Record<string, unknown>) : {});
   const old = rates(before.pricing);
@@ -154,7 +155,7 @@ function learnedARateItDidNotKnow(event: Event): boolean {
 const RATES = ["prompt", "completion", "input", "output"];
 function sideRepricingAtReseller(event: Event): boolean {
   if (event.kind !== "changed" || event.source === "openrouter" || !sellsAnotherMakersModel(event)) return false;
-  const before = event.before_json ? (JSON.parse(event.before_json) as Record<string, unknown>) : {};
+  const before: Record<string, unknown> = parseRecord(event.before_json) ?? {};
   const after: Record<string, unknown> = recordFor(event) ?? {};
   const moved = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter(
     (key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]),

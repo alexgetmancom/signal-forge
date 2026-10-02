@@ -1,10 +1,11 @@
 import { canonical } from "./canonical.js";
 import { incidentIsUrgent } from "./incidents.js";
 import { priceMoveRatio } from "./render/common.js";
-import type { Event, RecordData } from "./types.js";
+import type { Event } from "./types.js";
 
 export { vendorOf } from "./vendors.js";
 
+import { parseRecord } from "./recordBody.js";
 import { signalClass } from "./signals.js";
 import { isModelVariant } from "./variants.js";
 
@@ -16,8 +17,8 @@ export function isRoutine(event: Event): boolean {
   if (event.stream === "leaderboards") {
     // A model debuting in the top ten is told the moment it happens, like the launch it follows.
     if (signalClass(event) === "debut") return false;
-    const before = event.before_json ? (JSON.parse(event.before_json) as RecordData) : null;
-    const after = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
+    const before = parseRecord(event.before_json);
+    const after = parseRecord(event.after_json);
     const beforeRank = typeof before?.rank === "number" ? before.rank : null;
     const afterRank = typeof after?.rank === "number" ? after.rank : null;
     const rankChanged = beforeRank !== afterRank;
@@ -33,8 +34,8 @@ export function isRoutine(event: Event): boolean {
   // release channels people actually install on stay immediate.
   if (event.stream === "packages" && !["latest", "stable"].includes(event.entity_id)) return true;
   if (!["openrouter", "api-models", "arena"].includes(event.stream)) return false;
-  const before = JSON.parse(event.before_json ?? "{}") as Record<string, unknown>;
-  const after = JSON.parse(event.after_json ?? "{}") as Record<string, unknown>;
+  const before: Record<string, unknown> = parseRecord(event.before_json) ?? {};
+  const after: Record<string, unknown> = parseRecord(event.after_json) ?? {};
   const important = [
     "name",
     "pricing",
