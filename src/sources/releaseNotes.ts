@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
 import type { Collection, RecordData } from "../events/types.js";
+import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import type { HttpCache } from "../storage/httpCache.js";
 import { slug } from "../text.js";
@@ -21,6 +22,8 @@ const KIMI_CODE_CHANGELOG_URL = "https://www.kimi.com/code/docs/en/kimi-code/wha
 const MINIMAX_CODE_CHANGELOG_URL = "https://agent.minimax.io/docs/changelog";
 const MINIMAX_CODE_CHANGELOG_FETCH_URL = `${MINIMAX_CODE_CHANGELOG_URL}.md`;
 
+const SUMMARY_LIMIT = 1_200;
+
 const releaseRecordSchema = z
   .object({
     id: z.string().min(1),
@@ -28,7 +31,7 @@ const releaseRecordSchema = z
     url: z.url(),
     maker: z.string().min(1),
     published: z.string().datetime({ offset: true }),
-    summary: z.string().min(1).max(1_200),
+    summary: z.string().min(1).max(SUMMARY_LIMIT),
   })
   .passthrough();
 const releaseRecordsSchema = z.array(releaseRecordSchema).min(1);
@@ -60,6 +63,19 @@ const monthNumbers: Record<string, number> = {
   december: 11,
 };
 
+/**
+ * A date is read exactly or the read fails. The one parser that skips an entry instead is Kimi's, for
+ * an entry it knows about.
+ *
+ * Skipping is the kind thing to do for a stray typo and the wrong thing for a vendor changing how it
+ * writes dates: the newest entries are the ones that would stop parsing while the older ones carried
+ * on, and the source would look healthy while missing every new release, which is the one thing it is
+ * read for. Failing says so on the board, by type, and the entries are all there once it is fixed.
+ */
+function invalidDate(source: string): SourceError {
+  return new SourceError("schema", `${source}: invalid publication date`);
+}
+
 function utcDate(year: number, month: number, day: number, source: string): string {
   const time = Date.UTC(year, month, day);
   const date = new Date(time);
@@ -69,7 +85,7 @@ function utcDate(year: number, month: number, day: number, source: string): stri
     date.getUTCMonth() !== month ||
     date.getUTCDate() !== day
   )
-    throw new Error(`${source}: invalid publication date`);
+    throw invalidDate(source);
   return date.toISOString();
 }
 
@@ -80,16 +96,16 @@ function publicationDate(value: string, source: string, fallbackYear?: number): 
   const full = /^([A-Za-z]+)\s+(\d{1,2}),\s+(\d{4})$/.exec(normalized);
   if (full) {
     const month = monthNumbers[(full[1] ?? "").toLowerCase()];
-    if (month === undefined) throw new Error(`${source}: invalid publication date`);
+    if (month === undefined) throw invalidDate(source);
     return utcDate(Number(full[3]), month, Number(full[2]), source);
   }
   const monthDay = /^([A-Za-z]+)\s+(\d{1,2})$/.exec(normalized);
   if (monthDay && fallbackYear !== undefined) {
     const month = monthNumbers[(monthDay[1] ?? "").toLowerCase()];
-    if (month === undefined) throw new Error(`${source}: invalid publication date`);
+    if (month === undefined) throw invalidDate(source);
     return utcDate(fallbackYear, month, Number(monthDay[2]), source);
   }
-  throw new Error(`${source}: invalid publication date`);
+  throw invalidDate(source);
 }
 
 /** Whether a heading carries a date at all, which is what separates entries from navigation. */
@@ -107,7 +123,34 @@ function dayOf(published: string): string {
   return published.slice(0, 10);
 }
 
-const SUMMARY_LIMIT = 1_200;
+/** The page's `<main>`, or the whole page when it has none. */
+function mainOf(html: string): string {
+  return html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i)?.[1] ?? html;
+}
+
+/** What a block of markup says, cut to the length a record keeps, or the fallback when it says nothing. */
+function summaryOf(html: string, fallback: string): string {
+  return contentBlocks(html).slice(0, SUMMARY_LIMIT) || fallback;
+}
+
+/** Every match of `pattern` as its position in the page and the text of its first group. */
+function markersOf(content: string, pattern: RegExp): { index: number; text: string }[] {
+  return [...content.matchAll(pattern)].flatMap((marker) =>
+    marker.index === undefined ? [] : [{ index: marker.index, text: htmlText(marker[1] ?? "") }],
+  );
+}
+
+/** The last of `items`, which are in document order, that starts before `index`. */
+function lastBefore<T extends { index: number }>(items: readonly T[], index: number): T | undefined {
+  let low = 0;
+  let high = items.length;
+  while (low < high) {
+    const middle = (low + high) >> 1;
+    if ((items[middle] as T).index < index) low = middle + 1;
+    else high = middle;
+  }
+  return items[low - 1];
+}
 
 function contentBlocks(value: string): string {
   const blocks = [...value.matchAll(/<(p|ul|ol|blockquote)\b[^>]*>[\s\S]*?<\/\1>/gi)].map((match) =>
@@ -116,9 +159,35 @@ function contentBlocks(value: string): string {
   return (blocks.length ? blocks.join(" ") : htmlText(value)).trim();
 }
 
+/**
+ * Two entries of one day under one title read as one id, and `persistCollection` refuses a collection
+ * with a repeated id whole: one such pair stopped the source and every note on its page with it.
+ *
+ * The suffix goes to the later arrival. Pages list the newest first, so the walk is from the end: the
+ * entry that has been there longest keeps its id and a duplicate added above it is `-2`, and no stored
+ * record changes id because another one joined it. A suffix that is itself an id on the page is skipped.
+ */
+function distinctIds(records: RecordData[]): RecordData[] {
+  const taken = new Set(records.map((record) => record.id));
+  const seen = new Map<string, number>();
+  return [...records]
+    .reverse()
+    .map((record) => {
+      const before = seen.get(record.id) ?? 0;
+      seen.set(record.id, before + 1);
+      if (before === 0) return record;
+      let n = before + 1;
+      while (taken.has(`${record.id}-${n}`)) n += 1;
+      const id = `${record.id}-${n}`;
+      taken.add(id);
+      return { ...record, id };
+    })
+    .reverse();
+}
+
 function releaseCollection(source: string, url: string, records: RecordData[]): Collection {
-  if (!records.length) throw new Error(`${source}: release notes have no dated entries`);
-  const parsed = releaseRecordsSchema.parse(records) as RecordData[];
+  if (!records.length) throw new SourceError("missing-content", `${source}: release notes have no dated entries`);
+  const parsed = distinctIds(releaseRecordsSchema.parse(records) as RecordData[]);
   return {
     source,
     stream: "news",
@@ -190,7 +259,7 @@ export function parseOpenAIApiChangelog(markdown: string): Collection {
   const records = dateHeadings.flatMap((heading, index) => {
     const headingIndex = heading.index ?? -1;
     if (headingIndex < 0) return [];
-    const month = monthHeadings.filter((candidate) => candidate.index < headingIndex).at(-1);
+    const month = lastBefore(monthHeadings, headingIndex);
     if (!month) return [];
     const published = publicationDate(`${heading[1] ?? ""}, ${month.year}`, "openai-api-changelog");
     const sectionStart = headingIndex + heading[0].length;
@@ -229,7 +298,7 @@ export const collectOpenAIApiChangelog = collector(OPENAI_API_CHANGELOG_FETCH_UR
 /** Parse the dated article sections from OpenAI's ChatGPT Help Center release notes. */
 export function parseOpenAIChatGPTReleaseNotes(html: string): Collection {
   const article = html.match(/<article\b[^>]*>([\s\S]*?)<\/article>/i)?.[1];
-  if (!article) throw new Error("OpenAI ChatGPT release notes article not found");
+  if (!article) throw new SourceError("missing-content", "OpenAI ChatGPT release notes article not found");
   const days = sections(article, /<h1\b[^>]*>([\s\S]*?)<\/h1>/gi, (heading) =>
     isDate(htmlText(heading[1] ?? ""), "openai-chatgpt-release-notes"),
   );
@@ -238,7 +307,7 @@ export function parseOpenAIChatGPTReleaseNotes(html: string): Collection {
     return sections(day.body, /<h2\b[^>]*>([\s\S]*?)<\/h2>/gi).flatMap((entry, entryIndex) => {
       const name = htmlText(entry.match[1] ?? "");
       if (!name) return [];
-      const summary = contentBlocks(entry.body).slice(0, SUMMARY_LIMIT) || name;
+      const summary = summaryOf(entry.body, name);
       return [
         {
           id: `${dayOf(published)}:${slug(name) || `entry-${entryIndex}`}`,
@@ -261,7 +330,7 @@ export const collectOpenAIChatGPTReleaseNotes = judgedCollector(
 
 /** Parse one dated section per entry from Google's official Gemini API changelog. */
 export function parseGeminiApiChangelog(html: string): Collection {
-  const content = html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i)?.[1] ?? html;
+  const content = mainOf(html);
   const dateOf = (heading: RegExpMatchArray): string =>
     attribute(heading[1] ?? "", "data-text") ?? htmlText(heading[2] ?? "");
   const records = sections(content, /<h2\b([^>]*)>([\s\S]*?)<\/h2>/gi, (heading) =>
@@ -270,7 +339,7 @@ export function parseGeminiApiChangelog(html: string): Collection {
     const dateText = dateOf(match);
     const published = publicationDate(dateText, "gemini-api-changelog");
     const anchor = attribute(match[1] ?? "", "id") ?? dayOf(published);
-    const summary = contentBlocks(body).slice(0, SUMMARY_LIMIT) || dateText;
+    const summary = summaryOf(body, dateText);
     return {
       id: dayOf(published),
       name: `Gemini API changelog · ${dayOf(published)}`,
@@ -290,13 +359,13 @@ function pageYear(html: string, source: string): number {
     html.match(/(?:Last updated|dateModified)[\s\S]{0,100}?((?:19|20)\d{2})/i)?.[1] ??
     html.match(/\b((?:19|20)\d{2})-\d{2}-\d{2}\b/)?.[1];
   const year = Number(yearText);
-  if (!Number.isInteger(year)) throw new Error(`${source}: page year not found`);
+  if (!Number.isInteger(year)) throw new SourceError("missing-content", `${source}: page year not found`);
   return year;
 }
 
 /** Parse xAI's month-grouped release notes, whose cards carry their day beside each heading. */
 export function parseXaiReleaseNotes(html: string): Collection {
-  const content = html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i)?.[1] ?? html;
+  const content = mainOf(html);
   const year = pageYear(html, "xai-release-notes");
   const monthHeadings = [...content.matchAll(/<h2\b([^>]*)>([\s\S]*?)<\/h2>/gi)].flatMap((heading) => {
     const text = htmlText(heading[2] ?? "");
@@ -305,16 +374,15 @@ export function parseXaiReleaseNotes(html: string): Collection {
     if (heading.index === undefined || month === undefined || !match) return [];
     return [{ index: heading.index, month, year: Number(match[2] ?? year) }];
   });
-  const dateMarkers = [
-    ...content.matchAll(
-      /<div\b[^>]*class="[^"]*\btext-muted\b[^"]*"[^>]*>\s*<div\b[^>]*class="relative"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/gi,
-    ),
-  ].flatMap((marker) => (marker.index === undefined ? [] : [{ index: marker.index, text: htmlText(marker[1] ?? "") }]));
+  const dateMarkers = markersOf(
+    content,
+    /<div\b[^>]*class="[^"]*\btext-muted\b[^"]*"[^>]*>\s*<div\b[^>]*class="relative"[^>]*>([\s\S]*?)<\/div>\s*<\/div>/gi,
+  );
   const headings = [...content.matchAll(/<h3\b([^>]*)>([\s\S]*?)<\/h3>/gi)];
   const records = headings.flatMap((heading, index) => {
     if (heading.index === undefined) return [];
-    const marker = dateMarkers.filter((candidate) => candidate.index < heading.index).at(-1);
-    const month = monthHeadings.filter((candidate) => candidate.index < heading.index).at(-1);
+    const marker = lastBefore(dateMarkers, heading.index);
+    const month = lastBefore(monthHeadings, heading.index);
     const name = htmlText(heading[2] ?? "");
     const anchor = attribute(heading[1] ?? "", "id") ?? slug(name);
     if (!marker || !month || !name || !anchor) return [];
@@ -322,8 +390,7 @@ export function parseXaiReleaseNotes(html: string): Collection {
     const nextHeading = headings[index + 1]?.index ?? content.length;
     const nextMonth = monthHeadings.find((candidate) => candidate.index > heading.index)?.index ?? content.length;
     const sectionEnd = Math.min(nextHeading, nextMonth);
-    const summary =
-      contentBlocks(content.slice(heading.index + heading[0].length, sectionEnd)).slice(0, SUMMARY_LIMIT) || name;
+    const summary = summaryOf(content.slice(heading.index + heading[0].length, sectionEnd), name);
     return [
       {
         id: `${dayOf(published)}:${anchor}`,
@@ -342,7 +409,7 @@ export const collectXaiReleaseNotes = collector(XAI_RELEASE_NOTES_URL, parseXaiR
 
 /** Parse the dated cards from Mistral's official release-notes page. */
 export function parseMistralReleaseNotes(html: string): Collection {
-  const content = html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i)?.[1] ?? html;
+  const content = mainOf(html);
   const records = sections(content, /<time\b([^>]*)>([\s\S]*?)<\/time>/gi, (time) =>
     Boolean(attribute(time[1] ?? "", "dateTime")),
   ).flatMap(({ match, body }) => {
@@ -351,7 +418,7 @@ export function parseMistralReleaseNotes(html: string): Collection {
     if (!heading || heading.index === undefined) return [];
     const name = htmlText(heading[2] ?? "");
     if (!name) return [];
-    const summary = contentBlocks(body.slice(heading.index + heading[0].length)).slice(0, SUMMARY_LIMIT) || name;
+    const summary = summaryOf(body.slice(heading.index + heading[0].length), name);
     return [
       {
         id: `${dayOf(date)}:${slug(name)}`,
@@ -371,18 +438,19 @@ export const collectMistralReleaseNotes = judgedCollector(MISTRAL_RELEASE_NOTES_
 /** Parse Groq's dated changelog cards while ignoring its navigation headings. */
 export function parseGroqChangelog(html: string): Collection {
   const year = pageYear(html, "groq-changelog");
-  const dateMarkers = [
-    ...html.matchAll(/<span\b[^>]*class="[^"]*\btext-xs\b[^"]*\bsticky\b[^"]*"[^>]*>([\s\S]*?)<\/span>/gi),
-  ].flatMap((marker) => (marker.index === undefined ? [] : [{ index: marker.index, text: htmlText(marker[1] ?? "") }]));
+  const dateMarkers = markersOf(
+    html,
+    /<span\b[^>]*class="[^"]*\btext-xs\b[^"]*\bsticky\b[^"]*"[^>]*>([\s\S]*?)<\/span>/gi,
+  );
   // Every h3 bounds the one before it, including the navigation headings this ignores.
   const records = sections(html, /<h3\b([^>]*)>([\s\S]*?)<\/h3>/gi).flatMap(({ match, index, body }) => {
     if (!/\bmt-12\b/.test(attribute(match[1] ?? "", "class") ?? "")) return [];
-    const marker = dateMarkers.filter((candidate) => candidate.index < index).at(-1);
+    const marker = lastBefore(dateMarkers, index);
     const name = htmlText(match[2]?.match(/<a\b[^>]*>([\s\S]*?)<\/a>/i)?.[1] ?? match[2] ?? "");
     const anchor = attribute(match[1] ?? "", "id") ?? slug(name);
     if (!marker || !name || !anchor) return [];
     const published = publicationDate(marker.text, "groq-changelog", year);
-    const summary = contentBlocks(body).slice(0, SUMMARY_LIMIT) || name;
+    const summary = summaryOf(body, name);
     return [
       {
         id: `${dayOf(published)}:${anchor}`,
@@ -420,7 +488,7 @@ export function parseKimiCodeChangelog(html: string): Collection {
     const version = htmlText(meta.match(/<span class="ignore-header">([\s\S]*?)<\/span>/)?.[1] ?? "");
     const date = htmlText(meta.match(/<span class="wn-date">([\s\S]*?)<\/span>/)?.[1] ?? "");
     const product = htmlText(meta.match(/<span class="wn-product">([\s\S]*?)<\/span>/)?.[1] ?? "Kimi Code");
-    const summary = contentBlocks(match[2] ?? "").slice(0, SUMMARY_LIMIT);
+    const summary = summaryOf(match[2] ?? "", "");
     if (!version || !date || !summary) return [];
     // One historical entry is dated to a month with no day. A publication date is not invented
     // here; the entry is left out, and a wholesale format change empties the collection instead,
