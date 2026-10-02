@@ -9,17 +9,11 @@
  * main is what production is running, so that is what this compares against.
  */
 import { CURRENT_SCHEMA_VERSION, readMigrations } from "../src/storage/migrations.js";
+import { deployedSchemaVersion } from "./deployedVersion.js";
 
 const migrations = readMigrations();
 
-function deployedVersion(): number | null {
-  const show = Bun.spawnSync(["git", "show", "origin/main:src/storage/migrations.ts"]);
-  if (!show.success) return null;
-  const match = /CURRENT_SCHEMA_VERSION = (\d+)/.exec(show.stdout.toString());
-  return match?.[1] ? Number(match[1]) : null;
-}
-
-const deployed = deployedVersion();
+const deployed = deployedSchemaVersion();
 if (deployed === null) {
   process.stdout.write("Migration integrity passed, but origin/main was unreadable: version not compared.\n");
 } else if (CURRENT_SCHEMA_VERSION < deployed) {
