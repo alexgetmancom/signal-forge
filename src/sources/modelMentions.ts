@@ -456,7 +456,12 @@ export async function collectModelMentions(
       return { ...base, raw: head, records: [at(head.sha)], silentIds: [CURSOR] };
     throw error;
   }
-  if (compare.status !== "ahead") return { ...base, raw: compare, records: [at(head.sha)], silentIds: [CURSOR] };
+  // `ahead` is the head having commits the cursor does not, and `diverged` is the same after a
+  // rewrite: the commits listed are the ones the head has that the cursor did not either way. Only
+  // `behind` and `identical` leave nothing to read. Reading `ahead` alone moved the cursor to the
+  // head past a force-push and never looked at what the push brought.
+  if (compare.status !== "ahead" && compare.status !== "diverged")
+    return { ...base, raw: compare, records: [at(head.sha)], silentIds: [CURSOR] };
 
   const batch = compare.commits.slice(0, BATCH);
   const records: RecordData[] = [];

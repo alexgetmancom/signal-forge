@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
 import type { Collection, RecordData } from "../events/types.js";
-import { httpFailure } from "../failure.js";
+import { httpFailure, SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { fetchText } from "./http.js";
 import { judgeMentions, olderThanKnown, stageKnown, stageRecordId } from "./mentionStage.js";
@@ -110,8 +110,14 @@ async function posts(
       signal: AbortSignal.timeout(30_000),
     });
     if (!response.ok) throw httpFailure(`${repo} discussions: HTTP ${response.status}`, response.status);
-    const discussions = discussionsSchema.parse(await response.json()).data.repository?.discussions.nodes ?? [];
-    for (const discussion of discussions) {
+    // `repository: null` is GraphQL not knowing the repository under this token -- renamed away,
+    // private, or a token without access. The issues and comments above came through REST, so reading
+    // it as "no discussions" left the discussions out for good with nothing on the board to say so.
+    // A repository with discussions switched off answers with an empty list, which is not this.
+    const { repository } = discussionsSchema.parse(await response.json()).data;
+    if (!repository)
+      throw new SourceError("empty", `${repo} discussions: GraphQL knows no such repository for this token`);
+    for (const discussion of repository.discussions.nodes) {
       if (discussion.updatedAt <= since) continue;
       found.push({
         url: discussion.url,

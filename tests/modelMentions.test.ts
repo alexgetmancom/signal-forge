@@ -694,3 +694,50 @@ test("a post the judge could not be asked about is read again once it can, and t
   expect(eventsOf(db, "github:openai/codex:talk").map((event) => event.entity_id)).toEqual(["gpt-6-luna:served"]);
   db.close();
 });
+
+test("a repository whose history was rewritten still has its new commits read, and one that went back has none", async () => {
+  // `compare` says `diverged` when the cursor and the head have a common ancestor and neither
+  // contains the other, which is what a force-push does. Its commits are exactly the ones the head
+  // has that the cursor did not, and only `ahead` was read: the cursor jumped to the head and the
+  // commits between were never looked at.
+  const watch = { repo: "d4rken/clankermux", authority: "third_party" as const };
+  const read = async (status: string) => {
+    const db = openDatabase(":memory:");
+    let head = commit(1, "Initial");
+    const request = async (url: string) => {
+      if (url.includes("/tarball/")) return new Response(EMPTY_ARCHIVE);
+      if (url.includes("/commits?per_page=1")) return Response.json([head]);
+      if (url.includes("/compare/")) return Response.json({ status, commits: [head] });
+      return Response.json({ ...head, files: [{ filename: "models.json", patch: '+  { "slug": "gpt-7-nova" }' }] });
+    };
+    saveCollection(db, await collectModelMentions(db, config, watch, request), []);
+    head = commit(2, "feat: list gpt-7-nova");
+    return collectModelMentions(db, config, watch, request);
+  };
+  expect((await read("diverged")).records.map((record) => record.id)).toEqual(["@head", "gpt-7-nova"]);
+  expect((await read("ahead")).records.map((record) => record.id)).toEqual(["@head", "gpt-7-nova"]);
+  // The head went back to something the cursor already contains: nothing new to read, cursor moves.
+  expect((await read("behind")).records.map((record) => record.id)).toEqual(["@head"]);
+});
+
+test("a repository the token cannot see is a failed read of its discussions, not an empty one", async () => {
+  // GraphQL answers `repository: null` for a repository it does not know under this token, and that
+  // was read as a repository with no discussions: the issues and comments came through, and the
+  // discussions never did, with nothing on the board to say so.
+  const db = openDatabase(":memory:");
+  const watch: MentionWatch = { repo: "openai/codex", vendor: "OpenAI", authority: "vendor_owned" };
+  let repository: unknown = null;
+  const request = async (url: string) => {
+    if (url.endsWith("/graphql")) return Response.json({ data: { repository } });
+    return Response.json([]);
+  };
+  saveCollection(db, await collectRepoTalk(db, config, watch, request, new Date("2026-09-21T10:00:00Z")), []);
+  await expect(collectRepoTalk(db, config, watch, request)).rejects.toMatchObject({
+    kind: "empty",
+    message: "openai/codex discussions: GraphQL knows no such repository for this token",
+  });
+  // A repository with discussions switched off is not that: it answers, with none.
+  repository = { discussions: { nodes: [] } };
+  expect((await collectRepoTalk(db, config, watch, request)).records.map((record) => record.id)).toEqual(["@since"]);
+  db.close();
+});
