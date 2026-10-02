@@ -58,6 +58,13 @@ type Statement = { file: string; line: number; sql: string };
  * Until now this was a paragraph in AGENTS.md saying "ask the reports before the tables", which is
  * a rule that holds exactly as long as everyone has read it. These are the ways a file is allowed
  * to name the table.
+ *
+ * Migration 071 gave the registry a second way in. A boot stamps `retired_at` on every row the
+ * registry no longer names, and `live_sources` is the table without them, so a read of that view
+ * cannot include a retired source and needs no registry in the file. It is the answer to give a
+ * hand-written query, and it is not caught by this rule because `tablesNamed` sees a different
+ * table. Reading `sources` itself as a list is still refused: a row is only stamped once a boot has
+ * run, and a read of the table says nothing about which of its rows that was true of.
  */
 const MAY_NAME_SOURCES = [
   // The registry itself, and the writers: the poller and the storage layer own the rows.
@@ -202,6 +209,7 @@ const unfiltered = statements.filter(
 for (const statement of unfiltered)
   findings.push(
     `${statement.file}:${statement.line}: reads \`sources\` without the registry, so a retired source counts -- ` +
+      "read `live_sources` instead, or build the registry: " +
       statement.sql.replace(/\s+/g, " ").trim(),
   );
 
