@@ -6,6 +6,7 @@ import { vendorOf } from "./events/interpretation.js";
 import { recordFor } from "./events/record.js";
 import { sourceFamily } from "./events/sourceFamily.js";
 import type { Confidence, Event, EvidenceType, RecordData, SourceAuthority } from "./events/types.js";
+import { finite } from "./finite.js";
 import { measure } from "./runtime/metricRecording.js";
 import { text } from "./text.js";
 
@@ -63,10 +64,6 @@ type CurrentRecordRow = {
   confidence: Confidence;
 };
 
-function number(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
 function array(value: unknown): unknown[] | null {
   return Array.isArray(value) ? value : null;
 }
@@ -76,10 +73,17 @@ function providerFor(event: Event, record: RecordData): string | null {
   return vendor !== "Unknown" ? vendor : (text(record.maker) ?? text(record.owner) ?? text(record.provider));
 }
 
+/** Facts each source states for itself, so two sources disagreeing about one is a pair of rows, not an overwrite. */
+const PER_SOURCE_FIELDS: ReadonlySet<string> = new Set([
+  "pricing",
+  "access",
+  "availableInProviderApi",
+  "availableOnOpenRouter",
+  "openWeights",
+]);
+
 function factField(event: EventRow, field: string): string {
-  if (["pricing", "access", "availableInProviderApi", "availableOnOpenRouter", "openWeights"].includes(field))
-    return `${field}:${event.source}`;
-  return field;
+  return PER_SOURCE_FIELDS.has(field) ? `${field}:${event.source}` : field;
 }
 
 function candidate(
@@ -116,9 +120,9 @@ function extractCandidates(event: EventRow, canonicalId: string, eventId: number
     add("displayName", text(record.name));
     add("provider", providerFor(event, record));
     add("releaseDate", text(record.created));
-    add("contextWindow", number(record.context) ?? number(record.inputTokenLimit));
-    const output = Array.isArray(record.output) ? null : number(record.output);
-    add("maxOutputTokens", output ?? number(record.outputTokenLimit));
+    add("contextWindow", finite(record.context) ?? finite(record.inputTokenLimit));
+    const output = Array.isArray(record.output) ? null : finite(record.output);
+    add("maxOutputTokens", output ?? finite(record.outputTokenLimit));
     add("inputModalities", array(record.input));
     add("outputModalities", array(record.output));
     add("pricing", record.pricing);
@@ -140,8 +144,8 @@ function extractCandidates(event: EventRow, canonicalId: string, eventId: number
 }
 
 /**
- * Ordered by story so the caller can close one story's run of events before opening the next and
- * never hold the whole join in memory; it read 13358 rows on the production database.
+ * A record as it stands now, dressed as the event that would have introduced it, so current state is
+ * read by the same code as history. It carries no event id: nothing was ever stored for it.
  */
 function currentEvent(row: CurrentRecordRow): EventRow {
   return {
@@ -365,6 +369,9 @@ const RECORDS_SQL = `SELECT r.source,r.id,r.body,r.stream,r.observed_at,COALESCE
  * win, and a conflict records which one was the incumbent. Order is therefore part of the answer,
  * not a detail of the loop, and an incremental run that read its subset in a different order would
  * produce different conflicts from the same evidence.
+ *
+ * Ordered by story, too, so the caller can close one story's run of events before opening the next
+ * and never hold the whole join in memory; it read 13358 rows on the production database.
  */
 const STORY_ORDER = " ORDER BY s.id,e.detected_at,e.id";
 const RECORD_ORDER = " ORDER BY r.source,r.id";

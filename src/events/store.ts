@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { Destination } from "../config.js";
 import { SourceError } from "../failure.js";
+import { finite } from "../finite.js";
 import { storeSnapshot } from "../storage/snapshots.js";
 import { canonical } from "./canonical.js";
 import { classify } from "./classify.js";
@@ -82,7 +83,7 @@ function comparable(record: Record<string, unknown>): Record<string, unknown> {
   const copy = { ...record };
   delete copy.sampledAt;
   delete copy.votes;
-  const place = numeric(copy.rank);
+  const place = finite(copy.rank);
   if (place !== null && place > SIGNIFICANT_PLACES) delete copy.rank;
   return copy;
 }
@@ -122,10 +123,6 @@ function comparisonBody(stream: string, body: string): string {
   }
 }
 
-function numeric(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
-}
-
 /**
  * How far a number may drift before the drift is the news rather than the measurement.
  *
@@ -138,10 +135,10 @@ function numeric(value: unknown): number | null {
 const IMPLIED_INTERVAL = 0.0025;
 
 function interval(record: Record<string, unknown>): { lower: number; upper: number } | null {
-  const score = numeric(record.score);
+  const score = finite(record.score);
   if (score === null) return null;
-  const lower = numeric(record.scoreLower);
-  const upper = numeric(record.scoreUpper);
+  const lower = finite(record.scoreLower);
+  const upper = finite(record.scoreUpper);
   if (lower !== null && upper !== null) return { lower, upper };
   const width = Math.abs(score) * IMPLIED_INTERVAL;
   return { lower: score - width, upper: score + width };
@@ -162,8 +159,8 @@ function metricsSettled(previous: Record<string, unknown>, current: Record<strin
     typeof value === "object" && value !== null && !Array.isArray(value);
   if (!isMetrics(before) || !isMetrics(after)) return canonical(before) === canonical(after);
   for (const key of new Set([...Object.keys(before), ...Object.keys(after)])) {
-    const was = numeric(before[key]);
-    const now = numeric(after[key]);
+    const was = finite(before[key]);
+    const now = finite(after[key]);
     if (was === null || now === null) {
       if (canonical(before[key]) !== canonical(after[key])) return false;
       continue;
@@ -213,7 +210,8 @@ function urlInBody(body: string | null, fallback: string): string {
 }
 
 function eventUrl(event: Event, fallback: string): string {
-  return urlInBody(event.after_json, urlInBody(event.before_json, fallback));
+  // The earlier body is read only when the later one names no address: most events carry both.
+  return urlInBody(event.after_json, "") || urlInBody(event.before_json, fallback);
 }
 
 const ENDED = /^(?:resolved|closed|complete|unlisted)$/i;
@@ -302,10 +300,15 @@ function openEmitter(
  */
 function onNewBoard(stream: string, old: Stored[]): (event: Event) => boolean {
   if (stream !== "leaderboards") return () => false;
-  const boardsBefore = new Set(old.map((row) => (JSON.parse(row.body) as { category?: unknown }).category));
-  return (event) =>
-    event.kind === "new" &&
-    !boardsBefore.has((JSON.parse(event.after_json ?? "{}") as { category?: unknown }).category);
+  const categoryOf = (body: string) => (JSON.parse(body) as { category?: unknown }).category;
+  // Read on the first debut rather than up front: most collections have none, and the roster it
+  // would parse is every row the board holds.
+  let boardsBefore: Set<unknown> | null = null;
+  return (event) => {
+    if (event.kind !== "new") return false;
+    boardsBefore ??= new Set(old.map((row) => categoryOf(row.body)));
+    return !boardsBefore.has(categoryOf(event.after_json ?? "{}"));
+  };
 }
 
 /**
@@ -327,7 +330,7 @@ function admitAnswer(
   if (c.forget)
     for (const id of [...previous.keys()])
       if (c.forget(id)) {
-        db.query("DELETE FROM records WHERE source=? AND id=?").run(c.source, id);
+        dropRecord(db, c, id);
         previous.delete(id);
       }
   if (c.keepMissing) for (const id of [...previous.keys()]) if (c.keepMissing(id)) previous.delete(id);
@@ -346,6 +349,30 @@ function admitAnswer(
 }
 
 /**
+ * Whether what the answer carries differs from the stored record in a way that is an event.
+ *
+ * Equal text is answered before anything is parsed: nearly every record of every poll is exactly what
+ * it was, and equal text cannot differ under any comparison below, so parsing and canonicalising both
+ * sides to learn that was the larger part of a collection's cost.
+ */
+function hasMoved(c: Collection, before: string, body: string): boolean {
+  if (before === body) return false;
+  if (c.appendOnly && !c.trackChanges) return false;
+  return c.stream === "leaderboards"
+    ? leaderboardChange(before, body)
+    : comparisonBody(c.stream, before) !== comparisonBody(c.stream, body);
+}
+
+function dropRecord(db: Database, c: Collection, id: string): void {
+  db.query("DELETE FROM records WHERE source=? AND id=?").run(c.source, id);
+}
+
+/** One more collection in which the record was not in the answer. */
+function countMiss(db: Database, c: Collection, id: string): void {
+  db.query("UPDATE records SET missing_count=missing_count+1 WHERE source=? AND id=?").run(c.source, id);
+}
+
+/**
  * Compares every answered record with what was stored, emits what moved, and writes each record that
  * stands. A record is taken out of `previous` as it is met, so what is left in it afterwards is
  * exactly what the answer no longer contains.
@@ -358,38 +385,33 @@ function writeRecords(
   now: string,
   emit: Emit,
 ): void {
+  const silent = new Set(c.silentIds);
   for (const record of c.records) {
     const body = canonical(record);
-    const comparableBody = comparisonBody(c.stream, body);
     const before = previous.get(record.id);
     previous.delete(record.id);
-    if (established && !before && !c.silentIds?.includes(record.id)) emit(record.id, "new", null, body);
-    else if (
-      established &&
-      before &&
-      (c.stream === "leaderboards"
-        ? leaderboardChange(before.body, body)
-        : comparisonBody(c.stream, before.body) !== comparableBody) &&
-      (!c.appendOnly || c.trackChanges) &&
-      !c.silentIds?.includes(record.id)
-    ) {
-      // A source that flickers must show the same new body twice before it is believed. The
-      // pending body waits on the record it belongs to, and every path below that writes the
-      // record clears it.
-      if (c.confirmChanges) {
-        if (before.candidate_body === comparableBody) emit(record.id, "changed", before.body, body);
-        else {
-          // The record was seen, so it is not missing: an unconfirmed change still resets the misses,
-          // or a record that returns changed between two misses is reported gone while present.
-          db.query("UPDATE records SET candidate_body=?,missing_count=0,observed_at=? WHERE source=? AND id=?").run(
-            comparableBody,
-            now,
-            c.source,
-            record.id,
-          );
-          continue;
-        }
-      } else emit(record.id, "changed", before.body, body);
+    if (established && !silent.has(record.id)) {
+      if (!before) emit(record.id, "new", null, body);
+      else if (hasMoved(c, before.body, body)) {
+        // A source that flickers must show the same new body twice before it is believed. The
+        // pending body waits on the record it belongs to, and every path below that writes the
+        // record clears it.
+        if (c.confirmChanges) {
+          const pending = comparisonBody(c.stream, body);
+          if (before.candidate_body === pending) emit(record.id, "changed", before.body, body);
+          else {
+            // The record was seen, so it is not missing: an unconfirmed change still resets the misses,
+            // or a record that returns changed between two misses is reported gone while present.
+            db.query("UPDATE records SET candidate_body=?,missing_count=0,observed_at=? WHERE source=? AND id=?").run(
+              pending,
+              now,
+              c.source,
+              record.id,
+            );
+            continue;
+          }
+        } else emit(record.id, "changed", before.body, body);
+      }
     }
     db.query(
       "INSERT INTO records(source,id,body,stream,observed_at) VALUES(?,?,?,?,?) ON CONFLICT(source,id) DO UPDATE SET body=excluded.body,stream=excluded.stream,observed_at=excluded.observed_at,missing_count=0,candidate_body=NULL",
@@ -411,7 +433,7 @@ function settleDeparted(
     // one card at a time is the same answer as refusing the collection, said more loudly, and
     // keeping them would leave the next poll measured against a roster that no longer exists.
     if (accepted) {
-      db.query("DELETE FROM records WHERE source=? AND id=?").run(c.source, row.id);
+      dropRecord(db, c, row.id);
       continue;
     }
     if (c.resolveMissing) {
@@ -432,15 +454,13 @@ function settleDeparted(
           c.source,
           row.id,
         );
-      } else {
-        db.query("UPDATE records SET missing_count=missing_count+1 WHERE source=? AND id=?").run(c.source, row.id);
-      }
+      } else countMiss(db, c, row.id);
       continue;
     }
     if (row.missing_count >= 1) {
       emit(row.id, "removed", row.body, null);
-      db.query("DELETE FROM records WHERE source=? AND id=?").run(c.source, row.id);
-    } else db.query("UPDATE records SET missing_count=missing_count+1 WHERE source=? AND id=?").run(c.source, row.id);
+      dropRecord(db, c, row.id);
+    } else countMiss(db, c, row.id);
   }
 }
 
@@ -455,11 +475,22 @@ function settleDeparted(
  */
 const STEALTH_HOLD_MS = 2 * 60_000;
 
+type Pace = "now" | "held" | "hourly";
+
 /** When an event is told: at once, after the stealth hold, or in the next hour's digest. */
-function paceOf(event: Event): "now" | "held" | "hourly" {
+function paceOf(event: Event): Pace {
   if (isRoutine(event)) return "hourly";
   return isStealthLaunch(event) ? "held" : "now";
 }
+
+/** The first instant a batch of this pace may be sent. */
+function readyAt(pace: Pace, now: string): string {
+  if (pace === "hourly") return new Date((Math.floor(Date.parse(now) / 3_600_000) + 1) * 3_600_000).toISOString();
+  return pace === "held" ? new Date(Date.parse(now) + STEALTH_HOLD_MS).toISOString() : now;
+}
+
+/** An event that has been given its class; `classifyEmitted` is what makes every emitted one this. */
+type Classified = Event & { signal: SignalClass };
 
 /**
  * Gives every emitted event its class and its verdict.
@@ -472,7 +503,7 @@ function paceOf(event: Event): "now" | "held" | "hourly" {
  * copy of production. It is the verdict that was acted on, which is what a report about what this
  * service did should be counting, rather than what today's rules would say about last week's event.
  */
-function classifyEmitted(db: Database, emitted: Event[]): void {
+function classifyEmitted(db: Database, emitted: Event[]): Classified[] {
   for (const event of emitted) {
     event.signal = classify(db, event);
     db.query("UPDATE events SET signal=?,speaks=? WHERE id=?").run(
@@ -481,6 +512,7 @@ function classifyEmitted(db: Database, emitted: Event[]): void {
       event.id,
     );
   }
+  return emitted as Classified[];
 }
 
 /** Puts each emitted event into the batch it will be told in, for every destination that wants its class. */
@@ -488,33 +520,28 @@ function routeEmitted(
   db: Database,
   c: Collection,
   destinations: Destination[],
-  emitted: Event[],
+  emitted: Classified[],
   now: string,
   onANewBoard: (event: Event) => boolean,
 ): void {
+  // Each event is sorted into its pace once; the three batches below are then written in the same
+  // order as before, so their ids do not move.
+  const byPace: Record<Pace, Classified[]> = { now: [], held: [], hourly: [] };
+  for (const event of emitted) if (!onANewBoard(event)) byPace[paceOf(event)].push(event);
   for (const pace of ["now", "held", "hourly"] as const) {
     const digest = pace === "hourly";
-    const events = emitted.filter((event) => paceOf(event) === pace && !onANewBoard(event));
-    // A small company whose model took off here is followed from then on: its next arrival at a
-    // reseller is a sighting on arrival, not a line in tomorrow's recap.
-    const routed = (event: Event): SignalClass =>
-      (event.signal as SignalClass | null | undefined) ?? classify(db, event);
-    const present = new Set(events.map(routed));
+    const events = byPace[pace];
+    const present = new Set(events.map((event) => event.signal));
     const targets = destinations.filter((destination) => destination.signals.some((signal) => present.has(signal)));
     if (!events.length || !targets.length) continue;
-    const readyAt =
-      pace === "hourly"
-        ? new Date((Math.floor(Date.parse(now) / 3_600_000) + 1) * 3_600_000).toISOString()
-        : pace === "held"
-          ? new Date(Date.parse(now) + STEALTH_HOLD_MS).toISOString()
-          : now;
+    const ready = readyAt(pace, now);
     const batchSource = digest ? "story-digest" : c.source;
     const existing = digest
       ? db
           .query<{ id: number }, [string, string]>(
             "SELECT id FROM batches WHERE source=? AND digest=1 AND ready_at=? AND sealed=0",
           )
-          .get(batchSource, readyAt)
+          .get(batchSource, ready)
       : null;
     const batch =
       existing ??
@@ -522,14 +549,14 @@ function routeEmitted(
         .query<{ id: number }, [string, number, string]>(
           "INSERT INTO batches(source,digest,ready_at) VALUES(?,?,?) RETURNING id",
         )
-        .get(batchSource, Number(digest), readyAt);
+        .get(batchSource, Number(digest), ready);
     if (!batch) throw new Error("Batch insert failed");
     for (const event of events)
       db.query("INSERT INTO batch_events(batch_id,event_id,url,signal) VALUES(?,?,?,?)").run(
         batch.id,
         event.id,
         eventUrl(event, c.url),
-        routed(event),
+        event.signal,
       );
     for (const destination of targets)
       db.query("INSERT OR IGNORE INTO batch_targets(batch_id,destination_id,destination_json) VALUES(?,?,?)").run(
@@ -596,8 +623,8 @@ export function persistCollection(
   const { emit, emitted } = openEmitter(db, c, now, snapshot, contract);
   writeRecords(db, c, previous, Boolean(initialized?.last_success), now, emit);
   if (!c.appendOnly || c.resolveMissing) settleDeparted(db, c, previous.values(), accepted, now, emit);
-  classifyEmitted(db, emitted);
-  routeEmitted(db, c, destinations, emitted, now, onANewBoard);
+  const classified = classifyEmitted(db, emitted);
+  routeEmitted(db, c, destinations, classified, now, onANewBoard);
   recordOutcome(db, c, emitted, contract, now);
   return emitted.length;
 }

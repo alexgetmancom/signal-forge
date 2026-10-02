@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
 import type { Collection } from "../events/types.js";
+import { finite } from "../finite.js";
 import type { Fetch } from "../http-client.js";
 import { fetchText } from "./http.js";
 
@@ -40,8 +41,7 @@ const schema = z.object({
  */
 const INDEX_RANKED_PLACES = 20;
 function intelligenceIndex(evaluations: Record<string, unknown> | null | undefined): number | null {
-  const value = evaluations?.artificial_analysis_intelligence_index;
-  return typeof value === "number" && Number.isFinite(value) ? value : null;
+  return finite(evaluations?.artificial_analysis_intelligence_index);
 }
 
 function parseArtificialAnalysis(payload: string): Collection {
