@@ -131,6 +131,24 @@ test("events are bucketed by day inside the window, and pace is read from comple
   db.close();
 });
 
+test("the window starts at midnight, so the first day is a whole day and not the part after the hour of asking", () => {
+  const db = openDatabase(":memory:");
+  // 14 days before the 2nd is the 18th. Asked at noon, the old window began at noon on the 18th and
+  // dropped the morning event, so the 18th counted as a day with one event in it.
+  anEvent(db, { detectedAt: "2026-09-18T08:00:00.000Z", afterJson: "{}" });
+  anEvent(db, { detectedAt: "2026-09-18T13:00:00.000Z", afterJson: "{}" });
+  anEvent(db, { detectedAt: "2026-09-17T23:59:59.000Z", afterJson: "{}" });
+  anEvent(db, { detectedAt: "2026-10-01T09:00:00.000Z", afterJson: "{}" });
+  const { events } = storageReport(db, { days: 14, top: 10, now });
+  expect(events.days.map((row) => [row.day, row.events])).toEqual([
+    ["2026-09-18", 2],
+    ["2026-10-01", 1],
+  ]);
+  // Fourteen complete days, the 18th to the 1st, and three events in them.
+  expect(events.pace).toMatchObject({ basisDays: 14, eventsPerDay: Math.round(3 / 14) });
+  db.close();
+});
+
 test("with nothing complete to average there is no pace, rather than an invented one", () => {
   const db = openDatabase(":memory:");
   expect(storageReport(db, { days: 14, top: 10, now }).events.pace).toBeNull();

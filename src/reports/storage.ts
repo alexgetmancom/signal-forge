@@ -111,8 +111,17 @@ function snapshotsOf(db: Database, top: number): StorageReport["snapshots"] {
   };
 }
 
+/**
+ * The window is whole days: it begins at midnight, `days` days before today's.
+ *
+ * It began `days` days before the instant of asking, which is mid-day, so the first bucket held only
+ * the part of a day after that hour and the pace divided it as a whole one. On the first read of
+ * production 14 days came out at 1.375 MB a day; with the half day left out it is 1.435, which is
+ * 4% more. Today is the other incomplete bucket and `paceOf` leaves it out.
+ */
 function eventsOf(db: Database, days: number, now: Date): StorageReport["events"] {
-  const since = new Date(now.getTime() - days * 86_400_000).toISOString();
+  const today = now.toISOString().slice(0, 10);
+  const since = new Date(Date.parse(`${today}T00:00:00Z`) - days * 86_400_000).toISOString();
   const perDay = db
     .query<{ day: string; n: number; b: number }, [string]>(
       `SELECT substr(detected_at,1,10) day, COUNT(*) n,
@@ -121,7 +130,7 @@ function eventsOf(db: Database, days: number, now: Date): StorageReport["events"
     )
     .all(since)
     .map((row) => ({ day: row.day, events: row.n, bytes: row.b }));
-  return { windowDays: days, days: perDay, pace: paceOf(perDay, now.toISOString().slice(0, 10)) };
+  return { windowDays: days, days: perDay, pace: paceOf(perDay, today) };
 }
 
 /**
