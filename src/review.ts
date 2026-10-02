@@ -19,6 +19,38 @@ import { readState, writeState } from "./storage/appState.js";
 const AUDIT_PREFIX = "audit:";
 const AUDIT_DAYS = 30;
 
+/**
+ * What a report that must go out once remembers about itself, under its key in `app_state`:
+ *
+ * - nothing: not tried yet;
+ * - `claimed`: a run has it, or had it when the process stopped -- it may have posted, so it is
+ *   never taken again. A restart mid-report loses one report and never doubles it;
+ * - `retry:<instant>`: a run posted nothing and said so, and may be taken again once the instant
+ *   has passed;
+ * - `sent`.
+ *
+ * Everything used to end as `claimed`, so one DeepSeek 503 at seven o'clock on the first of the
+ * month, or one Discord refusal on a Monday morning, cost the whole report: the owner never learned
+ * the month's audit had not been written. A run that knows it posted nothing gives the claim back,
+ * and the hour between tries is what keeps a provider that is down from being asked every cycle.
+ * The day the report is for is the other bound: both only run on theirs.
+ */
+const RETRY_AFTER_MS = 3_600_000;
+
+function takeClaim(db: Database, key: string, now: number): boolean {
+  const state = readState(db, key);
+  if (state !== null) {
+    const retryAt = /^retry:(.+)$/.exec(state)?.[1];
+    if (retryAt === undefined || Date.parse(retryAt) > now) return false;
+  }
+  writeState(db, key, "claimed");
+  return true;
+}
+
+function releaseClaim(db: Database, key: string, now: number): void {
+  writeState(db, key, `retry:${new Date(now + RETRY_AFTER_MS).toISOString()}`);
+}
+
 async function ask(
   config: AppConfig,
   system: string,
@@ -126,11 +158,13 @@ export async function publishMonthlyAudit(
   if (!channel || !config.DISCORD_BOT_TOKEN || !config.DEEPSEEK_API_KEY) return false;
   if (!featureEnabled(config, "review-posts")) return false;
   const key = `${AUDIT_PREFIX}${date.toISOString().slice(0, 7)}`;
-  if (readState(db, key) !== null) return false;
   // Claimed before the slow read: a restart mid-audit loses one month's audit, never doubles it.
-  writeState(db, key, "claimed");
+  if (!takeClaim(db, key, now)) return false;
   const text = await audit(db, config, request, now);
-  if (!text) return false;
+  if (!text) {
+    releaseClaim(db, key, now);
+    return false;
+  }
   const chunks = parts(owned(text));
   for (const [index, chunk] of chunks.entries()) {
     const response = await request(`https://discord.com/api/v10/channels/${channel}/messages`, {
@@ -151,7 +185,12 @@ export async function publishMonthlyAudit(
     }).catch(() => null);
     if (!response?.ok) {
       await response?.body?.cancel();
-      log("warn", "Audit post failed", { status: response?.status ?? 0 });
+      log("warn", "Audit post failed", { status: response?.status ?? 0, part: index + 1, of: chunks.length });
+      // Nothing posted yet means nothing to double. After the first part something is in the
+      // channel, and posting it all again would say it twice. A connection that dropped after the
+      // request left is the one case this cannot tell from a refusal, and a repeated audit in the
+      // owner's own channel costs less than a month's audit that never came.
+      if (index === 0) releaseClaim(db, key, now);
       return false;
     }
     await response.body?.cancel();
@@ -215,8 +254,7 @@ export async function publishWeeklyVotes(
   const channel = config.statusChannelId;
   if (!channel || !config.DISCORD_BOT_TOKEN || !featureEnabled(config, "review-posts")) return false;
   const key = `${VOTES_PREFIX}${date.toISOString().slice(0, 10)}`;
-  if (readState(db, key) !== null) return false;
-  writeState(db, key, "claimed");
+  if (!takeClaim(db, key, now)) return false;
   const from = new Date(now - 7 * 24 * 3_600_000).toISOString();
   const rows = db
     .query<{ room: string; body: string; votes: number; against: number }, [string]>(
@@ -268,6 +306,7 @@ export async function publishWeeklyVotes(
   await response?.body?.cancel();
   if (!response?.ok) {
     log("warn", "Votes report post failed", { status: response?.status ?? 0 });
+    releaseClaim(db, key, now);
     return false;
   }
   writeState(db, key, "sent");
