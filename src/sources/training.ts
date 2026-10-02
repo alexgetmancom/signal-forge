@@ -39,7 +39,14 @@ export async function collectMimoTraining(request: Fetch = fetch): Promise<Colle
       ),
     ),
   );
-  const records = statuses.map(({ run }) => ({
+  // A run restarted or resumed keeps its label under a new key, and the label is the id. The latest
+  // run is the one the model is being trained by now.
+  const latest = new Map<string, (typeof statuses)[number]["run"]>();
+  for (const { run } of statuses) {
+    const held = latest.get(run.label);
+    if (!held || run.start > held.start) latest.set(run.label, run);
+  }
+  const records = [...latest.values()].map((run) => ({
     id: run.label,
     name: run.label,
     maker: "Xiaomi",

@@ -4,6 +4,7 @@ import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import type { HttpCache } from "../storage/httpCache.js";
 import { fetchText } from "./http.js";
+import { firstOfEach } from "./ids.js";
 
 /**
  * Vendor documentation, read as evidence rather than as an announcement. A page here says a
@@ -24,20 +25,23 @@ const entrySchema = z.object({ title: z.string().min(1), url: z.url(), summary: 
  * index is the only machine-readable form of this changelog that parses.
  */
 export function parseCohereChangelog(markdown: string): Collection {
-  const records = [...markdown.matchAll(/^-\s+\[([^\]]+)\]\((https:\/\/[^)]+)\)(?::\s*(.*))?$/gm)].map((match) => {
-    const entry = entrySchema.parse({
-      title: (match[1] ?? "").trim(),
-      url: (match[2] ?? "").replace(/\.md$/, ""),
-      summary: (match[3] ?? "").trim(),
-    });
-    return {
-      id: new URL(entry.url).pathname,
-      name: entry.title,
-      url: entry.url,
-      maker: "Cohere",
-      ...(entry.summary ? { summary: entry.summary.slice(0, 1_200) } : {}),
-    } satisfies RecordData;
-  });
+  // An index lists a page with and without its `.md`, and the id is the address with neither.
+  const records = firstOfEach(
+    [...markdown.matchAll(/^-\s+\[([^\]]+)\]\((https:\/\/[^)]+)\)(?::\s*(.*))?$/gm)].map((match) => {
+      const entry = entrySchema.parse({
+        title: (match[1] ?? "").trim(),
+        url: (match[2] ?? "").replace(/\.md$/, ""),
+        summary: (match[3] ?? "").trim(),
+      });
+      return {
+        id: new URL(entry.url).pathname,
+        name: entry.title,
+        url: entry.url,
+        maker: "Cohere",
+        ...(entry.summary ? { summary: entry.summary.slice(0, 1_200) } : {}),
+      } satisfies RecordData;
+    }),
+  );
   if (!records.length) throw new SourceError("empty", "cohere-changelog: index listed no entries");
   return {
     source: "cohere-changelog",

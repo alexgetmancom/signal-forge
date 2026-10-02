@@ -23,7 +23,7 @@ function validateRecords(source: string, records: Collection["records"]): void {
       throw new SourceError("schema", `${source}: invalid normalized record at index ${index}`, {
         evidence: { index, fields: result.error.issues.map((issue) => issue.path.join(".")) },
       });
-    if (ids.has(record.id)) throw new SourceError("schema", `${source}: duplicate record IDs`);
+    if (ids.has(record.id)) throw new SourceError("schema", `${source}: duplicate record IDs`, { evidence: { index } });
     ids.add(record.id);
   });
 }

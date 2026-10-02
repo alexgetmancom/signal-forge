@@ -2,6 +2,7 @@ import type { Collection } from "../events/types.js";
 import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { fetchText } from "./http.js";
+import { distinctIds } from "./ids.js";
 
 /**
  * What Qwen, MiniMax and Moonshot publish about a model, from the machine-readable copies behind
@@ -52,12 +53,16 @@ export function qwenPosts(json: string): LabPage[] {
 }
 
 export function minimaxReleases(markdown: string): LabPage[] {
-  return [...markdown.matchAll(/<Card\s+title="([^"]+)"[^>]*?href="([^"]+)"/g)].map(([, name = "", url = ""]) => ({
-    id: name,
-    name,
-    maker: "MiniMax",
-    url,
-  }));
+  // The title is the id, and one model's name sits on a card per announcement: its blog post and its
+  // docs page, or a second note under a later date. They are different entries, newest first.
+  return distinctIds(
+    [...markdown.matchAll(/<Card\s+title="([^"]+)"[^>]*?href="([^"]+)"/g)].map(([, name = "", url = ""]) => ({
+      id: name,
+      name,
+      maker: "MiniMax",
+      url,
+    })),
+  );
 }
 
 export function zaiReleases(markdown: string): LabPage[] {

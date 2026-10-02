@@ -76,6 +76,9 @@ export async function collectGithubCommits(
     silentIds: string[] = [];
   let reachedKnown = false;
   const pending: z.infer<typeof commitSchema>[] = [];
+  // A commit that lands between two requests moves everything down, so the last of one page is the
+  // first of the next. It is one commit.
+  const met = new Set<string>();
   for (let page = 1; page <= 10; page++) {
     const body: unknown = JSON.parse(
       await fetchText(`${url}?per_page=100&page=${page}`, headers, request, undefined, cache),
@@ -87,7 +90,8 @@ export async function collectGithubCommits(
         reachedKnown = true;
         break;
       }
-      pending.push(commit);
+      if (!met.has(commit.sha)) pending.push(commit);
+      met.add(commit.sha);
     }
     if (reachedKnown || !initialized || commits.length < 100) break;
   }
@@ -156,6 +160,7 @@ export async function collectGithubReleases(
     records: RecordData[] = [],
     silentIds: string[] = [];
   let reachedKnown = false;
+  const met = new Set<string>();
   for (let page = 1; page <= 20; page++) {
     const body: unknown = JSON.parse(
       await fetchText(`${url}?per_page=5&page=${page}`, headers, request, undefined, cache),
@@ -164,6 +169,9 @@ export async function collectGithubReleases(
     // Assets can be huge; retain release metadata and notes rather than irrelevant download inventories.
     raw.push(releases);
     for (const r of releases) {
+      // The last of one page can be the first of the next when a release lands between the requests.
+      if (met.has(String(r.id))) continue;
+      met.add(String(r.id));
       if (db.query("SELECT 1 FROM records WHERE source=? AND id=?").get(source, String(r.id))) reachedKnown = true;
       if (r.draft || r.prerelease) silentIds.push(String(r.id));
       records.push({
@@ -216,6 +224,7 @@ export async function collectGithubPulls(
   if (config.GITHUB_TOKEN) headers.Authorization = `Bearer ${config.GITHUB_TOKEN}`;
   const initialized = Boolean(db.query("SELECT 1 FROM sources WHERE id=? AND last_success IS NOT NULL").get(source));
   const pending: z.infer<typeof pullSchema>[] = [];
+  const met = new Set<number>();
   const raw: unknown[] = [],
     records: RecordData[] = [],
     silentIds: string[] = [];
@@ -243,7 +252,9 @@ export async function collectGithubPulls(
         reachedKnown = true;
         break;
       }
-      pending.push(pr);
+      // Sorted by update, so a pull that is updated between the requests moves the whole list down.
+      if (!met.has(pr.number)) pending.push(pr);
+      met.add(pr.number);
     }
     if (reachedKnown || !initialized || pulls.length < 100) break;
     if (page === 5) throw new SourceError("protocol", "GitHub PR catch-up exceeds 500 entries; cursor preserved");

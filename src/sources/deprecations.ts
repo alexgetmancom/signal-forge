@@ -2,6 +2,7 @@ import type { Collection, RecordData } from "../events/types.js";
 import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { fetchText } from "./http.js";
+import { distinctIds } from "./ids.js";
 
 /**
  * Retirement dates. Every other stream here reports something new to try; this one reports work a
@@ -41,15 +42,18 @@ export function parseOpenAIDeprecations(markdown: string): Collection {
   }
   if (!records.length)
     throw new SourceError("missing-content", "Public page no longer exposes deprecation announcements");
+  // The id is the day and the title, and two notices of one day can share both. The page lists the
+  // newest first.
+  const distinct = distinctIds(records);
   return {
     source: "openai-deprecations",
     stream: "deprecations",
     url: "https://platform.openai.com/docs/deprecations",
-    raw: records,
+    raw: distinct,
     // Announcements are historical record: one leaving the page would be an edit to history, not
     // a retraction we should report as a removal.
     trackChanges: true,
-    records,
+    records: distinct,
   };
 }
 

@@ -9,6 +9,7 @@ import { slug } from "../text.js";
 import { withAudience } from "./audienceJudge.js";
 import { attribute, htmlText, sections } from "./html.js";
 import { fetchText } from "./http.js";
+import { distinctIds } from "./ids.js";
 
 const OPENAI_CHATGPT_RELEASE_NOTES_URL = "https://help.openai.com/en/articles/6825453-chatgpt-release-notes";
 const OPENAI_CHATGPT_RELEASE_NOTES_FETCH_URL = `${OPENAI_CHATGPT_RELEASE_NOTES_URL}.json`;
@@ -157,32 +158,6 @@ function contentBlocks(value: string): string {
     htmlText(match[0] ?? ""),
   );
   return (blocks.length ? blocks.join(" ") : htmlText(value)).trim();
-}
-
-/**
- * Two entries of one day under one title read as one id, and `persistCollection` refuses a collection
- * with a repeated id whole: one such pair stopped the source and every note on its page with it.
- *
- * The suffix goes to the later arrival. Pages list the newest first, so the walk is from the end: the
- * entry that has been there longest keeps its id and a duplicate added above it is `-2`, and no stored
- * record changes id because another one joined it. A suffix that is itself an id on the page is skipped.
- */
-function distinctIds(records: RecordData[]): RecordData[] {
-  const taken = new Set(records.map((record) => record.id));
-  const seen = new Map<string, number>();
-  return [...records]
-    .reverse()
-    .map((record) => {
-      const before = seen.get(record.id) ?? 0;
-      seen.set(record.id, before + 1);
-      if (before === 0) return record;
-      let n = before + 1;
-      while (taken.has(`${record.id}-${n}`)) n += 1;
-      const id = `${record.id}-${n}`;
-      taken.add(id);
-      return { ...record, id };
-    })
-    .reverse();
 }
 
 function releaseCollection(source: string, url: string, records: RecordData[]): Collection {

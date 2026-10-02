@@ -8,6 +8,7 @@ import type { HttpCache } from "../storage/httpCache.js";
 import { calendarDate } from "./feeds.js";
 import { attribute, decodeHtml } from "./html.js";
 import { fetchText } from "./http.js";
+import { firstOfEach } from "./ids.js";
 
 const feedSchema = z.object({
   rss: z.object({
@@ -38,16 +39,19 @@ export function parseOpenAINews(text: string): Collection {
     stream: "news",
     url: "https://openai.com/news/",
     raw,
-    records: items.map((item) => ({
-      id: item.link,
-      name: item.title,
-      url: item.link,
-      description: item.description
-        .replace(/<[^>]+>/g, " ")
-        .replace(/\s+/g, " ")
-        .trim(),
-      published: newsDate(item.pubDate),
-    })),
+    // An item listed twice is one article; the feed is large enough that it does happen.
+    records: firstOfEach(
+      items.map((item) => ({
+        id: item.link,
+        name: item.title,
+        url: item.link,
+        description: item.description
+          .replace(/<[^>]+>/g, " ")
+          .replace(/\s+/g, " ")
+          .trim(),
+        published: newsDate(item.pubDate),
+      })),
+    ),
   };
 }
 function newsDate(value: string): string {

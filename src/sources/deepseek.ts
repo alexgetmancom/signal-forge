@@ -7,6 +7,7 @@ import type { HttpCache } from "../storage/httpCache.js";
 import { slug } from "../text.js";
 import { attribute, htmlText } from "./html.js";
 import { fetchText } from "./http.js";
+import { distinctIds } from "./ids.js";
 
 const DEEPSEEK_UPDATES_URL = "https://api-docs.deepseek.com/updates";
 const DEEPSEEK_PRICING_URL = "https://api-docs.deepseek.com/quick_start/pricing/?article_id=article_1779470751466_8";
@@ -101,14 +102,17 @@ export function parseDeepSeekUpdates(html: string): Collection {
       return { date, anchor, title, summary: htmlText(section.slice(bodyStart, bodyEnd)).slice(0, 1_200) };
     });
   });
-  const records = entriesSchema.parse(parsed).map((entry) => ({
-    id: `${entry.date}:${entry.anchor}`,
-    name: entry.title,
-    url: `${DEEPSEEK_UPDATES_URL}#${entry.anchor}`,
-    maker: "DeepSeek",
-    published: `${entry.date}T00:00:00.000Z`,
-    summary: entry.summary || null,
-  }));
+  // A heading with no id of its own falls back to its title, and two updates of one day can share one.
+  const records = distinctIds(
+    entriesSchema.parse(parsed).map((entry) => ({
+      id: `${entry.date}:${entry.anchor}`,
+      name: entry.title,
+      url: `${DEEPSEEK_UPDATES_URL}#${entry.anchor}`,
+      maker: "DeepSeek",
+      published: `${entry.date}T00:00:00.000Z`,
+      summary: entry.summary || null,
+    })),
+  );
   return {
     source: "deepseek-updates",
     stream: "news",
