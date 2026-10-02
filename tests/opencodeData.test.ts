@@ -80,6 +80,9 @@ test("a stealth page counts because the catalogue has an entry for it, not becau
       "https://opencode.ai/data/moonshotai": labPage("moonshotai", [
         { id: "moonshotai/kimi-k3", slug: "kimi-k3", name: "Kimi K3" },
       ]),
+      // The followed lab the seed page names, which has to answer: a page that does not is a lab gone
+      // quiet, not a lab with nothing in it.
+      "https://opencode.ai/data/alibaba": labPage("alibaba", []),
       // An entry the catalogue has, under the lab where a model whose maker is unknown lands.
       "https://opencode.ai/data/unknown/space-bunny": '<script>entry:$R[3]={id:"unknown/space-bunny"}</script>',
       // The usage section for a name the catalogue does not have. `kimi-k4`, `glm-5.5-flash` and
@@ -88,5 +91,75 @@ test("a stealth page counts because the catalogue has an entry for it, not becau
     }),
   );
   expect(collection.records.map((record) => record.id)).toEqual(["moonshotai/kimi-k3", "unknown/space-bunny"]);
+  db.close();
+});
+
+/** The seed page and a followed lab, with whatever the lab's own page does. */
+function withLab(lab: string | (() => Promise<Response>), stealth: Record<string, string> = {}): typeof fetch {
+  const pages = answering({
+    "https://opencode.ai/data/moonshotai": labPage("moonshotai", [
+      { id: "moonshotai/kimi-k3", slug: "kimi-k3", name: "Kimi K3" },
+    ]),
+    ...(typeof lab === "string" ? { "https://opencode.ai/data/alibaba": lab } : {}),
+    ...stealth,
+  });
+  return (async (url: string | URL | Request, init?: RequestInit) =>
+    typeof lab !== "string" && String(url) === "https://opencode.ai/data/alibaba"
+      ? lab()
+      : pages(url, init)) as typeof fetch;
+}
+
+test("a followed lab whose page does not answer fails the read, because its models would retire as removed", async () => {
+  // Skipping it silently left that lab's records out of the collection, and a record missing from
+  // enough consecutive collections is retired: one bad minute at OpenCode announced a lab's whole
+  // catalogue as gone. The sentence names the maker from our own table (Qwen, for what OpenCode calls Alibaba), not the id the page chose.
+  const db = openDatabase(":memory:");
+  await expect(
+    collectOpenCodeData(
+      db,
+      withLab(async () => new Response("Bad gateway", { status: 502 })),
+    ),
+  ).rejects.toMatchObject({ kind: "http", message: expect.stringContaining("the Qwen page answered HTTP 502") });
+  await expect(
+    collectOpenCodeData(
+      db,
+      withLab(async () => {
+        throw new TypeError("fetch failed");
+      }),
+    ),
+  ).rejects.toThrow("fetch failed");
+  db.close();
+});
+
+test("a followed lab page that no longer carries a model list is a changed page, and a lab with none listed is not", async () => {
+  const db = openDatabase(":memory:");
+  await expect(collectOpenCodeData(db, withLab("<html>sign in</html>"))).rejects.toMatchObject({
+    kind: "missing-content",
+  });
+  const empty = await collectOpenCodeData(db, withLab(labPage("alibaba", [])));
+  expect(empty.records.map((record) => record.id)).toEqual(["moonshotai/kimi-k3"]);
+  expect(empty.raw).toEqual({ moonshotai: 1, alibaba: 0 });
+  db.close();
+});
+
+test("a stealth page that cannot be read is not the same as one the catalogue does not have", async () => {
+  const db = openDatabase(":memory:");
+  const lab = labPage("alibaba", []);
+  // 404 is how it says a name is not there, and the page for one that is not listed answers it.
+  const absent = await collectOpenCodeData(db, withLab(lab));
+  expect(absent.records.map((record) => record.id)).toEqual(["moonshotai/kimi-k3"]);
+  // Anything else is a probe that did not happen, and a record the last read found would retire on it.
+  const pages = answering({
+    "https://opencode.ai/data/moonshotai": labPage("moonshotai", []),
+    "https://opencode.ai/data/alibaba": lab,
+  });
+  const failing = (status: number | "network") =>
+    (async (url: string | URL | Request, init?: RequestInit) => {
+      if (String(url) !== "https://opencode.ai/data/unknown/space-bunny") return pages(url, init);
+      if (status === "network") throw new TypeError("fetch failed");
+      return new Response("busy", { status });
+    }) as typeof fetch;
+  await expect(collectOpenCodeData(db, failing(503))).rejects.toMatchObject({ kind: "http" });
+  await expect(collectOpenCodeData(db, failing("network"))).rejects.toThrow("fetch failed");
   db.close();
 });

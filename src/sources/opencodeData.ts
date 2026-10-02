@@ -55,6 +55,35 @@ function parseOpenCodeLabs(body: string): { id: string; name: string }[] {
 }
 
 /**
+ * The maker a lab is, in words written here. The lab's own id and name came off the page, and a
+ * failure's sentence is trusted because this repository wrote it, so it names the vendor from our
+ * table instead of quoting what the page said.
+ */
+function makerOf(lab: { id: string; name: string }): string {
+  const byName = vendorOfName(lab.name);
+  return byName === "Unknown" ? vendorOfName(lab.id) : byName;
+}
+
+/**
+ * A lab page that does not answer, or answers with a page that has lost its model list, is not a lab
+ * with nothing in it. Left out of the collection quietly, the lab's models are missing from it, a
+ * record missing from enough consecutive collections is retired, and one bad minute at OpenCode
+ * announced a whole lab's catalogue as removed -- to be announced as new again when the page came
+ * back. `models:` is what a lab page ships its catalogue under, and an empty list under it is a lab
+ * that lists none, which is a thing a catalogue is allowed to say.
+ */
+function modelPage(page: { status: number; body: string }, maker: string): string {
+  if (page.status !== 200)
+    throw httpFailure(`discovery:opencode-data: the ${maker} page answered HTTP ${page.status}`, page.status);
+  if (!/\bmodels:/.test(page.body))
+    throw new SourceError(
+      "missing-content",
+      `discovery:opencode-data: the ${maker} page carries no model list, so its shape has changed`,
+    );
+  return page.body;
+}
+
+/**
  * The models a lab page lists.
  *
  * The slug is read rather than spelled: OpenCode writes `qwen3-8-max-prime` in the address of a
@@ -139,22 +168,28 @@ export async function collectOpenCodeData(db: Database, request: Fetch = fetch):
       "missing-content",
       "discovery:opencode-data: the page named no lab, so its shape has changed",
     );
-  const followed = labs.filter((lab) => vendorOfName(lab.name) !== "Unknown" || vendorOfName(lab.id) !== "Unknown");
-  const records: RecordData[] = [...parseOpenCodeModels(seed.body, OPENCODE_SEED_LAB)];
+  const followed = labs.filter((lab) => makerOf(lab) !== "Unknown");
+  const records: RecordData[] = [
+    ...parseOpenCodeModels(modelPage(seed, makerOf({ id: OPENCODE_SEED_LAB, name: "" })), OPENCODE_SEED_LAB),
+  ];
   const read: Record<string, number> = { [OPENCODE_SEED_LAB]: records.length };
   for (const lab of followed) {
     if (lab.id === OPENCODE_SEED_LAB) continue;
-    const page = await probe(opencodeLabUrl(lab.id), request).catch(() => null);
-    if (!page || page.status !== 200) continue;
-    const listed = parseOpenCodeModels(page.body, lab.id);
+    const page = await probe(opencodeLabUrl(lab.id), request);
+    const listed = parseOpenCodeModels(modelPage(page, makerOf(lab)), lab.id);
     read[lab.id] = listed.length;
     records.push(...listed);
   }
   for (const { maker, slug } of OPENCODE_STEALTH) {
     if (alreadyListed(db, slug)) continue;
     const url = opencodeUrl(maker, slug);
-    const answer = await probe(url, request).catch(() => null);
-    if (!answer || answer.status !== 200 || !opencodeHasEntry(answer.body)) continue;
+    const answer = await probe(url, request);
+    // A 404 is how a name that is not there is said. Anything else is a probe that did not happen,
+    // and a stealth record the last read found would retire on it and be told again when it was back.
+    if (answer.status === 404) continue;
+    if (answer.status !== 200)
+      throw httpFailure(`discovery:opencode-data: a stealth page answered HTTP ${answer.status}`, answer.status);
+    if (!opencodeHasEntry(answer.body)) continue;
     records.push({
       id: `${maker}/${slug}`,
       name: slug,
