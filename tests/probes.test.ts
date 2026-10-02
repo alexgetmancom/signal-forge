@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
+import { SourceError } from "../src/failure.js";
 import { collectDocsProbe, heardNames, observedFamilies, PROBE_SITES } from "../src/sources/probes.js";
 import { openDatabase } from "../src/storage/database.js";
 import { storeSnapshot } from "../src/storage/snapshots.js";
@@ -264,4 +265,64 @@ test("a maker that numbers its models without a codename gains no questions", as
   await collectDocsProbe(catalogue(["claude-opus-5-5", "claude-sonnet-5"]), anthropicProbe, watching);
   // `opus-5-5` ends in a number, not a word: nothing here is a codename to carry forward.
   expect(asked.filter((slug) => /[a-z]{3,}-\d/.test(slug) && !/^(opus|sonnet|haiku)-/.test(slug))).toEqual([]);
+});
+
+const OPUS_5_5 = "https://platform.claude.com/docs/en/models/opus-5-5/overview";
+
+test("a control that fails says which kind of failure it is, by type and not by its sentence", async () => {
+  if (!anthropic) throw new Error("the Anthropic probe is gone");
+  const serving = (status: number) => (async () => new Response("x", { status })) as unknown as typeof fetch;
+  // The addresses moved, the site is limiting, or it is failing: three different things to do about it.
+  for (const [status, kind] of [
+    [404, "missing-content"],
+    [429, "rate-limited"],
+    [503, "http"],
+  ] as const) {
+    const error = await collectDocsProbe(catalogue(["claude-opus-5-5"]), anthropic, serving(status)).catch((e) => e);
+    expect(error).toBeInstanceOf(SourceError);
+    expect((error as SourceError).kind).toBe(kind);
+    expect((error as SourceError).message).toContain(`opus-5-5 answered HTTP ${status}`);
+  }
+});
+
+test("a catalogue with no model of any shape the probe follows is an empty answer, by type", async () => {
+  if (!anthropic) throw new Error("the Anthropic probe is gone");
+  const error = await collectDocsProbe(catalogue([]), anthropic, answering({})).catch((e) => e);
+  expect(error).toBeInstanceOf(SourceError);
+  expect((error as SourceError).kind).toBe("empty");
+});
+
+test("the control is asked first, so a site that is failing is asked nothing else", async () => {
+  if (!anthropic) throw new Error("the Anthropic probe is gone");
+  const asked: string[] = [];
+  const failing = (async (input: string | URL) => {
+    asked.push(String(input));
+    return new Response("x", { status: 503 });
+  }) as unknown as typeof fetch;
+  await collectDocsProbe(catalogue(["claude-opus-5-5"]), anthropic, failing).catch(() => null);
+  expect(asked).toEqual([OPUS_5_5]);
+});
+
+test("a heard name that met a server error was not answered, so it is asked again at once", async () => {
+  const openai = PROBE_SITES.find((site) => site.id === "discovery:docs-openai");
+  if (!openai) throw new Error("the OpenAI probe is gone");
+  const db = catalogue(["gpt-6-sol"]);
+  db.query(
+    "INSERT INTO events(source,stream,entity_id,kind,after_json,detected_at,signal,snapshot_id) VALUES('models-dev','api-models','gpt-6-vela','new','{}','2026-09-23T10:00:00.000Z','codename',1)",
+  ).run();
+  const asked: string[][] = [];
+  const watching = (async (input: string | URL) => {
+    const slug = (String(input).split("/").at(-1) ?? "").replace(/\.md$/, "");
+    asked.at(-1)?.push(slug);
+    return new Response("x", { status: slug === "gpt-6-sol" ? 200 : slug === "gpt-6-vela" ? 503 : 404 });
+  }) as unknown as typeof fetch;
+  const minute = Date.parse("2026-09-24T00:00:00.000Z");
+  for (const at of [minute, minute + 300_000]) {
+    asked.push([]);
+    const collection = await collectDocsProbe(db, openai, watching, at);
+    storeSnapshot(db, collection.source, new Date(at).toISOString(), JSON.stringify(collection.raw));
+  }
+  expect(asked[0]).toContain("gpt-6-vela");
+  // A 503 is not an answer, so five minutes later the name is still a question; a 404 would not be.
+  expect(asked[1]).toContain("gpt-6-vela");
 });

@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import type { Collection, RecordData } from "../events/types.js";
+import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { readLatestSnapshot } from "../storage/snapshots.js";
 import { USER_AGENT } from "./http.js";
@@ -35,6 +36,40 @@ import type { Vendor } from "./vendors.js";
  * `gpt-57`, and every question that follows is nonsense.
  */
 const MAX_PLAUSIBLE_MAJOR = 10;
+
+/** At most this many codename-and-version guesses per poll, highest version first. */
+const CROSS_LIMIT = 12;
+
+/** How far back a name heard once is still worth asking a documentation site about. */
+const HEARD_DAYS = 30;
+
+/** At most this many heard names per poll, newest first, so a noisy week cannot become a crawl. */
+const HEARD_LIMIT = 6;
+
+/**
+ * How long a name that answered is left alone.
+ *
+ * A heard name is worth asking about once, not every five minutes for a month: `gpt-5.1-mini` would
+ * be 8,640 requests to be told the same thing. The version guesses are not rate-limited this way --
+ * catching the minute a page appears is the whole point of them -- but a name from somebody else's
+ * commit can wait a day between questions.
+ */
+const COOLOFF_HOURS = 24;
+
+type Version = readonly [number, number];
+
+/** Negative when `left` is the earlier version, positive when it is the later, zero when they are one. */
+function compareVersions(left: Version, right: Version): number {
+  return left[0] - right[0] || left[1] - right[1];
+}
+
+/** Every id the catalogue holds, as it spells them. Read once per poll and handed to the three readers. */
+function catalogueIds(db: Database): string[] {
+  return db
+    .query<{ canonical_id: string }, []>("SELECT canonical_id FROM model_facts")
+    .all()
+    .map((row) => row.canonical_id);
+}
 
 /**
  * The versions a vendor could publish next. A maker moves a minor ("5.5" after "5.4"), a major
@@ -205,11 +240,9 @@ function bareId(canonicalId: string): string {
 export function observedFamilies(
   db: Database,
   site: Site,
-): { family: string; version: readonly [number, number]; observed: string }[] {
-  const ids = db
-    .query<{ canonical_id: string }, []>("SELECT canonical_id FROM model_facts")
-    .all()
-    .map((row) => bareId(row.canonical_id));
+  catalogue: readonly string[] = catalogueIds(db),
+): { family: string; version: Version; observed: string }[] {
+  const ids = catalogue.map(bareId);
   const highest = new Map<string, { version: [number, number]; observed: string }>();
   for (const shape of site.shapes)
     for (const id of ids) {
@@ -218,12 +251,9 @@ export function observedFamilies(
       const version: [number, number] = [Number(match[1]), Number(match[2] ?? 0)];
       if (version[0] > MAX_PLAUSIBLE_MAJOR) continue;
       const seen = highest.get(shape.family);
-      const higher =
-        !seen ||
-        version[0] > seen.version[0] ||
-        (version[0] === seen.version[0] && version[1] > seen.version[1]) ||
-        (version[0] === seen.version[0] && version[1] === seen.version[1] && id.length < seen.observed.length);
-      if (higher) highest.set(shape.family, { version, observed: id });
+      const order = seen ? compareVersions(version, seen.version) : 1;
+      if (order > 0 || (order === 0 && seen && id.length < seen.observed.length))
+        highest.set(shape.family, { version, observed: id });
     }
   return [...highest].map(([family, found]) => ({ family, version: found.version, observed: found.observed }));
 }
@@ -247,22 +277,17 @@ export function observedFamilies(
  * Only the spelled form is read, and only where a codename is a word rather than a number, so
  * Anthropic's `opus-5-5` produces nothing here.
  */
-function versionedCodenames(db: Database, site: Site, heard: string[]): string[] {
+function versionedCodenames(site: Site, catalogue: readonly string[], heard: string[]): string[] {
   if (!site.codename) return [];
   /**
    * Every codename this tracker knows, released or merely heard. Not just the frontier of each
    * family: a maker versions a small model after shipping a big one, and `gpt-6-sol` was neither
    * the newest nor the highest thing OpenAI had out when `gpt-6.1-sol` followed it.
    */
-  const known = [
-    ...db
-      .query<{ canonical_id: string }, []>("SELECT canonical_id FROM model_facts")
-      .all()
-      .map((row) => row.canonical_id),
-    ...heard,
-  ];
-  const words = new Map<string, { head: string; word: string; top: readonly [number, number] }>();
-  const versions = new Map<string, { version: readonly [number, number]; shipped: boolean }>();
+  const known = [...catalogue, ...heard];
+  // `released` and `shipped` mean "this tracker knows the name", whether it is out or merely heard.
+  const words = new Map<string, { head: string; word: string; top: Version }>();
+  const versions = new Map<string, { version: Version; shipped: boolean }>();
   const released = new Set<string>();
   for (const name of known) {
     const bare = bareId(name).toLowerCase();
@@ -275,13 +300,13 @@ function versionedCodenames(db: Database, site: Site, heard: string[]): string[]
     const version: [number, number] = [Number(major), Number(minor ?? 0)];
     if (version[0] > MAX_PLAUSIBLE_MAJOR) continue;
     const already = words.get(`${head}${word}`)?.top;
-    if (!already || version[0] > already[0] || (version[0] === already[0] && version[1] > already[1]))
+    if (!already || compareVersions(version, already) > 0)
       words.set(`${head}${word}`, { head: head ?? "", word: word ?? "", top: version });
     versions.set(dotted(version), { version, shipped: true });
     for (const next of nextVersions(version))
       if (!versions.has(dotted(next))) versions.set(dotted(next), { version: next, shipped: false });
   }
-  const candidates = new Map<string, { version: readonly [number, number]; shipped: boolean; top: number }>();
+  const candidates = new Map<string, { version: Version; shipped: boolean; top: number }>();
   for (const { head, word, top } of words.values())
     for (const [, at] of versions) {
       const slug = `${head}${dotted(at.version)}${word}`;
@@ -302,9 +327,9 @@ function versionedCodenames(db: Database, site: Site, heard: string[]): string[]
    * `instant`, which this maker stopped using two numbers ago.
    */
   const byVersion = (
-    [, a]: [string, { version: readonly [number, number]; top: number }],
-    [, b]: [string, { version: readonly [number, number]; top: number }],
-  ): number => b.version[0] - a.version[0] || b.version[1] - a.version[1] || b.top - a.top;
+    [, a]: [string, { version: Version; top: number }],
+    [, b]: [string, { version: Version; top: number }],
+  ): number => compareVersions(b.version, a.version) || b.top - a.top;
   const entries = [...candidates];
   const siblings = entries.filter(([, at]) => at.shipped).sort(byVersion);
   /**
@@ -314,16 +339,12 @@ function versionedCodenames(db: Database, site: Site, heard: string[]): string[]
    * the step past the frontier -- 6.2 before 7, 7 before 7.5.
    */
   const frontier = entries.reduce(
-    (top, [, at]) =>
-      at.shipped && (at.version[0] > top[0] || (at.version[0] === top[0] && at.version[1] > top[1])) ? at.version : top,
-    [0, 0] as readonly [number, number],
+    (top, [, at]) => (at.shipped && compareVersions(at.version, top) > 0 ? at.version : top),
+    [0, 0] as Version,
   );
   const successors = entries
-    .filter(
-      ([, at]) =>
-        !at.shipped && (at.version[0] > frontier[0] || (at.version[0] === frontier[0] && at.version[1] >= frontier[1])),
-    )
-    .sort(([, a], [, b]) => a.version[0] - b.version[0] || a.version[1] - b.version[1] || b.top - a.top);
+    .filter(([, at]) => !at.shipped && compareVersions(at.version, frontier) >= 0)
+    .sort(([, a], [, b]) => compareVersions(a.version, b.version) || b.top - a.top);
   const half = Math.ceil(CROSS_LIMIT / 2);
   const taken = [
     ...siblings.slice(0, Math.max(half, CROSS_LIMIT - successors.length)),
@@ -331,15 +352,6 @@ function versionedCodenames(db: Database, site: Site, heard: string[]): string[]
   ];
   return taken.slice(0, CROSS_LIMIT).map(([slug]) => slug);
 }
-
-/** At most this many codename-and-version guesses per poll, highest version first. */
-const CROSS_LIMIT = 12;
-
-/** How far back a name heard once is still worth asking a documentation site about. */
-const HEARD_DAYS = 30;
-
-/** At most this many heard names per poll, newest first, so a noisy week cannot become a crawl. */
-const HEARD_LIMIT = 6;
 
 /**
  * Names this tracker has heard but no catalogue serves.
@@ -361,7 +373,12 @@ const HEARD_LIMIT = 6;
  * 2026-09-24: of 351 delivered cards, that rule read 18 as stale, and 15 of those were fresh when
  * they went out -- `gpt-5.6-sol` was news five days before `gpt-6-sol` existed.
  */
-export function heardNames(db: Database, site: Site, now = Date.now()): string[] {
+export function heardNames(
+  db: Database,
+  site: Site,
+  now = Date.now(),
+  catalogue: readonly string[] = catalogueIds(db),
+): string[] {
   if (!site.codename) return [];
   const since = new Date(now - HEARD_DAYS * 24 * 3_600_000).toISOString();
   /**
@@ -369,12 +386,7 @@ export function heardNames(db: Database, site: Site, now = Date.now()): string[]
    * `claude-opus-5.5`; both are the same model, and asking the documentation about a model that is
    * out wastes the one question this probe is for.
    */
-  const released = new Set(
-    db
-      .query<{ canonical_id: string }, []>("SELECT canonical_id FROM model_facts")
-      .all()
-      .map((row) => site.spell(bareId(row.canonical_id).toLowerCase())),
-  );
+  const released = new Set(catalogue.map((id) => site.spell(bareId(id).toLowerCase())));
   const heard: string[] = [];
   for (const row of db
     .query<{ entity_id: string }, [string]>(
@@ -411,16 +423,6 @@ async function askStatus(url: string, request: Fetch): Promise<number> {
   return response.status;
 }
 
-/**
- * How long a name that answered 404 is left alone.
- *
- * A heard name is worth asking about once, not every five minutes for a month: `gpt-5.1-mini` would
- * be 8,640 requests to be told the same thing. The version guesses are not rate-limited this way --
- * catching the minute a page appears is the whole point of them -- but a name from somebody else's
- * commit can wait a day between questions.
- */
-const COOLOFF_HOURS = 24;
-
 /** What a previous poll asked and what it was told, carried in the stored snapshot. */
 type Asked = Record<string, { status: number; at: string }>;
 
@@ -446,21 +448,28 @@ export async function collectDocsProbe(
   request: Fetch = fetch,
   now = Date.now(),
 ): Promise<Collection> {
-  const families = observedFamilies(db, site);
-  if (!families.length) throw new Error(`${site.id}: the catalogue names no model of any shape it follows`);
+  const catalogue = catalogueIds(db);
+  const families = observedFamilies(db, site, catalogue);
+  if (!families.length)
+    throw new SourceError("empty", `${site.id}: the catalogue names no model of any shape it follows`);
   /** The furthest the maker has gone in any tier, and the model that got there. */
-  const furthest = families.reduce((top, family) =>
-    family.version[0] > top.version[0] || (family.version[0] === top.version[0] && family.version[1] > top.version[1])
-      ? family
-      : top,
-  );
+  const furthest = families.reduce((top, family) => (compareVersions(family.version, top.version) > 0 ? family : top));
   const highest = furthest.version;
+  const ask = (slug: string): string => (site.ask ?? site.url)(slug);
+  const stamp = new Date(now).toISOString();
   /**
-   * A model the site certainly documents. A probe whose every guess is a 404 looks the same whether
-   * nothing has shipped or the addresses moved, and the second is how a source dies quietly. The
-   * control has to answer 200 or the poll is a failure, and the board says so.
+   * A model the site certainly documents, asked before anything else. A probe whose every guess is a
+   * 404 looks the same whether nothing has shipped or the addresses moved, and the second is how a
+   * source dies quietly. The control has to answer 200 or the poll is a failure, and the board says
+   * so. It is asked first because the guesses cannot be believed without it: a site that is down or
+   * challenging us would otherwise be asked every one of them, each with a twenty second timeout.
+   *
+   * It is asked at the same address as the guesses: an address that is not the one being asked proves
+   * nothing about the one that is.
    */
   const control = site.spell(furthest.observed);
+  const answered = await askStatus(ask(control), request);
+  if (answered !== 200) throw controlFailure(site, control, answered);
   const asked = previouslyAsked(db, site.id);
   const candidates = new Set<string>();
   for (const { family, version } of families) {
@@ -473,7 +482,7 @@ export async function collectDocsProbe(
      */
     for (const next of nextVersions(highest)) candidates.add(site.slug(family, next));
   }
-  const heard = heardNames(db, site, now);
+  const heard = heardNames(db, site, now, catalogue);
   for (const name of heard) {
     const last = asked[name];
     if (last && Date.parse(last.at) > now - COOLOFF_HOURS * 3_600_000) continue;
@@ -484,26 +493,20 @@ export async function collectDocsProbe(
    * addresses nobody has written down anywhere, so the only way to learn the minute one starts
    * answering is to keep asking.
    */
-  for (const slug of versionedCodenames(db, site, heard)) candidates.add(slug);
+  for (const slug of versionedCodenames(site, catalogue, heard)) candidates.add(slug);
   candidates.delete(control);
   const records: RecordData[] = [];
   const tried: Asked = { ...asked };
-  const ask = (slug: string): string => (site.ask ?? site.url)(slug);
   for (const slug of [...candidates].sort()) {
     const status = await askStatus(ask(slug), request).catch(() => null);
-    if (status === null) continue;
-    tried[slug] = { status, at: new Date(now).toISOString() };
+    // A rate limit or a server error is the site failing to answer, not an answer. Recorded, it would
+    // put a heard name out of reach for `COOLOFF_HOURS` on the strength of a moment's trouble.
+    if (status === null || status === 429 || status >= 500) continue;
+    tried[slug] = { status, at: stamp };
     if (status !== 200) continue;
     records.push({ id: slug, name: slug, url: site.url(slug), maker: site.vendor, source: "documentation" });
   }
-  /**
-   * The control is asked at the same address as the guesses: it is there to prove the site still
-   * answers 200 for a model it has, and an address that is not the one being asked proves nothing
-   * about the one that is.
-   */
-  const answered = await askStatus(ask(control), request);
-  if (answered !== 200) throw new Error(`${site.id}: ${control} answered HTTP ${answered}`);
-  tried[control] = { status: answered, at: new Date(now).toISOString() };
+  tried[control] = { status: answered, at: stamp };
   // A question asked a month ago is no longer a reason not to ask again.
   const kept = Object.fromEntries(
     Object.entries(tried).filter(([, when]) => Date.parse(when.at) > now - HEARD_DAYS * 24 * 3_600_000),
@@ -515,4 +518,16 @@ export async function collectDocsProbe(
     raw: kept,
     records,
   };
+}
+
+/**
+ * What a control that did not answer 200 means, said by its type.
+ *
+ * Which of the three it is decides what anyone does next: the addresses moved and the probe has to
+ * be rewritten, the site is limiting and the answer is to wait, or it is failing and nothing here is
+ * wrong. The control is a name that matched one of this site's shapes, so it is ours to print.
+ */
+function controlFailure(site: Site, control: string, status: number): SourceError {
+  const kind = status === 404 || status === 410 ? "missing-content" : status === 429 ? "rate-limited" : "http";
+  return new SourceError(kind, `${site.id}: ${control} answered HTTP ${status}`, { evidence: { status } });
 }
