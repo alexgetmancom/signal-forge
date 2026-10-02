@@ -2,9 +2,11 @@ import { z } from "zod";
 import type { Collection, RecordData } from "../events/types.js";
 import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
+import { log } from "../logger.js";
 import { slug } from "../text.js";
 import { htmlText } from "./html.js";
 import { fetchText } from "./http.js";
+import { lastOfEach } from "./ids.js";
 
 const GEMINI_DEPRECATIONS_URL = "https://ai.google.dev/gemini-api/docs/deprecations?hl=en";
 const VERTEX_DEPRECATIONS_URL = "https://docs.cloud.google.com/vertex-ai/generative-ai/docs/release-notes";
@@ -141,6 +143,24 @@ function lifecycleStage(value: string | null): string | null {
   return null;
 }
 
+/** How many rows of each page were last said to be folded, so a page that keeps doing it is said once. */
+const reportedFolds = new Map<string, number>();
+
+/**
+ * What a page lists once. Rows that share an id -- one model under two headings, with two dates --
+ * are folded into the last, which is what has always stood. The earlier row's dates went with it
+ * and nothing said so, so the count is logged, once per page and once more whenever it changes.
+ */
+function folded(page: string, records: RecordData[]): RecordData[] {
+  const { kept, merged } = lastOfEach(records);
+  if (reportedFolds.get(page) !== merged) {
+    reportedFolds.set(page, merged);
+    if (merged > 0)
+      log("warn", "Lifecycle rows that share an id were folded into one", { page, rows: records.length, merged });
+  }
+  return kept;
+}
+
 function parseTableRecords(html: string, options: LifecycleTableOptions): RecordData[] {
   const records: RecordData[] = [];
   for (const table of htmlTables(html)) {
@@ -221,7 +241,7 @@ function parseTableRecords(html: string, options: LifecycleTableOptions): Record
       });
     }
   }
-  return lifecycleRecords.parse([...new Map(records.map((record) => [record.id, record])).values()]);
+  return lifecycleRecords.parse(folded(options.url, records));
 }
 
 function parseMarkdownRecords(markdown: string, options: LifecycleTableOptions): RecordData[] {
@@ -275,7 +295,7 @@ function parseMarkdownRecords(markdown: string, options: LifecycleTableOptions):
       });
     }
   }
-  return lifecycleRecords.parse([...new Map(records.map((record) => [record.id, record])).values()]);
+  return lifecycleRecords.parse(folded(options.url, records));
 }
 
 function parseCollection(source: string, url: string, raw: string, records: RecordData[]): Collection {
@@ -427,7 +447,7 @@ export function parseCohereDeprecations(input: string): Collection {
       }
     }
     if (!fallback.length) throw new SourceError("missing-content", "cohere-deprecations: lifecycle records not found");
-    markdownRecords = lifecycleRecords.parse([...new Map(fallback.map((record) => [record.id, record])).values()]);
+    markdownRecords = lifecycleRecords.parse(folded(COHERE_DEPRECATIONS_URL, fallback));
   }
   return parseCollection("cohere-deprecations", COHERE_DEPRECATIONS_URL, input, markdownRecords);
 }

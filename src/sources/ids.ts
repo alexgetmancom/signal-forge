@@ -42,3 +42,13 @@ export function firstOfEach<T extends { id: string }>(records: readonly T[]): T[
   const seen = new Set<string>();
   return records.filter((record) => !seen.has(record.id) && seen.add(record.id));
 }
+
+/**
+ * Rows that say the same thing under one id, folded into one: the last stands, in the place the first
+ * held. It is the expression `new Map(rows.map((row) => [row.id, row])).values()` that a lifecycle
+ * parser wrote three times, with what it dropped counted instead of invisible.
+ */
+export function lastOfEach<T extends { id: string }>(records: readonly T[]): { kept: T[]; merged: number } {
+  const byId = new Map(records.map((record) => [record.id, record]));
+  return { kept: [...byId.values()], merged: records.length - byId.size };
+}

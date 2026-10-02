@@ -1,10 +1,10 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { type Destination, loadConfig } from "../src/config.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import type { Collection } from "../src/events/types.js";
 import { listLifecycleDeadlines, rebuildLifecycleDeadlines, scheduleLifecycleReminders } from "../src/lifecycle.js";
 import { parseOpenAIDeprecations } from "../src/sources/deprecations.js";
-import { parseGeminiDeprecations } from "../src/sources/lifecycle.js";
+import { parseGeminiDeprecations, parseGroqDeprecations } from "../src/sources/lifecycle.js";
 import { openDatabase } from "../src/storage/database.js";
 
 const baseConfig = loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname });
@@ -211,4 +211,49 @@ test("ambiguous OpenAI deprecation prose does not create a deadline", () => {
   saveCollection(db, polled, [], "2026-09-10T00:01:00.000Z");
   expect(db.query("SELECT COUNT(*) AS count FROM lifecycle_deadlines").get()).toEqual({ count: 0 });
   db.close();
+});
+
+test("rows of a lifecycle page that share an id stand as one, the last, and the folding is counted and said once", () => {
+  // The same model listed twice -- under two headings, with two dates -- was one record by an
+  // expression nobody could see being applied, and the earlier row's dates were dropped with no
+  // trace of it. What stands is unchanged; that it happened is now a line in the log.
+  const table = (rows: string[][]) =>
+    `<table><tr><th>Deprecated Model</th><th>Shutdown Date</th><th>Recommended Replacement Model ID</th></tr>${rows
+      .map((row) => `<tr>${row.map((cell) => `<td>${cell}</td>`).join("")}</tr>`)
+      .join("")}</table>`;
+  const lines: string[] = [];
+  const spy = spyOn(console, "log").mockImplementation((line: unknown) => {
+    lines.push(String(line));
+  });
+  try {
+    const twice = parseGroqDeprecations(
+      table([
+        ["old-model", "08/16/26", "new-model"],
+        ["other-model", "08/16/26", "newer-model"],
+        ["old-model", "09/30/26", "newest-model"],
+      ]),
+    );
+    expect(twice.records.map((record) => `${record.modelId} ${record.replacement}`)).toEqual([
+      "old-model newest-model",
+      "other-model newer-model",
+    ]);
+    // The same page again says nothing new, and a page with nothing folded says nothing at all.
+    parseGroqDeprecations(
+      table([
+        ["old-model", "08/16/26", "new-model"],
+        ["other-model", "08/16/26", "newer-model"],
+        ["old-model", "09/30/26", "newest-model"],
+      ]),
+    );
+    const folded = lines.filter((line) => line.includes("Lifecycle rows that share an id"));
+    expect(folded).toHaveLength(1);
+    expect(folded[0]).toContain('"merged":1');
+    expect(folded[0]).toContain('"rows":3');
+    expect(folded[0]).toContain("groq");
+    lines.length = 0;
+    parseGroqDeprecations(table([["old-model", "08/16/26", "new-model"]]));
+    expect(lines.filter((line) => line.includes("Lifecycle rows that share an id"))).toEqual([]);
+  } finally {
+    spy.mockRestore();
+  }
 });
