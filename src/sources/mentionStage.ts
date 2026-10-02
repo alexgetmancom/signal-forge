@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
+import { httpFailure, SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { log } from "../logger.js";
 import {
@@ -66,6 +67,14 @@ const JUDGE_MAX_CHARS = 4_000;
  * candidates a week reach it -- only IDs nothing here has recorded at that stage -- so there is no
  * budget beyond the call's own cap. Without a key, or when the answer is not usable, the words
  * decide, which errs towards `named`: the quiet stage.
+ *
+ * A judge that cannot be asked right now is a failed read, not a reason to guess. The caller files
+ * what this returns and then moves its cursor past the post, so a guess made during an outage was
+ * final: a user's report of being served a model came back `named`, was stored silently, and was
+ * never read again. Not reaching DeepSeek, a 429 and a 5xx throw, which holds the cursor and asks
+ * the same posts again on the next poll. What DeepSeek answered and was no use -- a refused request,
+ * an answer that is not the shape asked for -- falls back as before, because at temperature 0 asking
+ * again is answered the same, and a read held back for that would be held behind one post for good.
  */
 export async function judgeMentions(
   config: AppConfig,
@@ -117,12 +126,16 @@ export async function judgeMentions(
   } catch (error) {
     settle({ outcome: "failed", responseStatus: null, usage: null, errorType: safeErrorType(error) });
     log("warn", "Mention judge failed", { error: safeErrorType(error) });
-    return fallback;
+    throw new SourceError("network", `mention judge: DeepSeek could not be reached (${safeErrorType(error)})`, {
+      cause: error,
+    });
   }
   if (!response.ok) {
     await response.body?.cancel();
     settle({ outcome: "rejected", responseStatus: response.status, usage: null, errorType: null });
     log("warn", "Mention judge rejected", { status: response.status });
+    if (response.status === 429 || response.status >= 500)
+      throw httpFailure(`mention judge: DeepSeek answered HTTP ${response.status}`, response.status);
     return fallback;
   }
   let usage: DeepSeekAttemptResult["usage"] = null;

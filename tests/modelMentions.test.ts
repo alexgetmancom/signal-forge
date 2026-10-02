@@ -629,3 +629,68 @@ test("the labels that share a model column are not models, and a note on a row i
   // A proxy's alias for somebody else's model is no more a model in a column than in a sentence.
   expect(modelIdInField("claude-gpt-6-astra")).toBeNull();
 });
+
+const judged = { ...config, DEEPSEEK_API_KEY: "key" };
+const judging = (request: Fetch) =>
+  judgeMentions(judged, request, "issue", "response model is gpt-6-luna", ["gpt-6-luna"]);
+
+test("a judge that cannot be asked right now fails the read, so the post is asked about again", async () => {
+  // Answering with the wording instead of the judge filed whatever it guessed, silently, and moved
+  // the cursor past the post: the report of a model being served was lost to a DeepSeek outage.
+  const unreachable = Object.assign(new TypeError("fetch failed"), { cause: { code: "ECONNRESET" } });
+  await expect(
+    judging(async () => {
+      throw unreachable;
+    }),
+  ).rejects.toMatchObject({ kind: "network" });
+  await expect(judging(async () => new Response("overloaded", { status: 503 }))).rejects.toMatchObject({
+    kind: "http",
+    evidence: { status: 503 },
+  });
+  await expect(judging(async () => new Response("slow down", { status: 429 }))).rejects.toMatchObject({
+    kind: "rate-limited",
+  });
+  // The sentence is ours and says whose judge it was; nothing the upstream wrote is in it.
+  await expect(judging(async () => new Response("secret-body", { status: 503 }))).rejects.toThrow(
+    "mention judge: DeepSeek answered HTTP 503",
+  );
+});
+
+test("a judge that answered and was no use falls back, because asking again would be answered the same", async () => {
+  // A refused request or an answer that is not the shape asked for repeats at temperature 0, and a
+  // read held back for it would be held for good behind one post.
+  const refused = await judging(async () => new Response("no", { status: 400 }));
+  expect(refused.get("gpt-6-luna")).toBe("named");
+  const unusable = await judging(async () => Response.json({ choices: [{ message: { content: "not json" } }] }));
+  expect(unusable.get("gpt-6-luna")).toBe("named");
+});
+
+test("a post the judge could not be asked about is read again once it can, and the cursor stays where it was", async () => {
+  const db = openDatabase(":memory:");
+  const watch: MentionWatch = { repo: "openai/codex", vendor: "OpenAI", authority: "vendor_owned" };
+  let deepseek = 503;
+  const request = async (url: string) => {
+    if (url.includes("deepseek"))
+      return deepseek === 200
+        ? Response.json({ choices: [{ message: { content: '{"gpt-6-luna":"served"}' } }] })
+        : new Response("down", { status: deepseek });
+    if (url.endsWith("/graphql")) return Response.json({ data: { repository: { discussions: { nodes: [] } } } });
+    if (url.includes("/issues/comments")) return Response.json([]);
+    return Response.json([
+      {
+        html_url: "https://github.com/openai/codex/issues/1",
+        title: "Response model is gpt-6-luna though I picked gpt-5.6-luna",
+        body: "The usage panel shows gpt-6-luna for every turn.",
+        updated_at: "2026-09-21T11:00:00Z",
+        user: { login: "someone" },
+      },
+    ]);
+  };
+  saveCollection(db, await collectRepoTalk(db, judged, watch, request, new Date("2026-09-21T10:00:00Z")), []);
+  await expect(collectRepoTalk(db, judged, watch, request)).rejects.toMatchObject({ kind: "http" });
+  deepseek = 200;
+  const recovered = await collectRepoTalk(db, judged, watch, request);
+  saveCollection(db, recovered, []);
+  expect(eventsOf(db, "github:openai/codex:talk").map((event) => event.entity_id)).toEqual(["gpt-6-luna:served"]);
+  db.close();
+});
