@@ -49,7 +49,7 @@ const REQUIRED_INDEXES = [
   "events_source_entity",
   "batches_open_ready",
   "records_stream",
-  "source_collection_metrics_collected",
+  "source_collection_metrics_source_time",
 ];
 
 /** Every built file that mentions the symbol, relative to the build directory. */
