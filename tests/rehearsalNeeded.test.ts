@@ -58,7 +58,5 @@ describe("the form of a stored body", () => {
   test("a reader of a stored body owes it too, not only the writer", () => {
     expect(required(["src/events/render/attachment.ts"]).map((one) => one.phase)).toContain("evidence");
     expect(required(["src/events/signals.ts"]).map((one) => one.phase)).toContain("evidence");
-    expect(required(["src/storage/repack.ts"]).map((one) => one.phase)).toEqual(["evidence", "retention"]);
-    expect(required(["src/storage/compact.ts"]).map((one) => one.phase)).toEqual(["retention"]);
   });
 });

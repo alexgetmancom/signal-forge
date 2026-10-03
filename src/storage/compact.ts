@@ -1,6 +1,5 @@
 import type { Database } from "bun:sqlite";
 import { HttpCache } from "./httpCache.js";
-import { type RepackingResult, repackStoredPayloads } from "./repack.js";
 import { databaseSize, expireSnapshotBodies, pruneSnapshots, walBytes } from "./retention.js";
 
 export type CompactionResult = {
@@ -15,12 +14,11 @@ export type CompactionResult = {
   expiredBodies: number;
   removedSnapshots: number;
   removedCacheEntries: number;
-  repacked: RepackingResult;
   elapsedMs: number;
 };
 
 /**
- * Applies retention, repacks remaining gzip bodies as zstd, and returns unused pages to the filesystem.
+ * Applies payload retention and returns the pages it freed to the filesystem.
  *
  * The checkpoint after the VACUUM is the part that is easy to leave out. VACUUM rebuilds the whole
  * database, and in WAL mode every page of the rebuild is written through the log, so the `-wal`
@@ -48,7 +46,6 @@ export function compactStorage(db: Database): CompactionResult {
   const expiredBodies = expireSnapshotBodies(db);
   const removedSnapshots = pruneSnapshots(db);
   const removedCacheEntries = new HttpCache(db).prune();
-  const repacked = repackStoredPayloads(db);
   db.exec("VACUUM");
   const checkpoint = db.query<{ busy: number }, []>("PRAGMA wal_checkpoint(TRUNCATE)").get();
   const afterBytes = databaseSize(db).bytes;
@@ -64,7 +61,6 @@ export function compactStorage(db: Database): CompactionResult {
     expiredBodies,
     removedSnapshots,
     removedCacheEntries,
-    repacked,
     elapsedMs: Math.round(performance.now() - started),
   };
 }
