@@ -433,8 +433,16 @@ function databaseIssues(db: Database, now: number): ActionableIssue[] {
   // Growth was invisible until somebody went looking, by which time the database was a gigabyte
   // and the payloads behind two thirds of it had already been deleted by hand.
   const size = databaseSize(db);
-  if (size.bytes > DATABASE_SIZE_BUDGET) {
+  // The budget is about the disk, so the log beside the file counts against it. Comparing the page
+  // count alone is what made this silent when a VACUUM left a 258 MB write-ahead log beside a 252 MB
+  // file: the file had shrunk, the directory had grown by 200 MB, and the alert read the half that
+  // improved. A log this large is its own finding, so the sentence names it rather than only summing
+  // it -- `compact-storage` can return it, and will say `busy` instead if the service is running.
+  const walBytes = size.walBytes ?? 0;
+  const diskBytes = size.bytes + walBytes;
+  if (diskBytes > DATABASE_SIZE_BUDGET) {
     const seenAt = new Date(now).toISOString();
+    const log = walBytes > size.bytes / 10 ? `, and a write-ahead log of ${gigabytes(walBytes)} GB beside it` : "";
     issues.push({
       id: "database:size",
       kind: "database_oversized",
@@ -442,8 +450,8 @@ function databaseIssues(db: Database, now: number): ActionableIssue[] {
       entity: "database",
       firstSeenAt: seenAt,
       updatedAt: seenAt,
-      message: `The database holds ${gigabytes(size.bytes)} GB, of which ${gigabytes(size.snapshotBytes)} GB is compressed raw payloads`,
-      hint: "Run `storage` to see which tables and which sources hold it before widening retention; deleting a payload an event points at destroys its evidence.",
+      message: `The database occupies ${gigabytes(diskBytes)} GB of disk: a file of ${gigabytes(size.bytes)} GB, of which ${gigabytes(size.snapshotBytes)} GB is compressed raw payloads${log}`,
+      hint: "Run `storage` to see which tables and which sources hold it before widening retention; deleting a payload an event points at destroys its evidence. A log that is large next to the file is returned by `compact-storage` at the next restart, not by retention.",
     });
   }
   return issues;

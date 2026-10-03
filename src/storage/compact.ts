@@ -1,7 +1,6 @@
 import type { Database } from "bun:sqlite";
-import { walBytes } from "../reports/storage.js";
 import { HttpCache } from "./httpCache.js";
-import { databaseSize, expireSnapshotBodies, pruneSnapshots } from "./retention.js";
+import { databaseSize, expireSnapshotBodies, pruneSnapshots, walBytes } from "./retention.js";
 
 export type CompactionResult = {
   beforeBytes: number;

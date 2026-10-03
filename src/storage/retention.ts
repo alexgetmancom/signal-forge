@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { statSync } from "node:fs";
 import { log } from "../logger.js";
 
 /**
@@ -200,13 +201,34 @@ export function pruneShadowCandidates(db: Database, shadowSources: readonly stri
 /** Where growth stops being normal and becomes something to look at, rather than to discover. */
 export const DATABASE_SIZE_BUDGET = 5 * 1024 ** 3;
 
-/** What the database weighs now, and what it weighed a day ago, so growth is a number not a surprise. */
-export function databaseSize(db: Database): { bytes: number; snapshotBytes: number } {
+/**
+ * What the database occupies, in the file and beside it.
+ *
+ * `walBytes` is part of the answer rather than a separate question because leaving it out is a
+ * mistake this has already made: the size alert compared the file's page count to the budget, and
+ * on 2026-10-03 a VACUUM wrote the whole rebuild through the log and left 258 MB of write-ahead
+ * beside a 252 MB file. Half a gigabyte on disk, and nothing warned, because the half that grew was
+ * the half nothing measured. A caller that wants the file alone can still take `bytes`; a caller
+ * that wants to know what the disk is holding cannot now forget that the log is on it.
+ */
+export function databaseSize(db: Database): { bytes: number; snapshotBytes: number; walBytes: number | null } {
   const pages = db.query<{ page_count: number }, []>("PRAGMA page_count").get()?.page_count ?? 0;
   const pageSize = db.query<{ page_size: number }, []>("PRAGMA page_size").get()?.page_size ?? 0;
   const snapshotBytes =
     db.query<{ total: number | null }, []>("SELECT SUM(LENGTH(body)) AS total FROM snapshots").get()?.total ?? 0;
-  return { bytes: pages * pageSize, snapshotBytes };
+  return { bytes: pages * pageSize, snapshotBytes, walBytes: walBytes(db) };
+}
+
+/**
+ * The write-ahead log beside the file, which is disk the file's own page count does not show.
+ *
+ * `null` means there is no log file: a database that has never been written in WAL mode, or an
+ * in-memory one. That is not the same as a log of zero bytes, which is what a checkpoint leaves.
+ */
+export function walBytes(db: Database): number | null {
+  const file = db.query<{ file: string }, []>("PRAGMA database_list").get()?.file;
+  if (!file) return null;
+  return statSync(`${file}-wal`, { throwIfNoEntry: false })?.size ?? null;
 }
 
 /**
