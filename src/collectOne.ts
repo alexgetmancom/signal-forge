@@ -8,7 +8,7 @@
  * It opens the database the service has already migrated, without migrating it, so a collector that
  * reads what was stored last time -- npm asks which channels it has seen -- still can.
  */
-import { loadConfig } from "./config.js";
+import type { AppConfig } from "./config.js";
 import { log } from "./logger.js";
 import { peakMb } from "./runtime/peak.js";
 import { buildSourceRegistry } from "./sources/registry.js";
@@ -17,11 +17,11 @@ import { openWithoutMigrating } from "./storage/database.js";
 
 const [id, answerPath] = Bun.argv.slice(2);
 if (!id || !answerPath) {
-  process.stderr.write("usage: collectOne <source> <answer-file>\n");
+  process.stderr.write("usage: collectOne <source> <answer-file> (configuration on stdin)\n");
   process.exit(2);
 }
 
-const config = loadConfig();
+const config = (await Bun.stdin.json()) as AppConfig;
 const db = openWithoutMigrating(config.DATABASE_URL);
 
 async function answer(): Promise<Record<string, unknown>> {

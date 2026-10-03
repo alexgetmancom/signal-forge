@@ -6,7 +6,7 @@ import { collectCodexModels } from "../codex.js";
 import { collectCommandCodeModels, collectOpenCodeGo, collectOpenCodeZen } from "../codingPlans.js";
 import type { SourceContext, SourceEntry } from "../definition.js";
 import { collectGithubDiscovery, collectHuggingFaceTrending, GITHUB_DISCOVERY_QUERIES } from "../discovery.js";
-import { collectGithubCommits, collectGithubPulls, collectGithubReleases } from "../github.js";
+import { collectGithubCommits, collectGithubPulls, collectGithubReleases, githubCommitsUnchanged } from "../github.js";
 import { type KindMember, type SourceKind, sourcesOfKind } from "../kinds.js";
 import { collectPolymarket } from "../markets.js";
 import { collectModelMentions, MODEL_MENTION_REPOS, mentionSource } from "../modelMentions.js";
@@ -264,6 +264,7 @@ function repositorySources({ db, config, cache }: SourceContext): SourceEntry[] 
       {
         id: `github:${watch.repo}:commits`,
         appendOnly: true,
+        nothingNew: () => githubCommitsUnchanged(db, config, watch.repo, fetch, cache),
         collector: () => collectGithubCommits(db, config, watch, fetch, cache),
       },
       // A tagged release is the one thing read from a repository that is not work in progress: the
@@ -282,6 +283,7 @@ function repositorySources({ db, config, cache }: SourceContext): SourceEntry[] 
       id: `github:${spec.repo}:commits`,
       appendOnly: true,
       vendor: spec.vendor,
+      nothingNew: () => githubCommitsUnchanged(db, config, spec.repo, fetch, cache),
       collector: () => collectGithubCommits(db, config, spec, fetch, cache),
     });
 

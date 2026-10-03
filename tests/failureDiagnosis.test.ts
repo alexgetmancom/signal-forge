@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { z } from "zod";
 import { collectionDegraded, SourceError, storageFailure } from "../src/failure.js";
 import { classifyFailure } from "../src/failureDiagnosis.js";
-import { nextData } from "../src/sources/html.js";
+import { flightData } from "../src/sources/html.js";
 import { SourceHttpError } from "../src/sources/http.js";
 import { parseEachEntry } from "../src/sources/schema.js";
 
@@ -115,12 +115,12 @@ test("a key present in the page but holding nothing is a missing page, not a bro
   // string "$undefined", and arena.ai sends exactly that whenever it renders without the roster.
   // Reading the placeholder as data made the parse fail with "response did not match the schema",
   // which accuses the reader instead of reporting that the page did not carry it.
-  const flight = (payload: string) => `<script>self.__next_f.push([1,${JSON.stringify(`0:${payload}\n`)}])</script>`;
+  const flight = (payload: string) => `0:${payload}\n`;
   const absent = flight(JSON.stringify({ initialModels: "$undefined" }));
   const diagnosis = classifyFailure(
     (() => {
       try {
-        nextData(absent, "initialModels");
+        flightData(absent, "initialModels");
         return null;
       } catch (error) {
         return error;
@@ -132,7 +132,7 @@ test("a key present in the page but holding nothing is a missing page, not a bro
 
   // And the real value is still found, including when the placeholder is somewhere else in the page.
   const present = flight(JSON.stringify({ other: "$undefined", initialModels: [{ id: "a" }] }));
-  expect(nextData(present, "initialModels")).toEqual([{ id: "a" }]);
+  expect(flightData(present, "initialModels")).toEqual([{ id: "a" }]);
 });
 
 test("a write of ours that did not take effect says database, not unexpected error", () => {

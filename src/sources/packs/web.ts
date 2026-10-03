@@ -133,7 +133,13 @@ function installableSources({ cache }: Pick<SourceContext, "cache">): SourceEntr
 export function webSources({ db, cache }: SourceContext): SourceEntry[] {
   return [
     ...sourcesOfKind(MAKER_WEB_PAGE, [
-      { id: "codex-docs", vendor: "OpenAI", collector: () => collectCodexDocs(fetch, cache) },
+      {
+        id: "codex-docs",
+        vendor: "OpenAI",
+        // A full 177-page read added 50 MB RSS in source-cost on 2026-10-04.
+        heavy: true,
+        collector: () => collectCodexDocs(db, fetch, cache),
+      },
       {
         id: "claude-web",
         // Every JavaScript bundle claude.ai loads, about 22 MB a read.

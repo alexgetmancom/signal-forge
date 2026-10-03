@@ -1,9 +1,10 @@
+import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { Collection, RecordData } from "../events/types.js";
 import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import type { HttpCache } from "../storage/httpCache.js";
-import { fetchText } from "./http.js";
+import { fetchResponse, fetchText, requireOk } from "./http.js";
 
 /**
  * Which directory a vendor publishes its own catalogue in. The entry exists to answer one
@@ -98,6 +99,29 @@ type ModelsDevEntry = z.infer<typeof modelsDevModel>;
 const MODELS_DEV_URL = "https://models.dev/api.json";
 
 /**
+ * Ask only about the version last accepted by the pipeline, without decoding its cached body.
+ * A child can write the cache and die before saving its collection: a later cache timestamp must
+ * force a real collection, or a 304 would hide a catalogue we never observed successfully.
+ */
+export async function modelsDevUnchanged(db: Database, cache: HttpCache, request: Fetch = fetch): Promise<boolean> {
+  const etag = db
+    .query<{ etag: string }, [string]>(
+      `SELECT etag FROM http_cache WHERE url=? AND etag IS NOT NULL AND used_at <=
+     (SELECT last_success FROM live_sources WHERE id='models-dev' AND failures=0)`,
+    )
+    .get(MODELS_DEV_URL)?.etag;
+  if (!etag) return false;
+  const response = await fetchResponse(MODELS_DEV_URL, { method: "HEAD", headers: { "if-none-match": etag } }, request);
+  await response.body?.cancel();
+  if (response.status !== 304) {
+    await requireOk(response);
+    return false;
+  }
+  cache.touch(MODELS_DEV_URL, 0);
+  return true;
+}
+
+/**
  * Every published catalogue at once, keyed by the model rather than by where it is sold. A launch
  * arrives here as one record whose provider count climbs over the following days, which is the
  * shape the propagation actually has.
@@ -144,7 +168,8 @@ export async function collectModelsDev(request: Fetch = fetch, cache?: HttpCache
     })
     .sort((left, right) => left.id.localeCompare(right.id));
   if (!records.length) throw new SourceError("empty", "models.dev catalogue has no models");
-  return { source: "models-dev", stream: "api-models", url: "https://models.dev", raw, records };
+  // Keep every provider and model, but only the catalogue fields this observation reads.
+  return { source: "models-dev", stream: "api-models", url: "https://models.dev", raw: catalogue, records };
 }
 
 const treeSchema = z.object({

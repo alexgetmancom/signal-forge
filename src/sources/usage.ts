@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { Collection } from "../events/types.js";
 import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
-import { nextData } from "./html.js";
+import { flightData } from "./html.js";
 import { fetchText } from "./http.js";
 
 /**
@@ -36,7 +36,12 @@ type Ranked = { slug: string; tokens: number; requests: number };
 
 /** Every dehydrated query on the page, flattened: the rankings arrive as one of them. */
 function usageQueries(html: string): unknown[] {
-  const queries = nextData(html, "queries");
+  let stream = "";
+  for (const match of html.matchAll(/self\.__next_f\.push\((\[.*?\])\)<\/script>/g)) {
+    const chunk: unknown = JSON.parse(match[1] ?? "null");
+    if (Array.isArray(chunk) && chunk[0] === 1 && typeof chunk[1] === "string") stream += chunk[1];
+  }
+  const queries = flightData(stream, "queries");
   return Array.isArray(queries) ? queries : [];
 }
 

@@ -84,7 +84,7 @@ async function attempt(url: string, request: Fetch, init: RequestInit, delays: r
  * `scripts/check-failures.ts` is what stops the direct call coming back.
  *
  * The status is deliberately not judged here. A collector that asks what an address answers needs
- * the refusal as its answer, and one that wants it thrown has `httpFailure`. Redirects are followed
+ * the refusal as its answer, and one that wants it thrown has `requireOk`. Redirects are followed
  * by `fetch` as usual rather than walked by hand, which is what a registry tarball needs.
  */
 export async function fetchResponse(
@@ -103,6 +103,27 @@ export async function fetchResponse(
     // The type of the error, never its message: a transport error's text carries the address, and a
     // failure's sentence is stored and printed.
     throw new SourceError("network", `Source could not be reached (${safeErrorType(error)})`, { cause: error });
+  }
+}
+
+/** The same refusal handling for a body read and a bodyless conditional probe. */
+export async function requireOk(response: Response): Promise<void> {
+  if (response.headers.get("x-amzn-waf-action") || response.headers.get("cf-mitigated")) {
+    await response.body?.cancel();
+    throw new SourceError("bot-protection", "Source challenged by bot protection");
+  }
+  if (!response.ok) {
+    await response.body?.cancel();
+    const rateLimited =
+      response.status === 429 ||
+      (response.status === 403 &&
+        (response.headers.get("x-ratelimit-remaining") === "0" || response.headers.has("retry-after")));
+    throw new SourceHttpError(
+      `Source returned HTTP ${response.status}${rateLimited && response.status !== 429 ? " (rate limited)" : ""}`,
+      rateLimited ? retryAt(response.headers) : null,
+      response.status,
+      rateLimited,
+    );
   }
 }
 
@@ -174,28 +195,7 @@ export async function fetchText(
     cache?.touch(url, freshUntil(response.headers.get("cache-control")));
     return cached.body;
   }
-  // AWS WAF answers a challenged client with a CAPTCHA page under an unrelated status code, so
-  // the status alone reads as a broken endpoint. Naming it correctly matters: the answer to being
-  // challenged is to ask less often, never to look like something else.
-  if (response.headers.get("x-amzn-waf-action") || response.headers.get("cf-mitigated")) {
-    await response.body?.cancel();
-    throw new SourceError("bot-protection", "Source challenged by bot protection");
-  }
-  if (!response.ok) {
-    await response.body?.cancel();
-    // GitHub answers an exhausted or secondary rate limit with 403, not 429. That is a limit with a
-    // reset time, not a refused credential, and treating it as one stops every source on the token.
-    const rateLimited =
-      response.status === 429 ||
-      (response.status === 403 &&
-        (response.headers.get("x-ratelimit-remaining") === "0" || response.headers.has("retry-after")));
-    throw new SourceHttpError(
-      `Source returned HTTP ${response.status}${rateLimited && response.status !== 429 ? " (rate limited)" : ""}`,
-      rateLimited ? retryAt(response.headers) : null,
-      response.status,
-      rateLimited,
-    );
-  }
+  await requireOk(response);
   const reader = response.body?.getReader();
   if (!reader) throw new SourceError("protocol", "Source returned no body");
   const chunks: Uint8Array[] = [];

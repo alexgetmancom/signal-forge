@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { existsSync, readFileSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { AppConfig } from "../config.js";
 import type { Collection } from "../events/types.js";
 import { type FailureKind, SourceError } from "../failure.js";
 import { measure } from "../runtime/metricRecording.js";
@@ -124,11 +125,19 @@ export function readAnswer(id: string, run: ChildRun): ChildCollection {
 }
 
 /** Spawns the child, then reads and decodes its answer synchronously in the parent. */
-export async function collectInSubprocess(db: Database, id: string): Promise<ChildCollection> {
+export async function collectInSubprocess(db: Database, config: AppConfig, id: string): Promise<ChildCollection> {
   const path = join(tmpdir(), `signal-forge-${id.replaceAll(/[^a-z0-9]+/gi, "-")}-${Bun.nanoseconds()}.json`);
   // The child's own logging goes to stdout, so the answer cannot: it travels through a file the
   // parent names, which keeps the two channels from being spliced together by a stray log line.
-  const child = Bun.spawn([process.execPath, "--smol", entry(), id, path], { stdout: "inherit", stderr: "ignore" });
+  const child = Bun.spawn([process.execPath, "--smol", entry(), id, path], {
+    stdin: "pipe",
+    stdout: "inherit",
+    stderr: "ignore",
+  });
+  // The parent has already validated the configuration and opened the database. A child
+  // must use those same inputs, rather than reloading a different environment or settings file.
+  child.stdin.write(JSON.stringify({ ...config, DATABASE_URL: db.filename }));
+  child.stdin.end();
   const timer = setTimeout(() => child.kill(), TIMEOUT_MS);
   try {
     const code = await child.exited;

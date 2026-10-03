@@ -1,4 +1,6 @@
+import type { Database } from "bun:sqlite";
 import { z } from "zod";
+import { canonical } from "../events/canonical.js";
 import type { Collection } from "../events/types.js";
 import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
@@ -30,10 +32,16 @@ export function markdownParagraphs(text: string): string[] {
     .map((s) => s.replace(/\s+/g, " ").trim())
     .filter((s) => s && !s.startsWith("> For the complete documentation index"));
 }
-export async function collectCodexDocs(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
+export async function collectCodexDocs(db: Database, request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
   const index = await fetchText("https://learn.chatgpt.com/docs/llms.txt", {}, request, undefined, cache);
   const pages = codexPages(index);
   const records: Collection["records"] = [];
+  const previous = new Map(
+    db
+      .query<{ id: string; body: string }, []>("SELECT id,body FROM records WHERE source='codex-docs'")
+      .all()
+      .map((row) => [row.id, row.body]),
+  );
   const raw: Record<string, string> = { index };
   let bytes = index.length;
   // A failed page aborts the entire observation; it cannot imply deleted documentation.
@@ -47,8 +55,11 @@ export async function collectCodexDocs(request: Fetch = fetch, cache?: HttpCache
     for (const { page, text, strings } of results) {
       bytes += text.length;
       if (bytes > 15_000_000) throw new SourceError("protocol", "Public page Codex documentation exceeds 15 MB");
-      raw[page.url] = text;
-      records.push({ id: page.url, name: page.name, url: page.url.replace(/\.md(?=\?|$)/, ""), strings });
+      const record = { id: page.url, name: page.name, url: page.url.replace(/\.md(?=\?|$)/, ""), strings };
+      // All pages still participate in comparison and disappearance detection. Only a page
+      // whose record changed can create an event, so only that page needs another raw copy.
+      if (previous.get(page.url) !== canonical(record)) raw[page.url] = text;
+      records.push(record);
     }
   }
   return { source: "codex-docs", stream: "web", url: "https://developers.openai.com/codex/", records, raw };

@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { Collection } from "../events/types.js";
 import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
-import { nextData } from "./html.js";
+import { flightData } from "./html.js";
 import { fetchText } from "./http.js";
 import { parseEachEntry } from "./schema.js";
 
@@ -183,10 +183,10 @@ const BOARD_PAGES = [
   ["vision", "vision/overall"],
 ] as const;
 
-export function parseLeaderboards(pages: readonly { path: string; html: string }[]): Collection {
+export function parseLeaderboards(pages: readonly { path: string; flight: string }[]): Collection {
   const data = parseEachEntry(
     leaderboardBoard,
-    pages.map((page) => nextData(page.html, "leaderboard")),
+    pages.map((page) => flightData(page.flight, "leaderboard")),
     "arena leaderboards",
   );
   for (const [index, board] of data.entries()) {
@@ -213,8 +213,10 @@ export function parseLeaderboards(pages: readonly { path: string; html: string }
   };
 }
 export async function collectLeaderboards(request: Fetch = fetch): Promise<Collection> {
-  const pages: { path: string; html: string }[] = [];
+  const pages: { path: string; flight: string }[] = [];
+  // The same 870 records across eleven boards: 1.69 MB of RSC instead of 8.82 MB of HTML
+  // on 2026-10-04. Only the transport changes; the records and stored evidence stay the same.
   for (const [path] of BOARD_PAGES)
-    pages.push({ path, html: await fetchText(`https://arena.ai/leaderboard/${path}`, {}, request) });
+    pages.push({ path, flight: await fetchText(`https://arena.ai/leaderboard/${path}`, { RSC: "1" }, request) });
   return parseLeaderboards(pages);
 }

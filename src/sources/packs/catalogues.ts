@@ -13,7 +13,7 @@ import { collectDeepSeekModels, collectDeepSeekPricing } from "../deepseek.js";
 import type { SourceContext, SourceEntry } from "../definition.js";
 import { collectGoogleSkus } from "../googleSkus.js";
 import { type SourceKind, sourcesOfKind } from "../kinds.js";
-import { collectModelsDev, collectTrueFoundryAzure } from "../mirrors.js";
+import { collectModelsDev, collectTrueFoundryAzure, modelsDevUnchanged } from "../mirrors.js";
 import { collectClaudeModelCatalog } from "../modelCatalog.js";
 import { collectAnthropicModelIndex, collectOpenAIModelIndex } from "../modelIndex.js";
 import { collectOpenAIPricing } from "../openaiDocs.js";
@@ -301,11 +301,12 @@ export function cataloguesSources({ db, config, cache }: SourceContext): SourceE
     ]),
     ...modelIndexSources(cache),
     ...sourcesOfKind(RESELLER_CATALOGUE, [
-      // The whole models.dev catalogue, 4.5 MB.
+      // HEAD checks the accepted ETag here; the 5.3 MB catalogue is parsed only when it moves.
       {
         id: "models-dev",
         heavy: true,
         intervalSeconds: config.pollSeconds,
+        nothingNew: () => modelsDevUnchanged(db, cache),
         collector: () => collectModelsDev(fetch, cache),
       },
       {

@@ -240,7 +240,7 @@ async function collectSource(
       paced(Date.parse(unchangedAt));
       return { source: job.id, status: "unchanged", at: unchangedAt };
     }
-    const child = job.heavy ? await collectInSubprocess(db, job.id) : null;
+    const child = job.heavy ? await collectInSubprocess(db, config, job.id) : null;
     const collected = child ? child.collection : await job.collector();
     const collection = underContract(job, collected);
     const checkedAt = new Date().toISOString();

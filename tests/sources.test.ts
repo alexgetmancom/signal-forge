@@ -3,7 +3,7 @@ import { loadConfig } from "../src/config.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import { selectMeaningfulWebStrings, tellingWebString } from "../src/events/web.js";
 import { SourceError } from "../src/failure.js";
-import { parseArena, parseLeaderboards } from "../src/sources/arena.js";
+import { collectLeaderboards, parseArena, parseLeaderboards } from "../src/sources/arena.js";
 import { parseSimpleBench, parseVoxelBench, parseWeirdMl } from "../src/sources/benchmarks.js";
 import { collectAnthropic, collectOpenAI, collectOpenRouter } from "../src/sources/catalogs.js";
 import { claudeAssetImports, extractStrings } from "../src/sources/claude.js";
@@ -52,9 +52,6 @@ import {
 import { openDatabase } from "../src/storage/database.js";
 import { freshUntil, HttpCache } from "../src/storage/httpCache.js";
 
-function nextPage(value: unknown): string {
-  return `<script>self.__next_f.push(${JSON.stringify([1, `1:${JSON.stringify(value)}\n`])})</script>`;
-}
 test("Arena accepts models without internal name but requires valid public fields", () => {
   const model = {
     id: "one",
@@ -90,7 +87,7 @@ test("leaderboard keeps rank for the leading places and drops it below them", ()
       { modelKey: "z", modelDisplayName: "Z", modelOrganization: "Maker", rank: 44 },
     ],
   };
-  const parsed = parseLeaderboards([{ path: "text", html: nextPage({ leaderboard: board }) }]);
+  const parsed = parseLeaderboards([{ path: "text", flight: `0:${JSON.stringify({ leaderboard: board })}\n` }]);
   expect(parsed.records[0]).toMatchObject({ id: "text:overall:a", rank: 1, score: 1400.25, votes: 123, modelKey: "a" });
   // Deep in a board the order churns daily; storing it would buy events and no news.
   expect(parsed.records[1]).not.toHaveProperty("rank");
@@ -112,7 +109,9 @@ test("leaderboard preserves dynamic agent metrics as a keyed object", () => {
       },
     ],
   };
-  expect(parseLeaderboards([{ path: "text", html: nextPage({ leaderboard: board }) }]).records[0]).toMatchObject({
+  expect(
+    parseLeaderboards([{ path: "text", flight: `0:${JSON.stringify({ leaderboard: board })}\n` }]).records[0],
+  ).toMatchObject({
     metrics: { recovery: 0.7, steerability: 0.8, tool_hallucination: 0.1 },
   });
 });
@@ -134,7 +133,8 @@ test("a board position never becomes a dynamic metric, whatever the board calls 
       },
     ],
   };
-  const record = parseLeaderboards([{ path: "text", html: nextPage({ leaderboard: board }) }]).records[0] as {
+  const record = parseLeaderboards([{ path: "text", flight: `0:${JSON.stringify({ leaderboard: board })}\n` }])
+    .records[0] as {
     rank?: number;
     metrics?: Record<string, number>;
   };
@@ -150,9 +150,13 @@ test("a leaderboard page cannot silently substitute another board or an empty ta
     leaderboardSlug: "overall",
     entries: [{ modelKey: "a", modelDisplayName: "A", modelOrganization: "Maker", rank: 1 }],
   };
-  expect(() => parseLeaderboards([{ path: "text", html: nextPage({ leaderboard: board }) }])).toThrow("wrong category");
+  expect(() => parseLeaderboards([{ path: "text", flight: `0:${JSON.stringify({ leaderboard: board })}\n` }])).toThrow(
+    "wrong category",
+  );
   expect(() =>
-    parseLeaderboards([{ path: "code/webdev", html: nextPage({ leaderboard: { ...board, entries: [] } }) }]),
+    parseLeaderboards([
+      { path: "code/webdev", flight: `0:${JSON.stringify({ leaderboard: { ...board, entries: [] } })}\n` },
+    ]),
   ).toThrow("did not match the schema");
 });
 test("a deeper text table does not announce previously unobserved old rows", () => {
@@ -163,10 +167,45 @@ test("a deeper text table does not announce previously unobserved old rows", () 
     rank: index + 1,
   }));
   const parsed = parseLeaderboards([
-    { path: "text", html: nextPage({ leaderboard: { arenaSlug: "text", leaderboardSlug: "overall", entries } }) },
+    {
+      path: "text",
+      flight: `0:${JSON.stringify({ leaderboard: { arenaSlug: "text", leaderboardSlug: "overall", entries } })}\n`,
+    },
   ]);
   expect(parsed.records).toHaveLength(200);
   expect(parsed.records.some((record) => record.id === "text:overall:model-200")).toBe(false);
+});
+
+test("all leaderboard requests read RSC directly and still validate their category", async () => {
+  const seen: string[] = [];
+  const collection = await collectLeaderboards(async (url, init) => {
+    expect(new Headers(init?.headers).get("rsc")).toBe("1");
+    const path = String(url).split("/leaderboard/")[1] ?? "";
+    seen.push(path);
+    const arenaSlug =
+      path === "code/webdev"
+        ? "code"
+        : path === "code/image-to-webdev"
+          ? "image-to-code"
+          : path === "video-edit"
+            ? "video-to-video"
+            : path;
+    return new Response(
+      `0:${JSON.stringify({
+        leaderboard: {
+          arenaSlug,
+          leaderboardSlug: "overall",
+          entries: [{ modelKey: "a", modelDisplayName: "A", modelOrganization: "Maker", rank: 1 }],
+        },
+      })}\n`,
+    );
+  });
+  expect(seen).toHaveLength(11);
+  expect(collection.records).toHaveLength(11);
+  expect(collection.raw).toEqual(collection.records);
+  await expect(collectLeaderboards(async () => new Response("<!doctype html><html>no data</html>"))).rejects.toThrow(
+    "no longer exposes leaderboard",
+  );
 });
 test("RSS parses escaped titles and preserves article dates", () => {
   const c = parseOpenAINews(

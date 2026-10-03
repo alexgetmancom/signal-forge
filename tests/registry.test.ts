@@ -21,6 +21,7 @@ test("source registry has unique IDs, valid streams, labels and consistent pacin
   ).toBe(true);
   expect(definitions.find((definition) => definition.id === "openai")?.authority).toBe("first_party");
   expect(definitions.find((definition) => definition.id === "openrouter")?.authority).toBe("third_party");
+  expect(definitions.find((definition) => definition.id === "codex-docs")?.heavy).toBe(true);
   expect(definitions.find((definition) => definition.id === "mimo")).toMatchObject({
     authority: "first_party",
     stream: "api-models",

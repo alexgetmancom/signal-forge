@@ -1,8 +1,51 @@
 import { expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { loadConfig } from "../src/config.js";
+import { saveCollection } from "../src/events/pipeline.js";
 import { SourceError } from "../src/failure.js";
 import { classifyFailure } from "../src/failureDiagnosis.js";
 import { SourceHttpError } from "../src/sources/http.js";
-import { type ChildRun, fromWire, readAnswer, toWire } from "../src/sources/subprocess.js";
+import { type ChildRun, collectInSubprocess, fromWire, readAnswer, toWire } from "../src/sources/subprocess.js";
+import { openDatabase } from "../src/storage/database.js";
+import { HttpCache } from "../src/storage/httpCache.js";
+
+test("a heavy child uses its parent's database even when the environment names a different file", async () => {
+  const directory = mkdtempSync(join(tmpdir(), "signal-forge-child-db-"));
+  const db = openDatabase(join(directory, "parent.db"));
+  const decoy = openDatabase(join(directory, "decoy.db"));
+  const root = "https://learn.chatgpt.com/docs/";
+  const index = `[Models](${root}models.md)`;
+  const record = { id: `${root}models.md`, name: "Models", url: `${root}models`, strings: ["# Models", "Observed"] };
+  try {
+    for (const [database, name] of [
+      [db, "Models"],
+      [decoy, "Wrong"],
+    ] as const) {
+      const cache = new HttpCache(database);
+      for (const [url, body] of [
+        [`${root}llms.txt`, `[${name}](${root}${name.toLowerCase()}.md)`],
+        [`${root}${name.toLowerCase()}.md`, `# ${name}\n\nObserved`],
+      ] as const)
+        cache.put(url, { body, etag: null, lastModified: null, freshUntil: Date.now() + 60_000 });
+    }
+    saveCollection(db, { source: "codex-docs", stream: "web", url: root, records: [record], raw: {} }, []);
+    const config = loadConfig({
+      CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname,
+      DATABASE_URL: decoy.filename,
+    });
+    const answer = await collectInSubprocess(db, config, "codex-docs");
+    expect(answer.collection.records).toEqual([record]);
+    expect(answer.collection.raw).toEqual({ index });
+    expect(answer.peakRssMb).toBeGreaterThan(0);
+    expect(decoy.query("SELECT count(*) AS n FROM code_metrics").get()).toEqual({ n: 0 });
+  } finally {
+    db.close();
+    decoy.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 const ran = (over: Partial<ChildRun>): ChildRun => ({
   answer: null,

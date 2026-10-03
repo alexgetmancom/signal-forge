@@ -1,10 +1,91 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import {
   bareModelSlug,
   collectModelsDev,
   collectTrueFoundryAzure,
+  modelsDevUnchanged,
   providerVersionBase,
 } from "../src/sources/mirrors.js";
+import { openDatabase } from "../src/storage/database.js";
+import { HttpCache } from "../src/storage/httpCache.js";
+import { aSource } from "./fixtures/build.js";
+
+const modelsUrl = "https://models.dev/api.json";
+
+function acceptedCache() {
+  const db = openDatabase(":memory:");
+  const cache = new HttpCache(db);
+  const acceptedAt = "2026-10-03T18:01:00.000Z";
+  aSource(db, "models-dev", { lastSuccess: acceptedAt });
+  cache.put(
+    modelsUrl,
+    { body: "catalogue", etag: 'W/"accepted"', lastModified: null, freshUntil: 0 },
+    Date.parse(acceptedAt) - 1000,
+  );
+  return { db, cache, acceptedAt };
+}
+
+test("an accepted ETag's 304 skips decoding the cached catalogue", async () => {
+  const { db, cache } = acceptedCache();
+  const get = spyOn(cache, "get");
+  const requests: RequestInit[] = [];
+  expect(
+    await modelsDevUnchanged(db, cache, async (url, init) => {
+      expect(String(url)).toBe(modelsUrl);
+      requests.push(init ?? {});
+      return new Response(null, { status: 304 });
+    }),
+  ).toBe(true);
+  expect(requests).toHaveLength(1);
+  expect(requests[0]?.method).toBe("HEAD");
+  expect(new Headers(requests[0]?.headers).get("if-none-match")).toBe('W/"accepted"');
+  expect(get).not.toHaveBeenCalled();
+  get.mockRestore();
+  db.close();
+});
+
+test("a changed ETag falls through to a full collection; a refusal keeps its retry time", async () => {
+  const { db, cache } = acceptedCache();
+  expect(await modelsDevUnchanged(db, cache, async () => new Response(null, { status: 200 }))).toBe(false);
+  await expect(
+    modelsDevUnchanged(
+      db,
+      cache,
+      async () =>
+        new Response(null, {
+          status: 429,
+          headers: { "retry-after": "120" },
+        }),
+    ),
+  ).rejects.toMatchObject({ status: 429, rateLimited: true, retryAt: expect.any(String) });
+  db.close();
+});
+
+test("a cache version not yet saved by the pipeline cannot skip the collector", async () => {
+  const { db, cache, acceptedAt } = acceptedCache();
+  let asked = 0;
+  const request = async () => {
+    asked++;
+    return new Response(null, { status: 304 });
+  };
+  cache.put(
+    modelsUrl,
+    { body: "unaccepted", etag: '"new"', lastModified: null, freshUntil: 0 },
+    Date.parse(acceptedAt) + 1000,
+  );
+  expect(await modelsDevUnchanged(db, cache, request)).toBe(false);
+  cache.put(
+    modelsUrl,
+    { body: "accepted", etag: '"old"', lastModified: null, freshUntil: 0 },
+    Date.parse(acceptedAt) - 1000,
+  );
+  aSource(db, "models-dev", { lastSuccess: acceptedAt, failures: 1 });
+  expect(await modelsDevUnchanged(db, cache, request)).toBe(false);
+  aSource(db, "models-dev");
+  expect(await modelsDevUnchanged(db, cache, request)).toBe(false);
+  expect(asked).toBe(0);
+  db.close();
+});
 
 test("one model written six ways normalises to one slug", () => {
   expect(bareModelSlug("anthropic/claude-opus-5")).toBe("claude-opus-5");
@@ -100,6 +181,19 @@ test("a model only a cloud lists is reported as exactly that", async () => {
   const collection = await collectModelsDev(async () => new Response(catalogue));
 
   expect(collection.records[0]).toMatchObject({ id: "claude-mythos-5", vendorListed: false, providerCount: 1 });
+});
+
+test("catalogue evidence retains every provider and model but omits unused serving fields", async () => {
+  const input = JSON.parse(catalogue);
+  input.anthropic.api = "https://example.test/api";
+  input.anthropic.models["claude-opus-5"].cost = { input: 99, output: 99 };
+  const result = await collectModelsDev(async () => Response.json(input));
+  expect(Object.keys(result.raw as object)).toEqual(Object.keys(input));
+  expect(result.raw).toHaveProperty("anthropic.models.claude-opus-5.limit.context", 1000000);
+  expect(result.raw).not.toHaveProperty("anthropic.api");
+  expect(result.raw).not.toHaveProperty("anthropic.models.claude-opus-5.cost");
+  const replayed = await collectModelsDev(async () => Response.json(result.raw));
+  expect(replayed.records).toEqual(result.records);
 });
 
 const treePayload = JSON.stringify({

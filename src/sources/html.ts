@@ -43,22 +43,17 @@ export function attribute(attributes: string, name: string): string | null {
   return attributes.match(new RegExp(`\\b${name}=["']([^"']+)["']`, "i"))?.[1] ?? null;
 }
 
-/** React Flight's encoding of the value `undefined`. See the note inside `nextData`. */
+/** React Flight's encoding of the value `undefined`. See the note inside `flightData`. */
 const FLIGHT_UNDEFINED = "$undefined";
 
 /**
- * A value embedded in a React server-rendered page, read without running the page.
+ * A value in a React server component stream, read without running the page.
  *
- * Next.js streams the data its components were rendered from as a series of `self.__next_f.push`
- * chunks. Reading the value the page already shows is the difference between parsing rendered
+ * Next.js serves this stream directly for an RSC request or embeds it in HTML script chunks.
+ * Reading the value the page already shows is the difference between parsing rendered
  * markup -- which changes with every style tweak -- and reading the record the page was built from.
  */
-export function nextData(html: string, key: string): unknown {
-  let stream = "";
-  for (const match of html.matchAll(/self\.__next_f\.push\((\[.*?\])\)<\/script>/g)) {
-    const chunk: unknown = JSON.parse(match[1] ?? "null");
-    if (Array.isArray(chunk) && chunk[0] === 1 && typeof chunk[1] === "string") stream += chunk[1];
-  }
+export function flightData(stream: string, key: string): unknown {
   const search = (value: unknown): unknown => {
     if (value && typeof value === "object") {
       if (!Array.isArray(value) && Object.hasOwn(value, key)) {

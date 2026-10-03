@@ -5,9 +5,45 @@ import { unexplainedFailure } from "../src/failureDiagnosis.js";
 import { byLongestWait, collectNamedSource } from "../src/poller.js";
 import { sourceJobs } from "../src/sources/registry.js";
 import { openDatabase } from "../src/storage/database.js";
+import { HttpCache } from "../src/storage/httpCache.js";
 import { aSource } from "./fixtures/build.js";
 
 const pollerConfig = () => loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname });
+
+test("models.dev's unchanged check runs before its heavy child and continues to mark success", async () => {
+  const db = openDatabase(":memory:");
+  const cache = new HttpCache(db);
+  const instant = Date.now() - 1000;
+  cache.put(
+    "https://models.dev/api.json",
+    { body: "unused", etag: '"same"', lastModified: null, freshUntil: 0 },
+    instant - 1000,
+  );
+  aSource(db, "models-dev", { lastSuccess: new Date(instant).toISOString() });
+  const original = globalThis.fetch;
+  let requests = 0;
+  globalThis.fetch = (async (url, init) => {
+    requests++;
+    expect(String(url)).toBe("https://models.dev/api.json");
+    expect(init?.method).toBe("HEAD");
+    return new Response(null, { status: 304 });
+  }) as typeof fetch;
+  try {
+    const config = pollerConfig();
+    expect(await collectNamedSource(db, config, "models-dev")).toMatchObject({ status: "unchanged" });
+    expect(await collectNamedSource(db, config, "models-dev")).toMatchObject({ status: "unchanged" });
+    expect(requests).toBe(2);
+    expect(db.query("SELECT count(*) AS n FROM snapshots").get()).toEqual({ n: 0 });
+    expect(
+      db
+        .query("SELECT failures,last_error,last_success=checked_at AS healthy FROM sources WHERE id='models-dev'")
+        .get(),
+    ).toEqual({ failures: 0, last_error: null, healthy: 1 });
+  } finally {
+    globalThis.fetch = original;
+    db.close();
+  }
+});
 
 test("a withheld failure still says which kind it was, and nothing an upstream wrote", () => {
   const parsed = z.object({ data: z.array(z.string()) }).safeParse({ data: "sk-live-secret" });

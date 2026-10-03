@@ -8,11 +8,13 @@ import { log } from "../logger.js";
 import type { HttpCache } from "../storage/httpCache.js";
 import { fetchText } from "./http.js";
 
-const commitSchema = z.object({
-  sha: z.string().regex(/^[a-f0-9]{40}$/),
-  html_url: z.url(),
-  commit: z.object({ message: z.string() }),
-});
+const commitSchema = z
+  .object({
+    sha: z.string().regex(/^[a-f0-9]{40}$/),
+    html_url: z.url(),
+    commit: z.object({ message: z.string() }).passthrough(),
+  })
+  .passthrough();
 const fileSchema = z.object({
   filename: z.string(),
   status: z.string(),
@@ -31,6 +33,29 @@ const releaseSchema = z.object({
   prerelease: z.boolean(),
   published_at: z.string().nullable(),
 });
+
+/** A known branch head means the append-only commit collector has already caught up. */
+export async function githubCommitsUnchanged(
+  db: Database,
+  config: AppConfig,
+  repo: string,
+  request: Fetch = fetch,
+  cache?: HttpCache,
+): Promise<boolean> {
+  const source = `github:${repo}:commits`;
+  if (!db.query("SELECT 1 FROM live_sources WHERE id=? AND last_success IS NOT NULL").get(source)) return false;
+  const headers: Record<string, string> = {
+    Accept: "application/vnd.github.sha",
+    "X-GitHub-Api-Version": "2022-11-28",
+  };
+  if (config.GITHUB_TOKEN) headers.Authorization = `Bearer ${config.GITHUB_TOKEN}`;
+  const sha = (
+    await fetchText(`https://api.github.com/repos/${repo}/commits/HEAD`, headers, request, undefined, cache)
+  ).trim();
+  if (!/^[a-f0-9]{40}$/.test(sha)) throw new SourceError("schema", "GitHub branch head did not return a commit SHA");
+  return Boolean(db.query("SELECT 1 FROM records WHERE source=? AND id=?").get(source, sha));
+}
+
 export function summarizeDiff(files: z.infer<typeof fileSchema>[], paths: string[]): string {
   const selected = files.filter(
     (f) =>
@@ -84,7 +109,6 @@ export async function collectGithubCommits(
       await fetchText(`${url}?per_page=100&page=${page}`, headers, request, undefined, cache),
     );
     const commits = z.array(commitSchema).parse(body);
-    raw.push(body);
     for (const commit of commits) {
       if (db.query("SELECT 1 FROM records WHERE source=? AND id=?").get(source, commit.sha)) {
         reachedKnown = true;
@@ -107,6 +131,8 @@ export async function collectGithubCommits(
     initialized && (!reachedKnown || oldestFirst.length > BATCH * 5) ? Math.max(0, oldestFirst.length - BATCH) : 0;
   if (skipped > 0) log("warn", "GitHub backlog recorded without details", { source, skipped });
   for (const [index, commit] of oldestFirst.slice(0, initialized ? skipped + BATCH : oldestFirst.length).entries()) {
+    // Older and not-yet-processed list entries are not evidence for any record in this collection.
+    raw.push(commit);
     let summary = "";
     if (initialized && index >= skipped) {
       const detail: unknown = JSON.parse(await fetchText(`${url}/${commit.sha}?per_page=100`, headers, request));
