@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
-import { storageReport } from "../reports/storage.js";
+import { storageReport, walBytes } from "../reports/storage.js";
 import { HttpCache } from "../storage/httpCache.js";
 import { databaseSize, expireSnapshotBodies, pruneSnapshots } from "../storage/retention.js";
 import { count, type OperationMap } from "./definition.js";
@@ -48,7 +48,9 @@ export function storageOperations(db: Database, _config: AppConfig): OperationMa
       note:
         "Runs SQLite VACUUM. Writers wait while the file is rebuilt; run during the stopped-app " +
         "part of deployment for a large database. `releasedBytes` measures the file before and after, " +
-        "not payloads removed. Uses the status worker's snapshot and cache retention before compacting.",
+        "not payloads removed; `releasedDiskBytes` counts the write-ahead log with it, which is the " +
+        "number the filesystem agrees with -- a VACUUM writes the rebuilt database through the log, so " +
+        "this truncates it afterwards. Uses the status worker's snapshot and cache retention before compacting.",
       mutates: true,
       agent: false,
       schema: z.object({}),
@@ -60,12 +62,24 @@ export function storageOperations(db: Database, _config: AppConfig): OperationMa
         const expiredBodies = expireSnapshotBodies(db);
         const removedSnapshots = pruneSnapshots(db);
         const removedCacheEntries = new HttpCache(db).prune();
+        const beforeWalBytes = walBytes(db);
         db.exec("VACUUM");
+        // VACUUM rebuilds the whole database, and in WAL mode every page of it is written through
+        // the log, so the `-wal` file is left as large as the file it just rebuilt: 258 MB beside a
+        // 252 MB database on 2026-10-03, which is more disk than the 32 MB the VACUUM had given
+        // back. A passive checkpoint copies those pages home but keeps the file at that size for
+        // reuse, so the only one that returns the disk is TRUNCATE. Measuring the database alone
+        // reported a saving while the directory had grown.
+        db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
         const afterBytes = databaseSize(db).bytes;
+        const afterWalBytes = walBytes(db);
         return {
           beforeBytes,
           afterBytes,
           releasedBytes: Math.max(0, beforeBytes - afterBytes),
+          beforeWalBytes,
+          afterWalBytes,
+          releasedDiskBytes: Math.max(0, beforeBytes + (beforeWalBytes ?? 0) - afterBytes - (afterWalBytes ?? 0)),
           expiredBodies,
           removedSnapshots,
           removedCacheEntries,

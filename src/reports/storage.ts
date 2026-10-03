@@ -149,7 +149,8 @@ function paceOf(days: StorageReport["events"]["days"], today: string): StorageRe
 }
 
 /** The write-ahead log beside the file, which is where a burst of large writes is felt first. */
-function walBytes(db: Database): number | null {
+/** The write-ahead log beside the file, which is disk the file's own page count does not show. */
+export function walBytes(db: Database): number | null {
   const file = db.query<{ file: string }, []>("PRAGMA database_list").get()?.file;
   if (!file) return null;
   return statSync(`${file}-wal`, { throwIfNoEntry: false })?.size ?? null;

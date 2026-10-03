@@ -22,12 +22,20 @@ export function anInstant(offsetMs = 60_000): string {
   return new Date(clock).toISOString();
 }
 
-export function aSnapshot(db: Database, overrides: { source?: string; collectedAt?: string } = {}): number {
+export function aSnapshot(
+  db: Database,
+  overrides: { source?: string; collectedAt?: string; body?: string } = {},
+): number {
   const row = db
-    .query<{ id: number }, [string, string]>(
-      "INSERT INTO snapshots(source,collected_at,hash,bytes) VALUES(?,?,'',0) RETURNING id",
+    .query<{ id: number }, [string, string, number, string | null]>(
+      "INSERT INTO snapshots(source,collected_at,hash,bytes,body) VALUES(?,?,'',?,?) RETURNING id",
     )
-    .get(overrides.source ?? "arena", overrides.collectedAt ?? anInstant());
+    .get(
+      overrides.source ?? "arena",
+      overrides.collectedAt ?? anInstant(),
+      overrides.body?.length ?? 0,
+      overrides.body ?? null,
+    );
   if (!row) throw new Error("Snapshot could not be stored");
   return row.id;
 }
