@@ -29,7 +29,8 @@ import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { foldCodeMetricDays } from "../src/runtime/metricFold.js";
-import { repackStoredPayloads } from "../src/storage/repack.js";
+import { foldCollectionDays } from "../src/storage/collectionDays.js";
+import { repackStoredPayloads, trimCatalogSnapshots } from "../src/storage/repack.js";
 import {
   expireSnapshotBodies,
   pruneFailureEvidence,
@@ -63,11 +64,13 @@ const SWEEPS: readonly { name: string; run: (db: Database) => number }[] = [
   { name: "fold metric days", run: (db) => foldCodeMetricDays(db) },
   { name: "expire snapshot bodies", run: (db) => expireSnapshotBodies(db) },
   { name: "prune snapshots", run: (db) => pruneSnapshots(db) },
+  { name: "fold collection days", run: (db) => foldCollectionDays(db) },
   { name: "prune raw collection attempts", run: (db) => pruneSourceCollectionMetrics(db) },
   { name: "prune failure evidence", run: (db) => pruneFailureEvidence(db) },
   { name: "prune operator journal", run: (db) => pruneOperatorJournal(db) },
   { name: "prune source shapes", run: (db) => pruneSourceShapes(db) },
   { name: "prune release renders", run: (db) => pruneReleaseRenders(db) },
+  { name: "trim catalog snapshots", run: (db) => trimCatalogSnapshots(db).snapshots },
   {
     name: "repack gzip bodies",
     run: (db) => {

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { openRouterSchema } from "../catalogPayloads.js";
 import type { AppConfig, CredentialName } from "../config.js";
 import type { Collection, RecordData, SourceAuthority } from "../events/types.js";
 import { SourceError } from "../failure.js";
@@ -6,21 +7,6 @@ import type { Fetch } from "../http-client.js";
 import { fetchText } from "./http.js";
 import type { Vendor } from "./vendors.js";
 
-const openRouterSchema = z.object({
-  data: z
-    .array(
-      z.object({
-        id: z.string().min(1),
-        name: z.string(),
-        created: z.number(),
-        context_length: z.number().nullable(),
-        pricing: z.record(z.string(), z.unknown()),
-        architecture: z.object({ input_modalities: z.array(z.string()), output_modalities: z.array(z.string()) }),
-        supported_parameters: z.array(z.string()).optional(),
-      }),
-    )
-    .min(1),
-});
 export async function collectOpenRouter(request: Fetch = fetch): Promise<Collection> {
   const apiUrl = "https://openrouter.ai/api/v1/models",
     url = "https://openrouter.ai/models",
@@ -31,7 +17,7 @@ export async function collectOpenRouter(request: Fetch = fetch): Promise<Collect
     stream: "openrouter",
     confirmChanges: true,
     url,
-    raw,
+    raw: data,
     records: data.data.map((m) => ({
       id: m.id,
       // A listing with no display name is still a model; an empty name would fail the catalogue.

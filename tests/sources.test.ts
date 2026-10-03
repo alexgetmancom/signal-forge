@@ -771,6 +771,30 @@ test("OpenRouter schema rejects error pages and normalizes modality ordering", a
   expect(c.records[0]?.url).toBe("https://openrouter.ai/a");
   await expect(collectOpenRouter(async () => Response.json({ error: "unavailable" }))).rejects.toThrow();
 });
+
+test("OpenRouter evidence keeps every consumed model field and arbitrary pricing, but drops unused metadata", async () => {
+  const model = {
+    id: "vendor/model",
+    name: "Model",
+    created: 1,
+    context_length: null,
+    pricing: { prompt: "0.000001", completion: "0.000002", future_cost: "0.01" },
+    architecture: { input_modalities: ["image", "text"], output_modalities: ["text"], tokenizer: "unused" },
+    supported_parameters: ["tools", "reasoning"],
+    description: "An unused description",
+    top_provider: { context_length: 100_000 },
+  };
+  const collection = await collectOpenRouter(async () => Response.json({ data: [model], total_count: 1 }));
+  const { description: _description, top_provider: _provider, architecture: _architecture, ...used } = model;
+  expect(collection.raw).toEqual({
+    data: [{ ...used, architecture: { input_modalities: ["image", "text"], output_modalities: ["text"] } }],
+  });
+  expect(collection.records[0]).toMatchObject({
+    pricing: model.pricing,
+    parameters: ["reasoning", "tools"],
+    context: null,
+  });
+});
 test("Anthropic collects all pages, never treating first page as entire catalog", async () => {
   let n = 0;
   const c = await collectAnthropic(
@@ -1210,6 +1234,37 @@ test("Vercel gateway models carry maker, context and pricing", async () => {
   );
   expect(c.stream).toBe("api-models");
   expect(c.records[0]).toMatchObject({ id: "alibaba/qwen-3", name: "Qwen3", maker: "alibaba", context: 128000 });
+});
+
+test("Gateway evidence is structured model JSON, keeping optional values and every pricing field", async () => {
+  const { parseVercelGateway } = await import("../src/sources/registries.js");
+  const models = [
+    {
+      id: "vendor/model",
+      name: null,
+      owned_by: "vendor",
+      context_window: 128_000,
+      max_tokens: 4096,
+      pricing: { input: "0.01", future_cost: "0.1" },
+      description: "Unused",
+      type: "language",
+    },
+    { id: "minimal" },
+  ];
+  const collection = parseVercelGateway(JSON.stringify({ object: "list", data: models }));
+  const { description: _description, type: _type, ...used } = models[0] as (typeof models)[0];
+  expect(collection.raw).toEqual({ data: [used, { id: "minimal" }] });
+  expect(collection.records).toEqual([
+    {
+      id: "vendor/model",
+      name: "vendor/model",
+      maker: "vendor",
+      context: 128_000,
+      output: 4096,
+      pricing: { input: "0.01", future_cost: "0.1" },
+    },
+    { id: "minimal", name: "minimal", maker: null, context: null, output: null, pricing: null },
+  ]);
 });
 
 test("pypi reports the current version as one record", async () => {

@@ -1,7 +1,19 @@
 import type { Database } from "bun:sqlite";
+import { foldCollectionDays } from "./collectionDays.js";
 import { HttpCache } from "./httpCache.js";
-import { type RepackingResult, repackStoredPayloads } from "./repack.js";
-import { databaseSize, expireSnapshotBodies, pruneSnapshots, walBytes } from "./retention.js";
+import {
+  type CatalogTrimmingResult,
+  type RepackingResult,
+  repackStoredPayloads,
+  trimCatalogSnapshots,
+} from "./repack.js";
+import {
+  databaseSize,
+  expireSnapshotBodies,
+  pruneSnapshots,
+  pruneSourceCollectionMetrics,
+  walBytes,
+} from "./retention.js";
 
 export type CompactionResult = {
   beforeBytes: number;
@@ -15,12 +27,14 @@ export type CompactionResult = {
   expiredBodies: number;
   removedSnapshots: number;
   removedCacheEntries: number;
+  removedCollectionMetrics: number;
+  trimmedCatalogs: CatalogTrimmingResult;
   repacked: RepackingResult;
   elapsedMs: number;
 };
 
 /**
- * Applies retention, repacks remaining gzip bodies as zstd, and returns unused pages to the filesystem.
+ * Applies retention, trims catalog evidence, repacks gzip as zstd and returns unused pages to the filesystem.
  *
  * The checkpoint after the VACUUM is the part that is easy to leave out. VACUUM rebuilds the whole
  * database, and in WAL mode every page of the rebuild is written through the log, so the `-wal`
@@ -45,9 +59,18 @@ export function compactStorage(db: Database): CompactionResult {
   const started = performance.now();
   const beforeBytes = databaseSize(db).bytes;
   const beforeWalBytes = walBytes(db);
+  const now = Date.now();
+  foldCollectionDays(db, now);
+  let removedCollectionMetrics = 0;
+  for (;;) {
+    const removed = pruneSourceCollectionMetrics(db, now);
+    removedCollectionMetrics += removed;
+    if (!removed) break;
+  }
   const expiredBodies = expireSnapshotBodies(db);
   const removedSnapshots = pruneSnapshots(db);
   const removedCacheEntries = new HttpCache(db).prune();
+  const trimmedCatalogs = trimCatalogSnapshots(db);
   const repacked = repackStoredPayloads(db);
   db.exec("VACUUM");
   const checkpoint = db.query<{ busy: number }, []>("PRAGMA wal_checkpoint(TRUNCATE)").get();
@@ -64,6 +87,8 @@ export function compactStorage(db: Database): CompactionResult {
     expiredBodies,
     removedSnapshots,
     removedCacheEntries,
+    removedCollectionMetrics,
+    trimmedCatalogs,
     repacked,
     elapsedMs: Math.round(performance.now() - started),
   };

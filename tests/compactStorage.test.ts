@@ -7,7 +7,7 @@ import { storageOperations } from "../src/operations/storage.js";
 import { compactStorage } from "../src/storage/compact.js";
 import { openDatabase } from "../src/storage/database.js";
 import { readSnapshot, storeSnapshot } from "../src/storage/snapshots.js";
-import { aSnapshot } from "./fixtures/build.js";
+import { anAttempt, anEvent, aSnapshot } from "./fixtures/build.js";
 
 const directory = mkdtempSync(join(tmpdir(), "signal-forge-compact-"));
 afterAll(() => rmSync(directory, { recursive: true, force: true }));
@@ -26,6 +26,57 @@ test("the existing compact operation repacks retained gzip snapshots and reports
     db.query("SELECT hex(substr(body,1,4)) AS magic,hash,bytes FROM snapshots WHERE id=?").get(snapshot.id),
   ).toEqual({ magic: "28B52FFD", hash: snapshot.hash, bytes: snapshot.bytes });
   expect(readSnapshot(db, snapshot.id)).toBe(text);
+  db.close();
+});
+
+test("compacting prunes successful details and trims old catalogs in the same operation", () => {
+  const db = openDatabase(join(directory, "catalogs.db"));
+  const now = Date.now();
+  for (let index = 0; index < 6; index++)
+    anAttempt(db, "openrouter", null, new Date(now - 10 * 86_400_000 + index).toISOString());
+  for (let index = 0; index < 5; index++) anAttempt(db, "openrouter", null, new Date(now + index).toISOString());
+  const days = db.query("SELECT * FROM source_collection_days ORDER BY day,source,outcome").all();
+  const instant = new Date(now).toISOString();
+  const router = storeSnapshot(
+    db,
+    "openrouter",
+    instant,
+    JSON.stringify({
+      data: [
+        {
+          id: "model",
+          name: "Model",
+          created: 1,
+          context_length: 100,
+          architecture: { input_modalities: ["text"], output_modalities: ["text"] },
+          pricing: { prompt: "0" },
+          description: "Unused",
+        },
+      ],
+    }),
+  );
+  const gateway = storeSnapshot(
+    db,
+    "vercel-gateway",
+    instant,
+    JSON.stringify(
+      JSON.stringify({
+        data: [{ id: "model", description: "Unused" }],
+      }),
+    ),
+  );
+  anEvent(db, { snapshotId: router.id });
+  anEvent(db, { snapshotId: gateway.id });
+  const events = db.query("SELECT * FROM events ORDER BY id").all();
+
+  const result = compactStorage(db);
+
+  expect(result).toMatchObject({ removedCollectionMetrics: 6, trimmedCatalogs: { snapshots: 2 } });
+  expect(db.query("SELECT * FROM source_collection_days ORDER BY day,source,outcome").all()).toEqual(days);
+  expect(db.query("SELECT * FROM events ORDER BY id").all()).toEqual(events);
+  expect(JSON.parse(readSnapshot(db, router.id) as string).data[0]).not.toHaveProperty("description");
+  expect(JSON.parse(readSnapshot(db, gateway.id) as string)).toEqual({ data: [{ id: "model" }] });
+  expect(compactStorage(db)).toMatchObject({ removedCollectionMetrics: 0, trimmedCatalogs: { snapshots: 0 } });
   db.close();
 });
 

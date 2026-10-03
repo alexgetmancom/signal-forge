@@ -7,10 +7,8 @@ import { writeTransaction } from "./transaction.js";
  * The daily fold of `source_collection_metrics`, and the only thing any count of collections is
  * read from.
  *
- * The raw table keeps one row per attempt and nothing ever read an individual one: every report
- * asks how many, how many failed, and of what kind. Folding those into a row per source, day and
- * outcome is the same answer in a twentieth of the space, which is what lets the raw attempts stop
- * at a fortnight instead of a quarter.
+ * Counts are read from the fold. Raw failures keep fourteen days for outage minutes and example
+ * sentences; successful attempts keep the repair window and each source's latest five readings.
  *
  * Two things stay raw, because a fold cannot answer them: the minute an outage clustered in, which
  * `outages` groups by, and the sentence a failure carried, which `failures` shows one of.
@@ -23,7 +21,9 @@ import { writeTransaction } from "./transaction.js";
  * and because the status worker is not guaranteed to have run at all during a day. A collection
  * folds its own day only, which is the day it just wrote to.
  */
-const REFOLD_DAYS = 2;
+export const REFOLD_DAYS = 2;
+/** The individual readings `sourceProfile` exposes, including sources that run rarely. */
+export const LATEST_COLLECTIONS = 5;
 
 const dayOf = (epochMs: number): string => new Date(epochMs).toISOString().slice(0, 10);
 

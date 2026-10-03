@@ -66,7 +66,8 @@ export function storageOperations(db: Database, _config: AppConfig): OperationMa
     },
     compact_storage: {
       section: "host",
-      summary: "Apply retention, repack gzip bodies as zstd, and return unused database pages to the filesystem.",
+      summary:
+        "Apply retention, trim catalog snapshots, repack gzip as zstd, and return unused database pages to the filesystem.",
       startHere: "cleanup released payloads, and the database file itself needs to shrink",
       note:
         "Runs SQLite VACUUM. Writers wait while the file is rebuilt; run during the stopped-app " +
@@ -75,7 +76,12 @@ export function storageOperations(db: Database, _config: AppConfig): OperationMa
         "number the filesystem agrees with -- a VACUUM writes the rebuilt database through the log, so " +
         "this truncates it afterwards -- but truncating needs to be the only connection, so on a running " +
         "service `walCheckpoint` comes back `busy`, `releasedDiskBytes` is zero and the log is returned " +
-        "by the next restart instead. Uses the status worker's snapshot and cache retention, then " +
+        "by the next restart instead. Applies snapshot, cache and collection-metric retention. " +
+        "Successful attempts retain the two calendar days the fold repairs and the latest five " +
+        "attempts per source; failures retain fourteen days. `removedCollectionMetrics` counts the " +
+        "deleted details; daily statistics remain. `trimmedCatalogs` counts OpenRouter and Vercel " +
+        "snapshots reduced to the collectors' model fields, with IDs and event references retained " +
+        "and hashes and byte counts updated. Descriptions and other unconsumed metadata are discarded. It then " +
         "repacks remaining gzip snapshot and HTTP cache bodies as zstd in small transactions. " +
         "Each round trip is checked byte for byte; snapshot hashes, original sizes and references " +
         "stay unchanged. `repacked` counts those bodies and their compressed bytes before and after; " +

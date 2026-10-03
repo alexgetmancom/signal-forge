@@ -2,7 +2,6 @@ import { z } from "zod";
 import type { Collection } from "../events/types.js";
 import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
-import { flightData } from "./html.js";
 import { fetchText } from "./http.js";
 
 /**
@@ -14,17 +13,18 @@ import { fetchText } from "./http.js";
  * reseller's cheapest provider changed for six days, while DeepSeek V4 Flash 0731 -- first on this
  * very ranking, fifty trillion tokens in a month -- went unmentioned as it got three times cheaper.
  *
- * The page publishes a daily row per model. Nobody is told about any of this directly: it is a
+ * The site's JSON API publishes daily rows for the weekly view. Nobody is told about this directly: it is a
  * shadow source, collected so that other decisions can be measured rather than argued.
  */
 const RANKINGS_URL = "https://openrouter.ai/rankings";
+const RANKINGS_API = "https://openrouter.ai/api/frontend/v1/rankings/models?view=week";
 /** A ranking that came back with a handful of rows is a broken read, not a quiet week. */
 const MINIMUM_MODELS = 10;
 
 const usageRows = z
   .array(
     z.object({
-      model_permaslug: z.string().min(1),
+      model_permaslug: z.string(),
       total_prompt_tokens: z.number().nonnegative(),
       total_completion_tokens: z.number().nonnegative(),
       count: z.number().nonnegative().optional(),
@@ -34,31 +34,22 @@ const usageRows = z
 
 type Ranked = { slug: string; tokens: number; requests: number };
 
-/** Every dehydrated query on the page, flattened: the rankings arrive as one of them. */
-function usageQueries(html: string): unknown[] {
-  let stream = "";
-  for (const match of html.matchAll(/self\.__next_f\.push\((\[.*?\])\)<\/script>/g)) {
-    const chunk: unknown = JSON.parse(match[1] ?? "null");
-    if (Array.isArray(chunk) && chunk[0] === 1 && typeof chunk[1] === "string") stream += chunk[1];
-  }
-  const queries = flightData(stream, "queries");
-  return Array.isArray(queries) ? queries : [];
-}
-
-export function parseOpenRouterUsage(html: string): Collection {
+/**
+ * The HTML hydrates only twenty models. The API the page calls exposes the whole ranking: 541
+ * models in 419 KB against twenty in 2.43 MB of HTML, measured 2026-10-04. Empty-slug buckets
+ * carry usage without identifying a model and cannot be turned into a model record.
+ */
+export function parseOpenRouterUsage(payload: string): Collection {
+  const rows = z
+    .object({ data: usageRows })
+    .parse(JSON.parse(payload))
+    .data.filter((row) => row.model_permaslug.trim());
   const totals = new Map<string, Ranked>();
-  let raw: unknown = null;
-  for (const query of usageQueries(html)) {
-    const data = (query as { state?: { data?: unknown } })?.state?.data;
-    const parsed = usageRows.safeParse(data);
-    if (!parsed.success) continue;
-    raw = data;
-    for (const row of parsed.data) {
-      const held = totals.get(row.model_permaslug) ?? { slug: row.model_permaslug, tokens: 0, requests: 0 };
-      held.tokens += row.total_prompt_tokens + row.total_completion_tokens;
-      held.requests += row.count ?? 0;
-      totals.set(row.model_permaslug, held);
-    }
+  for (const row of rows) {
+    const held = totals.get(row.model_permaslug) ?? { slug: row.model_permaslug, tokens: 0, requests: 0 };
+    held.tokens += row.total_prompt_tokens + row.total_completion_tokens;
+    held.requests += row.count ?? 0;
+    totals.set(row.model_permaslug, held);
   }
   const ranked = [...totals.values()].sort((one, other) => other.tokens - one.tokens);
   if (ranked.length < MINIMUM_MODELS)
@@ -67,7 +58,7 @@ export function parseOpenRouterUsage(html: string): Collection {
     source: "openrouter-usage",
     stream: "leaderboards",
     url: RANKINGS_URL,
-    raw,
+    raw: rows,
     // Usage moves every hour and none of those moves is news. Only a model appearing on the
     // ranking for the first time is an event, and even that is told to nobody.
     records: ranked.map((model, index) => ({
@@ -83,5 +74,5 @@ export function parseOpenRouterUsage(html: string): Collection {
 }
 
 export async function collectOpenRouterUsage(request: Fetch = fetch): Promise<Collection> {
-  return parseOpenRouterUsage(await fetchText(RANKINGS_URL, {}, request));
+  return parseOpenRouterUsage(await fetchText(RANKINGS_API, { accept: "application/json" }, request));
 }

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { gatewayModels } from "../catalogPayloads.js";
 import type { Collection } from "../events/types.js";
 import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
@@ -350,29 +351,13 @@ export async function collectPypi(name: string, request: Fetch = fetch, cache?: 
   return collection;
 }
 
-const gatewayModels = z.object({
-  data: z
-    .array(
-      z.object({
-        id: z.string().min(1),
-        name: z.string().nullish(),
-        owned_by: z.string().nullish(),
-        description: z.string().nullish(),
-        context_window: z.number().nullish(),
-        max_tokens: z.number().nullish(),
-        pricing: z.record(z.string(), z.unknown()).nullish(),
-      }),
-    )
-    .min(1),
-});
-
 export function parseVercelGateway(payload: string): Collection {
   const data = gatewayModels.parse(JSON.parse(payload));
   return {
     source: "vercel-gateway",
     stream: "api-models",
     url: "https://vercel.com/ai-gateway",
-    raw: payload,
+    raw: data,
     records: data.data.map((model) => ({
       id: model.id,
       name: model.name ?? model.id,

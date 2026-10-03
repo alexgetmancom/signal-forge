@@ -10,7 +10,7 @@ import {
   pruneSourceCollectionMetrics,
 } from "../src/storage/retention.js";
 import { readSnapshot, storeSnapshot } from "../src/storage/snapshots.js";
-import { aBatch, anEvent, aSnapshot } from "./fixtures/build.js";
+import { aBatch, anAttempt, anEvent, aSnapshot } from "./fixtures/build.js";
 
 const now = Date.parse("2026-09-12T00:00:00.000Z");
 
@@ -292,29 +292,28 @@ test("the response cache is bounded by size, not only by age", () => {
   db.close();
 });
 
-test("collection metrics older than the horizon are dropped, recent ones kept", () => {
+test("old successful collection details keep the source's latest five attempts", () => {
   const db = openDatabase(":memory:");
-  const write = (daysAgo: number) =>
-    db
-      .query("INSERT INTO source_collection_metrics(source,collected_at,success) VALUES(?,?,1)")
-      .run("arena", new Date(now - daysAgo * 24 * 3_600_000).toISOString());
-  for (const days of [200, 120, 91, 89, 30, 1]) write(days);
+  for (const days of [200, 120, 91, 89, 30, 1])
+    anAttempt(db, "arena", null, new Date(now - days * 24 * 3_600_000).toISOString());
   foldAllDays(db);
 
-  expect(pruneSourceCollectionMetrics(db, now)).toBe(5);
+  expect(pruneSourceCollectionMetrics(db, now)).toBe(1);
   const left = db.query<{ c: number }, []>("SELECT COUNT(*) c FROM source_collection_metrics").get()?.c;
-  expect(left).toBe(1);
+  expect(left).toBe(5);
   db.close();
 });
 
 test("a raw attempt whose day the fold has not recorded is never deleted", () => {
   const db = openDatabase(":memory:");
   const old = new Date(now - 200 * 24 * 3_600_000).toISOString();
-  db.query("INSERT INTO source_collection_metrics(source,collected_at,success) VALUES(?,?,1)").run("arena", old);
+  anAttempt(db, "arena", null, old);
+  for (let index = 0; index < 5; index++) anAttempt(db, "arena", null, new Date(now + index).toISOString());
+  db.query("DELETE FROM source_collection_days WHERE day=?").run(old.slice(0, 10));
 
   // The fold has never run, so this history is the only copy there is of it.
   expect(pruneSourceCollectionMetrics(db, now)).toBe(0);
-  expect(db.query<{ c: number }, []>("SELECT COUNT(*) c FROM source_collection_metrics").get()?.c).toBe(1);
+  expect(db.query<{ c: number }, []>("SELECT COUNT(*) c FROM source_collection_metrics").get()?.c).toBe(6);
 
   foldAllDays(db);
   expect(pruneSourceCollectionMetrics(db, now)).toBe(1);
@@ -328,11 +327,65 @@ test("a backlog larger than one chunk is cleared, not partly cleared", () => {
   // measuring something production cannot produce -- one source, one millisecond, 2,500 attempts --
   // and the backlog it meant to build is 2,500 attempts at 2,500 moments.
   const started = now - 200 * 24 * 3_600_000;
-  const insert = db.query("INSERT INTO source_collection_metrics(source,collected_at,success) VALUES(?,?,1)");
-  for (let i = 0; i < 2_500; i++) insert.run("arena", new Date(started + i).toISOString());
+  for (let i = 0; i < 2_500; i++) anAttempt(db, "arena", null, new Date(started + i).toISOString());
   foldAllDays(db);
-  expect(pruneSourceCollectionMetrics(db, now)).toBe(2_500);
-  expect(db.query<{ c: number }, []>("SELECT COUNT(*) c FROM source_collection_metrics").get()?.c).toBe(0);
+  expect(pruneSourceCollectionMetrics(db, now)).toBe(2_495);
+  expect(db.query<{ c: number }, []>("SELECT COUNT(*) c FROM source_collection_metrics").get()?.c).toBe(5);
+  expect(pruneSourceCollectionMetrics(db, now)).toBe(0);
+  db.close();
+});
+
+test("retention leaves complete repair days, folded history, recent failures and rare-source readings intact", () => {
+  const db = openDatabase(":memory:");
+  const at = (days: number, index = 0) => new Date(now - days * 86_400_000 + index).toISOString();
+  anAttempt(db, "busy", { error: "Old refusal", kind: "schema" }, at(20));
+  for (let index = 0; index < 6; index++) anAttempt(db, "busy", null, at(10, index));
+  anAttempt(db, "busy", { error: "Recent refusal", kind: "schema" }, at(10, 6));
+  anAttempt(db, "busy", { error: "Transport refusal", kind: "network" }, at(10, 7));
+  for (let index = 0; index < 8; index++) anAttempt(db, "busy", null, at(1, index));
+  anAttempt(db, "quiet", null, at(200));
+  foldCollectionDays(db, now);
+  const days = db.query("SELECT * FROM source_collection_days ORDER BY day,source,outcome").all();
+  const latest = db
+    .query("SELECT * FROM source_collection_metrics WHERE source='busy' ORDER BY collected_at DESC LIMIT 5")
+    .all();
+
+  expect(pruneSourceCollectionMetrics(db, now)).toBe(7);
+  expect(
+    db.query("SELECT * FROM source_collection_metrics WHERE source='busy' ORDER BY collected_at DESC LIMIT 5").all(),
+  ).toEqual(latest);
+  expect(
+    db
+      .query<{ n: number }, []>("SELECT COUNT(*) n FROM source_collection_metrics WHERE source='busy' AND success=0")
+      .get()?.n,
+  ).toBe(2);
+  expect(
+    db
+      .query<{ n: number }, [string]>("SELECT COUNT(*) n FROM source_collection_metrics WHERE collected_at>=?")
+      .get(at(1))?.n,
+  ).toBe(8);
+  expect(
+    db.query<{ n: number }, []>("SELECT COUNT(*) n FROM source_collection_metrics WHERE source='quiet'").get()?.n,
+  ).toBe(1);
+  foldCollectionDays(db, now);
+  expect(db.query("SELECT * FROM source_collection_days ORDER BY day,source,outcome").all()).toEqual(days);
+  db.close();
+});
+
+test("another source or outcome having a fold on the same day does not authorize pruning", () => {
+  const db = openDatabase(":memory:");
+  const old = now - 10 * 86_400_000;
+  anAttempt(db, "other", null, new Date(old).toISOString());
+  for (let index = 0; index < 6; index++) anAttempt(db, "unfolded", null, new Date(old + index).toISOString());
+  anAttempt(db, "unfolded", { error: "Recorded failure", kind: "schema" }, new Date(old + 6).toISOString());
+  for (let index = 0; index < 5; index++) anAttempt(db, "unfolded", null, new Date(now + index).toISOString());
+  db.query("DELETE FROM source_collection_days WHERE source='unfolded' AND outcome='success' AND day<?").run(
+    new Date(now).toISOString().slice(0, 10),
+  );
+
+  expect(pruneSourceCollectionMetrics(db, now)).toBe(0);
+  foldAllDays(db);
+  expect(pruneSourceCollectionMetrics(db, now)).toBe(6);
   db.close();
 });
 

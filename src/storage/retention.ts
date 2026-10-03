@@ -1,6 +1,8 @@
 import type { Database } from "bun:sqlite";
 import { statSync } from "node:fs";
 import { log } from "../logger.js";
+import { FAILURE_KIND } from "../reports/failureKind.js";
+import { LATEST_COLLECTIONS, REFOLD_DAYS } from "./collectionDays.js";
 
 /**
  * Raw collection payloads are kept so that any event can be traced back to the bytes it came from.
@@ -176,7 +178,7 @@ function expireByAge(db: Database, now: number): number {
 }
 
 /**
- * How long the raw attempts are kept, now that every count of them is read from the daily fold.
+ * How long raw failures are kept, now that counts are read from the daily fold.
  *
  * Ninety days was the horizon while this table was what the reports read, and it could not be
  * shortened: `sourceVerdicts` reads the first successful collection across all of history to say
@@ -193,27 +195,37 @@ function expireByAge(db: Database, now: number): number {
 export const RAW_COLLECTION_DAYS = 14;
 
 export function pruneSourceCollectionMetrics(db: Database, now = Date.now()): number {
-  const cutoff = new Date(now - RAW_COLLECTION_DAYS * 24 * 3_600_000).toISOString();
+  const failureCutoff = new Date(now - RAW_COLLECTION_DAYS * 24 * 3_600_000).toISOString();
+  const repairCutoff = `${new Date(now - (REFOLD_DAYS - 1) * 24 * 3_600_000).toISOString().slice(0, 10)}T00:00:00.000Z`;
   let removed = 0;
   for (let chunk = 0; chunk < MAX_CHUNKS; chunk++) {
     try {
       // Chunked like the snapshots above: the first run after this ships has a six-figure backlog
       // to clear, and one statement for all of it holds a write lock for the length of it.
       //
-      // Never past a day the fold has not recorded. A fold that failed, or that has never run, would
-      // otherwise have this delete the only copy of a quarter of collection history one chunk every
-      // five minutes, and every report above it would keep answering from a window quietly emptying.
+      // Keep every row in the repair window, and the latest five attempts even for a quiet source.
+      // Older successes need only their fold; failures still need their minute and sentence.
+      // Match the fold's source AND outcome: another source having a row on that day proves nothing.
       const deleted = db
-        .query<{ removed: number }, [string, number]>(
+        .query<{ removed: number }, [string, string, number, number]>(
           // By the key, not by `rowid`: migration 076 made (source, collected_at) the table, so
           // there is no rowid to delete by. The statement is in `HOT_WRITES` for the same reason.
           `DELETE FROM source_collection_metrics WHERE (source, collected_at) IN (
-             SELECT source, collected_at FROM source_collection_metrics
-             WHERE collected_at < ? AND substr(collected_at, 1, 10) IN (SELECT day FROM source_collection_days)
+             SELECT m.source, m.collected_at FROM source_collection_metrics m
+             WHERE m.collected_at < ? AND (m.success = 1 OR m.collected_at < ?)
+               AND m.collected_at < (
+                 SELECT collected_at FROM source_collection_metrics latest
+                 WHERE latest.source = m.source ORDER BY collected_at DESC LIMIT 1 OFFSET ?
+               )
+               AND EXISTS (
+                 SELECT 1 FROM source_collection_days d
+                 WHERE d.day = substr(m.collected_at, 1, 10) AND d.source = m.source
+                   AND d.outcome = CASE WHEN m.success = 1 THEN 'success' ELSE ${FAILURE_KIND} END
+               )
              LIMIT ?
            ) RETURNING 1 AS removed`,
         )
-        .all(cutoff, CHUNK * 20).length;
+        .all(repairCutoff, failureCutoff, LATEST_COLLECTIONS - 1, CHUNK * 20).length;
       removed += deleted;
       if (deleted < CHUNK * 20) return removed;
     } catch (error) {

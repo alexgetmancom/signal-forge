@@ -343,12 +343,21 @@ export const HOT_WRITES: readonly HotWrite[] = [
     name: "expire a chunk of raw collection attempts",
     sql: `DELETE FROM source_collection_metrics
           WHERE (source, collected_at) IN (
-            SELECT source, collected_at FROM source_collection_metrics
-            WHERE collected_at < ? AND substr(collected_at, 1, 10) IN (SELECT day FROM source_collection_days)
+            SELECT m.source, m.collected_at FROM source_collection_metrics m
+            WHERE m.collected_at < ? AND (m.success = 1 OR m.collected_at < ?)
+              AND m.collected_at < (
+                SELECT collected_at FROM source_collection_metrics latest
+                WHERE latest.source = m.source ORDER BY collected_at DESC LIMIT 1 OFFSET ?
+              )
+              AND EXISTS (
+                SELECT 1 FROM source_collection_days d
+                WHERE d.day = substr(m.collected_at, 1, 10) AND d.source = m.source
+                  AND d.outcome = CASE WHEN m.success = 1 THEN 'success' ELSE 'unknown' END
+              )
             LIMIT ?
           )`,
-    params: ["2020-01-01T00:00:00.000Z", 1],
-    seeks: "source_collection_metrics by (source, collected_at), and source_collection_days by day",
+    params: ["2020-01-02T00:00:00.000Z", "2020-01-01T00:00:00.000Z", 4, 1],
+    seeks: "source_collection_metrics by (source, collected_at), and source_collection_days by (day, source, outcome)",
   },
 ];
 

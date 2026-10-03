@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { AppConfig } from "../config.js";
 import { buildSourceRegistry, type SourceDefinition } from "../sources/registry.js";
-import { dayFrom } from "../storage/collectionDays.js";
+import { dayFrom, LATEST_COLLECTIONS } from "../storage/collectionDays.js";
 
 /**
  * Everything this service knows about one source, in one answer.
@@ -94,8 +94,6 @@ type StateRow = {
   accept_shrink: number;
   retired_at: string | null;
 };
-
-const LATEST_COLLECTIONS = 5;
 
 /** Every name this deployment could be asked about: the registry's, and the table's retired ones. */
 export function knownSourceIds(db: Database, config: AppConfig): string[] {

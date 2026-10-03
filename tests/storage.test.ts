@@ -26,7 +26,23 @@ test("compaction releases old payload pages while retaining the latest payload a
   const db = openDatabase(join(directory, "app.db"));
   try {
     const old = storeSnapshot(db, "openrouter", new Date(Date.now() - 3 * 86_400_000).toISOString(), noise(1_200_000));
-    storeSnapshot(db, "openrouter", new Date().toISOString(), '{"latest":true}');
+    storeSnapshot(
+      db,
+      "openrouter",
+      new Date().toISOString(),
+      JSON.stringify({
+        data: [
+          {
+            id: "model",
+            name: "Model",
+            created: 1,
+            context_length: 100,
+            pricing: { prompt: "1" },
+            architecture: { input_modalities: ["text"], output_modalities: ["text"] },
+          },
+        ],
+      }),
+    );
     const event = anEvent(db, { source: "openrouter", snapshotId: old.id, afterJson: '{"pricing":{"prompt":"1"}}' });
     const evidence = db.query("SELECT * FROM events WHERE id=?").get(event);
 
