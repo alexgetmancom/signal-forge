@@ -80,7 +80,68 @@ const BODY_LIFETIME_DAYS = 30;
 const HEAVY_BODY_LIFETIME_DAYS = 2;
 const HEAVY_BODY_BYTES = 500_000;
 
+/**
+ * How many bytes of raw bodies one source may hold, newest first.
+ *
+ * The two horizons above bound age and nothing bounds volume, so what a source costs is decided by
+ * how often it is polled and how large its answer is -- neither of which this file knows. Measured
+ * on a copy of production 2026-10-03: the two most expensive sources were `models-dev`, 28 bodies
+ * of 537 KB stored in two days, and `openrouter`, 188 of 79 KB in the same two days. 15.0 MB and
+ * 14.8 MB, from opposite ends of the per-body size the heavy rule is written in terms of. A
+ * threshold on one body cannot see that.
+ *
+ * So this is the ceiling the horizons do not provide, and it is in stored bytes because stored
+ * bytes are what the disk pays. Eight megabytes keeps 80.6 MB of the 97.5 MB that was there, and
+ * what it costs is hours at the far end of the heaviest sources: `models-dev` keeps 16 bodies back
+ * to 37 hours and `openrouter` 107 back to 31, against the two days the heavy horizon promises.
+ * Every source light enough not to reach the ceiling is untouched and still keeps its thirty days.
+ *
+ * The number that matters is not today's 17 MB. It is that a source which starts answering ten
+ * times larger, or being polled ten times more often, now costs eight megabytes instead of
+ * however much that turns out to be.
+ *
+ * `LENGTH(body)` of a BLOB is read from the row header, not from the overflow pages, so summing it
+ * over every unexpired body is 9 ms and no resident memory. The same sum over a TEXT column would
+ * read all 97 MB.
+ */
+const SOURCE_BODY_BUDGET_BYTES = 8 * 1024 ** 2;
+
 export function expireSnapshotBodies(db: Database, now = Date.now()): number {
+  return expireByAge(db, now) + expireOverBudget(db, now);
+}
+
+/**
+ * The bodies a source holds beyond its budget, newest kept.
+ *
+ * The newest body of each source sums to nothing ahead of it, so it can never be chosen -- which is
+ * the same promise the age rule makes, that the latest answer of a source stays readable whatever
+ * its age.
+ */
+function expireOverBudget(db: Database, now: number): number {
+  try {
+    return db
+      .query<{ expired: number }, [string, number, number]>(
+        `UPDATE snapshots SET body=NULL, expired_at=?
+         WHERE id IN (
+           SELECT id FROM (
+             SELECT id, COALESCE(SUM(LENGTH(body)) OVER (
+               PARTITION BY source ORDER BY id DESC ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING
+             ), 0) AS newerBytes
+             FROM snapshots WHERE body IS NOT NULL
+           ) WHERE newerBytes > ?
+           LIMIT ?
+         ) RETURNING 1 AS expired`,
+      )
+      .all(new Date(now).toISOString(), SOURCE_BODY_BUDGET_BYTES, CHUNK * MAX_CHUNKS).length;
+  } catch (error) {
+    log("warn", "Snapshot body budget sweep failed", {
+      errorType: error instanceof Error ? error.message : "unknown",
+    });
+    return 0;
+  }
+}
+
+function expireByAge(db: Database, now: number): number {
   const cutoff = (days: number) => new Date(now - days * 24 * 3_600_000).toISOString();
   try {
     return db

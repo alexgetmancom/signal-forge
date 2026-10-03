@@ -25,13 +25,16 @@ export function storageOperations(db: Database, _config: AppConfig): OperationMa
         "sum of every column of every row -- blobs as stored, so gzipped -- and `rows` is " +
         "`ANALYZE`'s estimate, null for a table it has not reached. `unaccountedBytes` is the file " +
         "less those and the free pages, which is indexes and page overhead: per-index bytes need " +
-        "`dbstat` and this Bun is built without it. It was 46% of the file while this report weighed " +
+        "`dbstat` and no Bun on Linux is built with it, so the breakdown is a development command, " +
+        "`index-cost`, run against a copy. It was 46% of the file while this report weighed " +
         "four tables, and what it hid was the second-largest table in the database. " +
         "`events.bySource` says which sources' events weigh the most and what one of " +
         "them averages, which is the breakdown that explains a jump; `snapshots.bySource` " +
         "is where to look before widening retention: it lists the sources holding the most stored " +
         "payload and the share they hold, and a row with `keptRows` far below `rows` is retention " +
-        "working. `events.pace` extrapolates the complete days of the window; events are never deleted, " +
+        "working -- a source holds at most eight megabytes of bodies, newest first, whatever their " +
+        "age, because the two age horizons bound how old a payload may be and nothing bounded how " +
+        "many there are. `events.pace` extrapolates the complete days of the window; events are never deleted, " +
         "so it is the only growth here that has no ceiling, and it is an average rather than a forecast. " +
         "Row counts are `schema`; this is bytes. Cleanup frees pages for reuse inside the file; " +
         "`compact-storage` returns those pages to the filesystem when the file itself needs to shrink.",

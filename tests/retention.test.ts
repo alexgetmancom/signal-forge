@@ -10,7 +10,7 @@ import {
   pruneSourceCollectionMetrics,
 } from "../src/storage/retention.js";
 import { readSnapshot, storeSnapshot } from "../src/storage/snapshots.js";
-import { aBatch, anEvent } from "./fixtures/build.js";
+import { aBatch, anEvent, aSnapshot } from "./fixtures/build.js";
 
 const now = Date.parse("2026-09-12T00:00:00.000Z");
 
@@ -136,6 +136,55 @@ test("a payload over half a megabyte is released after two days, the rest after 
   expect(readSnapshot(db, stale.id)).toBeNull();
   expect(readSnapshot(db, ordinary.id)).toBe('{"board":"small"}');
   expect(readSnapshot(db, fresh.id)).not.toBeNull();
+  db.close();
+});
+
+/** Whether the row still holds its bytes, for bodies written straight rather than compressed. */
+function storedBytes(db: Database, id: number): number | null {
+  return (
+    db.query<{ n: number | null }, [number]>("SELECT LENGTH(body) AS n FROM snapshots WHERE id=?").get(id)?.n ?? null
+  );
+}
+
+test("a source may hold eight megabytes of bodies, newest first, however fresh they are", () => {
+  const db = openDatabase(":memory:");
+  // Written straight rather than through `storeSnapshot`, because the budget is in stored bytes and
+  // a megabyte of one repeated character compresses to nothing. All collected within the hour, so
+  // neither horizon can touch them: the only thing that can is the ceiling.
+  const megabyte = "x".repeat(1024 ** 2);
+  const heavy = Array.from({ length: 11 }, (_, index) =>
+    aSnapshot(db, {
+      source: "models-dev",
+      collectedAt: new Date(now - (11 - index) * 60_000).toISOString(),
+      body: megabyte,
+    }),
+  );
+  const light = Array.from({ length: 2 }, (_, index) =>
+    aSnapshot(db, { source: "arena", collectedAt: new Date(now - index * 60_000).toISOString(), body: megabyte }),
+  );
+
+  // Eleven megabytes against a budget of eight: the two oldest are the ones with more than eight
+  // ahead of them.
+  expect(expireSnapshotBodies(db, now)).toBe(2);
+  expect(storedBytes(db, heavy[0] as number)).toBeNull();
+  expect(storedBytes(db, heavy[1] as number)).toBeNull();
+  expect(storedBytes(db, heavy[2] as number)).toBe(1024 ** 2);
+  expect(storedBytes(db, heavy[10] as number)).toBe(1024 ** 2);
+  // A source under the ceiling is not asked to pay for one over it.
+  for (const id of light) expect(storedBytes(db, id)).toBe(1024 ** 2);
+  db.close();
+});
+
+test("the newest body of a source is never over its own budget", () => {
+  const db = openDatabase(":memory:");
+  const tenMegabytes = "x".repeat(10 * 1024 ** 2);
+  const only = aSnapshot(db, { source: "models-dev", collectedAt: new Date(now).toISOString(), body: tenMegabytes });
+
+  // Nothing is ahead of it, so the sum it is measured against is zero. A source whose single answer
+  // is larger than the whole budget still has its latest answer readable, which is the promise the
+  // age rule makes too.
+  expect(expireSnapshotBodies(db, now)).toBe(0);
+  expect(storedBytes(db, only)).toBe(10 * 1024 ** 2);
   db.close();
 });
 
