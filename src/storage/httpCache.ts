@@ -22,8 +22,14 @@ const KEEP_MS = 14 * 24 * 3_600_000;
  * The compressed bytes the cache may hold. Production's 67 MB of text compressed to 9.3 MB on
  * 2026-10-03, in 313 ms for all 209 entries. Age alone does not bound the volume sites ship, so
  * least recently used entries go until it fits. A dropped entry costs one more request.
+ *
+ * Sixteen megabytes, not the sixty-four this was while the same number counted characters. Against
+ * that compression the old figure allowed some 450 MB of text, so the budget would have risen
+ * sevenfold at the moment it was meant to shrink the file, and the 58 MB the compression gave back
+ * would have been lent rather than kept. This leaves production's cache at well under half its
+ * ceiling, so the saving holds until the watched sites ship several times what they ship today.
  */
-const BUDGET_BYTES = 64 * 1024 * 1024;
+const BUDGET_BYTES = 16 * 1024 * 1024;
 
 export class HttpCache {
   constructor(private readonly db: Database) {}

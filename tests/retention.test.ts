@@ -223,7 +223,7 @@ test("the response cache is bounded by size, not only by age", () => {
   expect(cache.prune(now)).toBeGreaterThan(0);
   const bytes =
     db.query<{ bytes: number | null }, []>("SELECT SUM(LENGTH(body)) AS bytes FROM http_cache").get()?.bytes ?? 0;
-  expect(bytes).toBeLessThanOrEqual(64 * 1024 * 1024);
+  expect(bytes).toBeLessThanOrEqual(16 * 1024 * 1024);
   // What survives is what was used most recently.
   expect(cache.get("https://example.test/bundle-0.js")).not.toBeNull();
   expect(cache.get("https://example.test/bundle-89.js")).toBeNull();
