@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../src/config.js";
@@ -9,6 +9,7 @@ import { callOperation, operations } from "../src/operations.js";
 import { storageReport } from "../src/reports/storage.js";
 import { openDatabase } from "../src/storage/database.js";
 import { HttpCache } from "../src/storage/httpCache.js";
+import { databaseSize } from "../src/storage/retention.js";
 import { storeSnapshot } from "../src/storage/snapshots.js";
 import { anEvent } from "./fixtures/build.js";
 
@@ -95,22 +96,41 @@ test("bodies are counted in bytes, by table, largest first", () => {
   db.close();
 });
 
-test("the file is accounted for, and a remainder is never negative", () => {
+test("every table in the file is named, and the remainder is page overhead", () => {
   const db = seeded();
   const report = storageReport(db, { days: 14, top: 10, now });
-  const held = report.bodies.reduce((sum, body) => sum + body.bytes, 0);
+  const paged = report.tables.reduce((sum, table) => sum + table.bytes + table.indexBytes, 0);
   expect(report.file.bytes).toBeGreaterThan(0);
   expect(report.file.budgetBytes).toBe(5 * 1024 ** 3);
-  expect(report.unaccountedBytes).toBe(Math.max(0, report.file.bytes - report.file.freeBytes - held));
+  expect(report.unaccountedBytes).toBe(Math.max(0, report.file.bytes - report.file.freeBytes - paged));
+  // The point of reading `dbstat` rather than a list of four tables: what the report cannot name
+  // was 46% of production. Every page is now charged to a table, so the remainder is a rounding.
+  expect(report.unaccountedBytes).toBeLessThan(report.file.bytes / 10);
+  // The tables the payload breakdown weighs are among the ones the page breakdown names, and the
+  // pages a table occupies are never fewer than the payload stored in it.
+  for (const body of report.bodies) {
+    const table = report.tables.find((entry) => entry.table === body.table);
+    expect(table?.bytes ?? 0).toBeGreaterThanOrEqual(0);
+  }
+  expect(report.tables.map((table) => table.bytes + table.indexBytes)).toEqual(
+    [...report.tables.map((table) => table.bytes + table.indexBytes)].sort((a, b) => b - a),
+  );
+  expect(report.tables.some((table) => table.table === "snapshots")).toBe(true);
   // An in-memory database has no file beside it, so there is no log to weigh.
   expect(report.file.walBytes).toBeNull();
   db.close();
 });
 
-test("the log beside a file database is weighed", () => {
+test("the log beside a file database is weighed, and is part of what the size is", () => {
   const db = openDatabase(join(mkdtempSync(join(tmpdir(), "signal-forge-storage-")), "app.db"));
   anEvent(db, { detectedAt: at("2026-10-01") });
   expect(storageReport(db, { days: 14, top: 10, now }).file.walBytes).toBeGreaterThan(0);
+  // `databaseSize` is what the size alert in `issues` compares to the budget, and it carries the
+  // log for that reason: a VACUUM on production left 258 MB of write-ahead beside a 252 MB file and
+  // nothing warned, because the only number the alert read was the one that had got better.
+  const size = databaseSize(db);
+  expect(size.walBytes).toBe(statSync(`${db.filename}-wal`).size);
+  expect(size.walBytes).toBeGreaterThan(0);
   db.close();
 });
 
@@ -176,6 +196,26 @@ test("the window starts at midnight, so the first day is a whole day and not the
   ]);
   // Fourteen complete days, the 18th to the 1st, and three events in them.
   expect(events.pace).toMatchObject({ basisDays: 14, eventsPerDay: Math.round(3 / 14) });
+  db.close();
+});
+
+test("the sources whose events weigh the most are named, and averaged per event", () => {
+  const db = openDatabase(":memory:");
+  // One source with many small events and one with a few large ones: by count the first is the
+  // story, by bytes the second is, and only the second explains a table that grew.
+  for (let index = 0; index < 20; index++)
+    anEvent(db, { source: "openrouter", detectedAt: at("2026-10-01"), afterJson: JSON.stringify({ n: index }) });
+  anEvent(db, {
+    source: "codex-docs",
+    detectedAt: at("2026-10-01"),
+    afterJson: JSON.stringify({ page: "x".repeat(4000) }),
+  });
+  const bySource = storageReport(db, { days: 14, top: 10, now }).events.bySource;
+  expect(bySource.map((row) => row.source)).toEqual(["codex-docs", "openrouter"]);
+  expect(bySource[0]?.events).toBe(1);
+  expect(bySource[0]?.avgBytes).toBeGreaterThan(4000);
+  expect(bySource[1]?.events).toBe(20);
+  expect(bySource[1]?.avgBytes).toBeLessThan(100);
   db.close();
 });
 

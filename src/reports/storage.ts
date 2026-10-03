@@ -1,5 +1,4 @@
 import type { Database } from "bun:sqlite";
-import { statSync } from "node:fs";
 import { DATABASE_SIZE_BUDGET, databaseSize } from "../storage/retention.js";
 
 /**
@@ -15,14 +14,22 @@ import { DATABASE_SIZE_BUDGET, databaseSize } from "../storage/retention.js";
  * metrics weigh less than seventeen thousand events, because a metric is a few numbers and an event
  * carries what a record said before and after.
  *
- * Nothing here reads a body: SQLite sums the lengths and one number comes back. Page and index
- * overhead are not in `bodies`, so `unaccountedBytes` is what the file holds besides them -- indexes,
- * every smaller table, and the overhead -- not a measurement of any one thing.
+ * Nothing here reads a body: SQLite sums the lengths and one number comes back.
+ *
+ * `bodies` is payload and `tables` is pages, and the second was added because the first could not
+ * answer the question it was built for. `bodies` names four tables, so everything else in the file
+ * landed in `unaccountedBytes` -- 115 MB of a 252 MB database on 2026-10-03, 46% of it, and the
+ * largest single thing in there was a table the report had no way to mention. Finding it meant
+ * querying `dbstat` by hand. `tables` is that query: every b-tree in the file, its own indexes
+ * counted beside it, so the remainder is page overhead and nothing else.
  */
 export type StorageReport = {
   file: { bytes: number; freeBytes: number; walBytes: number | null; budgetBytes: number };
   /** Payload bytes by table, largest first. Snapshots and HTTP cache are counted as stored, gzipped. */
   bodies: { table: BodyTable; rows: number; bytes: number }[];
+  /** Every table in the file, largest first, with what its own indexes cost beside it. */
+  tables: { table: string; bytes: number; indexBytes: number; rows: number | null }[];
+  /** Page overhead the tables above do not account for. A remainder, and now a small one. */
   unaccountedBytes: number;
   snapshots: {
     rows: number;
@@ -34,6 +41,13 @@ export type StorageReport = {
   };
   events: {
     windowDays: number;
+    /**
+     * The sources whose events weigh the most, largest first, which is the one breakdown that
+     * explains a jump. 42 of 17,688 events held 26 MB of a 47 MB table on 2026-10-03 because two
+     * web sources stored a whole page twice per change; `days` and `pace` showed the table growing
+     * and could not say that. `snapshots` has had this since it was written.
+     */
+    bySource: { source: string; events: number; bytes: number; avgBytes: number }[];
     days: { day: string; events: number; bytes: number }[];
     /** The complete days of the window, extrapolated. An average of what happened, not a forecast. */
     pace: { eventsPerDay: number; bytesPerDay: number; basisDays: number } | null;
@@ -48,12 +62,14 @@ export function storageReport(db: Database, options: { days: number; top: number
   const freePages = db.query<{ freelist_count: number }, []>("PRAGMA freelist_count").get()?.freelist_count ?? 0;
   const pageSize = db.query<{ page_size: number }, []>("PRAGMA page_size").get()?.page_size ?? 0;
   const bodies = bodiesOf(db);
-  const held = bodies.reduce((total, body) => total + body.bytes, 0);
+  const tables = tablesOf(db);
+  const paged = tables.reduce((total, table) => total + table.bytes + table.indexBytes, 0);
   const freeBytes = freePages * pageSize;
   return {
-    file: { bytes: size.bytes, freeBytes, walBytes: walBytes(db), budgetBytes: DATABASE_SIZE_BUDGET },
+    file: { bytes: size.bytes, freeBytes, walBytes: size.walBytes, budgetBytes: DATABASE_SIZE_BUDGET },
     bodies,
-    unaccountedBytes: Math.max(0, size.bytes - freeBytes - held),
+    tables,
+    unaccountedBytes: Math.max(0, size.bytes - freeBytes - paged),
     snapshots: snapshotsOf(db, options.top),
     events: eventsOf(db, options.days, now),
   };
@@ -80,6 +96,55 @@ function bodiesOf(db: Database): StorageReport["bodies"] {
     one("snapshots", "SELECT COUNT(*) n, SUM(LENGTH(body)) b FROM snapshots"),
     one("http_cache", "SELECT COUNT(*) n, SUM(LENGTH(body)) b FROM http_cache"),
   ].sort((one, other) => other.bytes - one.bytes);
+}
+
+/**
+ * Every b-tree in the file, from `dbstat`, with each index charged to the table it indexes.
+ *
+ * `aggregate=TRUE` returns one row per b-tree instead of one per page: 114 rows rather than sixty
+ * thousand. It still walks the trees, so it is not free -- measured at 251 ms and 11 MB of
+ * high-water on a 252 MB copy of production, and nothing on a second call. That is cheaper than one
+ * ordinary collection, which is the bar a read answered inside the long-lived service has to clear.
+ *
+ * Row counts come from `sqlite_stat1`, which `ANALYZE` wrote, rather than from 114 `COUNT(*)`
+ * statements. That makes them an estimate as of the last `ANALYZE`, and `null` for a table no
+ * `ANALYZE` has reached; a count that is exact is not worth scanning every table to print.
+ */
+function tablesOf(db: Database): StorageReport["tables"] {
+  const owner = new Map(
+    db
+      .query<{ name: string; tbl_name: string }, []>("SELECT name, tbl_name FROM sqlite_master WHERE type='index'")
+      .all()
+      .map((row) => [row.name, row.tbl_name] as const),
+  );
+  const rows = new Map(
+    db
+      .query<{ tbl: string; stat: string }, []>("SELECT tbl, stat FROM sqlite_stat1")
+      .all()
+      .map((row) => [row.tbl, Number.parseInt(row.stat.split(" ")[0] ?? "", 10)] as const),
+  );
+  const totals = new Map<string, { bytes: number; indexBytes: number }>();
+  for (const btree of db
+    .query<{ name: string; b: number }, []>("SELECT name, SUM(pgsize) b FROM dbstat WHERE aggregate=TRUE GROUP BY name")
+    .all()) {
+    // An autoindex is a WITHOUT ROWID table's own storage, or a UNIQUE constraint's index, and
+    // `sqlite_master` has no row for either; the owner is in the name. Everything else is a table.
+    const auto = autoindexOwner(btree.name);
+    const table = owner.get(btree.name) ?? auto ?? btree.name;
+    const asIndex = owner.has(btree.name) || auto !== null;
+    const total = totals.get(table) ?? { bytes: 0, indexBytes: 0 };
+    if (asIndex) total.indexBytes += btree.b;
+    else total.bytes += btree.b;
+    totals.set(table, total);
+  }
+  return [...totals]
+    .map(([table, total]) => ({ table, ...total, rows: rows.get(table) ?? null }))
+    .sort((one, other) => other.bytes + other.indexBytes - (one.bytes + one.indexBytes));
+}
+
+/** The table a `sqlite_autoindex_<table>_<n>` belongs to, or null when the name is not one. */
+function autoindexOwner(name: string): string | null {
+  return /^sqlite_autoindex_(.+)_\d+$/.exec(name)?.[1] ?? null;
 }
 
 function snapshotsOf(db: Database, top: number): StorageReport["snapshots"] {
@@ -130,7 +195,20 @@ function eventsOf(db: Database, days: number, now: Date): StorageReport["events"
     )
     .all(since)
     .map((row) => ({ day: row.day, events: row.n, bytes: row.b }));
-  return { windowDays: days, days: perDay, pace: paceOf(perDay, today) };
+  const bySource = db
+    .query<{ source: string; n: number; b: number }, [string]>(
+      `SELECT source, COUNT(*) n,
+         SUM(LENGTH(CAST(COALESCE(before_json,'') AS BLOB))+LENGTH(CAST(COALESCE(after_json,'') AS BLOB))) b
+       FROM events WHERE detected_at>=? GROUP BY source ORDER BY b DESC, source`,
+    )
+    .all(since)
+    .map((row) => ({
+      source: row.source,
+      events: row.n,
+      bytes: row.b,
+      avgBytes: row.n > 0 ? Math.round(row.b / row.n) : 0,
+    }));
+  return { windowDays: days, bySource, days: perDay, pace: paceOf(perDay, today) };
 }
 
 /**
@@ -146,12 +224,4 @@ function paceOf(days: StorageReport["events"]["days"], today: string): StorageRe
   const events = complete.reduce((sum, row) => sum + row.events, 0);
   const bytes = complete.reduce((sum, row) => sum + row.bytes, 0);
   return { eventsPerDay: Math.round(events / span), bytesPerDay: Math.round(bytes / span), basisDays: span };
-}
-
-/** The write-ahead log beside the file, which is where a burst of large writes is felt first. */
-/** The write-ahead log beside the file, which is disk the file's own page count does not show. */
-export function walBytes(db: Database): number | null {
-  const file = db.query<{ file: string }, []>("PRAGMA database_list").get()?.file;
-  if (!file) return null;
-  return statSync(`${file}-wal`, { throwIfNoEntry: false })?.size ?? null;
 }
