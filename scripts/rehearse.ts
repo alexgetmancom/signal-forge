@@ -14,7 +14,9 @@
  *
  * Two replays, because "what reaches a reader" is two questions: which cards are sent, and what
  * those cards say. The second was added when discord.ts was split and the claim "nothing changes"
- * needed something other than a promise behind it.
+ * needed something other than a promise behind it. The `evidence` phase was added for the layer
+ * under both: a change to the form of a stored body, which no card replay can see, because the
+ * reader it moved was one no card goes through.
  *
  *   bun run rehearse                       the working tree against HEAD, 30 days
  *   bun run rehearse 60                    a longer window
@@ -23,6 +25,7 @@
  *   bun run rehearse --fresh               ignore the cached copy and pull again
  *   bun run rehearse --all                 every phase, including the ones that are not about cards
  *   bun run rehearse --only projections    one of them
+ *   bun run rehearse --only evidence       what every reader derives from every stored event
  *   bun run rehearse --needed              the ones this branch's diff owes, worked out rather than remembered
  *   bun run rehearse --list                what the phases are
  *   bun run rehearse --prune               throw the copy and everything derived from it away
@@ -128,6 +131,15 @@ const PHASES: Phase[] = [
     ],
   },
   {
+    name: "evidence",
+    always: false,
+    what: "whether a change to the form of a stored body moved anything derived from one",
+    run: (unpacked, resultPath) => [
+      "scripts/replay-evidence.ts",
+      ...["--db", copy, "--base", unpacked, "--result", resultPath],
+    ],
+  },
+  {
     name: "projections",
     always: false,
     what: "whether an incremental Model Facts or hypotheses update lands where a rebuild does",
@@ -200,7 +212,7 @@ if ((await prodCopy(flags.has("--fresh"), say)) === null) {
   process.exit(1);
 }
 
-const needsBase = chosen.some((phase) => phase.always || phase.name === "reports");
+const needsBase = chosen.some((phase) => phase.always || phase.name === "reports" || phase.name === "evidence");
 const unpacked = needsBase ? unpackBase(base ?? "HEAD") : "";
 const findings: Finding[] = [];
 for (const [index, phase] of chosen.entries()) {

@@ -81,7 +81,7 @@ export const BENCH: Bench[] = [
   {
     group: "prove",
     command: "rehearse",
-    when: "Before changing anything a reader sees. It replays real production history twice, at a base ref and in this working tree, in two phases: which cards are sent, and what those cards say. `--needed` works out which phases the diff owes rather than asking you to remember; `--all` runs every one; `--list` says what they are; `--prune` throws the copy away. Measure here, not in the channel.",
+    when: "Before changing anything a reader sees. It replays real production history twice, at a base ref and in this working tree, in two phases by default: which cards are sent, and what those cards say. Four more run on request, and `evidence` is the one to reach for when the change is to the form of a stored body rather than to a reader of one -- it derives every view of every event ever stored, both ways, which is how a representation that saves 31 MB is shown to have moved nothing. `--needed` works out which phases the diff owes rather than asking you to remember; `--all` runs every one; `--list` says what they are; `--prune` throws the copy away. Measure here, not in the channel.",
   },
   {
     group: "prove",

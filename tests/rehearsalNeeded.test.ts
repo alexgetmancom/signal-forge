@@ -36,10 +36,26 @@ describe("what a change owes", () => {
     // Every phase named here has to be one `rehearse` actually has.
     expect(REQUIREMENTS.map((one) => one.phase).sort()).toEqual([
       "cards",
+      "evidence",
       "migration",
       "policy",
       "projections",
       "reports",
     ]);
+  });
+});
+
+describe("the form of a stored body", () => {
+  test("changing how evidence is stored owes the evidence rehearsal", () => {
+    // The commit that took the events table from 47 MB to 16 MB touched these three, and the
+    // reader it moved was `summary/events.ts`, which no card replay goes through.
+    for (const file of ["src/events/web.ts", "src/events/store.ts", "src/storage/webEvidence.ts"])
+      expect(required([file]).map((one) => one.phase)).toContain("evidence");
+    expect(required(["src/summary/events.ts"]).map((one) => one.phase)).toContain("evidence");
+  });
+
+  test("a reader of a stored body owes it too, not only the writer", () => {
+    expect(required(["src/events/render/attachment.ts"]).map((one) => one.phase)).toContain("evidence");
+    expect(required(["src/events/signals.ts"]).map((one) => one.phase)).toContain("evidence");
   });
 });

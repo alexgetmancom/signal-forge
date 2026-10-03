@@ -43,6 +43,12 @@ export const REQUIREMENTS: readonly Requirement[] = [
     touches: /^src\/(modelFacts\.ts|hypotheses\.ts|stories\.ts|events\/store\.ts)/,
   },
   {
+    phase: "evidence",
+    because: "the form of a stored body, or what reads one",
+    touches:
+      /^src\/(events\/(web|store|signals)\.ts|events\/render\/(attachment|common)\.ts|summary\/events\.ts|storage\/webEvidence\.ts)/,
+  },
+  {
     phase: "migration",
     because: "the schema production is holding",
     touches: /^src\/storage\/(migrations\/|migrations\.ts|hotQueries\.ts)/,
