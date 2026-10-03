@@ -296,6 +296,9 @@ const SQLITE_OWN_TABLES: Readonly<Record<string, string>> = {
   sqlite_master: "the schema itself, which every build has",
   pragma_table_info: "the columns of a table, which is how the storage report weighs one portably",
   pragma_index_info: "the columns of an index, including the ones SQLite declared itself",
+  pragma_foreign_key_list:
+    "the foreign keys of a table, which is how `check-indexes` knows that a referential action is " +
+    "what reads an index. Verified inside signal-forge-app-1 on 2026-10-03, against model_fact_fields.",
   json_each: "JSON1, compiled into every Bun",
 };
 

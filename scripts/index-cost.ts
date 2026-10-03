@@ -25,7 +25,7 @@
  * Reads only. Usage: bun run index-cost [--fresh] [--json]
  */
 import { readonlyDatabase } from "../src/storage/database.js";
-import { HOT_QUERIES } from "../src/storage/hotQueries.js";
+import { indexUses, unexplained } from "./indexReaders.js";
 import { prodCopy } from "./prodCopy.js";
 
 function say(message: string): void {
@@ -65,52 +65,18 @@ const weights = new Map(
 );
 
 /**
- * Which hot reads name which index.
+ * What uses each index, and what it weighs.
  *
- * The plan line is the only honest source: an index can be declared over the columns a read
- * filters on and still be ignored, which is what `ANALYZE` decides. `USING INTEGER PRIMARY KEY` is
- * not an index in `sqlite_master` and is not counted; a `WITHOUT ROWID` table's primary key is the
- * table itself and shows up as the table's own name, which is why a read of one appears here
- * against no index at all.
+ * The "what uses it" half is `indexReaders.ts`, shared with `check-indexes`, which is the gate's
+ * version of this question and the half that runs without `dbstat`. Keeping them as one module is
+ * the point: two implementations of "is this index used" would disagree, and the one in the gate
+ * would be the one nobody reads the output of.
  */
-const readersOf = new Map<string, string[]>();
-for (const query of HOT_QUERIES) {
-  let plan = "";
-  try {
-    const statement = db.prepare<{ detail: string }, (string | number)[]>(`EXPLAIN QUERY PLAN ${query.sql}`);
-    plan = statement
-      .all(...query.params)
-      .map((row) => row.detail)
-      .join(" | ");
-    statement.finalize();
-  } catch {
-    continue;
-  }
-  for (const match of plan.matchAll(/USING (?:COVERING )?INDEX ([A-Za-z_][\w]*)/g)) {
-    const name = match[1] as string;
-    if (!readersOf.has(name)) readersOf.set(name, []);
-    (readersOf.get(name) as string[]).push(query.name);
-  }
-}
-
-const indexes = db
-  .query<{ name: string; tbl_name: string; sql: string | null }, []>(
-    "SELECT name, tbl_name, sql FROM sqlite_master WHERE type='index' ORDER BY name",
-  )
-  .all()
-  .map((index) => ({
-    index: index.name,
-    table: index.tbl_name,
-    // An autoindex has no `sql`: SQLite created it for a UNIQUE or a non-INTEGER PRIMARY KEY, and
-    // dropping it means changing the constraint that asked for it.
-    declared: index.sql !== null,
-    columns: db
-      .query<{ name: string | null }, [string]>("SELECT name FROM pragma_index_info(?)")
-      .all(index.name)
-      .map((column) => column.name ?? "<expression>"),
-    bytes: weights.get(index.name)?.bytes ?? 0,
-    pages: weights.get(index.name)?.pages ?? 0,
-    hotReads: readersOf.get(index.name) ?? [],
+const indexes = indexUses(db)
+  .map((use) => ({
+    ...use,
+    bytes: weights.get(use.index)?.bytes ?? 0,
+    pages: weights.get(use.index)?.pages ?? 0,
   }))
   .sort((one, other) => other.bytes - one.bytes);
 
@@ -122,7 +88,9 @@ const tables = db
 
 const indexBytes = indexes.reduce((total, index) => total + index.bytes, 0);
 const tableBytes = tables.reduce((total, table) => total + table.bytes, 0);
-const unread = indexes.filter((index) => index.declared && index.hotReads.length === 0 && index.bytes > 0);
+// Weighed, not merely listed: `check-indexes` fails on an index nothing explains, so anything here
+// has a recorded reason, and the number worth having is what those reasons cost.
+const unread = unexplained(indexes).filter((index) => index.bytes > 0);
 const report = {
   database: path,
   indexBytes,
@@ -130,9 +98,9 @@ const report = {
   indexShare: Math.round((indexBytes / Math.max(indexBytes + tableBytes, 1)) * 1000) / 10,
   indexes,
   tables,
-  // An index declared by a migration that no hot read reaches for. Not a verdict: a read that is
-  // not hot is still a read, and `src/` is the place to check before dropping one. It is the list
-  // worth checking, which is what was missing.
+  // An index whose use the schema cannot derive. Each has a line in `check-indexes`' RECORD naming
+  // the statement that reads it; what is missing is that statement's plan being checked, which is
+  // what putting it in `hotQueries.ts` would buy. This is the price of that gap.
   declaredWithNoHotRead: unread.map((index) => ({ index: index.index, table: index.table, bytes: index.bytes })),
 };
 
@@ -150,17 +118,25 @@ if (Bun.argv.includes("--json")) {
       (index) =>
         `${megabytes(index.bytes).padStart(7)} MB  ${index.index}  (${index.table}: ${index.columns.join(", ")})` +
         `${index.declared ? "" : "  [autoindex]"}` +
-        `${index.hotReads.length ? `\n              read by: ${index.hotReads.join("; ")}` : "\n              no hot read names it"}`,
+        `${
+          index.hotStatements.length
+            ? `\n              used by: ${index.hotStatements.join("; ")}`
+            : index.unique
+              ? "\n              enforces a UNIQUE constraint"
+              : index.foreignKey
+                ? `\n              backs ${index.foreignKey}`
+                : "\n              nothing derives a use for it; see RECORD in check-indexes.ts"
+        }`,
     ),
   ];
   if (unread.length)
     lines.push(
       "",
-      `${unread.length} declared ${unread.length === 1 ? "index" : "indexes"} no hot read names, ` +
+      `${unread.length} declared ${unread.length === 1 ? "index" : "indexes"} with a recorded reader rather than a checked one, ` +
         `${megabytes(unread.reduce((total, index) => total + index.bytes, 0))} MB: ` +
         unread.map((index) => index.index).join(", "),
-      "Each is paid for on every write of its table. Check src/ for the read it was for, and if there is one,",
-      "it belongs in src/storage/hotQueries.ts -- which is the rule a new index already ships under.",
+      "Each has a line in check-indexes.ts naming what reads it, and no plan checked against it. Moving that",
+      "statement into src/storage/hotQueries.ts is what closes the gap, and shortens RECORD in the same move.",
     );
   process.stdout.write(`${lines.join("\n")}\n`);
 }

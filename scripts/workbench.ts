@@ -56,7 +56,12 @@ export const BENCH: Bench[] = [
   {
     group: "ask",
     command: "index-cost",
-    when: "What each index costs and which hot read it exists for -- the inside of the one number `prod storage` calls `unaccountedBytes`. Per-index bytes come from `dbstat`, production's SQLite is built without it, and this machine's is not, so the question is asked of a copy here rather than of the service. It also runs EXPLAIN QUERY PLAN over src/storage/hotQueries.ts and names the declared indexes no hot read reaches for: an index nothing uses and an index holding the service up look identical from the outside, and only one of them is worth its writes.",
+    when: "What each index costs and which hot read it exists for -- the inside of the one number `prod storage` calls `unaccountedBytes`. Per-index bytes come from `dbstat`, production's SQLite is built without it, and this machine's is not, so the question is asked of a copy here rather than of the service. It also weighs the indexes whose use the schema cannot derive, which is the price of the list `check-indexes` keeps: the gate refuses a new index nothing explains and runs everywhere, this says what the explained-by-hand ones cost and needs a copy.",
+  },
+  {
+    group: "check",
+    command: "check-indexes",
+    when: "Part of `check`, and listed here because it is the enforcement of a rule AGENTS.md states: a new index ships with the statement it was for. It derives four kinds of use from the schema alone -- a hot read's plan, a hot write's plan, a UNIQUE constraint, a foreign key's referential action -- and fails on anything left over. Reach for it directly when a migration adds an index and you want to know what the gate will say before the gate says it; `index-cost` is the same question with bytes attached and a copy of production required.",
   },
   {
     group: "change",

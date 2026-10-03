@@ -41,6 +41,7 @@ export const CHECK_GROUPS: CheckStep[][] = [
     { name: "architecture", args: ["check-architecture"] },
     { name: "migrations", args: ["check-migrations"] },
     { name: "sql", args: ["check-sql"] },
+    { name: "indexes", args: ["check-indexes"] },
     { name: "deploy scripts", args: ["check-scripts"] },
     { name: "size", args: ["check-size"] },
     { name: "failures", args: ["check-failures"] },

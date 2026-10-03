@@ -26,8 +26,10 @@ export function storageOperations(db: Database, _config: AppConfig): OperationMa
         "`ANALYZE`'s estimate, null for a table it has not reached. `unaccountedBytes` is the file " +
         "less those and the free pages, which is indexes and page overhead: per-index bytes need " +
         "`dbstat` and no Bun on Linux is built with it, so the breakdown is a development command, " +
-        "`index-cost`, run against a copy. It was 46% of the file while this report weighed " +
-        "four tables, and what it hid was the second-largest table in the database. " +
+        "`index-cost`, run against a copy; the half of that question which needs no `dbstat` -- " +
+        "whether anything uses an index at all -- is in the gate as `check-indexes`. It was 46% of " +
+        "the file while this report weighed four tables, and what it hid was the second-largest " +
+        "table in the database, and later a 14.1 MB index duplicating a key its table could be. " +
         "`events.bySource` says which sources' events weigh the most and what one of " +
         "them averages, which is the breakdown that explains a jump; `snapshots.bySource` " +
         "is where to look before widening retention: it lists the sources holding the most stored " +
