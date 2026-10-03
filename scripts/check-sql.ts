@@ -180,6 +180,24 @@ for (const name of roots) {
   }
 }
 
+/**
+ * The names that are allowed to be missing from production, because the file naming them never runs
+ * there.
+ *
+ * `dbstat` is the whole reason: it is the only way to learn what one index costs, production's build
+ * does not have it, and the question is still worth asking -- of a copy, on this machine, which is
+ * where `probe`, `index-cost` and the rehearsals already do their work. The rule above is about a
+ * name reaching production; a script that cannot reach production is not it.
+ *
+ * `src/` is not eligible and the check says so: everything there is shipped, including the half of
+ * it that only an operator calls.
+ */
+const MAY_NAME_WHAT_PRODUCTION_LACKS: Readonly<Record<string, string>> = {
+  "scripts/index-cost.ts": "dbstat is the only per-index size there is, and this runs against a copy here",
+};
+
+const namedLocalOnly = new Set<string>();
+
 const findings: string[] = [];
 let unparsed = 0;
 for (const statement of statements) {
@@ -190,6 +208,12 @@ for (const statement of statements) {
     // A table or column named `?` is a fragment spliced in at run time, not a name that is wrong:
     // `database.ts` counts the rows of a table it is handed. Those are the assembled ones.
     if (/no such (?:table|column): \?$/i.test(message)) unparsed += 1;
+    // The escape has to work here too, and on this machine it never fires: `dbstat` prepares on
+    // macOS and reaches the rule below, and on Linux it fails to prepare and reaches this. Same
+    // difference between two SQLites, arriving at two different checks depending on which machine
+    // is running them -- which is the entire point of the rule, met from the other side.
+    else if (/no such table/i.test(message) && statement.file in MAY_NAME_WHAT_PRODUCTION_LACKS)
+      namedLocalOnly.add(statement.file);
     else if (/no such (?:table|column)/i.test(message))
       findings.push(`${statement.file}:${statement.line}: ${message} -- ${statement.sql.replace(/\s+/g, " ").trim()}`);
     else unparsed += 1;
@@ -275,22 +299,6 @@ const SQLITE_OWN_TABLES: Readonly<Record<string, string>> = {
   json_each: "JSON1, compiled into every Bun",
 };
 
-/**
- * The names that are allowed to be missing from production, because the file naming them never runs
- * there.
- *
- * `dbstat` is the whole reason: it is the only way to learn what one index costs, production's build
- * does not have it, and the question is still worth asking -- of a copy, on this machine, which is
- * where `probe`, `index-cost` and the rehearsals already do their work. The rule above is about a
- * name reaching production; a script that cannot reach production is not it.
- *
- * `src/` is not eligible and the check says so: everything there is shipped, including the half of
- * it that only an operator calls.
- */
-const MAY_NAME_WHAT_PRODUCTION_LACKS: Readonly<Record<string, string>> = {
-  "scripts/index-cost.ts": "dbstat is the only per-index size there is, and this runs against a copy here",
-};
-
 /** The names a statement introduces itself, which are not tables and cannot be checked against one. */
 function commonTableExpressions(sql: string): string[] {
   return [...sql.matchAll(/\b(?:with(?:\s+recursive)?|,)\s+([a-z_]\w*)\s+as\s*\(/gi)].map((match) =>
@@ -305,7 +313,6 @@ const schemaTables = new Set(
     .map((row) => row.name.toLowerCase()),
 );
 const namedOwnTables = new Set<string>();
-const namedLocalOnly = new Set<string>();
 for (const statement of statements) {
   const introduced = commonTableExpressions(statement.sql);
   for (const table of tablesNamed(statement.sql)) {
