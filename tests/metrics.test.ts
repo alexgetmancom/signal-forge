@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { measure, recordCodeMetric } from "../src/runtime/metricRecording.js";
+import { METRIC_DAYS, measure, pruneCodeMetrics, recordCodeMetric } from "../src/runtime/metricRecording.js";
 import { codeAnalytics } from "../src/runtime/metricReport.js";
 import { openDatabase } from "../src/storage/database.js";
 
@@ -168,5 +168,48 @@ test("measure weighs the section it times", async () => {
   expect(section?.name).toBe("test:weighed");
   expect(section?.peakGrowthMb).toBeGreaterThanOrEqual(0);
   expect(section?.maxPeakGrowthMb).toBeLessThanOrEqual(section?.peakGrowthMb ?? 0);
+  db.close();
+});
+
+test("the metric key is the table, and nothing indexes it a second time", () => {
+  const db = openDatabase(":memory:");
+  // Migration 075. The rows were stored against a hidden rowid with a unique index beside them and
+  // a time index on top: 41.0 MB on production, 17 MB of it index, for 24 MB of rows.
+  const sql = db
+    .query<{ sql: string }, []>("SELECT sql FROM sqlite_master WHERE type='table' AND name='code_metrics'")
+    .get()?.sql;
+  expect(sql).toContain("WITHOUT ROWID");
+  expect(sql).toContain("PRIMARY KEY (name, bucket_start)");
+  expect(
+    db
+      .query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type='index' AND tbl_name='code_metrics'")
+      .all(),
+  ).toEqual([]);
+  // The read the key is ordered for: one name's buckets, which `timings` seeks once per name. With
+  // the time leading instead this was 34 times slower on a copy of production.
+  expect(
+    db
+      .query<{ detail: string }, [string, string]>(
+        `EXPLAIN QUERY PLAN SELECT last_error_type FROM code_metrics
+         WHERE name=? AND bucket_start>=? AND last_error_at IS NOT NULL`,
+      )
+      .all("poll.cycle", "2026-01-01T00:00:00.000Z")
+      .map((row) => row.detail)
+      .join(" "),
+  ).toContain("name=?");
+  db.close();
+});
+
+test("metrics older than the horizon any report may ask for are dropped", () => {
+  const db = openDatabase(":memory:");
+  const now = Date.parse("2026-10-03T12:00:00.000Z");
+  const old = now - (METRIC_DAYS + 1) * 24 * 3_600_000;
+  recordCodeMetric(db, "poll.cycle", 5, false, old, null, 0);
+  recordCodeMetric(db, "poll.cycle", 5, false, now, null, 0);
+  expect(db.query<{ n: number }, []>("SELECT COUNT(*) n FROM code_metrics").get()?.n).toBe(2);
+  pruneCodeMetrics(db, now);
+  const left = db.query<{ bucket: string }, []>("SELECT bucket_start bucket FROM code_metrics").all();
+  expect(left).toHaveLength(1);
+  expect(left[0]?.bucket.slice(0, 10)).toBe("2026-10-03");
   db.close();
 });

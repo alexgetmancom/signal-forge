@@ -11,6 +11,7 @@ import { releaseAudit } from "../reports/releaseAudit.js";
 import { silentSources } from "../reports/silentSources.js";
 import { sourceKinds } from "../reports/sourceKinds.js";
 import { sourceVerdicts } from "../reports/sourceVerdicts.js";
+import { METRIC_DAYS } from "../runtime/metricRecording.js";
 import { count, type OperationMap } from "./definition.js";
 
 /** The "sources" section of the operation registry; src/operations.ts joins the sections. */
@@ -66,7 +67,10 @@ export function sourcesOperations(db: Database, config: AppConfig, _all: () => O
         "the same rise, so it cannot justify moving a source into a child. Null means no measurement.",
       mutates: false,
       agent: true,
-      schema: z.object({ days: count(90, 7) }),
+      // Capped at the metric horizon, not at ninety: the child peaks come from the collection fold,
+      // which keeps ninety days, and the parent growth from `code_metrics`, which does not. One cap
+      // for the report is what stops its two halves describing different windows.
+      schema: z.object({ days: count(METRIC_DAYS, 7) }),
       cli: { args: [{ name: "days", optional: true }] },
       http: { method: "get", path: "/api/collection-cost" },
       handler: (input: { days: number }) => collectionCost(db, config, input.days),

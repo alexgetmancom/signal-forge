@@ -13,6 +13,7 @@ import { releaseCheck } from "../reports/release.js";
 import { sourceFailures } from "../reports/sourceFailures.js";
 import { statusReport } from "../reports/statusReport.js";
 import { usageReport } from "../reports/usage.js";
+import { METRIC_DAYS } from "../runtime/metricRecording.js";
 import { codeAnalytics } from "../runtime/metricReport.js";
 import { memoryReport } from "../runtime/observability.js";
 import { dateIntegrity } from "../storage/dateIntegrity.js";
@@ -265,7 +266,7 @@ function timingsOperation(db: Database): OperationMap[string] {
     mutates: false,
     agent: true,
     schema: z.object({
-      days: count(90, 7),
+      days: count(METRIC_DAYS, 7),
       name: z.string().min(1).optional(),
       limit: count(500, 20),
       timeline: flag().optional(),

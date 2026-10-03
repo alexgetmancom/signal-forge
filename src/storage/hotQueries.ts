@@ -15,7 +15,14 @@
  */
 export type HotQuery = { name: string; sql: string; params: readonly (string | number)[] };
 
-export const HOT_QUERIES: readonly HotQuery[] = [
+/**
+ * The reads over what a source said, and what we derived from it.
+ *
+ * Split from the published half only because one declaration of all of them is over the length a
+ * new declaration gets. The division is which side of the service a read is about, and a new entry
+ * goes in whichever of the two it describes; `HOT_QUERIES` below is still the list.
+ */
+const INTAKE_QUERIES: readonly HotQuery[] = [
   {
     name: "events by recency",
     sql: "SELECT id FROM events WHERE detected_at >= ? ORDER BY detected_at DESC LIMIT 50",
@@ -25,11 +32,6 @@ export const HOT_QUERIES: readonly HotQuery[] = [
     name: "events of one record",
     sql: "SELECT id FROM events WHERE source = ? AND entity_id = ? ORDER BY id",
     params: ["arena", "x"],
-  },
-  {
-    name: "batches due to speak",
-    sql: "SELECT id FROM batches WHERE sealed = 0 AND ready_at <= ? ORDER BY ready_at, id",
-    params: ["2026-01-01T00:00:00.000Z"],
   },
   {
     name: "records of one stream",
@@ -42,14 +44,14 @@ export const HOT_QUERIES: readonly HotQuery[] = [
     params: ["2026-01-01"],
   },
   {
+    name: "one metric name's buckets in a window",
+    sql: "SELECT last_error_type FROM code_metrics WHERE name = ? AND bucket_start >= ? AND last_error_at IS NOT NULL",
+    params: ["poll.cycle", "2026-01-01T00:00:00.000Z"],
+  },
+  {
     name: "failures of one source",
     sql: "SELECT collected_at FROM source_collection_metrics WHERE source = ? AND collected_at >= ? AND success = 0",
     params: ["arena", "2026-01-01T00:00:00.000Z"],
-  },
-  {
-    name: "claims of one story",
-    sql: "SELECT claim, confidence, supported_by FROM story_claims WHERE story_id = ?",
-    params: [1],
   },
   {
     name: "model fact members of one model",
@@ -70,6 +72,20 @@ export const HOT_QUERIES: readonly HotQuery[] = [
     name: "unexpired snapshot bodies",
     sql: "SELECT id FROM snapshots WHERE body IS NOT NULL AND collected_at < ?",
     params: ["2026-01-01T00:00:00.000Z"],
+  },
+];
+
+/** The reads over what this service decided, sent, and recorded itself doing. */
+const PUBLISHED_QUERIES: readonly HotQuery[] = [
+  {
+    name: "batches due to speak",
+    sql: "SELECT id FROM batches WHERE sealed = 0 AND ready_at <= ? ORDER BY ready_at, id",
+    params: ["2026-01-01T00:00:00.000Z"],
+  },
+  {
+    name: "claims of one story",
+    sql: "SELECT claim, confidence, supported_by FROM story_claims WHERE story_id = ?",
+    params: [1],
   },
   {
     name: "the boot before this one, by render fingerprint",
@@ -94,6 +110,8 @@ export const HOT_QUERIES: readonly HotQuery[] = [
     params: [],
   },
 ];
+
+export const HOT_QUERIES: readonly HotQuery[] = [...INTAKE_QUERIES, ...PUBLISHED_QUERIES];
 
 /**
  * Whether any step of a plan reads a whole table.
