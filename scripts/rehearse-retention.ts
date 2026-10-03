@@ -30,7 +30,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { foldCodeMetricDays } from "../src/runtime/metricFold.js";
 import { foldCollectionDays } from "../src/storage/collectionDays.js";
-import { repackStoredPayloads, trimCatalogSnapshots } from "../src/storage/repack.js";
+import { repackStoredPayloads } from "../src/storage/repack.js";
 import {
   expireSnapshotBodies,
   pruneFailureEvidence,
@@ -70,7 +70,6 @@ const SWEEPS: readonly { name: string; run: (db: Database) => number }[] = [
   { name: "prune operator journal", run: (db) => pruneOperatorJournal(db) },
   { name: "prune source shapes", run: (db) => pruneSourceShapes(db) },
   { name: "prune release renders", run: (db) => pruneReleaseRenders(db) },
-  { name: "trim catalog snapshots", run: (db) => trimCatalogSnapshots(db).snapshots },
   {
     name: "repack gzip bodies",
     run: (db) => {

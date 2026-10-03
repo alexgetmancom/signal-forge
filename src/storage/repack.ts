@@ -1,7 +1,6 @@
 import type { Database } from "bun:sqlite";
-import { gatewayModels, openRouterSchema } from "../catalogPayloads.js";
 import { storageFailure } from "../failure.js";
-import { compressPayload, decompressPayload } from "./payloadCodec.js";
+import { compressPayload } from "./payloadCodec.js";
 import { writeTransaction } from "./transaction.js";
 
 export type RepackingResult = {
@@ -83,71 +82,4 @@ function repackGzip(body: Uint8Array): Uint8Array {
   } catch {
     throw storageFailure("a gzip payload could not be repacked without changing its bytes");
   }
-}
-
-export type CatalogTrimmingResult = {
-  snapshots: number;
-  beforeBytes: number;
-  afterBytes: number;
-  freedBytes: number;
-};
-
-/**
- * Remove unconsumed OpenRouter and Gateway fields using the collectors' own schemas.
- *
- * IDs, collection times and event references stay put; hashes and byte counts describe the new
- * evidence. Ten bodies per transaction keeps a corrupt body local to its chunk, and already
- * projected bodies are left alone. The legacy Gateway body is a JSON-encoded JSON string.
- */
-export function trimCatalogSnapshots(db: Database): CatalogTrimmingResult {
-  const result: CatalogTrimmingResult = { snapshots: 0, beforeBytes: 0, afterBytes: 0, freedBytes: 0 };
-  const select = db.query<{ id: number; body: Uint8Array }, [string, number]>(
-    "SELECT id,body FROM snapshots WHERE source=? AND body IS NOT NULL AND id>? ORDER BY id LIMIT 10",
-  );
-  const update = db.query<never, [Uint8Array, string, number, number]>(
-    "UPDATE snapshots SET body=?,hash=?,bytes=? WHERE id=?",
-  );
-  for (const [source, schema] of [
-    ["openrouter", openRouterSchema],
-    ["vercel-gateway", gatewayModels],
-  ] as const) {
-    let cursor = 0;
-    for (;;) {
-      const chunk = writeTransaction(db, () => {
-        const rows = select.all(source, cursor);
-        let changed = 0,
-          before = 0,
-          after = 0;
-        for (const row of rows) {
-          const original = decompressPayload(row.body);
-          let payload: unknown;
-          let raw: string;
-          try {
-            payload = JSON.parse(original);
-            if (typeof payload === "string") payload = JSON.parse(payload);
-            raw = JSON.stringify(schema.parse(payload));
-          } catch {
-            throw storageFailure("a catalogue snapshot could not be trimmed without its model fields");
-          }
-          if (raw === original) continue;
-          const packed = compressPayload(raw);
-          if (decompressPayload(packed) !== raw) throw storageFailure("a trimmed catalogue round trip");
-          const hash = new Bun.CryptoHasher("sha256").update(raw).digest("hex");
-          if (update.run(packed, hash, Buffer.byteLength(raw), row.id).changes !== 1)
-            throw storageFailure("a trimmed catalogue snapshot");
-          changed++;
-          before += row.body.byteLength;
-          after += packed.byteLength;
-        }
-        return { rows: rows.length, last: rows.at(-1)?.id ?? cursor, changed, before, after };
-      });
-      cursor = chunk.last;
-      result.snapshots += chunk.changed;
-      result.beforeBytes += chunk.before;
-      result.afterBytes += chunk.after;
-      if (chunk.rows < 10) break;
-    }
-  }
-  result.freedBytes = result.beforeBytes - result.afterBytes;
-  return result;
 }

@@ -772,7 +772,12 @@ test("OpenRouter schema rejects error pages and normalizes modality ordering", a
   await expect(collectOpenRouter(async () => Response.json({ error: "unavailable" }))).rejects.toThrow();
 });
 
-test("OpenRouter evidence keeps every consumed model field and arbitrary pricing, but drops unused metadata", async () => {
+/**
+ * Evidence is the whole answer, not the fields a record happens to use. `description`,
+ * `top_provider` and `knowledge_cutoff` are read by nothing today, and a report asking what a
+ * model's declared output limit was last March can only be answered by the body that said so.
+ */
+test("OpenRouter evidence is the whole upstream answer, and records use the fields they need", async () => {
   const model = {
     id: "vendor/model",
     name: "Model",
@@ -784,17 +789,16 @@ test("OpenRouter evidence keeps every consumed model field and arbitrary pricing
     description: "An unused description",
     top_provider: { context_length: 100_000 },
   };
-  const collection = await collectOpenRouter(async () => Response.json({ data: [model], total_count: 1 }));
-  const { description: _description, top_provider: _provider, architecture: _architecture, ...used } = model;
-  expect(collection.raw).toEqual({
-    data: [{ ...used, architecture: { input_modalities: ["image", "text"], output_modalities: ["text"] } }],
-  });
+  const payload = { data: [model], total_count: 1 };
+  const collection = await collectOpenRouter(async () => Response.json(payload));
+  expect(collection.raw).toEqual(payload);
   expect(collection.records[0]).toMatchObject({
     pricing: model.pricing,
     parameters: ["reasoning", "tools"],
     context: null,
   });
 });
+
 test("Anthropic collects all pages, never treating first page as entire catalog", async () => {
   let n = 0;
   const c = await collectAnthropic(
@@ -1236,7 +1240,7 @@ test("Vercel gateway models carry maker, context and pricing", async () => {
   expect(c.records[0]).toMatchObject({ id: "alibaba/qwen-3", name: "Qwen3", maker: "alibaba", context: 128000 });
 });
 
-test("Gateway evidence is structured model JSON, keeping optional values and every pricing field", async () => {
+test("Gateway evidence is the whole upstream answer, and records use the fields they need", async () => {
   const { parseVercelGateway } = await import("../src/sources/registries.js");
   const models = [
     {
@@ -1251,9 +1255,9 @@ test("Gateway evidence is structured model JSON, keeping optional values and eve
     },
     { id: "minimal" },
   ];
-  const collection = parseVercelGateway(JSON.stringify({ object: "list", data: models }));
-  const { description: _description, type: _type, ...used } = models[0] as (typeof models)[0];
-  expect(collection.raw).toEqual({ data: [used, { id: "minimal" }] });
+  const payload = JSON.stringify({ object: "list", data: models });
+  const collection = parseVercelGateway(payload);
+  expect(collection.raw).toBe(payload);
   expect(collection.records).toEqual([
     {
       id: "vendor/model",

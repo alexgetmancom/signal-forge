@@ -29,7 +29,7 @@ test("the existing compact operation repacks retained gzip snapshots and reports
   db.close();
 });
 
-test("compacting prunes successful details and trims old catalogs in the same operation", () => {
+test("compacting prunes successful details and leaves referenced bodies whole", () => {
   const db = openDatabase(join(directory, "catalogs.db"));
   const now = Date.now();
   for (let index = 0; index < 6; index++)
@@ -71,12 +71,15 @@ test("compacting prunes successful details and trims old catalogs in the same op
 
   const result = compactStorage(db);
 
-  expect(result).toMatchObject({ removedCollectionMetrics: 6, trimmedCatalogs: { snapshots: 2 } });
+  expect(result).toMatchObject({ removedCollectionMetrics: 6 });
   expect(db.query("SELECT * FROM source_collection_days ORDER BY day,source,outcome").all()).toEqual(days);
   expect(db.query("SELECT * FROM events ORDER BY id").all()).toEqual(events);
-  expect(JSON.parse(readSnapshot(db, router.id) as string).data[0]).not.toHaveProperty("description");
-  expect(JSON.parse(readSnapshot(db, gateway.id) as string)).toEqual({ data: [{ id: "model" }] });
-  expect(compactStorage(db)).toMatchObject({ removedCollectionMetrics: 0, trimmedCatalogs: { snapshots: 0 } });
+  // Retention removes whole attempts; it never reaches inside a body a kept event points at.
+  expect(JSON.parse(readSnapshot(db, router.id) as string).data[0]).toHaveProperty("description", "Unused");
+  expect(JSON.parse(JSON.parse(readSnapshot(db, gateway.id) as string))).toEqual({
+    data: [{ id: "model", description: "Unused" }],
+  });
+  expect(compactStorage(db)).toMatchObject({ removedCollectionMetrics: 0 });
   db.close();
 });
 

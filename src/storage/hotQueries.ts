@@ -13,6 +13,7 @@
  *
  * The parameters are placeholders: a plan depends on the shape of a query, never on its literals.
  */
+import { FAILURE_KIND } from "../reports/failureKind.js";
 export type HotQuery = {
   name: string;
   sql: string;
@@ -352,7 +353,7 @@ export const HOT_WRITES: readonly HotWrite[] = [
               AND EXISTS (
                 SELECT 1 FROM source_collection_days d
                 WHERE d.day = substr(m.collected_at, 1, 10) AND d.source = m.source
-                  AND d.outcome = CASE WHEN m.success = 1 THEN 'success' ELSE 'unknown' END
+                  AND d.outcome = CASE WHEN m.success = 1 THEN 'success' ELSE ${FAILURE_KIND} END
               )
             LIMIT ?
           )`,
