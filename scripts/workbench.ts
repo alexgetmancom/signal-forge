@@ -54,6 +54,11 @@ export const BENCH: Bench[] = [
     when: "Which reads set the floor this service stands on, the other half of `source-cost`. A read answered by `prod <command>` costs nothing lasting, but the same read over HTTP or MCP is answered inside the long-lived service and raises its floor for as long as it lives; this asks every read that needs no argument, twice, against a copy of production, and names the ones that claim more than a heavy collector does. Reach for it after adding a report or widening what one reads.",
   },
   {
+    group: "ask",
+    command: "index-cost",
+    when: "What each index costs and which hot read it exists for -- the inside of the one number `prod storage` calls `unaccountedBytes`. Per-index bytes come from `dbstat`, production's SQLite is built without it, and this machine's is not, so the question is asked of a copy here rather than of the service. It also runs EXPLAIN QUERY PLAN over src/storage/hotQueries.ts and names the declared indexes no hot read reaches for: an index nothing uses and an index holding the service up look identical from the outside, and only one of them is worth its writes.",
+  },
+  {
     group: "change",
     command: "split-module",
     when: "A module is too long and the parts of it are obvious. Choosing what belongs together is the work; this does the rest, and refuses rather than guesses when it cannot reassemble the file it read.",

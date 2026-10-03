@@ -43,6 +43,7 @@
     "probe": "bun scripts/probe.ts",
     "source-cost": "bun scripts/source-cost.ts",
     "read-cost": "bun scripts/read-cost.ts",
+    "index-cost": "bun scripts/index-cost.ts",
     "guide": "bun scripts/workbench.ts"
   },
   "dependencies": {
