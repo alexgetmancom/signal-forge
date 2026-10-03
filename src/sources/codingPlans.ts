@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Collection } from "../events/types.js";
 import { httpFailure, SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
+import { fetchResponse } from "./http.js";
 import { crossesMakers, notAModelFamily, splitJoinedModels } from "./modelMentions.js";
 
 /**
@@ -36,7 +37,7 @@ async function openCodeList(
   page: string,
   request: Fetch,
 ): Promise<Collection> {
-  const response = await request(url);
+  const response = await fetchResponse(url, {}, request);
   if (!response.ok) throw httpFailure(`${source}: HTTP ${response.status}`, response.status);
   const ids = [...new Set(listSchema.parse(await response.json()).data.map((model) => model.id))]
     // "test" and "test-novita-dsf4.1" are the operator's own plumbing.
@@ -94,10 +95,14 @@ const TAGS = "https://registry.npmjs.org/-/package/command-code/dist-tags";
 let read: { version: string; collection: Collection } | null = null;
 
 export async function collectCommandCodeModels(request: Fetch = fetch): Promise<Collection> {
-  const version = ((await (await request(TAGS)).json()) as Record<string, string>).latest;
+  const version = ((await (await fetchResponse(TAGS, {}, request)).json()) as Record<string, string>).latest;
   if (!version) throw new SourceError("empty", "Command Code has no published version");
   if (read?.version === version) return read.collection;
-  const response = await request(`https://registry.npmjs.org/command-code/-/command-code-${version}.tgz`);
+  const response = await fetchResponse(
+    `https://registry.npmjs.org/command-code/-/command-code-${version}.tgz`,
+    {},
+    request,
+  );
   if (!response.ok) throw httpFailure(`Command Code: HTTP ${response.status}`, response.status);
   const text = Buffer.from(Bun.gunzipSync(new Uint8Array(await response.arrayBuffer()))).toString("latin1");
   const ids = commandCodeModelIds(text);

@@ -11,6 +11,7 @@ import {
   safeErrorType,
   unusableJudgeRun,
 } from "../runtime/deepseekLedger.js";
+import { fetchResponse } from "./http.js";
 
 export type Audience = "builders" | "consumers";
 
@@ -96,22 +97,29 @@ const JUDGE_UNUSABLE_RUN_LIMIT = 3;
 const JUDGE_BACKOFF_MS = 6 * 3_600_000;
 
 function ask(config: AppConfig, request: Fetch, input: string, entryCount: number): Promise<Response> {
-  return request(DEEPSEEK_SUMMARY_ENDPOINT, {
-    method: "POST",
-    headers: { "content-type": "application/json", Authorization: `Bearer ${config.DEEPSEEK_API_KEY}` },
-    signal: AbortSignal.timeout(60_000),
-    body: JSON.stringify({
-      model: DEEPSEEK_SUMMARY_MODEL,
-      max_tokens: ceilingFor(entryCount),
-      temperature: 0,
-      thinking: { type: "disabled" },
-      response_format: { type: "json_object" },
-      messages: [
-        { role: "system", content: PROMPT },
-        { role: "user", content: input },
-      ],
-    }),
-  });
+  return fetchResponse(
+    DEEPSEEK_SUMMARY_ENDPOINT,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json", Authorization: `Bearer ${config.DEEPSEEK_API_KEY}` },
+      signal: AbortSignal.timeout(60_000),
+      body: JSON.stringify({
+        model: DEEPSEEK_SUMMARY_MODEL,
+        max_tokens: ceilingFor(entryCount),
+        temperature: 0,
+        thinking: { type: "disabled" },
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: PROMPT },
+          { role: "user", content: input },
+        ],
+      }),
+    },
+    request,
+    // No retries, for the reason given in `mentionStage.judgeMentions`: a paid POST is accounted
+    // for one call at a time, and this came here for the typed failure rather than the retry.
+    [],
+  );
 }
 
 /** What a reached judge said, settled in the ledger as one of an answer, a part of one, or none. */

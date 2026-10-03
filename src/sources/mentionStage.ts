@@ -11,6 +11,7 @@ import {
   recordDeepSeekCall,
   safeErrorType,
 } from "../runtime/deepseekLedger.js";
+import { fetchResponse } from "./http.js";
 import { bareModelSlug } from "./mirrors.js";
 
 /**
@@ -63,6 +64,41 @@ const JUDGE_PROMPT = (where: string) =>
 const JUDGE_MAX_CHARS = 4_000;
 
 /**
+ * The question itself, lifted out so `judgeMentions` reads as what it does with the answer.
+ *
+ * No retries: a judge is a paid POST with its own accounting. `deepseek_usage` counts the attempts
+ * and `DEEPSEEK_MAX_ATTEMPTS` caps them, so three tries inside one of them would make the ledger
+ * understate what was spent, and the per-source schedule already asks again later. What this call
+ * goes through `fetchResponse` for is the other half: a connection that drops is a typed network
+ * failure instead of a bare `Error` filed as `unknown` with its sentence thrown away.
+ */
+function askTheJudge(config: AppConfig, request: Fetch, where: string, input: string): Promise<Response> {
+  return fetchResponse(
+    DEEPSEEK_SUMMARY_ENDPOINT,
+    {
+      method: "POST",
+      headers: { "content-type": "application/json", Authorization: `Bearer ${config.DEEPSEEK_API_KEY}` },
+      signal: AbortSignal.timeout(60_000),
+      body: JSON.stringify({
+        model: DEEPSEEK_SUMMARY_MODEL,
+        // The model reasons before it answers: at 200 tokens it spent them all deciding that the
+        // clankermux commit of 2026-09-21 was `served`, and never wrote the answer; at 2,000 it did
+        // the same over the eleven-model table of gemini-cli#28859.
+        max_tokens: 6_000,
+        temperature: 0,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: JUDGE_PROMPT(where) },
+          { role: "user", content: input },
+        ],
+      }),
+    },
+    request,
+    [],
+  );
+}
+
+/**
  * Asks the summary model which stage each ID in one commit, issue or comment is at. A handful of
  * candidates a week reach it -- only IDs nothing here has recorded at that stage -- so there is no
  * budget beyond the call's own cap. Without a key, or when the answer is not usable, the words
@@ -105,24 +141,7 @@ export async function judgeMentions(
   };
   let response: Response;
   try {
-    response = await request(DEEPSEEK_SUMMARY_ENDPOINT, {
-      method: "POST",
-      headers: { "content-type": "application/json", Authorization: `Bearer ${config.DEEPSEEK_API_KEY}` },
-      signal: AbortSignal.timeout(60_000),
-      body: JSON.stringify({
-        model: DEEPSEEK_SUMMARY_MODEL,
-        // The model reasons before it answers: at 200 tokens it spent them all deciding that the
-        // clankermux commit of 2026-09-21 was `served`, and never wrote the answer; at 2,000 it did
-        // the same over the eleven-model table of gemini-cli#28859.
-        max_tokens: 6_000,
-        temperature: 0,
-        response_format: { type: "json_object" },
-        messages: [
-          { role: "system", content: JUDGE_PROMPT(where) },
-          { role: "user", content: input },
-        ],
-      }),
-    });
+    response = await askTheJudge(config, request, where, input);
   } catch (error) {
     settle({ outcome: "failed", responseStatus: null, usage: null, errorType: safeErrorType(error) });
     log("warn", "Mention judge failed", { error: safeErrorType(error) });

@@ -5,7 +5,7 @@ import type { Collection, RecordData, SourceAuthority } from "../events/types.js
 import { httpFailure, SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { log } from "../logger.js";
-import { fetchText, SourceHttpError } from "./http.js";
+import { fetchResponse, fetchText, SourceHttpError } from "./http.js";
 import { judgeMentions, type MentionStage, olderThanKnown, stageKnown, stageRecordId } from "./mentionStage.js";
 import type { Vendor } from "./vendors.js";
 
@@ -412,7 +412,7 @@ async function firstReadNames(
   // holds -- the cursor it sets is the head, and no commit will add those names again -- so an
   // archive that answered 403 or 429, or dropped the connection, fails the collection and the
   // cursor stays unset. It used to end as an empty read, and a name in the code that day was lost.
-  const response = await request(`https://api.github.com/repos/${repo}/tarball/${sha}`, { headers });
+  const response = await fetchResponse(`https://api.github.com/repos/${repo}/tarball/${sha}`, { headers }, request);
   if (!response.ok) throw httpFailure(`HTTP ${response.status}`, response.status);
   const body = await response.arrayBuffer();
   if (body.byteLength > ARCHIVE_LIMIT) {

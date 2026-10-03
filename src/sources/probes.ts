@@ -3,7 +3,7 @@ import type { Collection, RecordData } from "../events/types.js";
 import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { readLatestSnapshot } from "../storage/snapshots.js";
-import { USER_AGENT } from "./http.js";
+import { fetchResponse } from "./http.js";
 import type { Vendor } from "./vendors.js";
 
 /**
@@ -415,10 +415,16 @@ export function heardNames(
  * per poll to read one number off the status line.
  */
 async function askStatus(url: string, request: Fetch): Promise<number> {
-  const response = await request(url, {
-    headers: { "user-agent": USER_AGENT, accept: "text/markdown,text/html" },
-    signal: AbortSignal.timeout(20_000),
-  });
+  const response = await fetchResponse(
+    url,
+    { headers: { accept: "text/markdown,text/html" }, signal: AbortSignal.timeout(20_000) },
+    request,
+    // No retries. A guess is a question about an address a vendor may not have, and this source is
+    // deliberately a handful of requests per poll rather than a crawl; a 5xx asked three times is
+    // three times the knocking, for an answer the next poll gets anyway. `fetchResponse` is here
+    // for the kind: the control not answering was being filed as `unknown`.
+    [],
+  );
   await response.body?.cancel();
   return response.status;
 }

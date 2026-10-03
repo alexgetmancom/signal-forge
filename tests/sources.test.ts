@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { loadConfig } from "../src/config.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import { selectMeaningfulWebStrings, tellingWebString } from "../src/events/web.js";
+import { SourceError } from "../src/failure.js";
 import { parseArena, parseLeaderboards } from "../src/sources/arena.js";
 import { parseSimpleBench, parseVoxelBench, parseWeirdMl } from "../src/sources/benchmarks.js";
 import { collectAnthropic, collectOpenAI, collectOpenRouter } from "../src/sources/catalogs.js";
@@ -17,7 +18,7 @@ import {
   parseOfficialFeed,
 } from "../src/sources/feeds.js";
 import { collectGithubCommits, summarizeDiff } from "../src/sources/github.js";
-import { fetchText, RETRY_DELAYS_MS, SourceHttpError } from "../src/sources/http.js";
+import { fetchResponse, fetchText, RETRY_DELAYS_MS, SourceHttpError } from "../src/sources/http.js";
 import {
   parseAwsBedrockLifecycle,
   parseAzureFoundryLifecycle,
@@ -1330,6 +1331,82 @@ test("a dropped connection is retried, a refusal is not", async () => {
     "unreachable",
   );
   expect(calls).toBe(3);
+});
+
+test("a collector that reads the response itself gets the same retries and a typed failure", async () => {
+  // The hole this closes: fourteen collectors called the injected `fetch` directly, because what
+  // they need is the response and not its text -- a tarball scanned as it arrives, a judge posted
+  // to, a status asked for. They got neither the retries nor a kind, so a dropped connection was
+  // stored as `{"name":"Error"}` 23 times over the seven days to 2026-10-03.
+  const instantly = RETRY_DELAYS_MS.map(() => 0);
+  let calls = 0;
+  const flaky = async () => {
+    calls += 1;
+    if (calls < 3) throw new Error("TLS connect error");
+    return new Response("body", { status: 200 });
+  };
+  expect(await (await fetchResponse("https://example.test/a", {}, flaky, instantly)).text()).toBe("body");
+  expect(calls).toBe(3);
+
+  // The server's own "try again" is retried here exactly as it is for a body.
+  calls = 0;
+  const unavailable = async () => {
+    calls += 1;
+    return new Response("later", { status: 503 });
+  };
+  expect((await fetchResponse("https://example.test/b", {}, unavailable, instantly)).status).toBe(503);
+  expect(calls).toBe(3);
+
+  // A refusal is an answer and is handed back rather than thrown: a collector asking what an
+  // address says needs the status, and one that wants it thrown has `httpFailure`.
+  calls = 0;
+  const refusing = async () => {
+    calls += 1;
+    return new Response("no", { status: 403 });
+  };
+  expect((await fetchResponse("https://example.test/c", {}, refusing, instantly)).status).toBe(403);
+  expect(calls).toBe(1);
+});
+
+test("a failure to reach an address is a network failure, and names no part of the address", async () => {
+  const instantly = RETRY_DELAYS_MS.map(() => 0);
+  // The thrown value carries the address and, for a judge, the request body; the stored sentence
+  // must carry the type and nothing else. This is the rule that a regex over the message broke.
+  const error = await fetchResponse(
+    "https://signed.example.test/path?token=secret",
+    { method: "POST", body: "prompt about claude-opus-5" },
+    async () => {
+      throw new TypeError("fetch failed: https://signed.example.test/path?token=secret");
+    },
+    instantly,
+  ).catch((caught: unknown) => caught);
+  expect(error).toBeInstanceOf(SourceError);
+  expect((error as SourceError).kind).toBe("network");
+  expect((error as SourceError).message).toBe("Source could not be reached (TypeError)");
+  expect((error as SourceError).message).not.toContain("secret");
+  expect((error as SourceError).message).not.toContain("signed.example.test");
+  // The original is kept as the cause, where a log can have the type without a reader seeing it.
+  expect((error as SourceError).cause).toBeInstanceOf(TypeError);
+});
+
+test("a collector reading the response itself sends one user agent and keeps its own timeout", async () => {
+  const agents: string[] = [];
+  const request = async (_url: string, init?: RequestInit) => {
+    agents.push(new Headers(init?.headers).get("user-agent") ?? "");
+    return new Response("ok");
+  };
+  await fetchResponse("https://example.test/default", {}, request);
+  await fetchResponse("https://example.test/override", { headers: { "User-Agent": "Special/1" } }, request);
+  // A per-source timeout is a reason a collector had for calling `fetch` itself: twenty seconds for
+  // a status, sixty for a judge. Theirs wins, so moving to `fetchResponse` costs them nothing.
+  const own = AbortSignal.timeout(20_000);
+  const passed: AbortSignal[] = [];
+  await fetchResponse("https://example.test/slow", { signal: own }, async (_url, init) => {
+    if (init?.signal) passed.push(init.signal);
+    return new Response("ok");
+  });
+  expect(passed[0]).toBe(own);
+  expect(agents).toEqual(["SignalForge/0.1", "Special/1"]);
 });
 
 test("npm keeps the channels people install and drops the per-platform copies", () => {

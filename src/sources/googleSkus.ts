@@ -4,6 +4,7 @@ import type { Collection } from "../events/types.js";
 import { vendorOfName } from "../events/vendors.js";
 import { httpFailure, SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
+import { fetchResponse } from "./http.js";
 import { googleCloudHeaders } from "./vertex.js";
 
 /** Vertex AI and the Gemini API, the two billing services a Google model is priced under. */
@@ -43,7 +44,7 @@ export async function collectGoogleSkus(config: AppConfig, request: Fetch = fetc
     for (let page = 0; ; page++) {
       if (page >= 20) throw new SourceError("protocol", `Google Cloud SKU pagination exceeded limit for ${label}`);
       const url = `https://cloudbilling.googleapis.com/v1/services/${service}/skus?pageSize=5000${cursor ? `&pageToken=${encodeURIComponent(cursor)}` : ""}`;
-      const response = await request(url, { headers });
+      const response = await fetchResponse(url, { headers }, request);
       if (!response.ok) throw httpFailure(`Google Cloud SKUs for ${label}: HTTP ${response.status}`, response.status);
       const data = skusSchema.parse(await response.json());
       descriptions.push(...(data.skus ?? []).map((sku) => sku.description));

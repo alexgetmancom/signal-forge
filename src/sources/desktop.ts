@@ -1,6 +1,7 @@
 import type { Collection, RecordData } from "../events/types.js";
 import { httpFailure, SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
+import { fetchResponse } from "./http.js";
 import type { Vendor } from "./vendors.js";
 
 /**
@@ -87,7 +88,7 @@ function newest(versions: readonly string[]): string | undefined {
 
 export async function collectAptRepository(repository: AptRepository, request: Fetch = fetch): Promise<Collection> {
   const url = `${repository.base}/dists/stable/main/binary-amd64/Packages`;
-  const response = await request(url);
+  const response = await fetchResponse(url, {}, request);
   if (!response.ok) throw httpFailure(`${repository.source}: HTTP ${response.status}`, response.status);
   const index = await response.text();
   const published = stanzas(index).filter((fields) => fields.Package === repository.package);
@@ -141,7 +142,7 @@ export async function collectClaudeDownloads(request: Fetch = fetch): Promise<Co
   const tried: Record<string, number> = {};
   for (const product of CLAUDE_PRODUCTS) {
     const url = `https://downloads.claude.ai/${product}/latest/manifest.json`;
-    const response = await request(url).catch(() => null);
+    const response = await fetchResponse(url, {}, request).catch(() => null);
     if (!response) continue;
     tried[product] = response.status;
     if (!response.ok) {

@@ -4,7 +4,7 @@ import type { AppConfig } from "../config.js";
 import type { Collection, RecordData } from "../events/types.js";
 import { httpFailure, SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
-import { fetchText } from "./http.js";
+import { fetchResponse, fetchText } from "./http.js";
 import { judgeMentions, olderThanKnown, stageKnown, stageRecordId } from "./mentionStage.js";
 import { type MentionWatch, modelIdsInText } from "./modelMentions.js";
 
@@ -103,12 +103,16 @@ async function posts(
   ];
   if (config.GITHUB_TOKEN) {
     const [owner, name] = repo.split("/");
-    const response = await request("https://api.github.com/graphql", {
-      method: "POST",
-      headers: { ...headers, "content-type": "application/json" },
-      body: JSON.stringify({ query: DISCUSSIONS_QUERY, variables: { owner, name } }),
-      signal: AbortSignal.timeout(30_000),
-    });
+    const response = await fetchResponse(
+      "https://api.github.com/graphql",
+      {
+        method: "POST",
+        headers: { ...headers, "content-type": "application/json" },
+        body: JSON.stringify({ query: DISCUSSIONS_QUERY, variables: { owner, name } }),
+        signal: AbortSignal.timeout(30_000),
+      },
+      request,
+    );
     if (!response.ok) throw httpFailure(`${repo} discussions: HTTP ${response.status}`, response.status);
     // `repository: null` is GraphQL not knowing the repository under this token -- renamed away,
     // private, or a token without access. The issues and comments above came through REST, so reading

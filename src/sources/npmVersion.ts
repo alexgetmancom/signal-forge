@@ -1,4 +1,5 @@
 import type { Fetch } from "../http-client.js";
+import { fetchResponse } from "./http.js";
 
 /**
  * The version a published package currently names, on the first channel it publishes to.
@@ -18,7 +19,7 @@ export async function publishedVersion(
   channels: readonly string[],
   request: Fetch = fetch,
 ): Promise<string | null> {
-  const response = await request(`https://registry.npmjs.org/-/package/${pkg}/dist-tags`);
+  const response = await fetchResponse(`https://registry.npmjs.org/-/package/${pkg}/dist-tags`, {}, request);
   const tags = (await response.json()) as Record<string, string>;
   for (const channel of channels) if (tags[channel]) return tags[channel];
   return null;

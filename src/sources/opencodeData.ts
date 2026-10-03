@@ -21,14 +21,18 @@ import type { Collection, RecordData } from "../events/types.js";
 import { vendorOfName } from "../events/vendors.js";
 import { httpFailure, SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
-import { USER_AGENT } from "./http.js";
+import { fetchResponse } from "./http.js";
 
 /** Read a page that may reveal a model before the vendor announces it. */
 async function probe(url: string, request: Fetch): Promise<{ status: number; body: string }> {
-  const response = await request(url, {
-    headers: { "user-agent": USER_AGENT, accept: "text/html" },
-    signal: AbortSignal.timeout(20_000),
-  });
+  const response = await fetchResponse(
+    url,
+    { headers: { accept: "text/html" }, signal: AbortSignal.timeout(20_000) },
+    request,
+    // No retries, as in `probes.ts`: a stealth page is asked about, and the status is the answer.
+    // What this is here for is that an unreachable page now says so by type.
+    [],
+  );
   return { status: response.status, body: await response.text() };
 }
 

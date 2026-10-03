@@ -1,8 +1,14 @@
 import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
+import { safeErrorType } from "../runtime/deepseekLedger.js";
 import { type CacheEntry, freshUntil, type HttpCache } from "../storage/httpCache.js";
 
-export const USER_AGENT = "SignalForge/0.1";
+/**
+ * Not exported any more, which is the point of it. Three collectors imported it to put on a request
+ * they made themselves; now every request in `src/sources` is made here, so the agent is set once
+ * and a collector cannot send a second one or forget it.
+ */
+const USER_AGENT = "SignalForge/0.1";
 
 /** How long the channel is given to come back before an observation is called a failure. */
 export const RETRY_DELAYS_MS = [3_000, 9_000];
@@ -47,7 +53,10 @@ async function attempt(url: string, request: Fetch, init: RequestInit, delays: r
   let last: unknown;
   for (let index = 0; ; index++) {
     try {
-      const response = await request(url, { ...init, signal: AbortSignal.timeout(30_000) });
+      // The timeout is a default rather than a rule: a judge given sixty seconds and a status
+      // asked for in twenty both go through `fetchResponse`, and their own signal wins by spreading
+      // last. `fetchText` never sets one, so it keeps the thirty.
+      const response = await request(url, { signal: AbortSignal.timeout(30_000), ...init });
       // 429 is deliberately absent: it is the server saying "too many", and answering that with
       // another request three seconds later is the opposite of what it asked for. The per-source
       // backoff handles it by asking later instead.
@@ -61,6 +70,40 @@ async function attempt(url: string, request: Fetch, init: RequestInit, delays: r
     await new Promise((resolve) => setTimeout(resolve, delays[index]));
   }
   throw last;
+}
+
+/**
+ * The request rules of `fetchText` for a collector that has to read the response itself: a tarball
+ * scanned as it arrives, a JSON body posted to a judge, a status asked for and nothing else.
+ *
+ * Calling `request` directly instead lost both halves of what this gives. The retries went missing,
+ * so the outage above failed a source that `fetchText` would have ridden out; and a transport
+ * failure left as a bare `Error` is filed as `unknown` with its sentence thrown away -- 23 of those
+ * over the seven days to 2026-10-03, across 15 sources, each stored as `{"name":"Error"}`, which is
+ * the fact of a failure in place of the one line that would have explained it.
+ * `scripts/check-failures.ts` is what stops the direct call coming back.
+ *
+ * The status is deliberately not judged here. A collector that asks what an address answers needs
+ * the refusal as its answer, and one that wants it thrown has `httpFailure`. Redirects are followed
+ * by `fetch` as usual rather than walked by hand, which is what a registry tarball needs.
+ */
+export async function fetchResponse(
+  url: string,
+  init: RequestInit = {},
+  request: Fetch = fetch,
+  // Parameterised for the same reason as in `fetchText`: a test measures which failures are tried
+  // again, never how long the waiting takes. Production never passes this.
+  retryDelaysMs: readonly number[] = RETRY_DELAYS_MS,
+): Promise<Response> {
+  const headers = new Headers({ "user-agent": USER_AGENT });
+  for (const [name, value] of new Headers(init.headers)) headers.set(name, value);
+  try {
+    return await attempt(url, request, { ...init, headers }, retryDelaysMs);
+  } catch (error) {
+    // The type of the error, never its message: a transport error's text carries the address, and a
+    // failure's sentence is stored and printed.
+    throw new SourceError("network", `Source could not be reached (${safeErrorType(error)})`, { cause: error });
+  }
 }
 
 export async function fetchText(

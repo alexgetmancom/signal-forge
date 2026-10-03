@@ -127,7 +127,10 @@ test("a followed lab whose page does not answer fails the read, because its mode
         throw new TypeError("fetch failed");
       }),
     ),
-  ).rejects.toThrow("fetch failed");
+    // A page that could not be reached at all is a network failure by type. It used to arrive as
+    // whatever `fetch` threw -- stored as `{"name":"Error"}` and printed as "unexpected error" --
+    // and this assertion was written around that, which is how the hole stayed invisible.
+  ).rejects.toMatchObject({ kind: "network", message: "Source could not be reached (TypeError)" });
   db.close();
 });
 
@@ -160,6 +163,6 @@ test("a stealth page that cannot be read is not the same as one the catalogue do
       return new Response("busy", { status });
     }) as typeof fetch;
   await expect(collectOpenCodeData(db, failing(503))).rejects.toMatchObject({ kind: "http" });
-  await expect(collectOpenCodeData(db, failing("network"))).rejects.toThrow("fetch failed");
+  await expect(collectOpenCodeData(db, failing("network"))).rejects.toMatchObject({ kind: "network" });
   db.close();
 });

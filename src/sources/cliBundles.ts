@@ -3,6 +3,7 @@ import { httpFailure, SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { type BundleMemory, forgetful } from "./bundleMemory.js";
 import { scanGzipStream } from "./gzipScan.js";
+import { fetchResponse } from "./http.js";
 import { publishedVersion } from "./npmVersion.js";
 import type { Vendor } from "./vendors.js";
 
@@ -100,7 +101,11 @@ export async function collectCliBundle(
     if (known.length >= bundle.floor) return collected(bundle, version, known);
   }
   const name = bundle.package.split("/").at(-1);
-  const response = await request(`https://registry.npmjs.org/${bundle.package}/-/${name}-${version}.tgz`);
+  const response = await fetchResponse(
+    `https://registry.npmjs.org/${bundle.package}/-/${name}-${version}.tgz`,
+    {},
+    request,
+  );
   if (!response.ok) throw httpFailure(`${bundle.package}: HTTP ${response.status}`, response.status);
   if (!response.body) throw new SourceError("protocol", `${bundle.package}: no body`);
   const ids = await bundleIdsFromStream(response.body, bundle.pattern);
