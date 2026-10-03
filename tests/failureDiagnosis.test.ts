@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { z } from "zod";
-import { collectionDegraded, SourceError } from "../src/failure.js";
+import { collectionDegraded, SourceError, storageFailure } from "../src/failure.js";
 import { classifyFailure } from "../src/failureDiagnosis.js";
 import { nextData } from "../src/sources/html.js";
 import { SourceHttpError } from "../src/sources/http.js";
@@ -133,4 +133,19 @@ test("a key present in the page but holding nothing is a missing page, not a bro
   // And the real value is still found, including when the placeholder is somewhere else in the page.
   const present = flight(JSON.stringify({ other: "$undefined", initialModels: [{ id: "a" }] }));
   expect(nextData(present, "initialModels")).toEqual([{ id: "a" }]);
+});
+
+test("a write of ours that did not take effect says database, not unexpected error", () => {
+  // The eight sources still filed as `{"name":"Error"}` after the transport was fixed -- mistral,
+  // meta-blog, mimo, polymarket, vertex-model-garden, huggingface:openai, anthropic-model-index,
+  // discovery:blog-zai -- never called fetch themselves. They failed after the read, in the guards
+  // on `INSERT ... RETURNING` inside saveCollection, which threw a bare Error and sent whoever read
+  // the board to the upstream. SQLite's own errors already arrived as `database` by class.
+  const diagnosis = classifyFailure(storageFailure("an event"));
+  expect(diagnosis.kind).toBe("database");
+  expect(diagnosis.message).toBe("Local write failed: an event");
+  expect(diagnosis.evidence).toEqual({ write: "an event" });
+  expect(classifyFailure(Object.assign(new Error("database is locked"), { name: "SQLiteError" })).kind).toBe(
+    "database",
+  );
 });

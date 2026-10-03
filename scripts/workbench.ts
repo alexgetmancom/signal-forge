@@ -106,7 +106,7 @@ export const BENCH: Bench[] = [
   {
     group: "prove",
     command: "check-failures",
-    when: "Part of the gate. A collector in src/sources throws SourceError(kind, message), or httpFailure(message, status) for a response that was not ok, and never a bare Error: that is filed as unknown and its sentence is not kept. registry.ts, which validates the registry at boot, is the one exception.",
+    when: 'Part of the gate. Nothing a collection passes through throws a bare Error, because the poller files that as unknown and prints it as "unexpected error (Error)": a collector throws SourceError(kind, message) or httpFailure(message, status), and the write path throws storageFailure(what) when a write did not take effect. Scope is src/sources plus everything imported from src/events/pipeline.ts; the throws no collection can reach are listed in the script with why. It also checks that a collector reaches the network only through src/sources/http.ts.',
   },
   {
     group: "prove",

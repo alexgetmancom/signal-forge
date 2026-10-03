@@ -5,6 +5,7 @@ import { identityFor } from "./events/identity.js";
 import { recordFor } from "./events/record.js";
 import { type LifecycleReminderContext, lifecycleReminderContextSchema } from "./events/render/lifecycle.js";
 import type { Event, RecordData } from "./events/types.js";
+import { storageFailure } from "./failure.js";
 import { featureEnabled } from "./features.js";
 import { calendarDate } from "./sources/feeds.js";
 import { buildSourceRegistry } from "./sources/registry.js";
@@ -189,7 +190,7 @@ export function rebuildLifecycleDeadlines(db: Database, now = Date.now()): void 
         candidate.active ? 1 : 0,
         candidate.updatedAt,
       );
-    if (!row) throw new Error(`Lifecycle deadline ${candidate.stableKey} could not be stored`);
+    if (!row) throw storageFailure(`lifecycle deadline ${candidate.stableKey}`);
     if (candidate.active) ensureReminders(db, row.id, candidate.deadlineAt);
   }
 
@@ -340,7 +341,7 @@ export function scheduleLifecycleReminders(db: Database, config: AppConfig, now 
           "INSERT INTO batches(source,digest,ready_at,kind,context_json) VALUES(?,?,?,'lifecycle_reminder',?) RETURNING id",
         )
         .get(reminder.source, 0, new Date(now).toISOString(), JSON.stringify(context));
-      if (!batch) throw new Error("Lifecycle reminder batch insert failed");
+      if (!batch) throw storageFailure("a lifecycle reminder batch");
       db.query("INSERT INTO batch_events(batch_id,event_id,url,signal) VALUES(?,?,?,'reminder')").run(
         batch.id,
         event.id,

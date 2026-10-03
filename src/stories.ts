@@ -17,6 +17,7 @@ import { recordFor } from "./events/record.js";
 import { recordReleaseDate } from "./events/releaseDate.js";
 import { sourceFamily } from "./events/sourceFamily.js";
 import type { Confidence, Event, RecordData, SourceAuthority } from "./events/types.js";
+import { storageFailure } from "./failure.js";
 
 const CORRELATION_WINDOW_MS = 30 * 24 * 3_600_000;
 
@@ -535,7 +536,7 @@ function writeGroup(db: Database, group: StoryGroup): number {
       status,
       group.releasedAt === null ? null : new Date(group.releasedAt).toISOString(),
     );
-  if (!story) throw new Error(`Story ${storyKey(group)} could not be stored`);
+  if (!story) throw storageFailure(`story ${storyKey(group)}`);
   group.storyId = story.id;
   writeClaims(db, story.id, group);
   return story.id;

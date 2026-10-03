@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { confidenceRank } from "./events/confidence.js";
 import { sourceIndependenceFamily } from "./events/sourceFamily.js";
 import type { Confidence, Event, EvidenceType, SourceAuthority } from "./events/types.js";
+import { storageFailure } from "./failure.js";
 
 type HypothesisStatus = "emerging" | "strengthening" | "confirmed" | "stale";
 
@@ -189,7 +190,7 @@ function writeHypothesis(db: Database, hypothesis: Hypothesis): void {
       hypothesis.resolvedAt,
       hypothesis.resolutionEventId,
     );
-  if (!row) throw new Error(`Hypothesis ${hypothesis.stableKey} could not be stored`);
+  if (!row) throw storageFailure(`hypothesis ${hypothesis.stableKey}`);
   db.query("DELETE FROM hypothesis_events WHERE hypothesis_id=?").run(row.id);
   for (const event of hypothesis.supporting)
     db.query("INSERT INTO hypothesis_events(hypothesis_id,event_id,role) VALUES(?,?,?)").run(

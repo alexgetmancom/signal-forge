@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import type { Destination } from "../config.js";
+import { storageFailure } from "../failure.js";
 import { readState, writeState } from "../storage/appState.js";
 import { writeTransaction } from "../storage/transaction.js";
 import { sourceIndependenceFamily } from "./sourceFamily.js";
@@ -223,7 +224,7 @@ export function detectCorroborated(db: Database, destinations: readonly Destinat
           "INSERT INTO batches(source,digest,ready_at) VALUES(?,0,?) RETURNING id",
         )
         .get(event.source, corroboration.at);
-      if (!batch) throw new Error("Corroboration batch insert failed");
+      if (!batch) throw storageFailure("a corroboration batch");
       const record = JSON.parse(event.after_json ?? "{}") as { url?: unknown };
       db.query("INSERT INTO batch_events(batch_id,event_id,url,signal) VALUES(?,?,?,'codename')").run(
         batch.id,

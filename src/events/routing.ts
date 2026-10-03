@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import type { Destination } from "../config.js";
+import { storageFailure } from "../failure.js";
 import { classify } from "./classify.js";
 import { isRoutine } from "./interpretation.js";
 import { hasNotificationContent } from "./notification.js";
@@ -134,7 +135,7 @@ export function routeEmitted(
           "INSERT INTO batches(source,digest,ready_at) VALUES(?,?,?) RETURNING id",
         )
         .get(batchSource, Number(digest), ready);
-    if (!batch) throw new Error("Batch insert failed");
+    if (!batch) throw storageFailure("an event batch");
     for (const event of events)
       db.query("INSERT INTO batch_events(batch_id,event_id,url,signal) VALUES(?,?,?,?)").run(
         batch.id,

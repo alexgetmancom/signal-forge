@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { storageFailure } from "../failure.js";
 
 /**
  * A collected payload, kept compressed.
@@ -31,7 +32,7 @@ export function storeSnapshot(db: Database, source: string, collectedAt: string,
       "INSERT INTO snapshots(source,collected_at,body,hash,bytes) VALUES(?,?,?,?,?) RETURNING id",
     )
     .get(source, collectedAt, Bun.gzipSync(Buffer.from(raw)), hash, bytes);
-  if (!stored) throw new Error("Snapshot insert failed");
+  if (!stored) throw storageFailure("a snapshot");
   return { id: stored.id, hash, bytes };
 }
 

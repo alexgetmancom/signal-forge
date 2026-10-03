@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { AppConfig, Destination } from "./config.js";
+import { storageFailure } from "./failure.js";
 import { featureEnabled } from "./features.js";
 import type { Fetch } from "./http-client.js";
 import { log } from "./logger.js";
@@ -198,7 +199,7 @@ export async function promoteVouchedMessages(
             "INSERT INTO batches(source,digest,ready_at,kind,context_json) VALUES('scout-promotion',0,?,'promotion',?) RETURNING id",
           )
           .get(new Date(now).toISOString(), JSON.stringify(context));
-        if (!batch) throw new Error("Promotion batch insert failed");
+        if (!batch) throw storageFailure("a promotion batch");
         for (const destination of channels.news)
           db.query("INSERT INTO batch_targets(batch_id,destination_id,destination_json) VALUES(?,?,?)").run(
             batch.id,

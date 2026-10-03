@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { Destination } from "../config.js";
-import { collectionDegraded, SourceError } from "../failure.js";
+import { collectionDegraded, SourceError, storageFailure } from "../failure.js";
 import { storeSnapshot } from "../storage/snapshots.js";
 import { canonical } from "./canonical.js";
 import { comparisonBody, hasMoved } from "./changeDetection.js";
@@ -102,7 +102,7 @@ function openEmitter(
         "INSERT INTO events(source,stream,entity_id,kind,before_json,after_json,detected_at,snapshot_id,confidence,evidence_type,authority) VALUES(?,?,?,?,?,?,?,?,?,?,?) RETURNING id",
       )
       .get(c.source, c.stream, id, kind, before, after, now, snapshot, confidence, evidence_type, authority);
-    if (!row) throw new Error("Event insert failed");
+    if (!row) throw storageFailure("an event");
     emitted.push({
       signal: null,
       id: row.id,

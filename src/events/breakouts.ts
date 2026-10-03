@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import type { Destination } from "../config.js";
+import { storageFailure } from "../failure.js";
 import { readState, writeState } from "../storage/appState.js";
 import { writeTransaction } from "../storage/transaction.js";
 import { isUnfollowedMakerAtAReseller, resellerMaker } from "./resellers.js";
@@ -184,7 +185,7 @@ export function detectBreakouts(db: Database, destinations: readonly Destination
           "INSERT INTO batches(source,digest,ready_at) VALUES(?,0,?) RETURNING id",
         )
         .get(event.source, measured.at);
-      if (!batch) throw new Error("Breakout batch insert failed");
+      if (!batch) throw storageFailure("a breakout batch");
       const record = JSON.parse(event.after_json ?? "{}") as { url?: unknown };
       db.query("INSERT INTO batch_events(batch_id,event_id,url,signal) VALUES(?,?,?,'codename')").run(
         batch.id,

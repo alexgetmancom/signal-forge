@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { storageFailure } from "../failure.js";
 import type { Event } from "./types.js";
 
 /**
@@ -131,7 +132,7 @@ export function releaseSettledMoves(db: Database, now = Date.now()): number {
         "INSERT INTO batches(source,digest,ready_at) VALUES('story-digest',1,?) RETURNING id",
       )
       .get(new Date(now).toISOString());
-    if (!batch) throw new Error("Batch insert failed");
+    if (!batch) throw storageFailure("a released story digest batch");
     db.query("INSERT INTO batch_events(batch_id,event_id,url,signal) VALUES(?,?,?,?)").run(
       batch.id,
       row.id,

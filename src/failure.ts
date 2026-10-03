@@ -93,3 +93,19 @@ export function collectionDegraded(source: string, previousCount: number, retain
 export function httpFailure(message: string, status: number): SourceError {
   return new SourceError(status === 429 ? "rate-limited" : "http", message, { evidence: { status } });
 }
+
+/**
+ * A write this service made did not take effect, named by what was being written.
+ *
+ * `database` already existed as a kind -- "local storage, not the upstream" -- and SQLite's own
+ * errors reach it by class: a `SQLiteError` is inferred in `failureDiagnosis.ts`, which is how
+ * `mistral` was filed correctly the night `SQLITE_BUSY` hit it. What was not reaching it was our own
+ * guards. Seven places on the write path a collection goes through checked that an INSERT ... RETURNING
+ * had returned a row and threw a bare `Error` when it had not, so the eight sources that never called
+ * `fetch` directly and still failed as `{"name":"Error"}` were being told "unexpected error (Error)"
+ * about a local write. The sentence here is ours, so it is kept; the kind sends whoever reads the
+ * board to the database instead of to the upstream.
+ */
+export function storageFailure(what: string): SourceError {
+  return new SourceError("database", `Local write failed: ${what}`, { evidence: { write: what } });
+}
