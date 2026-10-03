@@ -328,7 +328,7 @@ test("a model new to a board is news only in the top ten, and a debut only on a 
   expect(entry("text/overall", undefined)).toBe("rank");
 });
 
-test("a model Artificial Analysis measured is a sighting, however far down the board it lands", () => {
+test("a model Artificial Analysis measured is a debut above the floor and a sighting below it", () => {
   // Step 5 Preview as the site reported it on 2026-09-19: an index, and no place, because only the
   // leading twenty are ranked. Before this it was a `rank` -- a class with nothing ever delivered.
   const measured = (score: object, overrides: object = {}) =>
@@ -341,9 +341,18 @@ test("a model Artificial Analysis measured is a sighting, however far down the b
         ...overrides,
       } as never),
     );
-  expect(measured({ artificial_analysis_intelligence_index: 43.6 })).toBe("codename");
-  // The top ten is still the public wire, and the number does not promote it there.
+  // Measured at 43.6 and ranked nowhere: the first independent reading of a new model, which is the
+  // card readers asked for by name, and the only place it is ever told.
+  expect(measured({ artificial_analysis_intelligence_index: 43.6 })).toBe("debut");
+  // Mercury 2.5 arrived at 12.3 on 2026-09-23. Being measured at all is a fact; being measured this
+  // far down is not a message, and it stays a sighting for the scouts.
+  expect(measured({ artificial_analysis_intelligence_index: 12.3 })).toBe("codename");
+  // The floor is a floor and not a window: exactly forty speaks.
+  expect(measured({ artificial_analysis_intelligence_index: 40 })).toBe("debut");
+  expect(measured({ artificial_analysis_intelligence_index: 39.9 })).toBe("codename");
+  // The top ten is the public wire on its place alone, whatever the number behind it.
   expect(measured({ artificial_analysis_intelligence_index: 70 }, { rank: 3 })).toBe("debut");
+  expect(measured({ artificial_analysis_intelligence_index: 12.3 }, { rank: 3 })).toBe("debut");
   // A row with no measurement behind it is still a row, and so is one on somebody else's board.
   expect(measured({ hle: 0.465 })).toBe("rank");
   expect(measured({}, { category: "designarena/website" })).toBe("rank");

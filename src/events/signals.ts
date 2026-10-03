@@ -1,5 +1,5 @@
 import { text } from "../text.js";
-import { boardPlace, DEBUT_PLACES, isMainBoard, scoredDebutIndex } from "./boardSignals.js";
+import { boardPlace, DEBUT_PLACES, isMainBoard, isTellableDebut, scoredDebutIndex } from "./boardSignals.js";
 import { incidentIsSevere, incidentTouchesSubscribers } from "./incidents.js";
 import { NEWSROOMS, newsClass, PRODUCT_BLOGS, patchBuild, RELEASE_NOTE_PAGES } from "./newsrooms.js";
 import { pageClass } from "./pageSignals.js";
@@ -43,8 +43,9 @@ export { SIGNAL_CLASSES, type SignalClass } from "./types.js";
  *   what it found. Read once a day in one message on the public wire, never as cards: OpenAI filed
  *   eight "Disrupting malicious uses" reports in a single afternoon.
  * `business`: customer stories, partnerships, programmes, hires, events, policy. Kept, not sent.
- * `debut`: a model that was not on a main scoreboard taking a place in its top ten. How good a new
- *   model is, which the launch card could not say.
+ * `debut`: a model that was not on a main scoreboard taking a place in its top ten, or one
+ *   Artificial Analysis has measured for the first time at an Intelligence Index worth reporting.
+ *   How good a new model is, which the launch card could not say.
  */
 export function signalClass(event: Event): SignalClass {
   const record = recordFor(event);
@@ -83,8 +84,13 @@ export function signalClass(event: Event): SignalClass {
   if (event.stream === "leaderboards") {
     if (event.kind !== "new") return "rank";
     const place = boardPlace(event);
-    if (place === null || place > DEBUT_PLACES) return scoredDebutIndex(event) === null ? "rank" : "codename";
-    return isMainBoard(recordFor(event)?.category) ? "debut" : "codename";
+    if (place !== null && place <= DEBUT_PLACES) return isMainBoard(recordFor(event)?.category) ? "debut" : "codename";
+    // Outside the ranked places only a first Artificial Analysis measurement says anything, and only
+    // above the floor it sets: `isTellableDebut` is the same gate both delivery gates read, so a card
+    // cannot be classed a debut here and then silenced as a row there. Below the floor the number is
+    // still the first independent reading of a model, which is what the scouts watch for.
+    if (isTellableDebut(event)) return "debut";
+    return scoredDebutIndex(event) === null ? "rank" : "codename";
   }
 
   /**

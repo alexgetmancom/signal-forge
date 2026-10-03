@@ -29,6 +29,25 @@ const MAIN_BOARDS = new Set([
 export const DEBUT_PLACES = 10;
 
 /**
+ * The Intelligence Index a model has to reach for its Artificial Analysis arrival to be a card.
+ *
+ * This site does not list a model until it has run the benchmarks, so an arrival here is the first
+ * independent reading of a new model and says something the launch card could not. Below the
+ * leading twenty there is no place to report, which left every such arrival a sighting for the
+ * scouts -- and those are the arrivals readers asked for by name, because a model being measured at
+ * all is the news.
+ *
+ * The floor is here because not every measured model is worth a message. Seventeen models were
+ * scored for the first time in the fortnight to 2026-10-03: nine at 41.1 and above, among them
+ * Claude Opus 5.5 at 57.6, Claude Sonnet 5.5 at 56.0, Gemini 4 Argon at 52.6 and GPT-6.1 Sol at
+ * 51.8, and the rest trailing down through Solar Mini 4 at 24.1 and DeepSeek V4 Pro at 20.4 to
+ * Mercury 2.5 at 12.3. Forty separates them, and it is a number on a scale the benchmarks move, so
+ * it is checked against the same fortnight's arrivals whenever that scale is rewritten rather than
+ * trusted forever.
+ */
+const ANNOUNCED_INDEX = 40;
+
+/**
  * A model Artificial Analysis has measured, arriving outside the places it ranks.
  *
  * The site ranks only its leading twenty, so a model below them has no place at all and every
@@ -128,7 +147,31 @@ export function isTellableDebut(event: Event): boolean {
   if (event.stream !== "leaderboards" || event.kind !== "new") return false;
   if (isUnannouncedBoard(event)) return false;
   const place = boardPlace(event);
-  return place !== null && place <= DEBUT_PLACES && isMainBoard(recordFor(event)?.category);
+  if (place !== null && place <= DEBUT_PLACES) return isMainBoard(recordFor(event)?.category);
+  // Outside the ranked places only Artificial Analysis has anything to say, and only above the
+  // floor: see `ANNOUNCED_INDEX`. `scoredDebutIndex` answers for the board and the source.
+  const index = scoredDebutIndex(event);
+  return index !== null && index >= ANNOUNCED_INDEX;
+}
+
+/**
+ * The model behind a board entry, with the effort level the board ran it at taken off.
+ *
+ * Artificial Analysis measures a model once per reasoning effort and publishes each as its own row:
+ * `GPT-6.1 Sol (low)`, `(medium)`, `(high)`, `(xhigh)`, `(max)` all arrived in one reading on
+ * 2026-09-29, and Claude Sonnet 5.5 arrived as five `(Adaptive Reasoning, N Effort, Default
+ * Fallback)` rows. Counted as arrivals that is forty-one models in a fortnight where seventeen were
+ * measured. Which effort a board chose to run is not a model, so the whole bracket comes off and
+ * `anotherEffortLeadsThisDebut` keeps one card for the group.
+ *
+ * Arena names an entry `gpt-6.1-sol-max` with no bracket at all, so nothing there is folded by this:
+ * there, one row is one model and the harness is part of the name the board published.
+ */
+export function withoutEffort(name: string): string {
+  return name
+    .replace(/\s*\([^()]*\)\s*$/, "")
+    .trim()
+    .toLowerCase();
 }
 
 /** The place a new board entry took, when it is a real one: a board once served a model at #0. */
