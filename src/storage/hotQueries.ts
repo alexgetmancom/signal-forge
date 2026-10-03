@@ -79,10 +79,12 @@ const INTAKE_QUERIES: readonly HotQuery[] = [
       "window, which is what METRIC_DAYS caps.",
   },
   {
-    // The seek the incremental fold does on every collection, and the only read that names the
-    // largest index in the database. It was missing: `index-cost` reported
-    // `source_collection_metrics_source_time` at 14.1 MB with no hot read, and the reason was that
-    // the read is inside an INSERT ... SELECT. A write path's seek is as hot as any other.
+    // The seek the incremental fold does on every collection. It was missing until `index-cost`
+    // reported `source_collection_metrics_source_time` at 14.1 MB with no hot read, and the reason
+    // it was missing is that the read is inside an `INSERT ... SELECT`. This entry was the patch:
+    // the SELECT, lifted out and standing in for the statement that contains it. `HOT_WRITES`
+    // below is the statement itself, and this stays because the reads of one attempt by key are
+    // also what `peak_rss_mb` is updated through.
     name: "one attempt by source and time",
     sql: "SELECT records_processed, peak_rss_mb FROM source_collection_metrics WHERE source = ? AND collected_at = ?",
     params: ["arena", "2026-01-01T00:00:00.000Z"],
@@ -151,6 +153,105 @@ const PUBLISHED_QUERIES: readonly HotQuery[] = [
 ];
 
 export const HOT_QUERIES: readonly HotQuery[] = [...INTAKE_QUERIES, ...PUBLISHED_QUERIES];
+
+/**
+ * A write whose plan and cost are worth checking, which `HOT_QUERIES` could not hold.
+ *
+ * The list above is reads, and that was a blind spot with a size. `source_collection_metrics_source_time`
+ * was the largest index in the database at 14.1 MB, and `index-cost` reported that no hot read
+ * named it -- correctly, because its only caller is the `INSERT ... SELECT` the incremental
+ * collection fold runs after every attempt. An index can be load-bearing for a statement that
+ * returns no rows, and from the outside that is indistinguishable from an index nothing uses.
+ *
+ * Patching it by lifting the SELECT out and calling it a read is what was done first. It is a
+ * worse answer than it looks: the lifted fragment is not the statement, and migration 075's lesson
+ * was precisely that a fragment can be fast while the statement containing it is thirty-four times
+ * slower. So the statements are here whole.
+ *
+ * They are planned like a read and timed inside a transaction that is rolled back, which is why
+ * `params` may carry values that would be nonsense to commit: nothing here is ever kept.
+ */
+export type HotWrite = {
+  name: string;
+  sql: string;
+  params: readonly (string | number | null)[];
+  /** What this write seeks through, named, so a migration that takes it away has something to fail against. */
+  seeks: string;
+};
+
+export const HOT_WRITES: readonly HotWrite[] = [
+  {
+    // The statement the patched read above stood in for. Run once per collection, per source.
+    name: "fold one attempt into its day",
+    sql: `INSERT INTO source_collection_days(
+            source, day, outcome, attempts, records_processed, events_created, new_events,
+            changed_events, removed_events, peak_rss_max, peak_rss_total, peak_rss_samples,
+            first_at, last_at
+          )
+          SELECT source, substr(collected_at, 1, 10),
+                 CASE WHEN success = 1 THEN 'success' ELSE 'unknown' END,
+                 1, records_processed, events_created, new_events, changed_events, removed_events,
+                 peak_rss_mb, peak_rss_mb, (peak_rss_mb IS NOT NULL), collected_at, collected_at
+          FROM source_collection_metrics WHERE source = ? AND collected_at = ?
+          ON CONFLICT(day, source, outcome) DO UPDATE SET attempts = attempts + 1`,
+    params: ["arena", "2026-01-01T00:00:00.000Z"],
+    seeks: "source_collection_metrics by (source, collected_at), and source_collection_days by its own key",
+  },
+  {
+    // Written after the collection returns, once the peak is known, against the row recordOutcome
+    // just inserted. Same seek, different statement: a key that serves the INSERT's SELECT and not
+    // this would leave a scan of the whole table on every successful collection.
+    name: "stamp a peak onto one attempt",
+    sql: "UPDATE source_collection_metrics SET peak_rss_mb = ? WHERE source = ? AND collected_at = ?",
+    params: [1, "arena", "2026-01-01T00:00:00.000Z"],
+    seeks: "source_collection_metrics by (source, collected_at)",
+  },
+  {
+    // Every instrumented call in the service goes through this, which makes it the most frequent
+    // write there is. Migration 075 made the key the table for this seek; it is here so that
+    // changing the key again is measured on the write as well as on the report.
+    name: "record one call against its bucket",
+    sql: `INSERT INTO code_metrics(
+            name,bucket_start,calls,failures,total_duration_ms,min_duration_ms,max_duration_ms,
+            duration_buckets_json,peak_growth_kb,max_peak_growth_kb,last_called_at
+          ) VALUES(?,?,1,0,1,1,1,'[]',0,0,?)
+          ON CONFLICT(name,bucket_start) DO UPDATE SET calls = calls + 1`,
+    params: ["rehearsal.write", "2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z"],
+    seeks: "code_metrics by its own primary key, which since 075 is the table",
+  },
+  {
+    // Run on every failed collection, and the only write that reads `records` by source alone.
+    name: "break confirmation of a disappearance",
+    sql: "UPDATE records SET missing_count = 0 WHERE source = ?",
+    params: ["arena"],
+    seeks: "records by the leading column of its primary key",
+  },
+  {
+    // The tail of every successful collection: drop the snapshots nothing points at, keeping the
+    // last two. Two NOT IN subqueries over `events` and over `snapshots` itself, which is the
+    // shape that gets expensive quietly as the archive grows.
+    name: "drop the snapshots nothing points at",
+    sql: `DELETE FROM snapshots WHERE source = ?
+            AND id NOT IN (SELECT snapshot_id FROM events)
+            AND id NOT IN (SELECT id FROM snapshots WHERE source = ? ORDER BY id DESC LIMIT 2)`,
+    params: ["arena", "arena"],
+    seeks: "snapshots by source, and events by snapshot_id",
+  },
+  {
+    // Retention's largest delete, chunked. It names the key it deletes by, which is the one thing
+    // a migration changing that key has to carry with it: this statement deleted by `rowid` until
+    // 076 took the rowid away.
+    name: "expire a chunk of raw collection attempts",
+    sql: `DELETE FROM source_collection_metrics
+          WHERE (source, collected_at) IN (
+            SELECT source, collected_at FROM source_collection_metrics
+            WHERE collected_at < ? AND substr(collected_at, 1, 10) IN (SELECT day FROM source_collection_days)
+            LIMIT ?
+          )`,
+    params: ["2020-01-01T00:00:00.000Z", 1],
+    seeks: "source_collection_metrics by (source, collected_at), and source_collection_days by day",
+  },
+];
 
 /**
  * Whether any step of a plan reads a whole table.

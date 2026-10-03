@@ -32,7 +32,7 @@ import { Database, type Statement } from "bun:sqlite";
 import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { HOT_QUERIES, scansATable } from "../src/storage/hotQueries.js";
+import { HOT_QUERIES, HOT_WRITES, scansATable } from "../src/storage/hotQueries.js";
 import { runMigrations } from "../src/storage/migrationRunner.js";
 import { CURRENT_SCHEMA_VERSION } from "../src/storage/migrations.js";
 
@@ -62,6 +62,20 @@ function fingerprints(db: Database): Map<string, string> {
 }
 
 /**
+ * Every statement whose plan and cost are checked: the hot reads, and the hot writes beside them.
+ *
+ * Writes are named `write: <name>` so the two cannot collide and so a moved line says which list
+ * it came from. They are measured the same way with one difference, `mutates`, which puts the run
+ * inside a transaction that is rolled back -- see `timings`.
+ */
+type Measured = { name: string; sql: string; params: readonly (string | number | null)[]; mutates: boolean };
+
+const MEASURED: readonly Measured[] = [
+  ...HOT_QUERIES.map((query) => ({ name: query.name, sql: query.sql, params: query.params, mutates: false })),
+  ...HOT_WRITES.map((write) => ({ name: `write: ${write.name}`, sql: write.sql, params: write.params, mutates: true })),
+];
+
+/**
  * The plan of each hot read, as one line per query.
  *
  * A query naming a table the copy does not have yet is expected before the migration runs, and is
@@ -70,14 +84,14 @@ function fingerprints(db: Database): Map<string, string> {
  */
 function plans(db: Database): Map<string, string> {
   return new Map(
-    HOT_QUERIES.map((query): [string, string] => {
+    MEASURED.map((query): [string, string] => {
       // Prepared rather than `query`, and finalized whatever happens. A statement this connection
       // owns and nobody finalized holds the file open: the close below then cannot take effect and
       // the migration fails as SQLITE_BUSY, with nothing in the message about a plan or a hot read.
       // `prepare` itself is what throws for a table the migration has not created yet, so it is
       // inside the `try` -- outside it, there is no statement to finalize and the lock stays.
       // Migration 074 is the first to add a table a hot read names.
-      let statement: Statement<{ detail: string }, (string | number)[]> | null = null;
+      let statement: Statement<{ detail: string }, (string | number | null)[]> | null = null;
       try {
         statement = db.prepare(`EXPLAIN QUERY PLAN ${query.sql}`);
         return [
@@ -108,19 +122,33 @@ function plans(db: Database): Map<string, string> {
  */
 function timings(db: Database): Map<string, { ms: number; rows: number } | null> {
   const measured = new Map<string, { ms: number; rows: number } | null>();
-  for (const query of HOT_QUERIES) {
-    let statement: Statement<Record<string, unknown>, (string | number)[]> | null = null;
+  for (const query of MEASURED) {
+    let statement: Statement<Record<string, unknown>, (string | number | null)[]> | null = null;
     try {
       statement = db.prepare(query.sql);
       let best = Number.POSITIVE_INFINITY;
       let rows = 0;
       for (let attempt = 0; attempt < ATTEMPTS; attempt += 1) {
+        // A write is run for real and then taken back. Measuring one any other way measures
+        // something else: `EXPLAIN` does not touch a page, and a write run outside a transaction
+        // would leave the copy's rows a little further from production's with every attempt, so
+        // the second attempt would not be timing the same statement as the first.
+        if (query.mutates) db.exec("BEGIN");
         const started = Bun.nanoseconds();
         rows = statement.all(...query.params).length;
         best = Math.min(best, (Bun.nanoseconds() - started) / 1e6);
+        if (query.mutates) db.exec("ROLLBACK");
       }
       measured.set(query.name, { ms: Math.round(best * 100) / 100, rows });
     } catch {
+      // A failed write may have left its transaction open; the next statement would then fail for
+      // that reason rather than its own.
+      if (query.mutates)
+        try {
+          db.exec("ROLLBACK");
+        } catch {
+          /* there was none */
+        }
       // The same case `plans` records as unavailable: a read naming a table the migration has not
       // created yet has no cost to compare against, which is not a regression.
       measured.set(query.name, null);

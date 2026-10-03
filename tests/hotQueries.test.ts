@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { openDatabase } from "../src/storage/database.js";
-import { HOT_QUERIES, scansATable } from "../src/storage/hotQueries.js";
+import { HOT_QUERIES, HOT_WRITES, scansATable } from "../src/storage/hotQueries.js";
 
 test("the reads allowed to scan are the ones that say why", () => {
   const declared = HOT_QUERIES.filter((query) => query.scansByDesign !== undefined);
@@ -37,6 +37,40 @@ test("every hot read runs, and every one of them uses an index", () => {
       plan,
       scans: query.scansByDesign !== undefined,
     });
+  }
+  db.close();
+});
+
+test("every hot write runs, and runs against the key it names", () => {
+  const db = openDatabase(":memory:");
+  for (const write of HOT_WRITES) {
+    const plan = db
+      .query<{ detail: string }, (string | number | null)[]>(`EXPLAIN QUERY PLAN ${write.sql}`)
+      .all(...write.params)
+      .map((row) => row.detail)
+      .join(" | ");
+    // Not every write has a plan. `INSERT ... VALUES ... ON CONFLICT DO UPDATE` searches for
+    // nothing: SQLite finds the conflicting row through the key's own b-tree without a step worth
+    // reporting, so its plan is empty and that is correct. A write with a FROM or a WHERE has one,
+    // and that is the half a migration can take away.
+    const searches = /\b(FROM|WHERE)\b/i.test(write.sql.replace(/ON CONFLICT[\s\S]*$/i, ""));
+    expect({ name: write.name, planned: plan !== "" }).toEqual({ name: write.name, planned: searches });
+    // The reason this list exists at all: the index these statements seek through was 14.1 MB and
+    // invisible, because `index-cost` could only look at reads and the only caller was an INSERT.
+    expect(write.seeks.length).toBeGreaterThan(20);
+  }
+  db.close();
+});
+
+test("a hot write is executable, not merely plannable", () => {
+  const db = openDatabase(":memory:");
+  // EXPLAIN never touches a page, so a statement with a typo in a column name plans fine and fails
+  // the first time it runs -- which for a write is inside a collection. Each is run for real and
+  // rolled back, the same way `rehearse-migration` times them.
+  for (const write of HOT_WRITES) {
+    db.exec("BEGIN");
+    expect(() => db.query(write.sql).all(...write.params)).not.toThrow();
+    db.exec("ROLLBACK");
   }
   db.close();
 });
