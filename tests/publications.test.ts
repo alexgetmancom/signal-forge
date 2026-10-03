@@ -82,6 +82,41 @@ test("empty, mismatched and malformed responses preserve the last complete sync 
   }
 });
 
+test("a failed sync names which of its four causes it was, and still never quotes the Studio", async () => {
+  const db = openDatabase(":memory:");
+  try {
+    // One sentence used to cover all of these, and a cycle that failed on production could not be
+    // told apart afterwards: a timeout, a refusal, an unreadable answer and a changed contract.
+    await expect(
+      syncPublications(db, config(), async () => {
+        throw new DOMException("The operation timed out", "TimeoutError");
+      }),
+    ).rejects.toThrow("network error (TimeoutError)");
+    await expect(
+      syncPublications(db, config(), async () => Response.json({ error: "down" }, { status: 503 })),
+    ).rejects.toThrow("upstream refused (HTTP 503)");
+    await expect(syncPublications(db, config(), async () => new Response("not json"))).rejects.toThrow(
+      "response did not match the schema",
+    );
+    // A contract that drifted says which field drifted, by its name in the schema here.
+    const drifted: Fetch = async (_url, init) =>
+      Response.json({
+        jsonrpc: "2.0",
+        id: JSON.parse(String(init?.body)).id,
+        result: { content: [{ type: "text", text: JSON.stringify({ posts: [{ ...post(1), status: 7 }] }) }] },
+      });
+    await expect(syncPublications(db, config(), drifted)).rejects.toThrow(/at posts\.#\.status/);
+    // A token in the failure, however it arrives, is never repeated.
+    await expect(
+      syncPublications(db, config(), async () => {
+        throw new Error("private-studio-token");
+      }),
+    ).rejects.not.toThrow(/private-studio-token/);
+  } finally {
+    db.close();
+  }
+});
+
 test("a lost window overlap stays visible after subsequent successful reads", async () => {
   const db = openDatabase(":memory:");
   try {

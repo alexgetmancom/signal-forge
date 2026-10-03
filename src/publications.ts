@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { AppConfig } from "./config.js";
+import { describeFailure, schemaFields } from "./failureDiagnosis.js";
 import type { Fetch } from "./http-client.js";
 import { lockHolder, withActionLock } from "./runtime/actionLock.js";
 import { readState, writeState } from "./storage/appState.js";
@@ -75,6 +76,29 @@ function storedState(db: Database) {
 }
 
 /** Only the two existing read operations are callable; the Studio never receives a write. */
+/**
+ * A failure of the exchange itself, in words written here. It exists so the `catch` below can tell
+ * what it threw from what the runtime threw, and quote only the first: the same rule a collector
+ * follows with `SourceError`, for the one call that is not a collection.
+ */
+class StudioFailure extends Error {}
+
+/**
+ * Why a parse of the Studio's answer failed, in the terms of the schema in this repository.
+ *
+ * A read that reached the Studio and a read that was refused by the network both arrive here as a
+ * parse that did not happen, and the field paths are what separates "the contract changed" from
+ * "the socket closed". Paths only: a path is a list of field names declared above, and no value the
+ * Studio sent is ever repeated.
+ */
+function validationCause(error: unknown): string {
+  // A `StudioFailure` has already said why the exchange failed, in this repository's words; it would
+  // only be described as "unexpected error (Error)" a second time.
+  if (error instanceof StudioFailure) return error.message;
+  const fields = schemaFields(error);
+  return fields.length ? `${describeFailure(error)} at ${fields.join(", ")}` : describeFailure(error);
+}
+
 async function readStudio(
   endpoint: string,
   token: string,
@@ -92,13 +116,19 @@ async function readStudio(
       signal,
       body: JSON.stringify({ jsonrpc: "2.0", id, method: "tools/call", params: { name, arguments: args } }),
     });
-    if (!response.ok) throw new Error();
+    if (!response.ok) throw new StudioFailure(`upstream refused (HTTP ${response.status})`);
     const message = envelope.parse(await response.json());
-    if (message.id !== id) throw new Error();
+    if (message.id !== id) throw new StudioFailure("the exchange misbehaved (answer did not match the request)");
     return JSON.parse(message.result.content[0]?.text ?? "");
-  } catch {
-    // Neither a fetch exception nor an upstream body may reveal the Studio credential.
-    throw new Error(`Solo Publisher ${name} failed or returned an invalid response`);
+  } catch (error) {
+    // Neither a fetch exception nor an upstream body may reveal the Studio credential, so the cause
+    // is described rather than quoted: a `StudioFailure` is written here and can be repeated, and
+    // everything else is reduced to the runtime's own names for it. Saying nothing at all is what
+    // this used to do, and one sentence then covered a 120 s timeout, a closed socket, an HTTP
+    // refusal and a changed answer alike -- `publications` failed a cycle on 2026-10-03 and which
+    // of the four it had been was not recoverable afterwards.
+    const cause = error instanceof StudioFailure ? error.message : describeFailure(error);
+    throw new StudioFailure(`Solo Publisher ${name} failed or returned an invalid response: ${cause}`);
   }
 }
 
@@ -115,8 +145,8 @@ export async function syncPublications(db: Database, config: AppConfig, request:
     let rows: z.infer<typeof recent>["posts"];
     try {
       rows = recent.parse(await readStudio(endpoint, token, "ops_recent", { limit: 50 }, request, signal)).posts;
-    } catch {
-      throw new Error("Solo Publisher recent publications could not be validated");
+    } catch (error) {
+      throw new Error(`Solo Publisher recent publications could not be validated: ${validationCause(error)}`);
     }
     if (new Set(rows.map((row) => row.ref)).size !== rows.length)
       throw new Error("Solo Publisher returned duplicate publications");
@@ -126,8 +156,8 @@ export async function syncPublications(db: Database, config: AppConfig, request:
       let text: z.infer<typeof copy>;
       try {
         text = copy.parse(await readStudio(endpoint, token, "ops_post_text", { ref: row.ref }, request, signal));
-      } catch {
-        throw new Error("Solo Publisher publication text could not be validated");
+      } catch (error) {
+        throw new Error(`Solo Publisher publication text could not be validated: ${validationCause(error)}`);
       }
       if (text.ref !== row.ref || text.postId !== row.postId || row.ref !== `post:${row.postId}`)
         throw new Error("Solo Publisher publication text belongs to a different post");

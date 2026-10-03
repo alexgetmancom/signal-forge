@@ -65,11 +65,20 @@ const KIND_PHRASE: Readonly<Record<FailureKind, string>> = {
  * Analysis failed inside a collection cycle on 2026-09-16 and passed every reproduction outside one,
  * and "network or schema validation error" could not say which half had happened. The class of the
  * error and the transport's own code are names chosen by the runtime, never by the upstream.
+ *
+ * Collectors reach it through `unexplainedFailure`. It is exported on its own for the failures that
+ * are not collections and still have to say what happened: a timeout reaching Solo Publisher and a
+ * drift in what it answers are one sentence until something names the difference.
  */
-export function unexplainedFailure(error: unknown): string {
+export function describeFailure(error: unknown): string {
   const name = error instanceof Error ? error.name : typeof error;
   const code = runtimeCode(error);
-  return `Collection failed: ${KIND_PHRASE[inferredKind(error, code)]} (${[name, code].filter(Boolean).join(", ")})`;
+  return `${KIND_PHRASE[inferredKind(error, code)]} (${[name, code].filter(Boolean).join(", ")})`;
+}
+
+/** The same description, in the sentence a failed collection is stored and printed with. */
+export function unexplainedFailure(error: unknown): string {
+  return `Collection failed: ${describeFailure(error)}`;
 }
 
 export type Diagnosis = {
@@ -121,6 +130,18 @@ function schemaEvidence(error: unknown): Record<string, unknown> | null {
         return { path, code, ...(expected ? { expected } : {}), count };
       }),
   };
+}
+
+/**
+ * The fields a schema failure complained about, deduplicated and in schema order: which field, never
+ * what was in it. `schemaEvidence` keeps the same paths with their codes and counts for a
+ * collection's stored evidence; this is the short form for a sentence.
+ */
+export function schemaFields(error: unknown): string[] {
+  const issues = (error as { issues?: unknown }).issues;
+  if (!Array.isArray(issues)) return [];
+  const paths = new Set((issues as ZodLikeIssue[]).map((issue) => issuePath(issue.path)).filter(Boolean));
+  return [...paths].slice(0, KEPT_ISSUES);
 }
 
 /**
