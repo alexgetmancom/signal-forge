@@ -21,7 +21,7 @@ import { DATABASE_SIZE_BUDGET, databaseSize } from "../storage/retention.js";
  */
 export type StorageReport = {
   file: { bytes: number; freeBytes: number; walBytes: number | null; budgetBytes: number };
-  /** Payload bytes by table, largest first. Snapshots are counted as stored, which is gzipped. */
+  /** Payload bytes by table, largest first. Snapshots and HTTP cache are counted as stored, gzipped. */
   bodies: { table: BodyTable; rows: number; bytes: number }[];
   unaccountedBytes: number;
   snapshots: {
@@ -78,7 +78,7 @@ function bodiesOf(db: Database): StorageReport["bodies"] {
     ),
     // A blob's length is in its header, so this does not read a megabyte to count one.
     one("snapshots", "SELECT COUNT(*) n, SUM(LENGTH(body)) b FROM snapshots"),
-    one("http_cache", "SELECT COUNT(*) n, SUM(LENGTH(CAST(body AS BLOB))) b FROM http_cache"),
+    one("http_cache", "SELECT COUNT(*) n, SUM(LENGTH(body)) b FROM http_cache"),
   ].sort((one, other) => other.bytes - one.bytes);
 }
 

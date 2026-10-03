@@ -1729,14 +1729,22 @@ test("cache directives are read regardless of case", () => {
   expect(freshUntil("Public, Max-Age=600, Immutable", 0)).toBe(600_000);
 });
 
-test("the cache budget is measured in bytes, not characters", () => {
+test("the cache stores compressed bytes and returns Unicode text and validators exactly", () => {
   const db = openDatabase(":memory:");
   const cache = new HttpCache(db);
-  cache.put("https://example.test/wide", { etag: '"w"', lastModified: null, freshUntil: 0, body: "é" });
-  const size = db
-    .query<{ bytes: number }, []>("SELECT LENGTH(CAST(body AS BLOB)) AS bytes FROM http_cache")
-    .get()?.bytes;
-  expect(size).toBe(2);
+  const entry = {
+    etag: '"w"',
+    lastModified: "Thu, 01 Oct 2026 10:00:00 GMT",
+    freshUntil: 0,
+    body: "é漢🙂".repeat(1000),
+  };
+  cache.put("https://example.test/wide", entry);
+  const size = db.query<{ bytes: number }, []>("SELECT LENGTH(body) AS bytes FROM http_cache").get()?.bytes;
+  expect(size).toBeLessThan(Buffer.byteLength(entry.body) / 2);
+  expect(cache.get("https://example.test/wide")).toEqual(entry);
+  cache.touch("https://example.test/wide", 1_000);
+  expect(cache.get("https://example.test/wide")).toEqual({ ...entry, freshUntil: 1_000 });
+  db.close();
 });
 
 test("a private Hugging Face repository is not recorded, let alone as public", () => {

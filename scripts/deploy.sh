@@ -111,6 +111,9 @@ run_release() {
 }
 
 run_release bun -e 'const { openDatabase } = await import("./dist/src/storage/database.js"); openDatabase(process.env.DATABASE_URL).close()'
+# Retention frees pages inside the file. Return them to the filesystem while collectors are
+# stopped, rather than asking live writers to wait through VACUUM.
+run_release bun dist/src/cli.js compact-storage
 
 mv -f "$NEXT_COMPOSE" "$COMPOSE_FILE"
 printf 'SIGNAL_FORGE_IMAGE=%s\n' "$RELEASE_IMAGE" > "$IMAGE_ENV.next"

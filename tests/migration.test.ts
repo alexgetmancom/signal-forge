@@ -1,13 +1,42 @@
 import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
 import { openDatabase } from "../src/storage/database.js";
-import { runMigrations } from "../src/storage/migrationRunner.js";
+import { HttpCache } from "../src/storage/httpCache.js";
+import { applyMigrations, runMigrations } from "../src/storage/migrationRunner.js";
 import {
   CURRENT_SCHEMA_VERSION,
   readMigrations,
   splitStatements,
   validateMigrationSequence,
 } from "../src/storage/migrations.js";
+import { anEvent } from "./fixtures/build.js";
+
+test("compressing the cache discards old cache entries and preserves event evidence", () => {
+  const db = new Database(":memory:", { strict: true });
+  applyMigrations(
+    db,
+    readMigrations().filter((migration) => migration.version < 72),
+  );
+  const event = anEvent(db, { afterJson: '{"name":"Model"}' });
+  const evidence = db.query("SELECT * FROM events WHERE id=?").get(event);
+  db.query("INSERT INTO http_cache(url,body,used_at) VALUES(?,?,?)").run(
+    "https://example.test/page",
+    "old cached text",
+    "2026-10-01T10:00:00.000Z",
+  );
+
+  runMigrations(db);
+
+  expect(db.query("SELECT COUNT(*) n FROM http_cache").get()).toEqual({ n: 0 });
+  expect(db.query("SELECT * FROM events WHERE id=?").get(event)).toEqual(evidence);
+  expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
+  const cache = new HttpCache(db);
+  const entry = { body: "new cached text", etag: '"new"', lastModified: null, freshUntil: 0 };
+  cache.put("https://example.test/page", entry);
+  expect(cache.get("https://example.test/page")).toEqual(entry);
+  expect(db.query("SELECT typeof(body) kind FROM http_cache").get()).toEqual({ kind: "blob" });
+  db.close();
+});
 
 test("migration files form one journal ending at the current version", () => {
   const migrations = readMigrations();

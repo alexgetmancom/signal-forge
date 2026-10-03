@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { loadConfig } from "../src/config.js";
 import { createHttpApp } from "../src/http.js";
+import { storageOperations } from "../src/operations/storage.js";
 import { callOperation, operations } from "../src/operations.js";
 import { storageReport } from "../src/reports/storage.js";
 import { openDatabase } from "../src/storage/database.js";
@@ -18,6 +19,35 @@ const at = (day: string) => `${day}T08:00:00.000Z`;
 
 /** Text that does not compress, so two payloads of the same length weigh differently stored. */
 const noise = (length: number) => Buffer.from(crypto.getRandomValues(new Uint8Array(length))).toString("hex");
+
+test("compaction releases old payload pages while retaining the latest payload and event evidence", () => {
+  const directory = mkdtempSync(join(tmpdir(), "signal-forge-compact-"));
+  const db = openDatabase(join(directory, "app.db"));
+  try {
+    const old = storeSnapshot(db, "openrouter", new Date(Date.now() - 3 * 86_400_000).toISOString(), noise(1_200_000));
+    storeSnapshot(db, "openrouter", new Date().toISOString(), '{"latest":true}');
+    const event = anEvent(db, { source: "openrouter", snapshotId: old.id, afterJson: '{"pricing":{"prompt":"1"}}' });
+    const evidence = db.query("SELECT * FROM events WHERE id=?").get(event);
+
+    const result = callOperation(storageOperations(db, config()), "compact_storage") as {
+      beforeBytes: number;
+      afterBytes: number;
+      releasedBytes: number;
+      expiredBodies: number;
+    };
+
+    expect(result.expiredBodies).toBe(1);
+    expect(result.releasedBytes).toBeGreaterThan(1_000_000);
+    expect(result.releasedBytes).toBe(result.beforeBytes - result.afterBytes);
+    expect(db.query("SELECT * FROM events WHERE id=?").get(event)).toEqual(evidence);
+    expect(db.query("SELECT COUNT(*) n FROM snapshots").get()).toEqual({ n: 2 });
+    expect(db.query("PRAGMA integrity_check").get()).toEqual({ integrity_check: "ok" });
+    expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
+  } finally {
+    db.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
 
 function seeded() {
   const db = openDatabase(":memory:");
@@ -57,7 +87,7 @@ test("bodies are counted in bytes, by table, largest first", () => {
   expect(report.bodies.find((body) => body.table === "http_cache")).toEqual({
     table: "http_cache",
     rows: 1,
-    bytes: 500,
+    bytes: Bun.gzipSync(Buffer.from("y".repeat(500))).length,
   });
   expect(report.bodies.map((body) => body.bytes)).toEqual(
     [...report.bodies.map((body) => body.bytes)].sort((a, b) => b - a),

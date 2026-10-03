@@ -19,11 +19,9 @@ const instant = (epochMs: number): string => new Date(epochMs).toISOString();
 const KEEP_MS = 14 * 24 * 3_600_000;
 
 /**
- * What the cache may weigh. Two weeks of bundles from the sites being watched came to 335 MB —
- * more than every compressed evidence payload in the database put together, for rows that exist
- * only to save a download. Age alone does not bound that, because the volume depends on how much
- * those sites ship, so the cache is bounded by construction: past this, the least recently used
- * entries go until it fits. Nothing here is evidence; a dropped entry costs one more request.
+ * The compressed bytes the cache may hold. Production's 67 MB of text compressed to 9.3 MB on
+ * 2026-10-03, in 313 ms for all 209 entries. Age alone does not bound the volume sites ship, so
+ * least recently used entries go until it fits. A dropped entry costs one more request.
  */
 const BUDGET_BYTES = 64 * 1024 * 1024;
 
@@ -32,7 +30,7 @@ export class HttpCache {
 
   get(url: string): CacheEntry | null {
     const row = this.db
-      .query<{ etag: string | null; last_modified: string | null; fresh_until_at: string; body: string }, [string]>(
+      .query<{ etag: string | null; last_modified: string | null; fresh_until_at: string; body: Uint8Array }, [string]>(
         "SELECT etag,last_modified,fresh_until_at,body FROM http_cache WHERE url=?",
       )
       .get(url);
@@ -41,7 +39,7 @@ export class HttpCache {
       etag: row.etag,
       lastModified: row.last_modified,
       freshUntil: Date.parse(row.fresh_until_at),
-      body: row.body,
+      body: Buffer.from(Bun.gunzipSync(new Uint8Array(row.body))).toString("utf8"),
     };
   }
 
@@ -52,7 +50,14 @@ export class HttpCache {
          ON CONFLICT(url) DO UPDATE SET etag=excluded.etag,last_modified=excluded.last_modified,
            fresh_until_at=excluded.fresh_until_at,body=excluded.body,used_at=excluded.used_at`,
       )
-      .run(url, entry.etag, entry.lastModified, instant(entry.freshUntil), entry.body, instant(now));
+      .run(
+        url,
+        entry.etag,
+        entry.lastModified,
+        instant(entry.freshUntil),
+        Bun.gzipSync(Buffer.from(entry.body)),
+        instant(now),
+      );
   }
 
   touch(url: string, freshUntil: number, now = Date.now()): void {
@@ -69,9 +74,8 @@ export class HttpCache {
   /** Drops least recently used entries until the cache fits its budget. */
   private evictToBudget(): number {
     const total =
-      this.db
-        .query<{ bytes: number | null }, []>("SELECT SUM(LENGTH(CAST(body AS BLOB))) AS bytes FROM http_cache")
-        .get()?.bytes ?? 0;
+      this.db.query<{ bytes: number | null }, []>("SELECT SUM(LENGTH(body)) AS bytes FROM http_cache").get()?.bytes ??
+      0;
     if (total <= BUDGET_BYTES) return 0;
     let dropped = 0;
     let remaining = total;
@@ -79,7 +83,7 @@ export class HttpCache {
     while (remaining > BUDGET_BYTES) {
       const victims = this.db
         .query<{ url: string; size: number }, []>(
-          "SELECT url, LENGTH(CAST(body AS BLOB)) AS size FROM http_cache ORDER BY used_at LIMIT 50",
+          "SELECT url, LENGTH(body) AS size FROM http_cache ORDER BY used_at LIMIT 50",
         )
         .all();
       if (!victims.length) return dropped;

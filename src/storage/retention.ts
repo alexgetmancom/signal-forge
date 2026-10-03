@@ -59,9 +59,8 @@ export function pruneSnapshots(db: Database, now = Date.now()): number {
 }
 
 /**
- * How long a payload's bytes are worth keeping. Ninety days is far past the point where anybody
- * opens the raw document behind a card, and a service that reports what is new has no use for the
- * exact HTML of a page from last spring.
+ * Ordinary payloads keep thirty days of raw evidence. The latest answer of each source remains
+ * readable whatever its age, including sources that keep serving identical bytes.
  *
  * What is released is only the body. The row keeps the source, the time, the hash of the bytes and
  * their original size, which is a receipt that the evidence existed and what it was; the event
@@ -70,16 +69,15 @@ export function pruneSnapshots(db: Database, now = Date.now()): number {
 const BODY_LIFETIME_DAYS = 30;
 
 /**
- * A payload larger than a megabyte keeps its bytes for two days.
+ * A payload larger than half a megabyte keeps its bytes for two days.
  *
- * Measured on production 2026-09-19: snapshots held 422 MB of a 681 MB database, and 239 MB of it
- * was 34 copies of the `claude-web` bundle at about 7 MB each, all inside the old fourteen-day
- * window. Naming the heavy sources one by one also missed `models-dev` (36 MB) and `openrouter`
- * (32 MB). Size is the property that matters, so size decides. Every event keeps its own before
- * and after state, so what this costs is the raw bytes behind a card older than two days.
+ * Measured on production 2026-10-03: OpenRouter held 106 MB in 1,384 snapshots whose original
+ * sizes were 702--765 KB, all below the old one-megabyte threshold. The catalogue is copied when
+ * one price changes. Half a megabyte admits those copies to the short window; events retain their
+ * before and after state, while older raw bodies become receipts.
  */
 const HEAVY_BODY_LIFETIME_DAYS = 2;
-const HEAVY_BODY_BYTES = 1_000_000;
+const HEAVY_BODY_BYTES = 500_000;
 
 export function expireSnapshotBodies(db: Database, now = Date.now()): number {
   const cutoff = (days: number) => new Date(now - days * 24 * 3_600_000).toISOString();
@@ -97,6 +95,7 @@ export function expireSnapshotBodies(db: Database, now = Date.now()): number {
              -- a range over any column and SQLite scans every unexpired snapshot to find the few.
              AND collected_at < ?
              AND collected_at < (CASE WHEN bytes > ? THEN ? ELSE ? END)
+             AND EXISTS (SELECT 1 FROM snapshots newer WHERE newer.source=snapshots.source AND newer.id>snapshots.id)
            LIMIT ?
          ) RETURNING 1 AS expired`,
       )

@@ -8,7 +8,7 @@ import {
   pruneSourceCollectionMetrics,
 } from "../src/storage/retention.js";
 import { readSnapshot, storeSnapshot } from "../src/storage/snapshots.js";
-import { aBatch } from "./fixtures/build.js";
+import { aBatch, anEvent } from "./fixtures/build.js";
 
 const now = Date.parse("2026-09-12T00:00:00.000Z");
 
@@ -105,16 +105,17 @@ test("the same bytes twice in a row are stored once", () => {
   db.close();
 });
 
-test("a payload over a megabyte is released after two days, the rest after thirty", () => {
+test("a payload over half a megabyte is released after two days, the rest after thirty", () => {
   const db = openDatabase(":memory:");
   const age = (days: number) => new Date(now - days * 24 * 3_600_000).toISOString();
-  const big = `{"page":"${"x".repeat(1_100_000)}"}`;
+  const big = `{"page":"${"x".repeat(700_000)}"}`;
   // Three days old: past the two a heavy payload gets, well inside the thirty of everyone else.
   const heavy = storeSnapshot(db, "claude-web", age(3), big);
   const catalogue = storeSnapshot(db, "models-dev", age(3), big.replace("page", "models"));
   const ordinary = storeSnapshot(db, "arena", age(3), '{"board":"small"}');
   const fresh = storeSnapshot(db, "openrouter", age(1), big.replace("page", "fresh"));
   const stale = storeSnapshot(db, "voxelbench", age(31), '{"board":"stale"}');
+  for (const source of ["claude-web", "models-dev", "voxelbench"]) storeSnapshot(db, source, age(1), '{"latest":true}');
 
   expect(expireSnapshotBodies(db, now)).toBe(3);
   expect(readSnapshot(db, heavy.id)).toBeNull();
@@ -122,6 +123,26 @@ test("a payload over a megabyte is released after two days, the rest after thirt
   expect(readSnapshot(db, stale.id)).toBeNull();
   expect(readSnapshot(db, ordinary.id)).toBe('{"board":"small"}');
   expect(readSnapshot(db, fresh.id)).not.toBeNull();
+  db.close();
+});
+
+test("the latest payload survives expiry and an event keeps its receipt and normalized evidence", () => {
+  const db = openDatabase(":memory:");
+  const age = (days: number) => new Date(now - days * 24 * 3_600_000).toISOString();
+  const large = "x".repeat(700_000);
+  const old = storeSnapshot(db, "openrouter", age(40), large);
+  const latest = storeSnapshot(db, "openrouter", age(35), `${large}latest`);
+  const evidence = '{"id":"model","pricing":{"prompt":"0.000001"}}';
+  const event = anEvent(db, { source: "openrouter", snapshotId: old.id, afterJson: evidence });
+
+  expect(expireSnapshotBodies(db, now)).toBe(1);
+  expect(readSnapshot(db, latest.id)).toBe(`${large}latest`);
+  expect(storeSnapshot(db, "openrouter", new Date(now).toISOString(), `${large}latest`).id).toBe(latest.id);
+  expect(readSnapshot(db, old.id)).toBeNull();
+  expect(db.query("SELECT snapshot_id,after_json FROM events WHERE id=?").get(event)).toEqual({
+    snapshot_id: old.id,
+    after_json: evidence,
+  });
   db.close();
 });
 
@@ -190,8 +211,8 @@ test("an active source keeps its old events", () => {
 test("the response cache is bounded by size, not only by age", () => {
   const db = openDatabase(":memory:");
   const cache = new HttpCache(db);
-  const body = "x".repeat(2 * 1024 * 1024);
-  // Ninety bundles of two megabytes: two weeks old or not, this cannot be allowed to stay.
+  const body = Buffer.from(crypto.getRandomValues(new Uint8Array(1_200_000))).toString("base64");
+  // Enough incompressible bundles to exceed the compressed budget, regardless of their age.
   for (let index = 0; index < 90; index++)
     cache.put(
       `https://example.test/bundle-${index}.js`,
@@ -202,7 +223,7 @@ test("the response cache is bounded by size, not only by age", () => {
   expect(cache.prune(now)).toBeGreaterThan(0);
   const bytes =
     db.query<{ bytes: number | null }, []>("SELECT SUM(LENGTH(body)) AS bytes FROM http_cache").get()?.bytes ?? 0;
-  expect(bytes).toBeLessThanOrEqual(150 * 1024 * 1024);
+  expect(bytes).toBeLessThanOrEqual(64 * 1024 * 1024);
   // What survives is what was used most recently.
   expect(cache.get("https://example.test/bundle-0.js")).not.toBeNull();
   expect(cache.get("https://example.test/bundle-89.js")).toBeNull();
