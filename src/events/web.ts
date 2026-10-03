@@ -58,3 +58,62 @@ export function selectMeaningfulWebStrings(values: readonly unknown[]): string[]
   }
   return [...selected].sort();
 }
+
+/**
+ * A web change event keeps the strings that changed, not the page they changed on.
+ *
+ * `claude-web` publishes some four thousand interface strings and rewrites a handful of them per
+ * deploy. The event stored the whole table twice -- once as `before_json`, once as `after_json` --
+ * so on 2026-10-03 forty-two of them held 26 MB of a 47 MB `events` table and the largest single
+ * one weighed 916 KB. Codex's docs held another 8.9 MB the same way.
+ *
+ * Every reader of these strings consumes `webStringChanges(before, after)`: the card quotes the
+ * diff, the attachment carries the diff, the summariser is handed the diff, the scouts read what
+ * the diff added. None of them reads the table for its own sake. Change detection does not read
+ * the event at all -- it compares the `records` table, which keeps the current body per entity --
+ * so narrowing an event cannot make the next collection miss a change.
+ *
+ * Each side therefore keeps only the raw strings the other side does not have. The two sides are
+ * disjoint by construction, which makes `webStringChanges` of the narrowed pair return exactly
+ * what it returned for the full tables, and makes narrowing idempotent: narrowing an already
+ * narrowed pair changes nothing. The raw text is kept rather than the normalized form, because
+ * `namesOnlyKnownModels` and `classify` match on the string as it was published.
+ *
+ * A side that is absent or is not a string table is left exactly as it was: a first sighting has
+ * no `before_json` to diff against, and its `after_json` is the record's state rather than a change.
+ */
+export function narrowWebEvidence(before: string | null, after: string | null): [string | null, string | null] {
+  const table = (json: string | null): (Record<string, unknown> & { strings: unknown[] }) | null => {
+    if (!json) return null;
+    try {
+      const parsed = JSON.parse(json) as Record<string, unknown>;
+      if (!parsed || typeof parsed !== "object" || !Array.isArray(parsed.strings)) return null;
+      return parsed as Record<string, unknown> & { strings: unknown[] };
+    } catch {
+      return null;
+    }
+  };
+  const previous = table(before);
+  const current = table(after);
+  if (!previous || !current) return [before, after];
+  // Normalized for the comparison, because that is what every reader compares; raw in what is kept.
+  const spoken = (strings: unknown[]): Set<string> =>
+    new Set(
+      strings
+        .filter((value): value is string => typeof value === "string")
+        .map(normalizeWebString)
+        .filter(Boolean),
+    );
+  const previousSpoken = spoken(previous.strings);
+  const currentSpoken = spoken(current.strings);
+  const only = (strings: unknown[], others: Set<string>): string[] =>
+    strings.filter((value): value is string => {
+      if (typeof value !== "string") return false;
+      const normalized = normalizeWebString(value);
+      return Boolean(normalized) && !others.has(normalized);
+    });
+  return [
+    JSON.stringify({ ...previous, strings: only(previous.strings, currentSpoken) }),
+    JSON.stringify({ ...current, strings: only(current.strings, previousSpoken) }),
+  ];
+}

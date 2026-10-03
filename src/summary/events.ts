@@ -53,6 +53,11 @@ export function summaryMaterial(event: Event): string {
       ]
         .filter(Boolean)
         .join("\n\n");
+    // A web event's evidence is its diff, and a change that only reflowed Markdown has none. The
+    // fallback below would hand the summariser two copies of the whole page to find a difference
+    // that is not in either of them, which is also the one read here that cost a page rather than
+    // a change. The card says this in the same words; see `facts`.
+    return "No material user-facing text changed.";
   }
   return [`CURRENT:\n${event.after_json ?? ""}`, event.before_json ? `PREVIOUS:\n${event.before_json}` : ""]
     .filter(Boolean)

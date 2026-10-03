@@ -8,6 +8,7 @@ import { canonical } from "./canonical.js";
 import { comparisonBody, hasMoved } from "./changeDetection.js";
 import { classifyEmitted, onNewBoard, routeEmitted } from "./routing.js";
 import type { Collection, Confidence, Event, EvidenceType, SourceAuthority } from "./types.js";
+import { narrowWebEvidence } from "./web.js";
 
 const normalizedRecord = z.object({
   id: z.string().trim().min(1),
@@ -94,7 +95,12 @@ function openEmitter(
 ): { emit: Emit; emitted: Event[] } {
   const { authority, evidence_type, confidence } = contract;
   const emitted: Event[] = [];
-  const emit: Emit = (id, kind, before, after) => {
+  const emit: Emit = (id, kind, given, incoming) => {
+    // A web diff keeps the strings that changed, not the table they changed in; see
+    // `narrowWebEvidence`. Narrowed here rather than at the readers so that what is stored and what
+    // this cycle routes are the same bytes, and a card can never quote evidence the row does not hold.
+    const [before, after] =
+      c.stream === "web" && kind === "changed" ? narrowWebEvidence(given, incoming) : [given, incoming];
     const row = db
       .query<
         { id: number },

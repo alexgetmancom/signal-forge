@@ -13,6 +13,7 @@ import { sourceSettlementOperations } from "./operations/sourceSettlement.js";
 import { sourcesOperations } from "./operations/sources.js";
 import { storageOperations } from "./operations/storage.js";
 import { vendorTableOperations } from "./operations/vendorTable.js";
+import { webEvidenceOperations } from "./operations/webEvidence.js";
 
 export { callOperation, cliCommand, type OperationMap, operationCatalog } from "./operations/definition.js";
 
@@ -30,6 +31,7 @@ export function operations(db: Database, config: AppConfig): OperationMap {
     ...evidenceOperations(db, config, all),
     ...sourceProfileOperations(db, config),
     ...storageOperations(db, config),
+    ...webEvidenceOperations(db, config),
     ...sourceSettlementOperations(db, config),
     ...sourcesOperations(db, config, all),
     ...vendorTableOperations(db, config),
