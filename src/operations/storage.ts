@@ -20,6 +20,12 @@ export function storageOperations(db: Database, _config: AppConfig): OperationMa
         "What the database file is made of: every table and its indexes, payload bytes, the sources behind both, and how fast events grow.",
       startHere: "the database is growing, or the size alert fired, and I need to know what it is made of",
       note:
+        "`file.budgetShare` is the first thing to read and the only one that says whether any of " +
+        "the rest is a problem: the file against the size alert's budget, as a percentage. It was " +
+        "3.4% on 2026-10-03, and the reason it is here is that an afternoon went into planning " +
+        "around `snapshots` holding 47% of the file without that number ever being divided -- 47% " +
+        "of 3.4% is not a lever. Read it before `tables`, and if it is small then every breakdown " +
+        "below is about shape rather than about size. " +
         "`tables` weighs every table in the file, largest first, so the biggest thing in the " +
         "database is the first row rather than something to go looking for. Start there. It is the " +
         "sum of every column of every row -- blobs as stored, so gzipped -- and `rows` is " +

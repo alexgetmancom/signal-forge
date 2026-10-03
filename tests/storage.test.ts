@@ -105,6 +105,14 @@ test("the remainder is what is left when every table has been named", () => {
   expect(report.file.bytes).toBeGreaterThan(0);
   expect(report.file.budgetBytes).toBe(5 * 1024 ** 3);
   expect(report.unaccountedBytes).toBe(Math.max(0, report.file.bytes - report.file.freeBytes - held));
+  // The division that was missing. Both operands were already reported and the quotient was not,
+  // which is how 47% of a table came to look urgent while the file held 3.4% of its budget.
+  expect(report.file.budgetShare).toBeCloseTo((report.file.bytes / report.file.budgetBytes) * 100, 1);
+  // 0.0 for a test database, which is the right answer and worth asserting rather than asserting
+  // away: a few hundred kilobytes against a five gigabyte budget rounds to nothing at one decimal,
+  // and a report whose job is "is the size a problem" should say nothing rather than say 0.004.
+  expect(report.file.budgetShare).toBe(0);
+  expect(storageReport(db, { days: 1, top: 1 }).file.budgetBytes).toBeGreaterThan(0);
   // It is indexes and page overhead now, where it used to be indexes, overhead and every table
   // this report did not weigh -- which on production was 46% of the file and hid the second-largest
   // table in the database. What is left cannot name a table, because every table is named above.

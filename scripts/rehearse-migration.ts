@@ -29,12 +29,13 @@
  * Usage: bun scripts/rehearse-migration.ts [path/to/app.db]
  */
 import { Database, type Statement } from "bun:sqlite";
-import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
+import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { HOT_QUERIES, HOT_WRITES, scansATable } from "../src/storage/hotQueries.js";
 import { runMigrations } from "../src/storage/migrationRunner.js";
-import { CURRENT_SCHEMA_VERSION } from "../src/storage/migrations.js";
+import { CURRENT_SCHEMA_VERSION, readMigrations } from "../src/storage/migrations.js";
+import type { Finding } from "./rehearsalLedger.js";
 
 // No default. The one this had was `./data/app.db`, the stale copy AGENTS.md says never to answer
 // from, and run without an argument this script rehearsed against a schema eighteen versions behind
@@ -51,6 +52,18 @@ if (!source) {
 }
 const workspace = mkdtempSync(join(tmpdir(), "signal-forge-rehearsal-"));
 const copy = join(workspace, "app.db");
+
+/**
+ * What the ledger records for this phase, when `rehearse` asks for it with `--result`.
+ *
+ * Without it `rehearse` synthesizes a finding from the exit code, which turns a refusal into
+ * "migration failed to run" -- a line that reads a week later as though the script broke rather
+ * than as though there was nothing to measure. The distinction is the whole point of the refusal.
+ */
+const resultAt = Bun.argv.indexOf("--result");
+function record(finding: Finding): void {
+  if (resultAt >= 0 && Bun.argv[resultAt + 1]) writeFileSync(Bun.argv[resultAt + 1] as string, JSON.stringify(finding));
+}
 
 function fingerprints(db: Database): Map<string, string> {
   return new Map(
@@ -192,6 +205,47 @@ try {
   // by `VACUUM INTO`, and so every copy of production this was supposed to be rehearsed against.
   const before = new Database(copy, { create: false, strict: true });
   const startingVersion = before.query<{ user_version: number }, []>("PRAGMA user_version").get()?.user_version ?? 0;
+  /**
+   * Refuse a rehearsal of a migration the copy has already run.
+   *
+   * This is the one measurement in the repository that is worth having at exactly one moment --
+   * before the migration is applied to production -- and nothing enforced that order. Afterwards
+   * the copy already holds the schema, `runMigrations` finds nothing pending, and every number
+   * comes back innocent: `elapsedMs` near zero, no plan changes, no table changes, and a verdict
+   * reading "Safe to apply: the schema moved and no stored record body did." It is a sentence
+   * about nothing, and it is reassuring, which is the dangerous combination.
+   *
+   * I ran this four times today and all four were before the commit, by habit rather than by rule.
+   * That is the shape the sixteen unexplained indexes grew out of: a rule held by whoever remembers
+   * it. So the refusal is here rather than in a note, and it names the versions, because "nothing
+   * is pending" and "the copy is stale" look identical from the outside and are opposite problems.
+   */
+  const pending = readMigrations().filter((migration) => migration.version > startingVersion);
+  if (pending.length === 0) {
+    before.close();
+    rmSync(workspace, { recursive: true, force: true });
+    record({
+      phase: "migration",
+      verdict: "failed",
+      moved: 0,
+      fingerprint: null,
+      note:
+        startingVersion >= CURRENT_SCHEMA_VERSION
+          ? `refused: schema ${startingVersion} is already applied, so there was nothing left to measure`
+          : `refused: the copy is at ${startingVersion}, ahead of every migration file in this checkout`,
+    });
+    process.stderr.write(
+      `Nothing to rehearse: the copy is already at schema ${startingVersion}, and no migration is above it.\n` +
+        (startingVersion >= CURRENT_SCHEMA_VERSION
+          ? `The repository's own version is ${CURRENT_SCHEMA_VERSION}, so this migration has already been applied where it counts.\n` +
+            "What it did to production's rows cannot be measured after the fact: the rows it would have changed are\n" +
+            "already changed, and this would report an unchanged database as proof the migration was safe.\n" +
+            "A migration is rehearsed between writing it and deploying it. That window has closed for this one.\n"
+          : `The repository is at ${CURRENT_SCHEMA_VERSION} and the copy is ahead of every migration file, which means the copy\n` +
+            "is from a newer deploy than this checkout. Pull the branch that owns that schema, or take a fresh copy.\n"),
+    );
+    process.exit(2);
+  }
   const beforeCounts = counts(before);
   const beforeBodies = fingerprints(before);
   const beforePlans = plans(before);
@@ -269,6 +323,9 @@ try {
         source,
         startingVersion,
         finalVersion: CURRENT_SCHEMA_VERSION,
+        // Named, so the run says which migrations it measured rather than only how long they took.
+        // A rehearsal of nothing is now refused outright, so this is never empty.
+        rehearsed: pending.map((migration) => migration.filename),
         elapsedMs,
         integrity: integrity ?? "unknown",
         tableChanges,
@@ -293,6 +350,28 @@ try {
       2,
     )}\n`,
   );
+  // Fingerprinted over what was measured and what moved, not over the timings: those differ by a
+  // millisecond between runs and would make every rehearsal of the same migration look new.
+  record({
+    phase: "migration",
+    verdict: tableChanges.length || planChanges.length || changedBodies.length ? "moved" : "same",
+    moved: tableChanges.length + planChanges.length + changedBodies.length,
+    fingerprint: new Bun.CryptoHasher("sha256")
+      .update(
+        JSON.stringify([
+          pending.map((migration) => migration.filename),
+          startingVersion,
+          tableChanges,
+          planChanges.map((change) => change.name),
+          changedBodies.length,
+        ]),
+      )
+      .digest("hex")
+      .slice(0, 12),
+    note:
+      `${pending.length === 1 ? pending[0]?.filename : `${pending.length} migrations`} from ${startingVersion}, ` +
+      `${elapsedMs} ms, ${safe ? "safe" : "inspect"}`,
+  });
   process.exitCode = safe ? 0 : 1;
 } finally {
   rmSync(workspace, { recursive: true, force: true });

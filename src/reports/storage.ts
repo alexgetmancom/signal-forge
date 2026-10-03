@@ -28,7 +28,23 @@ import { DATABASE_SIZE_BUDGET, databaseSize } from "../storage/retention.js";
  * and cannot apportion the indexes is the honest version of the one that was wanted.
  */
 export type StorageReport = {
-  file: { bytes: number; freeBytes: number; walBytes: number | null; budgetBytes: number };
+  file: {
+    bytes: number;
+    freeBytes: number;
+    walBytes: number | null;
+    budgetBytes: number;
+    /**
+     * What share of the budget the file holds, as a percentage.
+     *
+     * The two numbers it divides were already both here and the division was not, which turned out
+     * to matter: on 2026-10-03 I spent an afternoon planning around `snapshots` holding 47% of the
+     * file, and never once put the file against its budget -- 3.4%. 47% of 3.4% is not a lever.
+     * Every other number in this report is about the shape of the file, and this is the only one
+     * that says whether its size is a problem at all, so it goes beside them rather than being
+     * worked out by whoever remembers to.
+     */
+    budgetShare: number;
+  };
   /**
    * Payload bytes of every table, largest first. Blobs are counted as stored, so the snapshots and
    * the HTTP cache are their gzipped size. `rows` is `ANALYZE`'s estimate, null where it has not run.
@@ -80,7 +96,13 @@ export function storageReport(db: Database, options: { days: number; top: number
   const held = tables.reduce((total, table) => total + table.bytes, 0);
   const freeBytes = freePages * pageSize;
   return {
-    file: { bytes: size.bytes, freeBytes, walBytes: size.walBytes, budgetBytes: DATABASE_SIZE_BUDGET },
+    file: {
+      bytes: size.bytes,
+      freeBytes,
+      walBytes: size.walBytes,
+      budgetBytes: DATABASE_SIZE_BUDGET,
+      budgetShare: Math.round((size.bytes / Math.max(DATABASE_SIZE_BUDGET, 1)) * 1000) / 10,
+    },
     tables,
     unaccountedBytes: Math.max(0, size.bytes - freeBytes - held),
     snapshots: snapshotsOf(db, options.top),

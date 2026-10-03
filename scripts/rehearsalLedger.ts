@@ -101,7 +101,13 @@ export function lastAgreement(entries: Entry[], finding: Finding): string | null
 export function verdictLine(entry: Entry): string {
   const moved = entry.findings.filter((finding) => finding.verdict === "moved");
   const failed = entry.findings.filter((finding) => finding.verdict === "failed");
-  if (failed.length > 0) return `${failed.map((finding) => finding.phase).join(", ")} failed to run.`;
+  // A phase that declined to answer says why, and the why is not "failed to run": rehearsing a
+  // migration that production has already applied is refused on purpose, and reading that back a
+  // week later as a crash would send someone looking for a bug that was a guardrail.
+  if (failed.length > 0)
+    return failed.some((finding) => finding.note)
+      ? failed.map((finding) => `${finding.phase}: ${finding.note ?? "failed to run"}`).join(", ")
+      : `${failed.map((finding) => finding.phase).join(", ")} failed to run.`;
   if (moved.length === 0)
     return `Nothing moved: ${entry.findings.map((finding) => finding.phase).join(", ")} all identical.`;
   return moved.map((finding) => `${finding.phase}: ${finding.moved} moved`).join(", ");

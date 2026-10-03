@@ -75,5 +75,20 @@ describe("the rehearsal ledger", () => {
         ]),
       ),
     ).toEqual("policy failed to run.");
+    // A phase that declined says why instead. `rehearse-migration` refuses to measure a migration
+    // production has already applied, and "failed to run" would read as a crash a week later.
+    expect(
+      verdictLine(
+        anEntry("now", "aaaa", [
+          {
+            phase: "migration",
+            verdict: "failed",
+            moved: 0,
+            fingerprint: null,
+            note: "refused: schema 78 is already applied, so there was nothing left to measure",
+          },
+        ]),
+      ),
+    ).toEqual("migration: refused: schema 78 is already applied, so there was nothing left to measure");
   });
 });

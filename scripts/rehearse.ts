@@ -156,7 +156,7 @@ const PHASES: Phase[] = [
     name: "migration",
     always: false,
     what: "what a pending migration does to production's own rows and to the hot reads",
-    run: () => ["scripts/rehearse-migration.ts", copy],
+    run: (_unpacked, resultPath) => ["scripts/rehearse-migration.ts", copy, "--result", resultPath],
   },
 ];
 

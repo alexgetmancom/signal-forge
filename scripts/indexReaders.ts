@@ -99,7 +99,11 @@ export function hotStatementsByIndex(db: Database): Map<string, string[]> {
     for (const match of plan.matchAll(/USING (?:COVERING )?INDEX ([A-Za-z_][\w]*)/g)) {
       const name = match[1] as string;
       if (!named.has(name)) named.set(name, []);
-      (named.get(name) as string[]).push(statement.name);
+      const already = named.get(name) as string[];
+      // Once per statement, not once per mention. "drop the snapshots nothing points at" is two
+      // DELETE ... NOT IN subqueries, so its plan names `events_snapshot` twice and the index was
+      // listed with the same reader twice -- which reads as two callers where there is one.
+      if (!already.includes(statement.name)) already.push(statement.name);
     }
   }
   return named;
