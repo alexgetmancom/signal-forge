@@ -16,7 +16,7 @@
  *
  * Usage: bun scripts/rehearse-migration.ts [path/to/app.db]
  */
-import { Database } from "bun:sqlite";
+import { Database, type Statement } from "bun:sqlite";
 import { copyFileSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -47,13 +47,26 @@ function fingerprints(db: Database): Map<string, string> {
 function plans(db: Database): Map<string, string> {
   return new Map(
     HOT_QUERIES.map((query): [string, string] => {
+      // Prepared rather than `query`, and finalized whatever happens. A statement this connection
+      // owns and nobody finalized holds the file open: the close below then cannot take effect and
+      // the migration fails as SQLITE_BUSY, with nothing in the message about a plan or a hot read.
+      // `prepare` itself is what throws for a table the migration has not created yet, so it is
+      // inside the `try` -- outside it, there is no statement to finalize and the lock stays.
+      // Migration 074 is the first to add a table a hot read names.
+      let statement: Statement<{ detail: string }, (string | number)[]> | null = null;
       try {
-        const rows = db
-          .query<{ detail: string }, (string | number)[]>(`EXPLAIN QUERY PLAN ${query.sql}`)
-          .all(...query.params);
-        return [query.name, rows.map((row) => row.detail).join(" | ")];
+        statement = db.prepare(`EXPLAIN QUERY PLAN ${query.sql}`);
+        return [
+          query.name,
+          statement
+            .all(...query.params)
+            .map((row) => row.detail)
+            .join(" | "),
+        ];
       } catch (error) {
         return [query.name, `unavailable: ${error instanceof Error ? error.message : "unknown"}`];
+      } finally {
+        statement?.finalize();
       }
     }),
   );
