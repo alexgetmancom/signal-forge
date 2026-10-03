@@ -72,7 +72,13 @@ export function lifecycleSources({ cache }: SourceContext): SourceEntry[] {
       { id: "aws-bedrock-lifecycle", vendor: "AWS", collector: () => collectAwsBedrockLifecycle() },
       { id: "azure-foundry-lifecycle", vendor: "Microsoft", collector: () => collectAzureFoundryLifecycle() },
       { id: "groq-deprecations", vendor: "Groq", collector: () => collectGroqDeprecations() },
-      { id: "cohere-deprecations", vendor: "Cohere", collector: () => collectCohereDeprecations() },
+      {
+        id: "cohere-deprecations",
+        vendor: "Cohere",
+        // The other half of docs.cohere.com; see `cohere-changelog` in the web pack.
+        pace: { group: "docs.cohere.com", seconds: 10 },
+        collector: () => collectCohereDeprecations(),
+      },
       { id: "xai-deprecations", vendor: "xAI", collector: () => collectXaiDeprecations() },
     ]),
     ...sourcesOfKind(

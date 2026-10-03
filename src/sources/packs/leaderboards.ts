@@ -79,8 +79,16 @@ export function leaderboardsSources({ config, cache }: SourceContext): SourceEnt
       ...MEDIA_ARENAS.map((arena) => ({
         id: `artificial-analysis:${arena}`,
         // The video and image-editing arenas rank a model after its launch: over the month to
-        // 2026-09-22 neither was the first to name one or made a card, so a day is early enough.
-        intervalSeconds: arena === "text-to-video" || arena === "image-editing" ? 86_400 : 3600,
+        // 2026-09-22 neither was the first to name one or made a card, so six hours is early enough.
+        //
+        // A day was, and it was the wrong unit on this host. artificialanalysis.ai resets about a
+        // fifth of the connections made to it -- every arena here measured between 17 and 38 per
+        // cent over the seven days to 2026-10-03 -- and the hourly arenas absorb that inside an
+        // hour. At a day, the same rate is three failed attempts in a row and 87 hours without a
+        // read, which is what `text-to-video` was doing: an error in `issues` about a source whose
+        // upstream was merely flaky. Six hours asks four times for what a day asked once and keeps
+        // a lost read from becoming a lost day.
+        intervalSeconds: arena === "text-to-video" || arena === "image-editing" ? 21_600 : 3600,
         capabilityId: "artificial-analysis",
         requiredCapabilities: ["ARTIFICIAL_ANALYSIS_API_KEY"] as const,
         pace: { group: "artificialanalysis.ai", seconds: 10 },

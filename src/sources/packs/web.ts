@@ -160,6 +160,11 @@ export function webSources({ db, cache }: SourceContext): SourceEntry[] {
         id: "cohere-changelog",
         appendOnly: true,
         vendor: "Cohere",
+        // Shares docs.cohere.com with `cohere-deprecations`, which sits in another registry group.
+        // Both logged network failures at a tenth of their attempts over the seven days to
+        // 2026-10-03 and `outages` showed them as two lines, because its grouping is the pacing
+        // group and neither declared one: one flaky host read as two flaky sources.
+        pace: { group: "docs.cohere.com", seconds: 10 },
         collector: () => collectCohereChangelog(fetch, cache),
       },
     ]),
