@@ -1,0 +1,33 @@
+-- Drop `lifecycle_reminders_due`, which the planner has never used on production's rows.
+--
+-- It was the one index in the schema that `check-indexes` called explained and `index-cost`
+-- called unexplained, and the difference was not the schema but the statistics. The gate plans
+-- against an empty database, where `ANALYZE` has nothing to go on and SQLite falls back to
+-- guessing every table is the same size; there it drives "reminders that have come due, with
+-- their deadline" from `lifecycle_reminders` through this index. Against production it drives
+-- from `lifecycle_deadlines` instead:
+--
+--     SEARCH ld USING INDEX lifecycle_deadlines_time (deadline_at>?)
+--     SEARCH lr USING INDEX sqlite_autoindex_lifecycle_reminders_1 (deadline_id=?)
+--
+-- and the plan is byte-identical with this index present and with it dropped, which is as direct
+-- a statement as the planner makes that it is not wanted. Measured on a copy: 2,000 runs of the
+-- query took 70 ms with it and 52 ms without.
+--
+-- The planner is also right, and that is the part worth recording, because the sizes invite the
+-- opposite conclusion. `lifecycle_reminders` has 102 rows against `lifecycle_deadlines`' 34, so
+-- driving from the smaller table looks like the obvious choice and is not why it scales. The
+-- query wants reminders that are due for deadlines that have not yet passed. Driving from
+-- deadlines bounds the work by the active ones still in the future -- 26 of 34 -- and that set
+-- cannot grow without bound, because deadlines pass. Driving from `due_at` bounds it by every
+-- reminder ever due and not yet sent, which only shrinks if something sends them: 98 of the 102
+-- have a null `batch_id`, and 24 of those are for deadlines already past, so they will never be
+-- selected by this query again and nothing deletes them. The index is for the plan that degrades.
+--
+-- 4,096 bytes, one page. This saves nothing and is not meant to; what it buys is that the index
+-- accounting says the same thing in the gate and against real data, which it did not before.
+-- If `lifecycle_reminders` ever grows into the hundreds of thousands, the thing to reconsider is
+-- the `batch_id IS NULL` half rather than this index: a partial index over unsent reminders is
+-- the one that would bound what the `due_at` plan has to walk.
+DROP INDEX lifecycle_reminders_due;
+ANALYZE;
