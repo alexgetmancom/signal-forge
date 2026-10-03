@@ -3,6 +3,7 @@ import { httpFailure, SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { type BundleMemory, forgetful } from "./bundleMemory.js";
 import { scanGzipStream } from "./gzipScan.js";
+import { notAModelFamily, splitJoinedModels } from "./modelMentions.js";
 import { publishedVersion } from "./npmVersion.js";
 
 const PACKAGE = "@anthropic-ai/claude-code";
@@ -18,11 +19,24 @@ export function claudeModelIds(text: string): string[] {
   return [...collectIds(new Set(), text)].sort();
 }
 
+/**
+ * `preview` is a stage, not a suffix of a version: `claude-mythos-preview` is in this binary and was
+ * invisible here, because the shape demanded a digit after the family word. It reached us eight days
+ * later through `anthropic-deprecations` instead, which is the whole lead time this source exists
+ * to buy.
+ */
 function collectIds(ids: Set<string>, text: string): Set<string> {
-  for (const [id] of text.matchAll(/\bclaude-(?:opus|sonnet|haiku|[a-z]{3,12})-\d+(?:[-.]\d+)?(?:-[a-z]+)?\b/g)) {
-    if (/^claude-(?:eval|desktop|code|cli|test|api|agent|sdk|app)-/.test(id)) continue;
+  for (const [id] of text.matchAll(
+    // A word after the version may carry a version of its own, so that a name holding a second model
+    // arrives whole and `splitJoinedModels` can see both: cut before it, `claude-fable-5-mythos-5`
+    // became `claude-fable-5-mythos`, a model nobody ships, and that is what production stored. The
+    // version itself stays two levels deep, which is what reads `claude-sonnet-4-5-20250929` as the
+    // alias it is a checkpoint of rather than swallowing the date.
+    /\bclaude-(?:opus|sonnet|haiku|[a-z]{3,12})-(?:\d+(?:[-.]\d+)?(?:-[a-z]+(?:[-.]\d+)?)?|preview|alpha|beta)\b/g,
+  )) {
+    if (notAModelFamily(id)) continue;
     if (/-(?:v\d|0|\d{8})$/.test(id)) continue;
-    ids.add(id);
+    for (const one of splitJoinedModels(id)) ids.add(one);
   }
   return ids;
 }

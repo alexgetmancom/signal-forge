@@ -95,7 +95,13 @@ export const MODEL_MENTION_REPOS: readonly MentionWatch[] = [
  */
 const MAKERS: readonly { words: readonly string[]; shape: string }[] = [
   { words: ["gpt"], shape: String.raw`gpt-\d+(?:\.\d+)?` },
-  { words: ["claude"], shape: String.raw`claude-[a-z]+-\d+(?:[.-]\d+)*` },
+  /**
+   * A version is the usual way a Claude model is told from its family, and `preview` is the other
+   * one: `claude-mythos-preview` is a real ID, published in deprecations and in Azure's lifecycle
+   * table, and a shape that demanded a digit could not see it at all. The stages are a closed list
+   * written here, not a wildcard, because `claude-<anything>-<anything>` is mostly prose.
+   */
+  { words: ["claude"], shape: String.raw`claude-[a-z]+-(?:\d+(?:[.-]\d+)*|preview|alpha|beta)` },
   { words: ["gemini"], shape: String.raw`gemini-\d+(?:\.\d+)?` },
   { words: ["grok"], shape: String.raw`grok-\d+(?:\.\d+)?` },
   { words: ["glm"], shape: String.raw`glm-\d+(?:\.\d+)?` },
@@ -115,8 +121,26 @@ const MODEL_ID = new RegExp(String.raw`(?<![a-z0-9.-])(?:${FAMILY_SHAPE})(?:-[a-
  * "GPT-6-specific defaults" and "Claude-4-based agents" are prose about a family, not a model.
  * Measured on the Codex history from 2026-08-10: `gpt-6-specific` was one of seven sightings.
  */
-const PROSE_SUFFIX =
-  /-(?:specific|based|like|style|class|level|family|compatible|era|only|powered|series|generation|native|aware|ready|friendly)$/;
+const PROSE_WORDS = [
+  "specific",
+  "based",
+  "like",
+  "style",
+  "class",
+  "level",
+  "family",
+  "compatible",
+  "era",
+  "only",
+  "powered",
+  "series",
+  "generation",
+  "native",
+  "aware",
+  "ready",
+  "friendly",
+] as const;
+const PROSE_SUFFIX = new RegExp(`-(?:${PROSE_WORDS.join("|")})$`);
 
 /**
  * `gpt-5.6-and-later`, `gpt-4-turbo-and-gpt-4`: a sentence joined by hyphens, not one model. And a
@@ -144,6 +168,42 @@ const CHECKPOINT =
 const MAKER_WORDS = new Set(MAKERS.flatMap((maker) => maker.words));
 
 /** Whether an ID carries two makers' words, which no maker's own model does. */
+/**
+ * The word after the maker names one of its clients, or is prose, rather than a family of models.
+ *
+ * `claude-code-2-1-286` is a release of the CLI and `claude-desktop-3p` is an MCP client
+ * identifier; both have the shape of a model and neither is one. The list was living in
+ * `claudeCode.ts` and applied only there, so the two readers of the same names disagreed about
+ * this.
+ */
+const CLIENT_WORDS = ["agent", "api", "app", "cli", "code", "desktop", "eval", "sdk", "test"] as const;
+/**
+ * `claude-powered-preview` is the same prose `claude-4-based` is, one word further in. A stage word
+ * where a version belongs widens what the shape accepts, so the word before it has to be a family
+ * name and not an adjective; the two lists are the ones already written for suffixes and clients.
+ */
+const NOT_A_FAMILY = new RegExp(`^(?:${[...CLIENT_WORDS, ...PROSE_WORDS].join("|")})$`);
+export function notAModelFamily(id: string): boolean {
+  return NOT_A_FAMILY.test(id.split("-")[1] ?? "");
+}
+
+/**
+ * Two models written as one name, which is what an article's address is when it announces two.
+ *
+ * `anthropic.com/news/claude-fable-5-mythos-5` announces Fable 5 and Mythos 5. Read as one name it
+ * became `claude-fable-5-mythos-5` here and `claude-fable-5-mythos` in the Claude Code reader --
+ * two different models, neither of them real, and the second is in production's `records` today.
+ *
+ * A family word followed by its own version is where the second model starts. A suffix that is not
+ * versioned is left alone, so `claude-sonnet-5-5-thinking` stays one name, and so is a dated
+ * checkpoint, whose tail is digits rather than a word.
+ */
+const TWO_MODELS = /^(claude-[a-z]{3,12}-\d+(?:[.-]\d+)*)-([a-z]{3,12}-\d+(?:[.-]\d+)*)$/;
+export function splitJoinedModels(id: string): string[] {
+  const both = TWO_MODELS.exec(id);
+  return both?.[1] && both[2] ? [both[1], `claude-${both[2]}`] : [id];
+}
+
 export function crossesMakers(id: string): boolean {
   const makers = new Set(
     id
@@ -245,9 +305,10 @@ function modelIdsInLines(lines: readonly string[]): Map<string, string> {
   for (const line of lines) {
     for (const match of line.toLowerCase().matchAll(MODEL_ID)) {
       // A trailing dot is the end of a sentence, not a version.
-      const id = match[0].replace(/[.-]+$/, "");
-      if (PROSE_SUFFIX.test(id) || JOINED.test(id) || CHECKPOINT.test(id) || crossesMakers(id)) continue;
-      if (!found.has(id)) found.set(id, line.trim().slice(0, 240));
+      const matched = match[0].replace(/[.-]+$/, "");
+      if (PROSE_SUFFIX.test(matched) || JOINED.test(matched) || CHECKPOINT.test(matched)) continue;
+      if (crossesMakers(matched) || notAModelFamily(matched)) continue;
+      for (const id of splitJoinedModels(matched)) if (!found.has(id)) found.set(id, line.trim().slice(0, 240));
     }
   }
   return found;

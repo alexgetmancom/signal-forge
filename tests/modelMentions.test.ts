@@ -741,3 +741,23 @@ test("a repository the token cannot see is a failed read of its discussions, not
   expect((await collectRepoTalk(db, config, watch, request)).records.map((record) => record.id)).toEqual(["@since"]);
   db.close();
 });
+
+test("a stage is a version's equal, a second family word starts a second model, and prose is neither", () => {
+  // `claude-mythos-preview` is published in Anthropic's deprecations and in Azure's lifecycle table.
+  // A shape that demanded a digit after the family word could not see it at all.
+  expect([...modelIdsInText("claude-mythos-preview is allowlisted").keys()]).toEqual(["claude-mythos-preview"]);
+
+  // The address of the article announcing two models is not the name of a third.
+  expect([...modelIdsInText("https://www.anthropic.com/news/claude-fable-5-mythos-5").keys()]).toEqual([
+    "claude-fable-5",
+    "claude-mythos-5",
+  ]);
+
+  // A suffix that carries no version of its own is one model's variant, not two models.
+  expect([...modelIdsInText("claude-sonnet-5-5-thinking").keys()]).toEqual(["claude-sonnet-5-5-thinking"]);
+
+  // Widening the shape to accept a stage would otherwise accept prose and client names in the slot
+  // a family word belongs in.
+  for (const text of ["claude-powered-preview agents", "claude-code-2-1-286", "claude-desktop-3p"])
+    expect([...modelIdsInText(text).keys()]).toEqual([]);
+});

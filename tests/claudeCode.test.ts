@@ -257,3 +257,13 @@ test("Xiaomi's news section is its announcements, and the archive beside it is n
     },
   ]);
 });
+
+test("the two readers of a Claude name agree about a stage, a joined pair and a checkpoint", () => {
+  // `claude-mythos-preview` is in the binary; it reached this service eight days later through
+  // `anthropic-deprecations` instead, which is the lead time this source exists to buy.
+  expect(claudeModelIds("claude-mythos-preview")).toEqual(["claude-mythos-preview"]);
+  // `claude-fable-5-mythos` is a model nobody ships, and it is in production's records.
+  expect(claudeModelIds("news/claude-fable-5-mythos-5")).toEqual(["claude-fable-5", "claude-mythos-5"]);
+  // Reading the version in full would have swallowed the date and lost the alias with it.
+  expect(claudeModelIds("claude-sonnet-4-5-20250929")).toEqual(["claude-sonnet-4-5"]);
+});
