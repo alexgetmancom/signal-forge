@@ -3,7 +3,7 @@ import { httpFailure, SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { type BundleMemory, forgetful } from "./bundleMemory.js";
 import { scanGzipStream } from "./gzipScan.js";
-import { notAModelFamily, splitJoinedModels } from "./modelMentions.js";
+import { crossesMakers, notAModelFamily, splitJoinedModels } from "./modelMentions.js";
 import { publishedVersion } from "./npmVersion.js";
 
 const PACKAGE = "@anthropic-ai/claude-code";
@@ -35,6 +35,10 @@ function collectIds(ids: Set<string>, text: string): Set<string> {
     /\bclaude-(?:opus|sonnet|haiku|[a-z]{3,12})-(?:\d+(?:[-.]\d+)?(?:-[a-z]+(?:[-.]\d+)?)?|preview|alpha|beta)\b/g,
   )) {
     if (notAModelFamily(id)) continue;
+    // Two makers' words in one name is a proxy's alias for what it routes to, never a model
+    // somebody ships. `claude-gpt-6-astra` went out as a codename once already, from the mention
+    // reader; the binary names the clients that route too, so the rule belongs to both readers.
+    if (crossesMakers(id)) continue;
     if (/-(?:v\d|0|\d{8})$/.test(id)) continue;
     for (const one of splitJoinedModels(id)) ids.add(one);
   }

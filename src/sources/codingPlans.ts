@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Collection } from "../events/types.js";
 import { httpFailure, SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
+import { crossesMakers, notAModelFamily, splitJoinedModels } from "./modelMentions.js";
 
 /**
  * The model lists of the coding subscriptions that resell other makers' models. A name lands in them
@@ -77,8 +78,15 @@ export function commandCodeModelIds(text: string): string[] {
   const ids = new Set<string>();
   for (const [id] of text.matchAll(new RegExp(`\\b(?:${MAKERS})/[A-Za-z][A-Za-z0-9._:-]{2,}`, "gi")))
     if (!/\/v\d+$/i.test(id)) ids.add(id.toLowerCase().replace(/[.:-]+$/, ""));
-  for (const [, id] of text.matchAll(/"((?:claude|gpt)-[a-z0-9.-]*\d[a-z0-9.-]*)"/g))
-    if (id && !/-\d{8}$/.test(id)) ids.add(id);
+  for (const [, id] of text.matchAll(/"((?:claude|gpt)-[a-z0-9.-]*\d[a-z0-9.-]*)"/g)) {
+    if (!id || /-\d{8}$/.test(id)) continue;
+    // The three rules every reader of a bare `claude-`/`gpt-` name shares: a client or a piece of
+    // prose is not a family, two makers' words are a proxy's alias, and one name holding two models
+    // is two. Without the last one this registry stored `claude-fable-5-mythos-5`, a model nobody
+    // ships. `tests/modelIdCorpus.test.ts` is what holds the three readers to the same answer.
+    if (notAModelFamily(id) || crossesMakers(id)) continue;
+    for (const one of splitJoinedModels(id)) ids.add(one);
+  }
   return [...ids].sort();
 }
 
