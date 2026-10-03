@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
 import { channelMix } from "../reports/channelMix.js";
+import { dislikedCards } from "../reports/disliked.js";
 import { judgeGap } from "../reports/judgeGap.js";
 import { passedOver } from "../reports/passedOver.js";
 import { reactionStandings } from "../reports/reactions.js";
@@ -40,6 +41,31 @@ export function calibrationOperations(db: Database, config: AppConfig, _all: () 
       cli: { args: [{ name: "days", optional: true }] },
       http: { method: "get", path: "/api/reactions" },
       handler: (input: { days: number }) => reactionStandings(db, input.days),
+    },
+
+    disliked: {
+      section: "sources",
+      summary: "The cards a reader marked down, with the handles a rule could cut a whole category by.",
+      startHere: "what did the channel not want, and what would it cost to stop sending it",
+      note:
+        "Read this to have the conversation, not to settle it: nothing here is a verdict on whether " +
+        "a card was true. A reader's reason stays in his head -- image models are not what a " +
+        "vibe-coding channel reads, a board that is not code is not news -- and this lays the card " +
+        "back out beside the handles a rule could be written against, so the reason can be said and " +
+        "then written down. `cuts` is the half that decides anything: `disliked` against `cards` is " +
+        "how many of that value's cards were marked out of how many arrived, so a cut's price is " +
+        "the second number. `modality` is derived rather than stored -- Arena spells it in the " +
+        "board, OpenRouter in its input and output arrays, Vercel only in a price per character of " +
+        "speech -- and a record that says none of it is `unknown` rather than guessed into a bucket " +
+        "somebody would then cut. `alsoSentTo` is there because 'not in this channel' and 'not at " +
+        "all' are different fixes. One thumb under a digest is one opinion about every event in it, " +
+        "which `events` says.",
+      mutates: false,
+      agent: true,
+      schema: z.object({ days: count(365, 14) }),
+      cli: { args: [{ name: "days", optional: true }] },
+      http: { method: "get", path: "/api/disliked" },
+      handler: (input: { days: number }) => dislikedCards(db, input.days),
     },
 
     judge_gap: {
