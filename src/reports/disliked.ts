@@ -15,7 +15,7 @@ import type { Database } from "bun:sqlite";
  * cut therefore carries what it would cost: `cards` is how many arrived, `disliked` how many were
  * marked, and cutting the value means losing the first number.
  */
-export type DislikedCard = {
+type DislikedCard = {
   at: string;
   destination: string;
   /** The card as its reader saw it, which is our own text and never an upstream body. */
@@ -32,9 +32,9 @@ export type DislikedCard = {
 };
 
 /** One handle a rule could be written against: what it is, and the value this card had. */
-export type Facet = { axis: string; value: string };
+type Facet = { axis: string; value: string };
 
-export type DislikedCut = {
+type DislikedCut = {
   axis: string;
   value: string;
   /** Cards carrying this value that were marked, and how many arrived in the window at all. */
