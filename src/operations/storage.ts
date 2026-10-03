@@ -24,10 +24,17 @@ export function storageOperations(db: Database, _config: AppConfig): OperationMa
         "database is the first row rather than something to go looking for. Start there. It is the " +
         "sum of every column of every row -- blobs as stored, so gzipped -- and `rows` is " +
         "`ANALYZE`'s estimate, null for a table it has not reached. `unaccountedBytes` is the file " +
-        "less those and the free pages, which is indexes and page overhead: per-index bytes need " +
-        "`dbstat` and no Bun on Linux is built with it, so the breakdown is a development command, " +
-        "`index-cost`, run against a copy; the half of that question which needs no `dbstat` -- " +
-        "whether anything uses an index at all -- is in the gate as `check-indexes`. It was 46% of " +
+        "less those and the free pages, and it is two things: indexes, plus the slack between a " +
+        "payload and the pages it sits in. On 2026-10-03 that was 10.9 MB of indexes and about 13 " +
+        "MB of slack out of 23.9 -- `tables` sums the length of every column, while a b-tree is " +
+        "counted in whole pages, so 80.7 MB of snapshot payload occupies an 82.3 MB b-tree. Both " +
+        "numbers are right and they are not the same number; that is the whole of the discrepancy, " +
+        "and nothing else is hiding in it. Splitting it here would need `dbstat`, which no Bun on " +
+        "Linux is built with, so the breakdown is a development command, `index-cost`, run against " +
+        "a copy -- it also records the split in `.rehearsal/ledger.json`, so the index total is " +
+        "comparable with last week's rather than with memory. The half of that question which " +
+        "needs no `dbstat` -- whether anything uses an index at all, and whether two of them " +
+        "duplicate each other -- is in the gate as `check-indexes`. It was 46% of " +
         "the file while this report weighed four tables, and what it hid was the second-largest " +
         "table in the database, and later a 14.1 MB index duplicating a key its table could be. " +
         "`events.bySource` says which sources' events weigh the most and what one of " +

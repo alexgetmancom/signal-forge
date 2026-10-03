@@ -45,6 +45,25 @@ export type IndexUse = {
    * load-bearing.
    */
   unique: boolean;
+  /**
+   * The text of its WHERE clause, or null for an index over every row.
+   *
+   * Kept because it is the one thing that makes a narrower index legitimate beside a wider one:
+   * `source_collection_metrics_failures` is `(source, collected_at) WHERE success = 0`, and the
+   * 14.1 MB index over the same two columns for every row was not its duplicate so much as its
+   * superset. Parsed from the text rather than from a pragma, because SQLite exposes partiality
+   * nowhere else, and it is only ever reported to a human.
+   */
+  partial: string | null;
+};
+
+/** Two indexes on one table where one's columns lead the other's, and one of them is probably paying for the other. */
+export type RedundantPair = {
+  table: string;
+  /** The one whose columns are the leading prefix. Not necessarily the one worth dropping. */
+  prefix: IndexUse;
+  /** The one that extends it. */
+  covering: IndexUse;
 };
 
 /** Every statement whose plan is evidence that an index is used. `EXPLAIN` runs a write without doing it. */
@@ -129,6 +148,7 @@ export function indexUses(db: Database): IndexUse[] {
       // An autoindex has no `sql` and is always a constraint: SQLite only makes one for a UNIQUE
       // or for a non-INTEGER PRIMARY KEY, so it exists to refuse a second row by definition.
       unique: index.sql === null || /\bCREATE\s+UNIQUE\s+INDEX\b/i.test(index.sql),
+      partial: index.sql && /\sWHERE\s/i.test(index.sql) ? (index.sql.split(/\sWHERE\s/i)[1] as string).trim() : null,
       columns: db
         .query<{ name: string | null }, [string]>("SELECT name FROM pragma_index_info(?)")
         .all(index.name)
@@ -145,4 +165,41 @@ export function indexUses(db: Database): IndexUse[] {
 /** An index nothing in the schema can explain: declared by a migration, named by nothing, backing nothing. */
 export function unexplained<Use extends IndexUse>(uses: readonly Use[]): Use[] {
   return uses.filter((use) => use.declared && !use.unique && use.hotStatements.length === 0 && use.foreignKey === null);
+}
+
+/**
+ * Pairs where one index's columns are the leading prefix of another's, on the same table.
+ *
+ * An index on `(a)` beside an index on `(a, b)` is paid for on every write of the table and
+ * answers nothing the wider one could not, because SQLite seeks a b-tree by its leading columns.
+ * This session found two by hand -- `source_collection_metrics_source_time` against `_failures`
+ * on the same two columns, 14.1 MB of it, and `snapshots_collected` against `snapshots_unexpired`
+ * on the same one -- and both had the same cause: a migration added the more precise index and
+ * left the one it displaced behind. Neither was noticed until something counted.
+ *
+ * What this reports is the pair, not the victim, and that is deliberate. Which of the two is worth
+ * dropping is a question about bytes and about rows: the wider index is the bigger one, but the
+ * narrower one is often partial, and a partial index cannot answer a query outside its WHERE. For
+ * the 14.1 MB pair the right move was neither drop but a `WITHOUT ROWID` table, where the key
+ * became the index. A check that named a victim would have named the wrong one.
+ *
+ * A UNIQUE prefix is never the suspect: `UNIQUE(a)` beside `UNIQUE(a, b)` is a strictly stronger
+ * constraint, not a duplicate, and dropping it changes what the database accepts.
+ */
+export function redundantPrefixes(uses: readonly IndexUse[]): RedundantPair[] {
+  const leads = (shorter: readonly string[], longer: readonly string[]): boolean =>
+    shorter.length <= longer.length && shorter.every((column, at) => column === longer[at]);
+  const pairs: RedundantPair[] = [];
+  for (const one of uses)
+    for (const other of uses) {
+      if (one.index >= other.index || one.table !== other.table) continue;
+      // Equal columns lead each other, so both orientations are candidates and the suspect is
+      // whichever of them is not a UNIQUE constraint. With unequal columns only one can lead.
+      const suspect = [
+        { prefix: one, covering: other },
+        { prefix: other, covering: one },
+      ].find(({ prefix, covering }) => leads(prefix.columns, covering.columns) && !prefix.unique);
+      if (suspect) pairs.push({ table: one.table, ...suspect });
+    }
+  return pairs;
 }

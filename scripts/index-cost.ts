@@ -2,11 +2,14 @@
  * What each index costs, and which hot read it exists for.
  *
  * `storage` reports the file, the free pages and the weight of every table, and the difference
- * between them is one number called `unaccountedBytes` -- 40.6 MB of the 225.6 MB on production,
- * and almost all of it indexes. It cannot say more than that, because per-index bytes come from
- * `dbstat` and production's SQLite is built without it. Checked in the container: `sqlite_master`,
- * `pragma_table_info`, `pragma_index_info` and `json_each` all answer there, and `dbstat` is
- * `no such table`.
+ * between them is one number called `unaccountedBytes` -- 23.9 MB of the 171.6 MB on production.
+ * This is what it is made of, and on 2026-10-03 the two halves were 10.9 MB of indexes and about
+ * 13 MB of page slack: `dbstat` totalled the file exactly, 10.9 MB of indexes against 159.5 MB of
+ * table b-trees, while `storage` reports a table as the sum of its column lengths -- 80.7 MB of
+ * snapshot payload living in an 82.3 MB b-tree. Neither number is wrong; one counts bytes and the
+ * other counts the pages they sit in. Per-index bytes come from `dbstat` and production's SQLite is
+ * built without it. Checked in the container: `sqlite_master`, `pragma_table_info`,
+ * `pragma_index_info` and `json_each` all answer there, and `dbstat` is `no such table`.
  *
  * So the question is asked here instead, of a copy, by the SQLite on this machine, which has it.
  * That is also why this is a development command rather than an entry in `src/operations/`: an
@@ -22,11 +25,22 @@
  * this was written, on a table kept fourteen days whose every count is read from the fold beside
  * it. That is the shape this is for finding.
  *
- * Reads only. Usage: bun run index-cost [--fresh] [--json]
+ * Reads only, apart from the notebook: what the index set was and what it weighed is appended to
+ * `.rehearsal/ledger.json`, the same file a rehearsal writes its findings to. The fingerprint is
+ * over the schema -- every index, its table, its columns and what explains it -- and deliberately
+ * not over the bytes, which move with the data on every run and would make every comparison a
+ * difference. So "the same index set as the run four commits ago" is a thing this can say, which
+ * is the question "how many indexes do we have" actually being asked across a week. 25.6 MB over
+ * 37 declared indexes with 16 unexplained became 10.9 MB over 34 with none in a single session,
+ * and both of those numbers were only ever in a terminal.
+ *
+ * Usage: bun run index-cost [--fresh] [--json]
  */
+import { resolve } from "node:path";
 import { readonlyDatabase } from "../src/storage/database.js";
 import { indexUses, unexplained } from "./indexReaders.js";
-import { prodCopy } from "./prodCopy.js";
+import { cacheDir, prodCopy } from "./prodCopy.js";
+import { appendEntry, type Entry, type Finding, lastAgreement, readLedger } from "./rehearsalLedger.js";
 
 function say(message: string): void {
   process.stderr.write(`${message}\n`);
@@ -98,9 +112,10 @@ const report = {
   indexShare: Math.round((indexBytes / Math.max(indexBytes + tableBytes, 1)) * 1000) / 10,
   indexes,
   tables,
-  // An index whose use the schema cannot derive. Each has a line in `check-indexes`' RECORD naming
-  // the statement that reads it; what is missing is that statement's plan being checked, which is
-  // what putting it in `hotQueries.ts` would buy. This is the price of that gap.
+  // An index no hot statement's plan names here. `check-indexes` asks the same thing of an empty
+  // schema and can pass while this does not: the planner there has no statistics, so it reaches for
+  // an index it abandons once the table has a real distribution in it. This is the stricter answer,
+  // and the only one that needs a copy of production.
   declaredWithNoHotRead: unread.map((index) => ({ index: index.index, table: index.table, bytes: index.bytes })),
 };
 
@@ -108,8 +123,71 @@ function megabytes(bytes: number): string {
   return (bytes / 1024 ** 2).toFixed(1);
 }
 
+/**
+ * What explains each index, in one word, so the fingerprint moves when a reason does.
+ *
+ * An index that stops being named by a hot read and starts being named by a foreign key is the
+ * same index with the same columns, and it is not the same situation: the gate would still pass,
+ * and the thing that changed is exactly what this session spent its time on.
+ */
+function reason(index: (typeof indexes)[number]): string {
+  if (index.hotStatements.length) return "statement";
+  if (index.unique) return "unique";
+  if (index.foreignKey) return "foreign-key";
+  return "unexplained";
+}
+
+/**
+ * The schema, not the data. Columns and reasons, one line per index, hashed in name order.
+ *
+ * Bytes are left out on purpose: they move every time production collects anything, so a
+ * fingerprint over them says "different" on every run and the ledger's one trick -- this is the
+ * answer from four commits ago -- stops working. The bytes go in the note instead, where they can
+ * be read and compared by a human without pretending to be an identity.
+ */
+const fingerprint = new Bun.CryptoHasher("sha256")
+  .update(
+    indexes
+      .map((index) => `${index.index}|${index.table}|${index.columns.join(",")}|${reason(index)}`)
+      .sort()
+      .join("\n"),
+  )
+  .digest("hex")
+  .slice(0, 12);
+const declared = indexes.filter((index) => index.declared);
+const finding: Finding = {
+  phase: "indexes",
+  verdict: "same",
+  moved: unread.length,
+  fingerprint,
+  note:
+    `${megabytes(indexBytes)} MB across ${declared.length} declared indexes ` +
+    `(${report.indexShare}% of the pages), ${unread.length} unexplained`,
+};
+const ledgerPath = resolve(cacheDir, "ledger.json");
+function git(...args: string[]): string {
+  return Bun.spawnSync(["git", ...args])
+    .stdout.toString()
+    .trim();
+}
+const entry: Entry = {
+  at: new Date().toISOString(),
+  base: "",
+  baseSha: "",
+  head: git("rev-parse", "HEAD"),
+  dirty: git("status", "--porcelain") !== "",
+  tree: null,
+  findings: [finding],
+};
+const earlier = readLedger(ledgerPath)
+  .flatMap((seen) => seen.findings)
+  .filter((seen) => seen.phase === "indexes")
+  .at(-1);
+const agreement = lastAgreement(readLedger(ledgerPath), finding);
+appendEntry(ledgerPath, entry);
+
 if (Bun.argv.includes("--json")) {
-  process.stdout.write(`${JSON.stringify(report, null, 2)}\n`);
+  process.stdout.write(`${JSON.stringify({ ...report, finding, previous: earlier ?? null }, null, 2)}\n`);
 } else {
   const lines = [
     `${megabytes(indexBytes)} MB of indexes against ${megabytes(tableBytes)} MB of tables (${report.indexShare}% of the pages)`,
@@ -132,12 +210,19 @@ if (Bun.argv.includes("--json")) {
   if (unread.length)
     lines.push(
       "",
-      `${unread.length} declared ${unread.length === 1 ? "index" : "indexes"} with a recorded reader rather than a checked one, ` +
+      `${unread.length} declared ${unread.length === 1 ? "index" : "indexes"} no statement reaches for on production's own rows, ` +
         `${megabytes(unread.reduce((total, index) => total + index.bytes, 0))} MB: ` +
         unread.map((index) => index.index).join(", "),
-      "Each has a line in check-indexes.ts naming what reads it, and no plan checked against it. Moving that",
-      "statement into src/storage/hotQueries.ts is what closes the gap, and shortens RECORD in the same move.",
+      "`check-indexes` passes on all of these, and the difference is the statistics rather than the schema: it plans",
+      "against an empty database where `ANALYZE` has nothing to go on, and this plans against the real distribution.",
+      "An index the planner drops once a table has rows in it is the more interesting answer of the two, and the only",
+      "place it can be had -- so this is worth reading even when the gate is green. Whether that means the index or",
+      "the statement is wrong is a judgement; `read-cost` says what the statement costs without it.",
     );
+  lines.push("", `${finding.note}, fingerprint ${fingerprint}`);
+  if (agreement) lines.push(`  ${agreement}`);
+  else if (earlier) lines.push(`  moved from ${earlier.fingerprint ?? "?"}: ${earlier.note ?? "no note"}`);
+  else lines.push("  first run recorded in .rehearsal/ledger.json; the next one has something to compare against");
   process.stdout.write(`${lines.join("\n")}\n`);
 }
 

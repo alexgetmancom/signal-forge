@@ -9,6 +9,13 @@
  * a key its table could have been; migration 076 deleted it. A rule nothing checks is a rule that
  * has already been broken for a year.
  *
+ * Two refusals, and the second has no list behind it at all. The first is an index no statement
+ * explains. The second is two indexes where one's columns lead the other's on the same table,
+ * which is a cost nothing can derive a reason for either -- it was found twice by hand in one
+ * session, both times because a migration added a more precise index and left behind the one it
+ * displaced. That one passes today with zero pairs out of 61 indexes, so it ships with no
+ * exemptions and nothing to grandfather: the ratchet starts clean.
+ *
  * What this does not do is guess. `indexReaders.ts` derives four kinds of use from the schema --
  * a hot read's plan, a hot write's plan, a UNIQUE constraint, a foreign key's referential action --
  * and anything left over has to have a line in RECORD saying what reads it. The derived kinds are
@@ -28,7 +35,7 @@
  */
 import { Database } from "bun:sqlite";
 import { runMigrations } from "../src/storage/migrationRunner.js";
-import { indexUses, unexplained } from "./indexReaders.js";
+import { indexUses, redundantPrefixes, unexplained } from "./indexReaders.js";
 
 /**
  * Empty, and closed.
@@ -56,9 +63,21 @@ db.exec("ANALYZE");
 
 const uses = indexUses(db);
 const unaccounted = unexplained(uses);
+const redundant = redundantPrefixes(uses);
 db.close();
 
 const problems: string[] = [];
+for (const pair of redundant)
+  problems.push(
+    `${pair.prefix.index}(${pair.prefix.columns.join(", ")}) and ${pair.covering.index}(${pair.covering.columns.join(", ")}) are both on ${pair.table}, and the first's columns lead the second's.\n` +
+      "  SQLite seeks a b-tree by its leading columns, so the wider index answers everything the narrower one does,\n" +
+      `  and the narrower one is still paid for on every write of ${pair.table}.\n` +
+      (pair.prefix.partial || pair.covering.partial
+        ? `  One of them is partial (${pair.prefix.partial ? `${pair.prefix.index} WHERE ${pair.prefix.partial}` : `${pair.covering.index} WHERE ${pair.covering.partial}`}), which can be the legitimate reason for the pair -- a partial index cannot answer a query outside its WHERE.\n`
+        : "  Neither is partial, so they differ only in length.\n") +
+      "  Which one to drop is a question about bytes: `bun run index-cost` weighs both. Dropping neither is also an answer --\n" +
+      "  the 14.1 MB pair that prompted this check was resolved by making the key the table (076), not by a DROP INDEX.",
+  );
 for (const use of unaccounted)
   if (!(use.index in RECORD))
     problems.push(
@@ -87,5 +106,5 @@ process.stdout.write(
     `(${derived.filter((use) => use.hotStatements.length).length} by a hot statement, ` +
     `${derived.filter((use) => !use.hotStatements.length && use.unique).length} by a UNIQUE, ` +
     `${derived.filter((use) => !use.hotStatements.length && !use.unique && use.foreignKey).length} by a foreign key), ` +
-    `${unaccounted.length} recorded.\n`,
+    `${unaccounted.length} recorded, no redundant prefixes.\n`,
 );

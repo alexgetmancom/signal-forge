@@ -21,6 +21,15 @@ export type Finding = {
   moved: number;
   /** One hash over everything the phase produced, or null where a phase does not reduce to one. */
   fingerprint: string | null;
+  /**
+   * One line worth remembering beside the fingerprint, for a phase whose answer is a measurement.
+   *
+   * A fingerprint says whether something moved and never what it is. `indexes` needs both: that
+   * the index set is the one from last week is the useful half, and "10.9 MB across 34 declared"
+   * is what makes the comparison mean anything a week later, when the number it moved from is
+   * otherwise only in a terminal that has scrolled.
+   */
+  note?: string;
 };
 
 export type Entry = {
@@ -40,7 +49,11 @@ export type Entry = {
    * either was ever committed.
    */
   tree: string | null;
-  days: number;
+  /**
+   * The window a replay covered. Absent for a phase that has no window: `index-cost` measures the
+   * schema, which is the same schema for thirty days as for ninety.
+   */
+  days?: number;
   findings: Finding[];
 };
 
@@ -78,7 +91,10 @@ export function lastAgreement(entries: Entry[], finding: Finding): string | null
     )
     .at(-1);
   if (!earlier) return null;
-  return `same ${finding.phase} fingerprint as the run at ${earlier.at} against ${earlier.base} (${earlier.baseSha.slice(0, 7)})`;
+  // Not every phase has a base: `index-cost` measures the schema, which is not a comparison against
+  // a ref, and naming one it never had printed "against  ()".
+  const against = earlier.base === "" ? "" : ` against ${earlier.base} (${earlier.baseSha.slice(0, 7)})`;
+  return `same ${finding.phase} fingerprint as the run at ${earlier.at}${against}`;
 }
 
 /** The one line a human wants after a rehearsal: what moved, and what did not. */

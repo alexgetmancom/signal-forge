@@ -34,7 +34,19 @@ export type StorageReport = {
    * the HTTP cache are their gzipped size. `rows` is `ANALYZE`'s estimate, null where it has not run.
    */
   tables: { table: string; bytes: number; rows: number | null }[];
-  /** The file less those and the free pages: indexes and page overhead. A remainder, not a measurement. */
+  /**
+   * The file less those and the free pages. A remainder, not a measurement -- but a remainder of
+   * two known things, which is the part that was worth working out.
+   *
+   * It is indexes plus page slack, and on 2026-10-03 the split was 10.9 MB against about 13 MB of
+   * 23.9. `dbstat` on a copy totals the file exactly: 10.9 MB of indexes and 159.5 MB of table
+   * b-trees against a 170.4 MB file. The 13 MB is the difference between a payload and the pages
+   * it sits in, because `tables` above sums the length of every column while a b-tree is counted
+   * in whole pages -- 80.7 MB of snapshot payload occupies an 82.3 MB b-tree. So neither number is
+   * wrong and they are not the same number, and this one cannot be split here: `dbstat` is a
+   * compile-time option production's Bun was built without. `bun run index-cost` does the split
+   * against a copy, which is the only place it can be done.
+   */
   unaccountedBytes: number;
   snapshots: {
     rows: number;
