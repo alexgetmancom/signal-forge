@@ -13,10 +13,9 @@
  * 5 MB catalogue against 34, inside a collection that has a timeout. Ten is 46 ms for the worst
  * body in the database and 688 ms for four hundred of them, against gzip's 457.
  *
- * No migration and no rewrite. The format is read off the first bytes of the blob, so the bodies
- * already stored stay gzip and stay readable for as long as retention keeps them, and the ones
- * written from now on are zstd. A payload is the deepest evidence a card can be traced to, and the
- * cheapest way to keep that true is never to touch the ones that exist.
+ * The format is read off the first bytes of the blob, so an old gzip body stays readable until
+ * `compact-storage` repacks it as zstd. That repack verifies the decompressed bytes before writing
+ * and leaves the receipt unchanged; new bodies are zstd from their first write.
  */
 
 import { storageFailure } from "../failure.js";

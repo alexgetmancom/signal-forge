@@ -21,27 +21,36 @@ import { fetchText } from "./http.js";
  * real, and one that opens on a codename this feed has never seen is a gap in its coverage.
  */
 
-/** The AI tag is applied upstream; market rows include their parent event's resolution rules. */
+/**
+ * AI Releases, not the broad AI category. On 2026-10-03 this returned 25 markets in one
+ * 188 KB answer instead of 286 markets in three answers totalling 2.31 MB. It covered all
+ * 24 model markets in the 40 stored snapshots; only two consumer hardware bets were absent.
+ * Market rows still include their parent event's resolution rules.
+ */
 const GAMMA_MARKETS_URL = "https://gamma-api.polymarket.com/markets";
-const AI_TAG_ID = 439;
+const AI_RELEASES_TAG_ID = 105579;
 const POLYMARKET_URL = "https://polymarket.com/markets/ai";
 /** Pages are read until one comes back short; a fixed first page would miss release markets. */
 const PAGE_SIZE = 100;
 const MAX_PAGES = 6;
 
-const marketSchema = z.object({
-  id: z.string().min(1),
-  question: z.string().min(1).nullish(),
-  slug: z.string().min(1).nullish(),
-  closed: z.boolean().nullish(),
-  endDate: z.string().nullish(),
-  liquidityNum: z.number().nullish(),
-  volumeNum: z.number().nullish(),
-  outcomePrices: z.string().nullish(),
-  description: z.string().nullish(),
-  resolutionSource: z.string().nullish(),
-  events: z.array(z.object({ description: z.string().nullish(), resolutionSource: z.string().nullish() })).min(1),
-});
+const marketSchema = z
+  .object({
+    id: z.string().min(1),
+    question: z.string().min(1).nullish(),
+    slug: z.string().min(1).nullish(),
+    closed: z.boolean().nullish(),
+    endDate: z.string().nullish(),
+    liquidityNum: z.number().nullish(),
+    volumeNum: z.number().nullish(),
+    outcomePrices: z.string().nullish(),
+    description: z.string().nullish(),
+    resolutionSource: z.string().nullish(),
+    events: z
+      .array(z.object({ description: z.string().nullish(), resolutionSource: z.string().nullish() }).passthrough())
+      .min(1),
+  })
+  .passthrough();
 const marketsSchema = z.array(marketSchema);
 
 /**
@@ -53,13 +62,13 @@ const marketsSchema = z.array(marketSchema);
 const RESOLVES_FROM_OUR_OWN_SOURCES = /arena\.ai|lmarena|text arena/i;
 
 /**
- * A question about a model shipping. The AI tag is applied generously upstream -- it carried
- * Ubisoft's acquisition, Waymo's city count and the Chinese Military Companies list -- so the
- * question itself has to say a model is being released before it is read as one.
+ * A question about a model shipping. Tags are upstream editorial choices, so the question
+ * and resolution rules are checked too. "Launch a new" also admitted OpenAI consumer hardware;
+ * those bets cannot corroborate a model sighting.
  */
 const ASKS_ABOUT_A_RELEASE = /\breleased? by\b|\bdebut\b|model release|\blaunch(?:es|ed)? a new\b/i;
-const ASKS_ABOUT_A_COMPANY =
-  /valuation|market cap|\bIPO\b|acquir|Millennium|layoffs?|ticker|copyright|moratorium|military/i;
+const ASKS_ABOUT_OTHER_SUBJECTS =
+  /valuation|market cap|\bIPO\b|acquir|Millennium|layoffs?|ticker|copyright|moratorium|military|hardware/i;
 
 /**
  * Below this a price is one person's opinion rather than a market's. Measured: of 2990 open AI
@@ -96,12 +105,13 @@ function firstOutcomePrice(outcomePrices: string | null | undefined): number | n
 
 export function parsePolymarket(pages: readonly string[]): Collection {
   const records: RecordData[] = [];
+  const raw: z.infer<typeof marketSchema>[] = [];
   const seen = new Set<string>();
   for (const page of pages) {
     for (const market of marketsSchema.parse(JSON.parse(page))) {
       const question = market.question?.trim();
       if (!question || market.closed) continue;
-      if (!ASKS_ABOUT_A_RELEASE.test(question) || ASKS_ABOUT_A_COMPANY.test(question)) continue;
+      if (!ASKS_ABOUT_A_RELEASE.test(question) || ASKS_ABOUT_OTHER_SUBJECTS.test(question)) continue;
       const settledBy = `${market.description ?? ""} ${market.resolutionSource ?? ""} ${market.events.map((event) => `${event.description ?? ""} ${event.resolutionSource ?? ""}`).join(" ")}`;
       if (RESOLVES_FROM_OUR_OWN_SOURCES.test(settledBy)) continue;
       const liquidity = market.liquidityNum ?? 0;
@@ -110,6 +120,9 @@ export function parsePolymarket(pages: readonly string[]): Collection {
       if (price === null) continue;
       if (seen.has(market.id)) continue;
       seen.add(market.id);
+      // Keep the entire upstream object, including unknown fields and unrounded quotes, for
+      // each record we actually observe. Rejected markets cannot support any event we store.
+      raw.push(market);
       records.push({
         id: market.id,
         name: question,
@@ -123,12 +136,12 @@ export function parsePolymarket(pages: readonly string[]): Collection {
       });
     }
   }
-  if (!records.length) throw new SourceError("empty", "polymarket: the AI tag listed no release markets");
+  if (!records.length) throw new SourceError("empty", "polymarket: AI Releases listed no release markets");
   return {
     source: "polymarket",
     stream: "markets",
     url: POLYMARKET_URL,
-    raw: pages,
+    raw,
     trackChanges: true,
     // Asked with `closed=false`: a market leaves this answer by resolving. See Collection.churns.
     churns: true,
@@ -139,13 +152,13 @@ export function parsePolymarket(pages: readonly string[]): Collection {
 export async function collectPolymarket(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
   const pages: string[] = [];
   for (let page = 0; page < MAX_PAGES; page++) {
-    const url = `${GAMMA_MARKETS_URL}?closed=false&limit=${PAGE_SIZE}&offset=${page * PAGE_SIZE}&tag_id=${AI_TAG_ID}&liquidity_num_min=${LIQUIDITY_FLOOR_USD}`;
+    const url = `${GAMMA_MARKETS_URL}?closed=false&limit=${PAGE_SIZE}&offset=${page * PAGE_SIZE}&tag_id=${AI_RELEASES_TAG_ID}&liquidity_num_min=${LIQUIDITY_FLOOR_USD}`;
     const body = await fetchText(url, {}, request, undefined, cache);
     pages.push(body);
     // A short page is the end of the tag. Asking past it answers an empty array and costs a request.
     const count = marketsSchema.parse(JSON.parse(body)).length;
     if (count < PAGE_SIZE) break;
-    if (page === MAX_PAGES - 1) throw new SourceError("protocol", "Polymarket AI markets exceed six pages");
+    if (page === MAX_PAGES - 1) throw new SourceError("protocol", "Polymarket AI release markets exceed six pages");
   }
   return parsePolymarket(pages);
 }

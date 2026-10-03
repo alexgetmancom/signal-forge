@@ -15,9 +15,7 @@ test("a payload written now is zstd, and comes back as itself", () => {
 });
 
 test("a payload written before this change is still read back", () => {
-  // Every body in production is gzip, and nothing rewrites them: they have to stay readable for as
-  // long as retention keeps them, which is the whole reason the format is sniffed rather than
-  // assumed.
+  // A restored backup or an interrupted compaction may still hold gzip bodies.
   const gzipped = Bun.gzipSync(Buffer.from(payload));
   expect(payloadFormat(gzipped)).toBe("gzip");
   expect(decompressPayload(gzipped)).toBe(payload);

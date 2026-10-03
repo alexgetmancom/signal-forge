@@ -6,9 +6,10 @@ import { compressPayload, decompressPayload } from "./payloadCodec.js";
  * A collected payload, kept compressed.
  *
  * The bytes are the deepest evidence a card can be traced to, so they are stored exactly as they
- * arrived, only compressed — see `payloadCodec.ts` for which compressor and why, and for why the
- * ones already written are left alone. The hash identifies a payload without reading it back:
- * recognising an unchanged poll used to mean pulling a 21 MB page out of the database every time.
+ * arrived, only compressed — see `payloadCodec.ts` for which compressor and why. Repacking an
+ * older body changes only its compression, not these bytes or their hash. The hash identifies a
+ * payload without reading it back: recognising an unchanged poll used to mean pulling a 21 MB page
+ * out of the database every time.
  */
 export type StoredSnapshot = { id: number; hash: string; bytes: number };
 

@@ -8,7 +8,7 @@
  * commit message. "The sweep frees 17 MB" is not a thing anyone can check a week later.
  *
  * This is that measurement as a rehearsal phase. It runs the working tree's sweeps against a
- * writable copy of production and reports, per sweep, how many rows went and how many bytes the
+ * writable copy of production and reports, per sweep, how many rows changed and how many bytes the
  * file stopped needing. The copy is destroyed afterwards; nothing here touches production, and the
  * sweeps are the real ones from `src/storage/retention.ts` rather than a reimplementation, which is
  * the only version of this worth running.
@@ -18,7 +18,7 @@
  * a deploy is what hands them back to the filesystem. So "freed" here means "reusable", which is
  * the honest word and the one that explains why the file does not shrink the day a sweep ships.
  *
- * The fingerprint is over the rows removed per sweep, so the ledger can say that a change moved
+ * The fingerprint is over the rows affected per sweep, so the ledger can say that a change moved
  * what retention does -- or, more often, that it did not.
  *
  * Usage: bun scripts/rehearse-retention.ts <path/to/app.db> [--result <file>]
@@ -29,6 +29,7 @@ import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { foldCodeMetricDays } from "../src/runtime/metricFold.js";
+import { repackStoredPayloads } from "../src/storage/repack.js";
 import {
   expireSnapshotBodies,
   pruneFailureEvidence,
@@ -67,6 +68,13 @@ const SWEEPS: readonly { name: string; run: (db: Database) => number }[] = [
   { name: "prune operator journal", run: (db) => pruneOperatorJournal(db) },
   { name: "prune source shapes", run: (db) => pruneSourceShapes(db) },
   { name: "prune release renders", run: (db) => pruneReleaseRenders(db) },
+  {
+    name: "repack gzip bodies",
+    run: (db) => {
+      const result = repackStoredPayloads(db);
+      return result.snapshots + result.cacheEntries;
+    },
+  },
 ];
 
 /** Pages in the file, and pages nobody needs. The difference is what a sweep actually bought. */
@@ -120,7 +128,7 @@ try {
     // What `compact-storage` would hand back to the filesystem in the stopped phase of a deploy.
     reusableBytes: closing.free * closing.size,
     freedBytes,
-    rowsRemoved: rows,
+    rowsAffected: rows,
     integrity: integrity ?? "unknown",
     sweeps: swept,
   };

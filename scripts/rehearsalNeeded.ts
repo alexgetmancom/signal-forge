@@ -46,13 +46,13 @@ export const REQUIREMENTS: readonly Requirement[] = [
     phase: "evidence",
     because: "the form of a stored body, or what reads one",
     touches:
-      /^src\/(events\/(web|store|signals)\.ts|events\/render\/(attachment|common)\.ts|summary\/events\.ts|storage\/(webEvidence|payloadCodec|snapshots)\.ts)/,
+      /^src\/(events\/(web|store|signals)\.ts|events\/render\/(attachment|common)\.ts|summary\/events\.ts|storage\/(webEvidence|payloadCodec|snapshots|repack)\.ts)/,
   },
   {
     phase: "retention",
     because: "what a sweep removes, and what it frees",
     touches:
-      /^src\/(storage\/retention\.ts|runtime\/metricFold\.ts|runtime\/metricRecording\.ts|storage\/collectionDays\.ts)/,
+      /^src\/(storage\/(retention|repack|compact)\.ts|runtime\/metricFold\.ts|runtime\/metricRecording\.ts|storage\/collectionDays\.ts)/,
   },
   {
     phase: "migration",

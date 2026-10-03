@@ -52,13 +52,14 @@ test("a market that settles from a board this tracker collects is not a witness 
   expect(() => parsePolymarket([page([ours])])).toThrow(/no release markets/);
 });
 
-test("the AI tag's company questions and thin books are left where they are", () => {
+test("company questions, hardware launches and thin books are left where they are", () => {
   const rejected = [
     market({ id: "3", question: "Will Anthropic's valuation hit (HIGH) $3.0T by December 31?" }),
     market({ id: "4", question: "Will Ubisoft be acquired before 2027?" }),
     market({ id: "5", question: "Kimi K4 released by October 31, 2026?", liquidityNum: 900 }),
     market({ id: "6", question: "Claude 6 released by June 30, 2027?", closed: true }),
     market({ id: "7", question: "GPT-7 released by December 31, 2027?", outcomePrices: "[]" }),
+    market({ id: "2937573", question: "Will OpenAI launch a new consumer hardware product by October 31, 2026?" }),
   ];
   expect(() => parsePolymarket([page(rejected)])).toThrow(/no release markets/);
 });
@@ -66,9 +67,23 @@ test("the AI tag's company questions and thin books are left where they are", ()
 test("pages are joined and a market listed twice is stored once", () => {
   const collection = parsePolymarket([page([market({})]), page([market({})])]);
   expect(collection.records).toHaveLength(1);
+  expect(collection.raw).toEqual([market({})]);
 });
 
-test("the upstream query filters individual markets by liquidity", async () => {
+test("a snapshot keeps full accepted objects, including parent rules, but not rejected markets", () => {
+  const accepted = market({
+    image: "https://example.test/model.png",
+    spread: 0.013,
+    events: [
+      { id: "parent", description: "Official release required.", tags: [{ id: "105579", label: "AI Releases" }] },
+    ],
+  });
+  const collection = parsePolymarket([page([accepted, market({ id: "thin", liquidityNum: 900 })])]);
+  expect(collection.raw).toEqual([accepted]);
+  expect(collection.records[0]).toMatchObject({ price: 0.85, liquidityUsd: 14_000 });
+});
+
+test("the upstream query asks for AI Releases and filters individual markets by liquidity", async () => {
   const requested: string[] = [];
   const request = (async (url: string) => {
     requested.push(url);
@@ -77,8 +92,27 @@ test("the upstream query filters individual markets by liquidity", async () => {
   const collection = await collectPolymarket(request);
   expect(collection.records).toHaveLength(1);
   expect(requested).toEqual([
-    "https://gamma-api.polymarket.com/markets?closed=false&limit=100&offset=0&tag_id=439&liquidity_num_min=3000",
+    "https://gamma-api.polymarket.com/markets?closed=false&limit=100&offset=0&tag_id=105579&liquidity_num_min=3000",
   ]);
+});
+
+test("a full page still fetches later release markets at the next offset", async () => {
+  const offsets: string[] = [];
+  const request = (async (url: string) => {
+    const offset = new URL(url).searchParams.get("offset") ?? "";
+    offsets.push(offset);
+    return new Response(
+      page(
+        offset === "0"
+          ? Array.from({ length: 100 }, (_, index) => market({ id: String(index) }))
+          : [market({ id: "last" })],
+      ),
+    );
+  }) as typeof fetch;
+  const collection = await collectPolymarket(request);
+  expect(offsets).toEqual(["0", "100"]);
+  expect(collection.records).toHaveLength(101);
+  expect(collection.records.at(-1)?.id).toBe("last");
 });
 
 test("a full last page fails instead of silently dropping later markets", async () => {
