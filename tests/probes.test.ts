@@ -233,6 +233,8 @@ test("Z.ai is asked about no name a catalogue only aliases", async () => {
     "glm-5.5",
     "glm-6",
     "glm-6.5",
+    // The negative control, in the shape this site spells a guess.
+    "glm-99.99",
   ]);
 });
 
@@ -336,4 +338,45 @@ test("a heard name that met a server error was not answered, so it is asked agai
   expect(asked[0]).toContain("gpt-6-vela");
   // A 503 is not an answer, so five minutes later the name is still a question; a 404 would not be.
   expect(asked[1]).toContain("gpt-6-vela");
+});
+
+test("a site that answers 200 for an address that cannot exist publishes nothing from this poll", async () => {
+  if (!anthropic) throw new Error("the Anthropic probe is gone");
+  const asked: string[] = [];
+  // What `platform.claude.com` began doing on 2026-09-30: every path under the models directory is
+  // a 200, so the positive control passes and every guess looks like a sighting.
+  const catchAll = (async (input: string | URL | Request) => {
+    asked.push(String(input));
+    return new Response("the documentation shell", { status: 200 });
+  }) as unknown as typeof fetch;
+  const failure = await collectDocsProbe(catalogue(["claude-opus-5-5"]), anthropic, catchAll).catch(
+    (error: unknown) => error,
+  );
+  expect(failure).toBeInstanceOf(SourceError);
+  expect((failure as SourceError).kind).toBe("indiscriminate");
+  // Two addresses and no more: the guesses are never asked, because nothing they could answer would
+  // mean anything.
+  expect(asked).toEqual([
+    "https://platform.claude.com/docs/en/models/opus-5-5/overview",
+    "https://platform.claude.com/docs/en/models/opus-99-99/overview",
+  ]);
+});
+
+test("the negative control is asked in the shape of a guess, and a 404 from it lets the poll proceed", async () => {
+  if (!anthropic) throw new Error("the Anthropic probe is gone");
+  const asked: string[] = [];
+  const pages = answering({
+    "https://platform.claude.com/docs/en/models/opus-5-5/overview": "the model we ship",
+    "https://platform.claude.com/docs/en/models/opus-6/overview": "the model we have not announced",
+  });
+  const request = async (url: string) => {
+    asked.push(url);
+    return pages(url);
+  };
+  const collection = await collectDocsProbe(catalogue(["claude-opus-5-5"]), anthropic, request);
+  expect(collection.records.map((record) => record.id)).toEqual(["opus-6"]);
+  // Asked second, before any guess, through the same slug and address the guesses use.
+  expect(asked[1]).toBe("https://platform.claude.com/docs/en/models/opus-99-99/overview");
+  // And kept beside them, so the day a site turns indiscriminate is answerable afterwards.
+  expect((collection.raw as Record<string, { status: number }>)["opus-99-99"]).toMatchObject({ status: 404 });
 });

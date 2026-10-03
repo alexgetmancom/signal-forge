@@ -49,6 +49,7 @@ const KIND_PHRASE: Readonly<Record<FailureKind, string>> = {
   "bot-protection": "challenged by bot protection",
   schema: "response did not match the schema",
   "missing-content": "the page no longer carries what is read off it",
+  indiscriminate: "the site answers the same to an address that cannot exist",
   empty: "answered with nothing",
   protocol: "the exchange misbehaved",
   network: "network error",

@@ -28,7 +28,12 @@ export function calibrationOperations(db: Database, config: AppConfig, _all: () 
       startHere: "what the channel has actually voted for and against",
       note:
         "The readers' vote is arithmetic on purpose while the counts are this small. This is where " +
-        "the question of feeding them to Jev gets answered on evidence rather than on appetite.",
+        "the question of feeding them to Jev gets answered on evidence rather than on appetite. " +
+        "One card is one vote in every cut: a thumb is left under a delivery, and a digest carrying " +
+        "twenty-two names is still the one thumb its reader left. Until 2026-10-03 the tally summed " +
+        "over the events inside each card instead, which read 42 votes against where 14 cards had " +
+        "been voted on. A bot's own reaction is never in here either: Discord subtracts `me` and " +
+        "Telegram skips the bot's actor id, so what is counted is what a reader did.",
       mutates: false,
       agent: true,
       schema: z.object({ days: count(365, 60) }),

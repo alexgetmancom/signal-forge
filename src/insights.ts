@@ -4,6 +4,7 @@ import { signalOf } from "./events/classify.js";
 import type { Event } from "./events/types.js";
 import type { Fetch } from "./http-client.js";
 import { type Judgement, judgeEvents, judgementOf, worthCutoff } from "./jev.js";
+import { votedDeliveries } from "./reports/readerVotes.js";
 import { publishMonthlyAudit, publishWeeklyVotes } from "./review.js";
 import { olderThanKnown } from "./sources/mentionStage.js";
 import { summarizeForRecap } from "./summary/recap.js";
@@ -178,13 +179,10 @@ export function readersVote(db: Database, source: string, now = new Date()): "ag
   const since = new Date(now.getTime() - READERS_WINDOW_DAYS * 86_400_000).toISOString();
   const tally = db
     .query<{ against: number; favour: number }, [string, string]>(
-      `SELECT COALESCE(SUM(r.against),0) against, COALESCE(SUM(r.votes),0) favour
-         FROM scout_reactions r
-         JOIN delivery_events de ON de.delivery_id = r.delivery_id
-         JOIN events e ON e.id = de.event_id
-        WHERE e.source = ? AND e.detected_at >= ?`,
+      `SELECT COALESCE(SUM(against),0) against, COALESCE(SUM(votes),0) favour
+         FROM (${votedDeliveries("e.source", "e.source = ?")})`,
     )
-    .get(source, since);
+    .get(since, source);
   if (!tally) return null;
   return tally.against >= READERS_AGAINST && tally.against > tally.favour ? "against" : null;
 }

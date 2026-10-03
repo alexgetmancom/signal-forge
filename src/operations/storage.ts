@@ -2,8 +2,7 @@ import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
 import { storageReport } from "../reports/storage.js";
-import { HttpCache } from "../storage/httpCache.js";
-import { databaseSize, expireSnapshotBodies, pruneSnapshots, walBytes } from "../storage/retention.js";
+import { compactStorage } from "../storage/compact.js";
 import { count, type OperationMap } from "./definition.js";
 
 /**
@@ -28,7 +27,7 @@ export function storageOperations(db: Database, _config: AppConfig): OperationMa
         "below is about shape rather than about size. " +
         "`tables` weighs every table in the file, largest first, so the biggest thing in the " +
         "database is the first row rather than something to go looking for. Start there. It is the " +
-        "sum of every column of every row -- blobs as stored, so gzipped -- and `rows` is " +
+        "sum of every column of every row -- blobs as compressed and stored -- and `rows` is " +
         "`ANALYZE`'s estimate, null for a table it has not reached. `unaccountedBytes` is the file " +
         "less those and the free pages, and it is two things: indexes, plus the slack between a " +
         "payload and the pages it sits in. On 2026-10-03 that was 10.9 MB of indexes and about 13 " +
@@ -67,7 +66,7 @@ export function storageOperations(db: Database, _config: AppConfig): OperationMa
     },
     compact_storage: {
       section: "host",
-      summary: "Apply payload retention and return unused database pages to the filesystem.",
+      summary: "Apply retention, repack gzip bodies as zstd, and return unused database pages to the filesystem.",
       startHere: "cleanup released payloads, and the database file itself needs to shrink",
       note:
         "Runs SQLite VACUUM. Writers wait while the file is rebuilt; run during the stopped-app " +
@@ -76,42 +75,17 @@ export function storageOperations(db: Database, _config: AppConfig): OperationMa
         "number the filesystem agrees with -- a VACUUM writes the rebuilt database through the log, so " +
         "this truncates it afterwards -- but truncating needs to be the only connection, so on a running " +
         "service `walCheckpoint` comes back `busy`, `releasedDiskBytes` is zero and the log is returned " +
-        "by the next restart instead. Uses the status worker's snapshot and cache retention before compacting.",
+        "by the next restart instead. Uses the status worker's snapshot and cache retention, then " +
+        "repacks remaining gzip snapshot and HTTP cache bodies as zstd in small transactions. " +
+        "Each round trip is checked byte for byte; snapshot hashes, original sizes and references " +
+        "stay unchanged. `repacked` counts those bodies and their compressed bytes before and after; " +
+        "an interrupted repack resumes on the next run, and a completed one writes nothing next time.",
       mutates: true,
       agent: false,
       schema: z.object({}),
       cli: {},
       http: { method: "post", path: "/api/storage/compact" },
-      handler: () => {
-        const beforeBytes = databaseSize(db).bytes;
-        const started = performance.now();
-        const expiredBodies = expireSnapshotBodies(db);
-        const removedSnapshots = pruneSnapshots(db);
-        const removedCacheEntries = new HttpCache(db).prune();
-        const beforeWalBytes = walBytes(db);
-        db.exec("VACUUM");
-        // VACUUM rebuilds the whole database, and in WAL mode every page of it is written through
-        // the log, so the `-wal` file is left as large as the file it just rebuilt: 258 MB beside a
-        // 252 MB database on 2026-10-03, which is more disk than the 32 MB the VACUUM had given
-        // back. A passive checkpoint copies those pages home but keeps the file at that size for
-        // reuse, so the only one that returns the disk is TRUNCATE. Measuring the database alone
-        // reported a saving while the directory had grown.
-        db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
-        const afterBytes = databaseSize(db).bytes;
-        const afterWalBytes = walBytes(db);
-        return {
-          beforeBytes,
-          afterBytes,
-          releasedBytes: Math.max(0, beforeBytes - afterBytes),
-          beforeWalBytes,
-          afterWalBytes,
-          releasedDiskBytes: Math.max(0, beforeBytes + (beforeWalBytes ?? 0) - afterBytes - (afterWalBytes ?? 0)),
-          expiredBodies,
-          removedSnapshots,
-          removedCacheEntries,
-          elapsedMs: Math.round(performance.now() - started),
-        };
-      },
+      handler: () => compactStorage(db),
     },
   };
 }

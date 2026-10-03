@@ -37,6 +37,9 @@ import type { Vendor } from "./vendors.js";
  */
 const MAX_PLAUSIBLE_MAJOR = 10;
 
+/** The version the negative control asks for: well formed, far past anything any maker will ship. */
+const IMPOSSIBLE_VERSION: readonly [number, number] = [99, 99];
+
 /** At most this many codename-and-version guesses per poll, highest version first. */
 const CROSS_LIMIT = 12;
 
@@ -485,6 +488,38 @@ export async function collectDocsProbe(
     throw new SourceError("network", `${site.id}: the control address did not answer`);
   });
   if (answered !== 200) throw controlFailure(site, control, answered);
+  /**
+   * An address of the same shape that cannot exist, asked second, and the poll stops if it answers.
+   *
+   * The control above only proves the site still answers for a model it has; it cannot tell that
+   * apart from a site answering for everything, because a site answering for everything answers for
+   * that one too. On 2026-09-30 `platform.claude.com` began serving 200 at any path under
+   * `/docs/en/models/`, and twenty-two guessed names -- every next version of every tier -- were
+   * recorded as sightings in a single second and sent to the channel, where a reader rejected the
+   * card. A positive control is structurally blind to this: it passes precisely because the site is
+   * broken in the other direction.
+   *
+   * So the negative control asks for version 99.99 of the furthest tier, through the same `slug` and
+   * the same `ask` as every guess: a router that refuses a malformed path would otherwise pass this
+   * while still answering 200 for the well-formed guesses, which are the ones we believe. It is the
+   * same address every poll on purpose -- their cache keeps it cheap, and the stored `raw` carries
+   * its status, so the minute a site turned indiscriminate is answerable afterwards.
+   *
+   * It fails the poll rather than filtering the records: a probe that quietly returns nothing looks
+   * exactly like a maker who has shipped nothing, and that is the state this source is in for weeks
+   * at a time. A failure puts a sentence in `issues`.
+   */
+  const impossible = site.slug(furthest.family, IMPOSSIBLE_VERSION);
+  // Swallowed like a guess: an address that could not be asked has not answered 200 either, and the
+  // control above has already established that the site is reachable.
+  const refused = await askStatus(ask(impossible), request).catch(() => null);
+  if (refused === 200)
+    throw new SourceError(
+      "indiscriminate",
+      `${site.id}: an address that cannot exist answered HTTP 200, so no answer from this site is evidence`,
+      { evidence: { status: refused } },
+    );
+
   const asked = previouslyAsked(db, site.id);
   const candidates = new Set<string>();
   for (const { family, version } of families) {
@@ -522,6 +557,9 @@ export async function collectDocsProbe(
     records.push({ id: slug, name: slug, url: site.url(slug), maker: site.vendor, source: "documentation" });
   }
   tried[control] = { status: answered, at: stamp };
+  // Both controls are kept beside the guesses, so a later reader can date the day a site changed
+  // its mind about either of them.
+  if (refused !== null) tried[impossible] = { status: refused, at: stamp };
   // A question asked a month ago is no longer a reason not to ask again.
   const kept = Object.fromEntries(
     Object.entries(tried).filter(([, when]) => Date.parse(when.at) > now - HEARD_DAYS * 24 * 3_600_000),

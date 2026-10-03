@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import type { AppConfig } from "../config.js";
 import { buildSourceRegistry } from "../sources/registry.js";
 import { leadTime } from "./leadTime.js";
+import { votedDeliveries } from "./readerVotes.js";
 
 /**
  * Which collectors earn their place, read once a month.
@@ -104,9 +105,9 @@ export function sourceVerdicts(
   const reactions = new Map(
     db
       .query<{ source: string; n: number; against: number }, [string]>(
-        `SELECT e.source, SUM(r.votes) n, SUM(r.against) against FROM scout_reactions r
-         JOIN delivery_events de ON de.delivery_id=r.delivery_id JOIN events e ON e.id=de.event_id
-         WHERE e.detected_at>=? GROUP BY e.source`,
+        `SELECT key source, COALESCE(SUM(votes),0) n, COALESCE(SUM(against),0) against
+           FROM (${votedDeliveries("e.source")})
+          GROUP BY key`,
       )
       .all(since)
       .map((row) => [row.source, row]),

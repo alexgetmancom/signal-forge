@@ -44,3 +44,30 @@ test("the thumbs are reported by source and by kind, and say plainly that there 
   expect(report.against).toBe(3);
   expect(report.enoughToCalibrate).toBe(false);
 });
+
+test("a digest is one card and one vote in every cut of the tally", () => {
+  const db = channel();
+  const at = "2026-09-20T00:00:00.000Z";
+  db.query("INSERT INTO batches(id,source,digest,ready_at,kind) VALUES(100,'probe',1,?,'event')").run(at);
+  db.query(
+    `INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,status,updated_at)
+     VALUES(100,100,'discord-scouts','{}','x',0,'sent',?)`,
+  ).run(at);
+  for (let index = 0; index < 22; index += 1) {
+    const id = 1000 + index;
+    db.query(
+      `INSERT INTO events(id,source,stream,entity_id,kind,after_json,detected_at,snapshot_id,confidence,evidence_type,authority,signal)
+       VALUES(?,'probe','pages',?,'new','{}',?,1,'observed','web_diff','vendor_owned','codename')`,
+    ).run(id, `name-${id}`, at);
+    db.query("INSERT INTO delivery_events(delivery_id,event_id) VALUES(100,?)").run(id);
+  }
+  db.query("INSERT INTO scout_reactions(delivery_id,votes,against,read_at) VALUES(100,0,1,?)").run(at);
+
+  const report = reactionStandings(db, 60, now);
+  expect(report.sources.find((row) => row.key === "probe")).toMatchObject({ cards: 1, favour: 0, against: 1 });
+  expect(report.destinations.find((row) => row.key === "discord-scouts")).toMatchObject({ cards: 1, against: 1 });
+  expect(report.signals.find((row) => row.key === "codename")).toMatchObject({ cards: 1, against: 1 });
+  // Three dislikes under one card plus one under a digest of twenty-two: four, and nowhere near the floor.
+  expect(report.against).toBe(4);
+  expect(report.enoughToCalibrate).toBe(false);
+});

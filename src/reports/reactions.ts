@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { votedDeliveries } from "./readerVotes.js";
 
 /**
  * What the channel has actually voted on, by source and by the kind of card.
@@ -39,13 +40,9 @@ export function reactionStandings(db: Database, days = 60, now = Date.now()): Re
   const tally = (column: string): ReactionTally[] =>
     db
       .query<ReactionTally, [string]>(
-        `SELECT ${column} key, COUNT(*) cards, COALESCE(SUM(r.votes),0) favour, COALESCE(SUM(r.against),0) against
-           FROM scout_reactions r
-           JOIN delivery_events de ON de.delivery_id = r.delivery_id
-           JOIN deliveries d ON d.id = r.delivery_id
-           JOIN events e ON e.id = de.event_id
-          WHERE e.detected_at >= ? AND (r.votes > 0 OR r.against > 0)
-          GROUP BY 1 ORDER BY against DESC, favour DESC`,
+        `SELECT key, COUNT(*) cards, COALESCE(SUM(votes),0) favour, COALESCE(SUM(against),0) against
+           FROM (${votedDeliveries(column, "r.votes > 0 OR r.against > 0")})
+          GROUP BY key ORDER BY against DESC, favour DESC`,
       )
       .all(since);
   const sources = tally("e.source");

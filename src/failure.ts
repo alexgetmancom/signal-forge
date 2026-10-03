@@ -32,6 +32,8 @@ export type FailureKind =
   | "schema"
   /** The page or feed still loads and no longer carries what is read off it. */
   | "missing-content"
+  /** The upstream answered the same to a question it cannot have an answer to: its yes means nothing. */
+  | "indiscriminate"
   /** The answer was well formed and held nothing. */
   | "empty"
   /** The exchange itself misbehaved: a redirect with no target, a body over the limit. */

@@ -56,3 +56,31 @@ test("a source the channel voted against speaks with a weaker voice, and one it 
   // Votes expire: what the channel disliked in May is not what it is telling us today.
   expect(readersVote(db, "stale-blog", now)).toBeNull();
 });
+
+/** One card carrying many events, which is what a digest is and what the fan-out counted wrongly. */
+function digest(db: ReturnType<typeof openDatabase>, source: string, events: number, against: number) {
+  const at = "2026-09-20T00:00:00.000Z";
+  db.query("INSERT INTO batches(id,source,digest,ready_at,kind) VALUES(100,?,1,?,'event')").run(source, at);
+  db.query(
+    `INSERT INTO deliveries(id,batch_id,destination_id,destination_json,body,part,status,updated_at)
+     VALUES(100,100,'discord-scouts','{}','x',0,'sent',?)`,
+  ).run(at);
+  for (let index = 0; index < events; index += 1) {
+    const id = 1000 + index;
+    db.query(
+      `INSERT INTO events(id,source,stream,entity_id,kind,after_json,detected_at,snapshot_id,confidence,evidence_type,authority)
+       VALUES(?,?,'pages',?,'new','{}',?,1,'observed','web_diff','vendor_owned')`,
+    ).run(id, source, `name-${id}`, at);
+    db.query("INSERT INTO delivery_events(delivery_id,event_id) VALUES(100,?)").run(id);
+  }
+  db.query("INSERT INTO scout_reactions(delivery_id,votes,against,read_at) VALUES(100,0,?,?)").run(against, at);
+}
+
+test("one thumb under a digest is one vote, not one per name inside it", () => {
+  const db = channel();
+  // The card `discovery:docs-anthropic` drew on 2026-09-30: twenty-two names, one reader, one 👎.
+  digest(db, "discovery:docs-anthropic", 22, 1);
+  // A single tap is a mood under a digest exactly as it is under a card about one thing, and the
+  // fan-out used to make it twenty-two and silence the source.
+  expect(readersVote(db, "discovery:docs-anthropic", now)).toBeNull();
+});
