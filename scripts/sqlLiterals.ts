@@ -63,7 +63,13 @@ export function literals(text: string): Literal[] {
   return found;
 }
 
-/** The tables a statement reads or writes, as SQLite would resolve them. */
+/**
+ * The tables a statement reads or writes, as SQLite would resolve them.
+ *
+ * `set` is excluded because `ON CONFLICT ... DO UPDATE SET` matches the `update <name>` shape and
+ * is not a table. It is not a reserved word in this position, so a table called `set` would have to
+ * be quoted anyway, and there is none.
+ */
 export function tablesNamed(sql: string): string[] {
   const normalized = sql
     .replace(/'[^']*'/g, "''")
@@ -71,7 +77,9 @@ export function tablesNamed(sql: string): string[] {
     .toLowerCase();
   return [
     ...new Set(
-      [...normalized.matchAll(/\b(?:from|join|into|update)\s+"?([a-z_][\w]*)"?/g)].map((match) => match[1] as string),
+      [...normalized.matchAll(/\b(?:from|join|into|update)\s+"?([a-z_][\w]*)"?/g)]
+        .map((match) => match[1] as string)
+        .filter((name) => name !== "set"),
     ),
   ];
 }

@@ -250,6 +250,95 @@ for (const file of Object.keys(MAY_READ_EVERY_EVENT).sort())
     findings.push(`${file}: listed in MAY_READ_EVERY_EVENT and no longer reads every event -- delete the line.`);
 
 /**
+ * The sixth rule: a table SQL names is one the migrations create, or one of SQLite's own that the
+ * production build is known to have.
+ *
+ * `db.prepare` above is the parser that will run the statement -- on *this* machine. SQLite's
+ * eponymous virtual tables are compile-time options, and the two builds are not the same: Bun on
+ * macOS links a SQLite with `dbstat`, Bun on Debian and Alpine does not. So `src/reports/storage.ts`
+ * reading `dbstat` to weigh each table prepared cleanly here, passed all thirteen checks here, and
+ * was `no such table: dbstat` the moment it ran anywhere else. The whole report threw on production.
+ *
+ * CI caught it on Linux, an hour and a deploy later. This catches it on the machine that wrote it,
+ * because the schema the migrations build is the oracle and anything else has to be named here.
+ *
+ * Every entry below was verified inside the running container on 2026-10-03, which is the only
+ * thing that makes this list worth anything: `sqlite_master`, `sqlite_stat1`, `pragma_table_info`,
+ * `pragma_index_info` and `json_each` all answer there; `dbstat` is the one that does not. Adding a name means checking it there too --
+ * `ssh vm106`, `docker exec signal-forge-app-1 bun -e '...'` -- and not on this machine, where the
+ * answer is yes to things production has never had.
+ */
+const SQLITE_OWN_TABLES: Readonly<Record<string, string>> = {
+  sqlite_master: "the schema itself, which every build has",
+  pragma_table_info: "the columns of a table, which is how the storage report weighs one portably",
+  pragma_index_info: "the columns of an index, including the ones SQLite declared itself",
+  json_each: "JSON1, compiled into every Bun",
+};
+
+/**
+ * The names that are allowed to be missing from production, because the file naming them never runs
+ * there.
+ *
+ * `dbstat` is the whole reason: it is the only way to learn what one index costs, production's build
+ * does not have it, and the question is still worth asking -- of a copy, on this machine, which is
+ * where `probe`, `index-cost` and the rehearsals already do their work. The rule above is about a
+ * name reaching production; a script that cannot reach production is not it.
+ *
+ * `src/` is not eligible and the check says so: everything there is shipped, including the half of
+ * it that only an operator calls.
+ */
+const MAY_NAME_WHAT_PRODUCTION_LACKS: Readonly<Record<string, string>> = {
+  "scripts/index-cost.ts": "dbstat is the only per-index size there is, and this runs against a copy here",
+};
+
+/** The names a statement introduces itself, which are not tables and cannot be checked against one. */
+function commonTableExpressions(sql: string): string[] {
+  return [...sql.matchAll(/\b(?:with(?:\s+recursive)?|,)\s+([a-z_]\w*)\s+as\s*\(/gi)].map((match) =>
+    (match[1] as string).toLowerCase(),
+  );
+}
+
+const schemaTables = new Set(
+  db
+    .query<{ name: string }, []>("SELECT name FROM sqlite_master")
+    .all()
+    .map((row) => row.name.toLowerCase()),
+);
+const namedOwnTables = new Set<string>();
+const namedLocalOnly = new Set<string>();
+for (const statement of statements) {
+  const introduced = commonTableExpressions(statement.sql);
+  for (const table of tablesNamed(statement.sql)) {
+    if (schemaTables.has(table) || introduced.includes(table) || table === "?") continue;
+    if (table in SQLITE_OWN_TABLES) {
+      namedOwnTables.add(table);
+      continue;
+    }
+    if (statement.file in MAY_NAME_WHAT_PRODUCTION_LACKS) {
+      namedLocalOnly.add(statement.file);
+      continue;
+    }
+    findings.push(
+      `${statement.file}:${statement.line}: names \`${table}\`, which the migrations do not create. If it is ` +
+        "SQLite's own, it is a compile-time option this machine may have and production may not -- `dbstat` is " +
+        "exactly that, and shipped a report that threw. Check it inside the container, then add it to " +
+        `SQLITE_OWN_TABLES in this script: ${statement.sql.replace(/\s+/g, " ").trim()}`,
+    );
+  }
+}
+for (const [table, why] of Object.entries(SQLITE_OWN_TABLES))
+  if (!namedOwnTables.has(table))
+    findings.push(`${table}: listed in SQLITE_OWN_TABLES (${why}) and no longer named by any SQL -- delete the line.`);
+for (const [file, why] of Object.entries(MAY_NAME_WHAT_PRODUCTION_LACKS)) {
+  if (file.startsWith("src/"))
+    findings.push(`${file}: listed in MAY_NAME_WHAT_PRODUCTION_LACKS, but everything in src/ is shipped.`);
+  else if (!namedLocalOnly.has(file))
+    findings.push(
+      `${file}: listed in MAY_NAME_WHAT_PRODUCTION_LACKS (${why}) and names nothing production lacks -- delete the line.`,
+    );
+}
+
+/**
  * The fifth rule: a transaction in `src/` starts as a writer.
  *
  * A deferred `BEGIN` that reads before it writes is refused the moment another connection holds the
@@ -286,6 +375,8 @@ console.log(
     "every read of `sources` goes through the registry, and every read of an event body is one of the " +
     `${Object.keys(MAY_READ_BODIES).length} that answer with one, and every read of \`events\` is bounded by a ` +
     `window, a key, an aggregate or a limit apart from the ${Object.keys(MAY_READ_EVERY_EVENT).length} that are ` +
-    "projections of all of it, and every transaction in src/ starts as a writer" +
+    "projections of all of it, and every transaction in src/ starts as a writer, and every table named is one " +
+    `the migrations create or one of the ${Object.keys(SQLITE_OWN_TABLES).length} of SQLite's own that production's ` +
+    "build was checked to have" +
     `${unparsed ? ` (${unparsed} assembled at run time and not parsed)` : ""}.`,
 );
