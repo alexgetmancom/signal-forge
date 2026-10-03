@@ -4,6 +4,7 @@ import type { AppConfig } from "../config.js";
 import { tableReferences } from "../reports/references.js";
 import { coveredBy, queryShape } from "../reports/usage.js";
 import { readonlyDatabase } from "../storage/database.js";
+import { decompressPayload, payloadFormat } from "../storage/payloadCodec.js";
 import { readLatestSnapshot } from "../storage/snapshots.js";
 import { count, type OperationMap } from "./definition.js";
 
@@ -210,15 +211,16 @@ export function databaseOperations(db: Database, config: AppConfig, _all: () => 
  */
 const BLOB_CHARS = 2_000;
 
-/** A gzipped snapshot body prints as itself, cut short; any other blob prints as its size. */
+/** A compressed snapshot body prints as itself, cut short; any other blob prints as its size. */
 function readable(value: unknown): unknown {
   if (!(value instanceof Uint8Array)) return value;
-  if (value[0] === 0x1f && value[1] === 0x8b) {
+  const format = payloadFormat(value);
+  if (format !== null) {
     try {
-      const text = Buffer.from(Bun.gunzipSync(new Uint8Array(value))).toString("utf8");
+      const text = decompressPayload(value);
       return text.length > BLOB_CHARS ? `${text.slice(0, BLOB_CHARS)}… (${text.length} chars, see \`snapshot\`)` : text;
     } catch {
-      return `<gzip, ${value.byteLength} bytes, unreadable>`;
+      return `<${format}, ${value.byteLength} bytes, unreadable>`;
     }
   }
   return `<blob, ${value.byteLength} bytes>`;

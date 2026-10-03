@@ -46,7 +46,7 @@ export const REQUIREMENTS: readonly Requirement[] = [
     phase: "evidence",
     because: "the form of a stored body, or what reads one",
     touches:
-      /^src\/(events\/(web|store|signals)\.ts|events\/render\/(attachment|common)\.ts|summary\/events\.ts|storage\/webEvidence\.ts)/,
+      /^src\/(events\/(web|store|signals)\.ts|events\/render\/(attachment|common)\.ts|summary\/events\.ts|storage\/(webEvidence|payloadCodec|snapshots)\.ts)/,
   },
   {
     phase: "migration",

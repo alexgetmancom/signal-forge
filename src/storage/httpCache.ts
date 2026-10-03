@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { compressPayload, decompressPayload } from "./payloadCodec.js";
 
 /**
  * An HTTP cache, which is what this crawler was missing: every observation re-downloaded pages it
@@ -45,7 +46,7 @@ export class HttpCache {
       etag: row.etag,
       lastModified: row.last_modified,
       freshUntil: Date.parse(row.fresh_until_at),
-      body: Buffer.from(Bun.gunzipSync(new Uint8Array(row.body))).toString("utf8"),
+      body: decompressPayload(row.body),
     };
   }
 
@@ -56,14 +57,7 @@ export class HttpCache {
          ON CONFLICT(url) DO UPDATE SET etag=excluded.etag,last_modified=excluded.last_modified,
            fresh_until_at=excluded.fresh_until_at,body=excluded.body,used_at=excluded.used_at`,
       )
-      .run(
-        url,
-        entry.etag,
-        entry.lastModified,
-        instant(entry.freshUntil),
-        Bun.gzipSync(Buffer.from(entry.body)),
-        instant(now),
-      );
+      .run(url, entry.etag, entry.lastModified, instant(entry.freshUntil), compressPayload(entry.body), instant(now));
   }
 
   touch(url: string, freshUntil: number, now = Date.now()): void {
