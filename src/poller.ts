@@ -10,7 +10,7 @@ import { measure } from "./runtime/metricRecording.js";
 import { SourceHttpError } from "./sources/http.js";
 import { type SourceDefinition, sourceJobs } from "./sources/registry.js";
 import { collectInSubprocess } from "./sources/subprocess.js";
-import { foldCollectionDays } from "./storage/collectionDays.js";
+import { addCollectionToDay, addPeakToDay } from "./storage/collectionDays.js";
 import { recordFailureEvidence } from "./storage/failureEvidence.js";
 import { recordSourceShape } from "./storage/sourceShapes.js";
 import { writeTransaction } from "./storage/transaction.js";
@@ -232,8 +232,8 @@ async function collectSource(
             job.id,
             checkedAt,
           );
-          // Written after the store folded this day, so the day is folded again to carry it.
-          foldCollectionDays(db, Date.parse(checkedAt), 1);
+          // Written after the store counted this collection, so the peak is carried in separately.
+          addPeakToDay(db, job.id, checkedAt, child.peakRssMb);
         }
         return emitted;
       }),
@@ -266,7 +266,7 @@ async function collectSource(
         "INSERT INTO source_collection_metrics(source,collected_at,success,error,failure_kind) VALUES(?,?,0,?,?)",
       ).run(job.id, checkedAt, message, diagnosis.kind);
       // As on the success path: the fold is what the failure rates are read from.
-      foldCollectionDays(db, Date.parse(checkedAt), 1);
+      addCollectionToDay(db, job.id, checkedAt);
       if (diagnosis.evidence) recordFailureEvidence(db, job.id, checkedAt, diagnosis.kind, diagnosis.evidence);
       // A failure breaks consecutive confirmation of a disappearance.
       db.query("UPDATE records SET missing_count=0 WHERE source=?").run(job.id);
