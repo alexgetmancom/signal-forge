@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import { round } from "../numbers.js";
 import { bucketStart, DURATION_BUCKET_LIMITS_MS, emptyBuckets, METRIC_BUCKET_MS } from "./metricBuckets.js";
+import { foldedBefore } from "./metricFold.js";
 import { askedFrom, bounds, type TimingsQuery, type Window } from "./timingWindow.js";
 
 /**
@@ -221,8 +222,17 @@ export function codeAnalytics(db: Database, days = 7, now = Date.now(), query: T
   const asked = query.since ? askedFrom(db, query.since, now) : null;
   const opens = asked === null ? now - days * 24 * 3_600_000 : Math.ceil(asked / METRIC_BUCKET_MS) * METRIC_BUCKET_MS;
   const straddled = asked === null || opens === asked ? null : bucketStart(asked);
-  const since = new Date(asked ?? opens).toISOString();
-  const firstBucket = asked === null ? bucketStart(opens) : new Date(opens).toISOString();
+  // Past the fold the rows are one per day, so a window opening at 16:00 on an older day either
+  // takes all twenty-four hours of that day or none of them. It is opened at midnight instead, and
+  // `since` says the midnight rather than the moment asked for: a report that quietly dropped
+  // sixteen hours of the oldest day is the version of this that shipped for an afternoon.
+  const aligned =
+    opens < Date.parse(foldedBefore(now))
+      ? Date.parse(`${new Date(opens).toISOString().slice(0, 10)}T00:00:00.000Z`)
+      : opens;
+  const snapped = aligned !== opens;
+  const since = new Date(snapped ? aligned : (asked ?? opens)).toISOString();
+  const firstBucket = asked === null && !snapped ? bucketStart(opens) : new Date(aligned).toISOString();
   const window: Window = { from: firstBucket, to: until, wanted: query.name?.toLowerCase() ?? "" };
   const metrics = db
     .query<SectionTotals, [string, string, string]>(SECTION_TOTALS)
@@ -248,7 +258,7 @@ export function codeAnalytics(db: Database, days = 7, now = Date.now(), query: T
     until,
     // What the window actually covers, which is not what was asked for once `--since` names a
     // moment inside an hour: a report saying 7 days over a 40-minute window is the wrong answer.
-    days: asked === null ? days : round((now - opens) / 86_400_000, 3),
+    days: asked === null && !snapped ? days : round((now - aligned) / 86_400_000, 3),
     straddled,
     totals: {
       calls,

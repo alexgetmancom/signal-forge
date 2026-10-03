@@ -252,9 +252,16 @@ function timingsOperation(db: Database): OperationMap[string] {
       "table, and ten raw `sql` queries were written against `code_metrics` by hand rather than " +
       "found. Ask `timings --name pipeline --limit 5`; the per-hour series needs `--timeline` " +
       "because the usual question is what is slow, not when. After a deploy ask " +
-      "`timings --since boot`: buckets are hourly, so a release at 13:34 poisons the 13:00 one, " +
+      "`timings --since boot`: buckets are hourly for two days and one per day beyond that, so a " +
+      "release at 13:34 poisons the 13:00 one, " +
       "and `--since` names that hour in `straddled` and leaves it out rather than averaging the " +
-      "two builds together. It also takes an ISO instant or a span such as 90m, 6h, 2d. Beside each " +
+      "two builds together. It also takes an ISO instant or a span such as 90m, 6h, 2d. The fold " +
+      "past two days is why the window may be 90: every number here except the timeline's " +
+      "resolution is a sum, a min or a max, and those are the same whether they were kept by the " +
+      "hour or by the day -- so a question about last month is answered from 14,000 rows instead " +
+      "of 175,000. A window reaching past two days opens at the midnight before it rather than at " +
+      "the moment asked for, because a folded day is one row and a window opening inside it would " +
+      "take all of the day or none; `since` reports the midnight it actually opened at. Beside each " +
       "duration it says what the section added to the floor: `peakGrowthMb` is the sum over the " +
       "window and `maxPeakGrowthMb` the worst single call, read off the kernel's monotone high-water " +
       "mark rather than sampled, so a rebuild that holds 200 MB for under a second -- invisible to " +

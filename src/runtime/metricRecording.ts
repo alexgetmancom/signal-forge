@@ -6,10 +6,14 @@ import { peakGrowthKb, peakKb } from "./peak.js";
 /**
  * How long an hour of code metrics is kept, and the longest window any report of them may ask for.
  *
- * Ninety days was the horizon while nobody had weighed the table. It is 1.17 MB a day after
- * migration 075 -- 173,162 rows for 23 days of production, 590 names in hourly buckets -- so ninety
- * days is a steady state of 105 MB for a table whose default window is seven days, and it was the
- * second-largest thing in the database on the way there.
+ * Ninety days was the horizon while nobody had weighed the table, and 1.17 MB a day after migration
+ * 075 -- 173,162 rows for 23 days of production, 590 names in hourly buckets -- made that a steady
+ * state of 105 MB for a table whose default window is seven days. It was cut to thirty.
+ *
+ * It is ninety again, because the hours past `HOURLY_METRIC_DAYS` are now folded into days:
+ * `foldCodeMetricDays` leaves one row per name per day, which on production's 24 days is 14,160
+ * rows where 175,366 were. Ninety folded days plus two hourly ones is around 7 MB, against the 35
+ * that thirty hourly days cost.
  *
  * Exported because a horizon that only retention knows about is a report that answers short:
  * `timings` and `collection-cost` cap their `days` at this, so a question that reaches past the
@@ -17,12 +21,11 @@ import { peakGrowthKb, peakKb } from "./peak.js";
  * reads child peaks from `source_collection_days`, which keeps ninety, and parent growth from here;
  * one cap for the whole report is why its two halves cannot disagree about the window.
  *
- * Thirty days of hourly resolution, rather than a fold into days beyond a short horizon. The fold
- * is what would buy ninety days back for a few megabytes, and it is not written: every slot of an
- * 18-bucket histogram has to be summed per day and `timings` has to read two resolutions in one
- * timeline, which is a design, not a constant.
+ * What the fold costs is resolution in `timings`' timeline, and only past two days: one point per
+ * hour inside the hourly horizon and one per day outside it. Every other number in that report is
+ * a sum, a min or a max over the window and is unchanged.
  */
-export const METRIC_DAYS = 30;
+export const METRIC_DAYS = 90;
 const RETENTION_DAYS = METRIC_DAYS;
 function durationBucket(durationMs: number): number {
   const index = DURATION_BUCKET_LIMITS_MS.findIndex((limit) => durationMs <= limit);

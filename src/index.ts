@@ -16,6 +16,7 @@ import { pollSources } from "./poller.js";
 import { promoteVouchedMessages } from "./promotion.js";
 import { syncPublications } from "./publications.js";
 import { scheduleRecaps } from "./recapSchedule.js";
+import { foldCodeMetricDays } from "./runtime/metricFold.js";
 import { measure, pruneCodeMetrics } from "./runtime/metricRecording.js";
 import { logMemoryUsage, recordRuntimeStart, recordRuntimeStop, sampleMemory } from "./runtime/observability.js";
 import { stopServerGracefully } from "./runtime/shutdown.js";
@@ -125,6 +126,9 @@ supervisor.register(
       log("error", "Operational alert probe failed", { error });
     }
     // Each step is timed on its own: the cycle takes seconds and its total does not say which.
+    // Folded before pruned: a day that has become one row is a day the ninety-day horizon can
+    // afford to keep, and folding after deleting would fold what is left of a day half gone.
+    measure(db, "status.fold:metric-days", () => foldCodeMetricDays(db));
     measure(db, "status.prune:metrics", () => pruneCodeMetrics(db));
     measure(db, "status.prune:snapshots", () => pruneSnapshots(db));
     // Folded before pruned, and in that order: the prune refuses to delete a day the fold has not

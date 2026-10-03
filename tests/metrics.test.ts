@@ -118,11 +118,21 @@ describe("a window that starts at a named moment", () => {
     expect(() => codeAnalytics(db, 7, Date.now(), { since: "last tuesday" })).toThrow(/Cannot read/);
   });
 
-  test("counting back whole days straddles nothing and keeps the older window", () => {
+  test("counting back whole days straddles nothing, and opens at midnight once it reaches the fold", () => {
     const db = memoryDatabase();
     const report = codeAnalytics(db, 7, Date.parse("2026-09-25T14:50:00.000Z"));
+    // `straddled` is about an hour holding both sides of a named moment, and counting back days
+    // never names one.
     expect(report.straddled).toBeNull();
-    expect(report.days).toBe(7);
+    // Seven days from 14:50 reaches past the two hourly ones into days that are a single row at
+    // midnight, so the window opens at that midnight and covers a little more than asked. `days`
+    // is what it covers rather than what was asked for, which is the same rule `--since` follows.
+    expect(report.since).toBe("2026-09-18T00:00:00.000Z");
+    expect(report.days).toBe(7.618);
+    // A window that stays inside the hourly rows is untouched.
+    const short = codeAnalytics(db, 1, Date.parse("2026-09-25T14:50:00.000Z"));
+    expect(short.since).toBe("2026-09-24T14:50:00.000Z");
+    expect(short.days).toBe(1);
   });
 });
 
