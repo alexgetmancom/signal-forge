@@ -26,6 +26,7 @@
  *   bun run rehearse --all                 every phase, including the ones that are not about cards
  *   bun run rehearse --only projections    one of them
  *   bun run rehearse --only evidence       what every reader derives from every stored event
+ *   bun run rehearse --only retention     what a sweep would free on production, measured
  *   bun run rehearse --needed              the ones this branch's diff owes, worked out rather than remembered
  *   bun run rehearse --list                what the phases are
  *   bun run rehearse --prune               throw the copy and everything derived from it away
@@ -144,6 +145,12 @@ const PHASES: Phase[] = [
     always: false,
     what: "whether an incremental Model Facts or hypotheses update lands where a rebuild does",
     run: () => ["scripts/rehearse-projections.ts"],
+  },
+  {
+    name: "retention",
+    always: false,
+    what: "how many rows a sweep removes and how many bytes that makes reusable",
+    run: (_unpacked, resultPath) => ["scripts/rehearse-retention.ts", copy, "--result", resultPath],
   },
   {
     name: "migration",

@@ -49,6 +49,12 @@ export const REQUIREMENTS: readonly Requirement[] = [
       /^src\/(events\/(web|store|signals)\.ts|events\/render\/(attachment|common)\.ts|summary\/events\.ts|storage\/(webEvidence|payloadCodec|snapshots)\.ts)/,
   },
   {
+    phase: "retention",
+    because: "what a sweep removes, and what it frees",
+    touches:
+      /^src\/(storage\/retention\.ts|runtime\/metricFold\.ts|runtime\/metricRecording\.ts|storage\/collectionDays\.ts)/,
+  },
+  {
     phase: "migration",
     because: "the schema production is holding",
     touches: /^src\/storage\/(migrations\/|migrations\.ts|hotQueries\.ts)/,

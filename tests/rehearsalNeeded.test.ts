@@ -41,6 +41,7 @@ describe("what a change owes", () => {
       "policy",
       "projections",
       "reports",
+      "retention",
     ]);
   });
 });
