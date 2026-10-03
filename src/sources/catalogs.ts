@@ -89,11 +89,33 @@ const anthropicModel = z.object({
   max_tokens: z.number().int().positive().nullish(),
   capabilities: z.record(z.string(), z.unknown()).nullish(),
 });
-/** The names a capability object offers, minus the flag that says the group itself is on. */
-function capabilityNames(value: unknown): string[] | null {
-  if (!value || typeof value !== "object") return null;
-  const names = Object.keys(value as Record<string, unknown>).filter((key) => key !== "supported");
-  return names.length ? names.sort() : null;
+/**
+ * The names a capability group supports, which is not the names it mentions.
+ *
+ * Anthropic lists every level it knows under `effort` and every dated feature under
+ * `context_management`, each carrying its own `supported`, and the group carries one too. Reading
+ * the keys alone published what the account cannot use as though it could: measured against the
+ * stored 2026-10-01 payload, five of thirteen models stored effort levels the API marks
+ * unsupported and three stored `compact_20260112` the same way, and for two of them the group
+ * itself said `supported: false` while five levels were stored under it.
+ *
+ * A member with no `supported` at all is kept. A name appearing is the vendor shipping something,
+ * and a name it declines to flag is still a name it did not have last week; only an explicit `false`
+ * is the vendor saying no.
+ */
+function supportedNames(value: unknown): string[] | null {
+  const group = anthropicCapability.safeParse(value).data;
+  if (!group || group.supported === false) return null;
+  const names = Object.entries(value as Record<string, unknown>)
+    .filter(([key, member]) => key !== "supported" && anthropicCapability.safeParse(member).data?.supported !== false)
+    .map(([name]) => name)
+    .sort();
+  return names.length ? names : null;
+}
+
+/** One member of a capability group, for the groups whose members are themselves a group. */
+function capabilityMember(value: unknown, name: string): unknown {
+  return anthropicCapability.safeParse(value).data?.[name];
 }
 /**
  * One model as this service stores it. The capability tree is kept as the names it offers rather
@@ -113,9 +135,15 @@ function anthropicRecord(model: z.infer<typeof anthropicModel>): RecordData {
     ...(model.max_input_tokens ? { context: model.max_input_tokens } : {}),
     ...(model.max_tokens ? { maxOutput: model.max_tokens } : {}),
     ...(supported.length ? { capabilities: supported } : {}),
-    ...(capabilityNames(capabilities.effort) ? { effortLevels: capabilityNames(capabilities.effort) } : {}),
-    ...(capabilityNames(capabilities.context_management)
-      ? { contextManagement: capabilityNames(capabilities.context_management) }
+    ...(supportedNames(capabilities.effort) ? { effortLevels: supportedNames(capabilities.effort) } : {}),
+    ...(supportedNames(capabilities.context_management)
+      ? { contextManagement: supportedNames(capabilities.context_management) }
+      : {}),
+    // `thinking` is supported by every model here, and which kinds of it are is the part that moves:
+    // `adaptive` is on and `enabled` is off across the whole 2026-10-01 payload, and the group flag
+    // alone said neither.
+    ...(supportedNames(capabilityMember(capabilities.thinking, "types"))
+      ? { thinkingTypes: supportedNames(capabilityMember(capabilities.thinking, "types")) }
       : {}),
   };
 }

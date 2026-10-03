@@ -791,6 +791,55 @@ test("the Anthropic catalogue keeps the capability matrix its own API states", a
   });
 });
 
+test("the Anthropic catalogue stores the levels a model supports, not the ones it is told about", async () => {
+  /**
+   * The shape production actually serves, copied from the stored 2026-10-01 payload: every member
+   * of a group carries its own `supported`, and the group carries one too. The fixture above was
+   * written from the field names rather than from a real body, which is how reading the keys alone
+   * survived -- against production it stored five unsupported effort levels for five of thirteen
+   * models, and `compact_20260112` for three.
+   */
+  const read = async (capabilities: unknown) =>
+    (
+      await collectAnthropic(
+        loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname }),
+        async () =>
+          Response.json({
+            data: [{ id: "m", display_name: "M", created_at: "2026-09-28T00:00:00Z", capabilities }],
+            has_more: false,
+            last_id: "m",
+          }),
+      )
+    ).records[0];
+
+  const retired = await read({
+    effort: { supported: false, low: { supported: false }, medium: { supported: false } },
+    context_management: {
+      supported: true,
+      clear_tool_uses_20250919: { supported: true },
+      compact_20260112: { supported: false },
+    },
+    thinking: { supported: true, types: { enabled: { supported: false }, adaptive: { supported: true } } },
+  });
+  // The group itself says no, so there are no levels under it to store.
+  expect(retired).not.toHaveProperty("effortLevels");
+  expect(retired).toMatchObject({
+    contextManagement: ["clear_tool_uses_20250919"],
+    // Which kinds of thinking are on is the part that moves; the group flag alone said neither.
+    thinkingTypes: ["adaptive"],
+  });
+
+  const current = await read({
+    effort: { supported: true, low: { supported: true }, medium: { supported: true }, max: { supported: false } },
+    thinking: { supported: true, types: { adaptive: { supported: true } } },
+  });
+  expect(current).toMatchObject({ effortLevels: ["low", "medium"], thinkingTypes: ["adaptive"] });
+
+  // A member the vendor declines to flag is still a name it did not have last week.
+  const unflagged = await read({ effort: { supported: true, low: {}, xhigh: {} } });
+  expect(unflagged).toMatchObject({ effortLevels: ["low", "xhigh"] });
+});
+
 test("a model the Anthropic catalogue states nothing extra about keeps the three fields it had", async () => {
   const c = await collectAnthropic(
     loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname }),
