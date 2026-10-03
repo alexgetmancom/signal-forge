@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { isTellableDebut } from "./boardSignals.js";
+import { isTellableDebut, isUnannouncedBoard } from "./boardSignals.js";
 import { canonical } from "./canonical.js";
 import { normalizeIdentity } from "./identity.js";
 import { opensByAnnouncing } from "./newsrooms.js";
@@ -42,6 +42,9 @@ export function isMinorBoardMove(event: Event): boolean {
   if (event.stream !== "leaderboards") return false;
   const before = event.before_json ? (JSON.parse(event.before_json) as RecordData) : null;
   const after = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
+  // A board nobody here acts on is minor whatever happened on it, including a first place: see
+  // `isUnannouncedBoard`.
+  if (isUnannouncedBoard(event)) return true;
   const place = Number(after?.rank ?? Number.NaN);
   // A debut is told to the tenth place on a board people quote; a row moving is told to the third.
   if (event.kind === "new") return !(isTellableDebut(event) || (Number.isFinite(place) && place <= TOP_PLACES));

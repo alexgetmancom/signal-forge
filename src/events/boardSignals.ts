@@ -84,6 +84,37 @@ export function boardInterest(event: Event): number {
 }
 
 /**
+ * The Arena boards this service announces.
+ *
+ * Arena runs eleven boards and a model arriving near the top of any of them used to be a card. Two
+ * of them are what these readers act on: the coding board, because what they do with a model is
+ * write code with it, and the general text board, because taking first place there is the state of
+ * the art changing hands. The other nine are sightings for the scouts.
+ *
+ * `gpt-6.1-sol-max` entering vision at #10 on 2026-10-02 went to both public channels and came back
+ * with two votes down and one up. Its code debut at #3 two days earlier is the card that was
+ * wanted; the vision row is a fourth message about a model the channel had already had the launch,
+ * the pricing and an Artificial Analysis placing for.
+ *
+ * This is deliberately a board rule and not a source rule: Artificial Analysis is a different
+ * source with its own boards, and `MAIN_BOARDS` still answers for them.
+ */
+const ANNOUNCED_ARENA_BOARDS = new Set(["code/overall", "text/overall"]);
+
+/**
+ * An Arena row on a board this service does not announce, whatever it did.
+ *
+ * Asked of every kind, not only of an arrival: a vision or text-to-image row taking first place is
+ * the same board nobody here asked about. Both delivery gates read this, so neither can answer it
+ * differently -- which is the failure `isTellableDebut` was written for.
+ */
+export function isUnannouncedBoard(event: Event): boolean {
+  if (event.source !== "arena-leaderboards" || event.stream !== "leaderboards") return false;
+  const category = recordFor(event)?.category;
+  return typeof category === "string" && !ANNOUNCED_ARENA_BOARDS.has(category);
+}
+
+/**
  * A debut a reader repeats: a new row in the leading places of a board people quote.
  *
  * The threshold lived twice. `DEBUT_PLACES` called the top ten a debut and gave the class its name,
@@ -95,6 +126,7 @@ export function boardInterest(event: Event): number {
  */
 export function isTellableDebut(event: Event): boolean {
   if (event.stream !== "leaderboards" || event.kind !== "new") return false;
+  if (isUnannouncedBoard(event)) return false;
   const place = boardPlace(event);
   return place !== null && place <= DEBUT_PLACES && isMainBoard(recordFor(event)?.category);
 }

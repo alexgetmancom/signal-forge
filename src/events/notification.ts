@@ -1,4 +1,4 @@
-import { DEBUT_PLACES, isTellableDebut } from "./boardSignals.js";
+import { DEBUT_PLACES, isTellableDebut, isUnannouncedBoard } from "./boardSignals.js";
 import { canonical } from "./canonical.js";
 import { incidentSilence } from "./incidents.js";
 import { MIN_PRICE_CHANGE_RATIO, priceMoveRatio, significantPriceChange, webStringChanges } from "./render/common.js";
@@ -30,6 +30,8 @@ function significantTokenLimitChange(before: unknown, after: unknown): boolean {
  */
 function leaderboardSilence(event: Event): string | null {
   if (event.stream !== "leaderboards") return null;
+  // The same gate as `isMinorBoardMove`, asked through the same function so the two cannot drift.
+  if (isUnannouncedBoard(event)) return "A board this service does not announce";
   const before = event.before_json ? (JSON.parse(event.before_json) as Record<string, unknown>) : null;
   const after = event.after_json ? (JSON.parse(event.after_json) as Record<string, unknown>) : null;
   const beforeRank = rank(before?.rank);

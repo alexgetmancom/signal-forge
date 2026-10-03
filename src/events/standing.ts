@@ -13,6 +13,7 @@ import type { Database } from "bun:sqlite";
 import { newsroomVote, readersVote } from "../insights.js";
 import { judgementOf } from "../jev.js";
 import { isFixesOnlyRelease } from "./buildWorth.js";
+import { followsAnOldLaunch } from "./debutAge.js";
 import { isAliasRow, isAnotherServing, isAnotherTierOfAListedModel, knownModelNames } from "./nameWorth.js";
 import { isScheduledPricingRotation } from "./oscillation.js";
 import { isPageWithoutAProduct } from "./pageWorth.js";
@@ -118,6 +119,8 @@ export type BatchView = {
 export function standingReason(db: Database, event: Event, view: BatchView): SuppressionReason | null {
   if (view.renamed.has(event.id)) return "renamed_by_the_source";
   if (isMinorBoardMove(event)) return "below_the_top_of_the_board";
+  // A board placing is the second half of a launch, and stops being one; see followsAnOldLaunch.
+  if (followsAnOldLaunch(db, event)) return "the_launch_it_follows_is_old_news";
   if (isAnotherServing(event, view.known)) return "another_serving_of_a_known_model";
   if (event.signal === "article" || event.signal === "business") {
     // Jev reads the post the word rule can only pattern-match; see newsroomVote.

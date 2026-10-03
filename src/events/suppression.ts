@@ -43,6 +43,7 @@ const SUPPRESSION_REASONS = [
   "same_release_on_another_page",
   "announced_before_it_was_sighted",
   "the_modality_a_price_list_bills_for",
+  "the_launch_it_follows_is_old_news",
 ] as const;
 
 export type SuppressionReason = (typeof SUPPRESSION_REASONS)[number];
@@ -67,6 +68,8 @@ function suppressionDetail(event: Event, reason: SuppressionReason): string {
       return "The move ended where this destination last saw it";
     case "renamed_by_the_source":
       return "An identical record arrived or left under another key in the same few hours";
+    case "the_launch_it_follows_is_old_news":
+      return "A board placing more than a day after this model was first sighted here";
     case "below_the_top_of_the_board":
       return "A place on a benchmark outside the leading three, and not the top changing hands";
     case "another_serving_of_a_known_model":

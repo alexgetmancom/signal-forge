@@ -58,10 +58,19 @@ test("a board speaks for the leading places and for the top changing hands", () 
   prepareDeliveries(db, Date.parse("2026-09-14T02:00:00.000Z"));
 
   const reasons = suppressed(db);
-  // Fifth place is outside the leading places by both guards now that they share one number, and
-  // the notification filter is the one that reaches it first.
-  expect(reasons["image-to-code:fifth"]).toBe("no_reader_facing_change");
-  expect(reasons["image-to-code:second"]).toBeUndefined();
+  // Fifth place is outside the leading places by both guards now that they share one number.
+  expect(reasons["image-to-code:fifth"]).toBeDefined();
+  // And second place says nothing either, because this is not the board this service announces:
+  // image-to-code is one of the ten Arena boards that are sightings for the scouts.
+  expect(reasons["image-to-code:second"]).toBe("no_reader_facing_change");
+  expect(
+    db
+      .query<{ detail: string }, []>(
+        `SELECT s.detail FROM suppressions s JOIN events e ON e.id=s.event_id
+         WHERE e.entity_id='image-to-code:second'`,
+      )
+      .get()?.detail,
+  ).toBe("A board this service does not announce");
   db.close();
 });
 
