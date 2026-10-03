@@ -2,6 +2,12 @@ import { expect, test } from "bun:test";
 import { openDatabase } from "../src/storage/database.js";
 import { HOT_QUERIES, scansATable } from "../src/storage/hotQueries.js";
 
+test("the reads allowed to scan are the ones that say why", () => {
+  const declared = HOT_QUERIES.filter((query) => query.scansByDesign !== undefined);
+  expect(declared.map((query) => query.name)).toEqual(["the timings totals, with each name's newest failure"]);
+  for (const query of declared) expect(query.scansByDesign?.length).toBeGreaterThan(40);
+});
+
 test("a scan is told from a search, including the covering kind", () => {
   expect(scansATable("SCAN events")).toBe(true);
   expect(scansATable("SEARCH events USING INDEX events_detected_at (detected_at>?)")).toBe(false);
@@ -24,10 +30,12 @@ test("every hot read runs, and every one of them uses an index", () => {
     // A failure here means either an index was removed or a query was written that nothing serves.
     // Both are worth a broken test: an index nobody reads and a read nobody indexed look the same
     // from production, which is exactly what migration 049 demonstrated.
+    // A read that scans on purpose says so in its entry, with the reason; everything else must be
+    // served by an index that exists.
     expect({ name: query.name, plan, scans: scansATable(plan) }).toEqual({
       name: query.name,
       plan,
-      scans: false,
+      scans: query.scansByDesign !== undefined,
     });
   }
   db.close();

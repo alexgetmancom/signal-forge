@@ -13,7 +13,21 @@
  *
  * The parameters are placeholders: a plan depends on the shape of a query, never on its literals.
  */
-export type HotQuery = { name: string; sql: string; params: readonly (string | number)[] };
+export type HotQuery = {
+  name: string;
+  sql: string;
+  params: readonly (string | number)[];
+  /**
+   * Why this read is allowed to scan, for the few that are.
+   *
+   * Most of these exist because an index serves them, and a scan means the index went away. One
+   * does not: the timings totals group every instrumented name over a window, so the rows it reads
+   * are the rows it answers from and there is nothing for an index to narrow. It is here to be
+   * timed rather than to be indexed, and a reason written down is the difference between that and
+   * a read nobody noticed was scanning.
+   */
+  scansByDesign?: string;
+};
 
 /**
  * The reads over what a source said, and what we derived from it.
@@ -44,9 +58,34 @@ const INTAKE_QUERIES: readonly HotQuery[] = [
     params: ["2026-01-01"],
   },
   {
-    name: "one metric name's buckets in a window",
-    sql: "SELECT last_error_type FROM code_metrics WHERE name = ? AND bucket_start >= ? AND last_error_at IS NOT NULL",
-    params: ["poll.cycle", "2026-01-01T00:00:00.000Z"],
+    // The read that proved a plan is not a cost. This is `timings`' own totals, correlated subquery
+    // and all, and it is here as the whole statement rather than as a representative fragment
+    // because the fragment is what was here before and it is the fragment that was fast. Written
+    // once with the day leading the key it answered in 6,979 ms instead of 191, with every step of
+    // the plan still a SEARCH -- the subquery had lost its per-name seek and re-sought the range
+    // for each of the eighty-odd names. Only the clock says that.
+    name: "the timings totals, with each name's newest failure",
+    sql: `SELECT m.name, SUM(m.calls) AS calls,
+                 (SELECT f.last_error_type FROM code_metrics f
+                   WHERE f.name=m.name AND f.bucket_start>=?1 AND f.bucket_start<=?2
+                     AND f.last_error_at IS NOT NULL
+                   ORDER BY f.last_error_at DESC, f.bucket_start LIMIT 1) AS lastErrorType
+          FROM code_metrics m WHERE m.bucket_start>=?1 AND m.bucket_start<=?2 GROUP BY m.name`,
+    params: ["2026-01-01T00:00:00.000Z", "2027-01-01T00:00:00.000Z"],
+    scansByDesign:
+      "it groups every instrumented name over the window, so the rows read are the rows answered " +
+      "from. On production, where ANALYZE has run, the planner turns it into a skip-scan of the " +
+      "key; on an empty database it is a plain scan of the range. Either way the cost is the " +
+      "window, which is what METRIC_DAYS caps.",
+  },
+  {
+    // The seek the incremental fold does on every collection, and the only read that names the
+    // largest index in the database. It was missing: `index-cost` reported
+    // `source_collection_metrics_source_time` at 14.1 MB with no hot read, and the reason was that
+    // the read is inside an INSERT ... SELECT. A write path's seek is as hot as any other.
+    name: "one attempt by source and time",
+    sql: "SELECT records_processed, peak_rss_mb FROM source_collection_metrics WHERE source = ? AND collected_at = ?",
+    params: ["arena", "2026-01-01T00:00:00.000Z"],
   },
   {
     name: "failures of one source",
