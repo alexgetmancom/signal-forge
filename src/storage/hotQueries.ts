@@ -32,9 +32,10 @@ export type HotQuery = {
 /**
  * The reads over what a source said, and what we derived from it.
  *
- * Split from the published half only because one declaration of all of them is over the length a
- * new declaration gets. The division is which side of the service a read is about, and a new entry
- * goes in whichever of the two it describes; `HOT_QUERIES` below is still the list.
+ * Split from the other two groups only because one declaration of all of them is over the length a
+ * new declaration gets. The division is which part of the service a read is about -- what came in,
+ * what went out, and the machinery between them -- and a new entry goes in whichever of the three
+ * it describes; `HOT_QUERIES` below is still the list.
  */
 const INTAKE_QUERIES: readonly HotQuery[] = [
   {
@@ -116,6 +117,95 @@ const INTAKE_QUERIES: readonly HotQuery[] = [
   },
 ];
 
+/**
+ * The reads that keep this service's own machinery moving: its queues, its ledgers, its journal.
+ *
+ * A third group rather than a longer second one, for the length rule, and the division turned out
+ * to be a real one. Every entry here was added in a single pass, and they share a shape: a queue
+ * polled by due time, or a ledger asked about a window. Nobody thought of those as hot reads, which
+ * is why `check-indexes` found sixteen declared indexes whose only evidence of use was a sentence
+ * somebody wrote in a record. Thirteen of them are read by the statements below; three were read by
+ * nothing and migration 077 drops them.
+ */
+const MACHINERY_QUERIES: readonly HotQuery[] = [
+  {
+    // The alerts a stopped process left mid-send, read on every boot before anything else is sent:
+    // an attempt still marked `sending` was either delivered or not, and nothing in the database
+    // can say which. `status` leads the index, so the literal is enough to seek on.
+    name: "alerts left mid-send by a stopped process",
+    sql: "SELECT state_version,to_state_json FROM alert_attempts WHERE status='sending' ORDER BY state_version",
+    params: [],
+  },
+  {
+    // The delivery queue, polled every cycle. The pair is one index because neither half narrows
+    // alone: almost every row ends up `sent`, and almost every `next_attempt_at` is in the past.
+    name: "destinations with something pending",
+    sql: "SELECT destination_id FROM deliveries WHERE status='pending' AND next_attempt_at<=? GROUP BY destination_id ORDER BY MIN(id)",
+    params: ["2026-01-01T00:00:00.000Z"],
+  },
+  {
+    name: "reminders that have come due, with their deadline",
+    sql: `SELECT lr.deadline_id,lr.offset_days,ld.deadline_at FROM lifecycle_reminders lr
+          JOIN lifecycle_deadlines ld ON ld.id=lr.deadline_id
+          WHERE ld.active=1 AND lr.batch_id IS NULL AND lr.due_at<=? AND ld.deadline_at>?
+          ORDER BY lr.due_at,lr.deadline_id,lr.offset_days`,
+    params: ["2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z"],
+  },
+  {
+    name: "deadlines inside a window",
+    sql: "SELECT id,stable_key,deadline_at FROM lifecycle_deadlines WHERE active=1 AND deadline_at>=? AND deadline_at<=? ORDER BY deadline_at,id",
+    params: ["2026-01-01T00:00:00.000Z", "2027-01-01T00:00:00.000Z"],
+  },
+  {
+    // Whether anything has been judged at all since an instant, which decides whether the standing
+    // of an event can be trusted. One row either way, and the index covers it.
+    name: "whether anything was judged since an instant",
+    sql: "SELECT 1 one FROM event_evaluations WHERE evaluated_at>=? LIMIT 1",
+    params: ["2026-01-01T00:00:00.000Z"],
+  },
+  {
+    name: "one operation's recent attempts on one source",
+    sql: `SELECT outcome,attempted_at,cost_usd,error_type FROM deepseek_usage
+          WHERE event_id IS NULL AND operation=? AND source=? ORDER BY attempted_at DESC, id DESC LIMIT ?`,
+    params: ["summarize", "arena", 8],
+  },
+  {
+    name: "what was spent over a window",
+    sql: "SELECT COALESCE(SUM(attempts),0) AS attempts FROM deepseek_usage WHERE attempted_at>=? AND attempted_at<?",
+    params: ["2026-01-01T00:00:00.000Z", "2027-01-01T00:00:00.000Z"],
+  },
+  {
+    // The release report's count of failed operations since a boot. Written this way on purpose:
+    // the journal's own newest-first read orders by `id` and the planner scans for it, so the
+    // statement that names this index is the one bounded by time. See migration 077's note.
+    name: "operations that failed since an instant",
+    sql: "SELECT COUNT(*) n FROM operator_journal WHERE outcome='failed' AND recorded_at>=?",
+    params: ["2026-01-01T00:00:00.000Z"],
+  },
+  {
+    name: "what was suppressed recently, by reason",
+    sql: "SELECT reason,COUNT(*) c FROM suppressions WHERE recorded_at > ? GROUP BY reason ORDER BY c DESC",
+    params: ["2026-01-01T00:00:00.000Z"],
+  },
+  {
+    name: "the newest publications",
+    sql: "SELECT ref,post_id,published_at FROM publications ORDER BY published_at DESC,post_id DESC LIMIT ?",
+    params: [20],
+  },
+  {
+    name: "stories touched since an instant, newest first",
+    sql: `SELECT id,stable_key,updated_at FROM stories
+          WHERE confidence IN ('observed','supported') AND (? IS NULL OR updated_at>=?)
+          ORDER BY updated_at DESC LIMIT ?`,
+    params: ["2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z", 50],
+  },
+  {
+    name: "hypotheses that have gone quiet",
+    sql: "SELECT story_id FROM hypotheses WHERE resolved_at IS NULL AND status <> 'stale' AND updated_at <= ?",
+    params: ["2026-01-01T00:00:00.000Z"],
+  },
+];
+
 /** The reads over what this service decided, sent, and recorded itself doing. */
 const PUBLISHED_QUERIES: readonly HotQuery[] = [
   {
@@ -152,7 +242,7 @@ const PUBLISHED_QUERIES: readonly HotQuery[] = [
   },
 ];
 
-export const HOT_QUERIES: readonly HotQuery[] = [...INTAKE_QUERIES, ...PUBLISHED_QUERIES];
+export const HOT_QUERIES: readonly HotQuery[] = [...INTAKE_QUERIES, ...MACHINERY_QUERIES, ...PUBLISHED_QUERIES];
 
 /**
  * A write whose plan and cost are worth checking, which `HOT_QUERIES` could not hold.
@@ -236,6 +326,15 @@ export const HOT_WRITES: readonly HotWrite[] = [
             AND id NOT IN (SELECT id FROM snapshots WHERE source = ? ORDER BY id DESC LIMIT 2)`,
     params: ["arena", "arena"],
     seeks: "snapshots by source, and events by snapshot_id",
+  },
+  {
+    // Rebuilding one model: its fields and conflicts go, then the model itself. The only statements
+    // that name `model_facts_key`, and all three are deletes -- which is why a list of reads had
+    // nothing to say about that index either.
+    name: "drop one model's fields before rebuilding it",
+    sql: "DELETE FROM model_fact_fields WHERE canonical_id IN (SELECT canonical_id FROM model_facts WHERE canonical_key=?)",
+    params: ["vendor:thing"],
+    seeks: "model_facts by canonical_key, and model_fact_fields by its own key",
   },
   {
     // Retention's largest delete, chunked. It names the key it deletes by, which is the one thing

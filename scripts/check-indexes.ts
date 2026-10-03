@@ -16,11 +16,11 @@
  * `model_fact_fields_event` with a guess attached, and `pragma_foreign_key_list` knows that
  * `ON DELETE SET NULL` is what reads that column when retention deletes an event.
  *
- * RECORD is closed, the way check-size's BUDGET is. It is what was unexplained on the day this was
- * written, each with the reader it has, and the way out for a new index is the hot statement it was
- * for -- which is already the rule. It is checked in both directions: a line for an index that no
- * longer exists fails, and so does an index that has since gained a hot statement, because a record
- * that is never pruned stops being a record of anything.
+ * RECORD is closed, the way check-size's BUDGET is, and it is now empty: the sixteen it shipped
+ * with were worked through one at a time, thirteen gained the statement that reads them and three
+ * turned out to be read by nothing (077). It is checked in both directions, which is what emptied
+ * it -- an index that has since gained a hot statement fails while its line is still there, because
+ * a record that is never pruned stops being a record of anything.
  *
  * Runs against a schema built from the migrations in memory, so it needs nothing but the repository
  * and works on the Linux runner. It cannot say what an index costs -- that is `dbstat`, which no
@@ -31,34 +31,19 @@ import { runMigrations } from "../src/storage/migrationRunner.js";
 import { indexUses, unexplained } from "./indexReaders.js";
 
 /**
- * What was unexplained when this check was written, and what actually reads each one.
+ * Empty, and closed.
  *
- * Read it as a list of work: every line here is a statement that could be in `HOT_QUERIES` and is
- * not, which means its plan is unchecked and a migration could quietly take its index away. The
- * pattern is visible in the list -- most of these are a queue polled by due time or a sweep by
- * timestamp, neither of which anyone thought of as a hot read.
+ * It was sixteen lines when this check shipped: every declared index with no derivable use, each
+ * with a sentence naming what read it. Going through them one at a time, thirteen had a real reader
+ * and those statements went into `src/storage/hotQueries.ts`, where a plan is checked rather than
+ * asserted in a comment. Three had no reader at all and migration 077 dropped them.
+ *
+ * So the record of what was unexplained is a record of nothing, which is the state worth keeping.
+ * A new index has one way in: the statement it exists for. Leaving the constant here rather than
+ * deleting it is deliberate -- it is the place the next exception would want to go, and an empty
+ * closed list refuses more clearly than a missing one.
  */
-const RECORD: Readonly<Record<string, string>> = {
-  alert_attempts_due: "the alert queue, polled by (status, next_attempt_at) on every publish cycle -- src/alerts.ts",
-  deliveries_pending: "the delivery queue, the same shape and the same cycle -- deliverPending in src/delivery.ts",
-  lifecycle_reminders_due: "reminders that have come due, joined against their deadline -- src/lifecycle.ts:319",
-  lifecycle_deadlines_time: "deadlines inside a window, ordered by when -- src/lifecycle.ts:278",
-  model_facts_key:
-    "a model looked up by canonical_key, which is how every fact write finds its row -- src/modelFacts.ts",
-  event_evaluations_evaluated: "whether anything has been judged since an instant -- src/events/standing.ts:93",
-  deepseek_usage_operation: "spend by operation over a window, which the budget report reads",
-  deepseek_usage_attempted_at:
-    "spend over a window regardless of operation, and the retention sweep over the same column",
-  operator_journal_recorded_at:
-    "the journal newest-first, and retention deleting the tail of it -- src/storage/retention.ts:341",
-  suppressions_recorded_at: "what was suppressed recently, grouped by reason -- src/boards/suppressions.ts:22",
-  snapshots_collected: "the retention sweeps, which find bodies to expire by age",
-  publications_date: "a publication by its date, which is how a recap knows what it already said",
-  stories_released: "stories released in a window",
-  stories_updated: "stories touched since an instant, which is what the incremental projection reads",
-  hypotheses_updated: "the same, for hypotheses",
-  model_facts_updated: "the same, for model facts",
-};
+const RECORD: Readonly<Record<string, string>> = {};
 
 const db = new Database(":memory:");
 // ON, because a foreign key with no enforcement needs no index to enforce it, and the whole point
