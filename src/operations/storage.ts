@@ -50,7 +50,9 @@ export function storageOperations(db: Database, _config: AppConfig): OperationMa
         "part of deployment for a large database. `releasedBytes` measures the file before and after, " +
         "not payloads removed; `releasedDiskBytes` counts the write-ahead log with it, which is the " +
         "number the filesystem agrees with -- a VACUUM writes the rebuilt database through the log, so " +
-        "this truncates it afterwards. Uses the status worker's snapshot and cache retention before compacting.",
+        "this truncates it afterwards -- but truncating needs to be the only connection, so on a running " +
+        "service `walCheckpoint` comes back `busy`, `releasedDiskBytes` is zero and the log is returned " +
+        "by the next restart instead. Uses the status worker's snapshot and cache retention before compacting.",
       mutates: true,
       agent: false,
       schema: z.object({}),

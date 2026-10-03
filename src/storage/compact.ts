@@ -10,6 +10,8 @@ export type CompactionResult = {
   beforeWalBytes: number | null;
   afterWalBytes: number | null;
   releasedDiskBytes: number;
+  /** Whether the log was actually returned, which a live service's other readers can refuse. */
+  walCheckpoint: "truncated" | "busy";
   expiredBodies: number;
   removedSnapshots: number;
   removedCacheEntries: number;
@@ -25,6 +27,18 @@ export type CompactionResult = {
  * on 2026-10-03, which is more disk than the 32 MB the VACUUM had given back. A passive checkpoint
  * copies those pages home but keeps the file at that size to reuse, so TRUNCATE is the only one
  * that returns the space. Measuring the database alone reported a saving while the directory grew.
+ *
+ * TRUNCATE needs to be the only connection, and on a running service it is not: the poller, the
+ * status worker and the HTTP surface each hold one, and the checkpoint comes back `busy` having
+ * done nothing. `exec` does not raise that -- it is a row, not an error -- so the first version of
+ * this reported success while leaving a 253 MB log. Hence `walCheckpoint`: on a live service expect
+ * `busy` and a `releasedDiskBytes` of zero, and the log is returned by the next restart, which
+ * closes the last connection. Run this during the stopped-app part of a deployment to have both.
+ *
+ * The test covers the truncating case only. The busy one cannot be staged in one process: holding
+ * the read transaction that causes it also keeps the VACUUM above from finishing, so what is
+ * written here about it is the production reading of 2026-10-03 rather than something a test keeps
+ * true. `walCheckpoint` is reported so that reading is available without a shell on the host.
  */
 export function compactStorage(db: Database): CompactionResult {
   const started = performance.now();
@@ -34,7 +48,7 @@ export function compactStorage(db: Database): CompactionResult {
   const removedSnapshots = pruneSnapshots(db);
   const removedCacheEntries = new HttpCache(db).prune();
   db.exec("VACUUM");
-  db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+  const checkpoint = db.query<{ busy: number }, []>("PRAGMA wal_checkpoint(TRUNCATE)").get();
   const afterBytes = databaseSize(db).bytes;
   const afterWalBytes = walBytes(db);
   return {
@@ -44,6 +58,7 @@ export function compactStorage(db: Database): CompactionResult {
     beforeWalBytes,
     afterWalBytes,
     releasedDiskBytes: Math.max(0, beforeBytes + (beforeWalBytes ?? 0) - afterBytes - (afterWalBytes ?? 0)),
+    walCheckpoint: checkpoint?.busy ? "busy" : "truncated",
     expiredBodies,
     removedSnapshots,
     removedCacheEntries,

@@ -23,6 +23,7 @@ test("compacting returns the write-ahead log to the filesystem, not only the pag
 
   const result = compactStorage(db);
 
+  expect(result.walCheckpoint).toBe("truncated");
   expect(result.afterWalBytes).toBe(0);
   expect(statSync(`${path}-wal`).size).toBe(0);
   // The disk figure never claims more than the file figure did on its own.
