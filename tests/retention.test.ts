@@ -323,11 +323,35 @@ test("a raw attempt whose day the fold has not recorded is never deleted", () =>
 
 test("a backlog larger than one chunk is cleared, not partly cleared", () => {
   const db = openDatabase(":memory:");
-  const old = new Date(now - 200 * 24 * 3_600_000).toISOString();
+  // A distinct instant each, which this wrote 2,500 copies of one of until migration 076 made
+  // (source, collected_at) the key and the insert started failing UNIQUE. The old version was
+  // measuring something production cannot produce -- one source, one millisecond, 2,500 attempts --
+  // and the backlog it meant to build is 2,500 attempts at 2,500 moments.
+  const started = now - 200 * 24 * 3_600_000;
   const insert = db.query("INSERT INTO source_collection_metrics(source,collected_at,success) VALUES(?,?,1)");
-  for (let i = 0; i < 2_500; i++) insert.run("arena", old);
+  for (let i = 0; i < 2_500; i++) insert.run("arena", new Date(started + i).toISOString());
   foldAllDays(db);
   expect(pruneSourceCollectionMetrics(db, now)).toBe(2_500);
   expect(db.query<{ c: number }, []>("SELECT COUNT(*) c FROM source_collection_metrics").get()?.c).toBe(0);
+  db.close();
+});
+
+test("two attempts at one source in one millisecond overwrite rather than failing the collection", () => {
+  const db = openDatabase(":memory:");
+  const at = new Date(now).toISOString();
+  const insert = db.query(
+    `INSERT INTO source_collection_metrics(source,collected_at,success,error,failure_kind) VALUES(?,?,0,?,?)
+     ON CONFLICT(source, collected_at) DO UPDATE SET success=0, error=excluded.error, failure_kind=excluded.failure_kind`,
+  );
+  insert.run("arena", at, "first", "transport");
+  // Migration 076 made the pair unique, and production has never produced a duplicate across
+  // 295,133 rows. Never is not the same as cannot, and a UNIQUE failure here would throw inside a
+  // collection -- so the second attempt overwrites. This is the assertion that it does.
+  expect(() => insert.run("arena", at, "second", "schema")).not.toThrow();
+  const row = db
+    .query<{ c: number; error: string }, []>("SELECT COUNT(*) c, MAX(error) error FROM source_collection_metrics")
+    .get();
+  expect(row?.c).toBe(1);
+  expect(row?.error).toBe("second");
   db.close();
 });

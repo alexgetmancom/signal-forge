@@ -271,7 +271,14 @@ function recordOutcome(db: Database, c: Collection, emitted: Event[], contract: 
   db.query(
     `INSERT INTO source_collection_metrics(
        source,collected_at,success,records_processed,events_created,new_events,changed_events,removed_events
-     ) VALUES(?, ?, 1, ?, ?, ?, ?, ?)`,
+     ) VALUES(?, ?, 1, ?, ?, ?, ?, ?)
+     -- Since 076 the key is the table, so a second attempt at this source inside the same
+     -- millisecond would throw a UNIQUE failure here, inside a collection. Production has never
+     -- produced one; this makes the impossible case overwrite instead of fail.
+     ON CONFLICT(source, collected_at) DO UPDATE SET
+       success = 1, records_processed = excluded.records_processed,
+       events_created = excluded.events_created, new_events = excluded.new_events,
+       changed_events = excluded.changed_events, removed_events = excluded.removed_events`,
   ).run(
     c.source,
     now,

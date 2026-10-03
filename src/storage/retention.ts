@@ -205,8 +205,10 @@ export function pruneSourceCollectionMetrics(db: Database, now = Date.now()): nu
       // five minutes, and every report above it would keep answering from a window quietly emptying.
       const deleted = db
         .query<{ removed: number }, [string, number]>(
-          `DELETE FROM source_collection_metrics WHERE rowid IN (
-             SELECT rowid FROM source_collection_metrics
+          // By the key, not by `rowid`: migration 076 made (source, collected_at) the table, so
+          // there is no rowid to delete by. The statement is in `HOT_WRITES` for the same reason.
+          `DELETE FROM source_collection_metrics WHERE (source, collected_at) IN (
+             SELECT source, collected_at FROM source_collection_metrics
              WHERE collected_at < ? AND substr(collected_at, 1, 10) IN (SELECT day FROM source_collection_days)
              LIMIT ?
            ) RETURNING 1 AS removed`,

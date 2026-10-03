@@ -49,7 +49,10 @@ const REQUIRED_INDEXES = [
   "events_source_entity",
   "batches_open_ready",
   "records_stream",
-  "source_collection_metrics_source_time",
+  // Migration 076 deleted `source_collection_metrics_source_time` and put its columns in the
+  // table's own key, so the index this used to require is now the thing it was an index of. The
+  // partial one over failures is what is left to require.
+  "source_collection_metrics_failures",
 ];
 
 /** Every built file that mentions the symbol, relative to the build directory. */

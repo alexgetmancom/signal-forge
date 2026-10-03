@@ -3,7 +3,7 @@ import type { AppConfig } from "./config.js";
 import { isCredentialRejection, recordCredentialRejection } from "./credentials.js";
 import { saveCollection } from "./events/pipeline.js";
 import type { Collection } from "./events/types.js";
-import { classifyFailure } from "./failureDiagnosis.js";
+import { classifyFailure, type Diagnosis } from "./failureDiagnosis.js";
 import { log } from "./logger.js";
 import { lockHolder, withActionLock } from "./runtime/actionLock.js";
 import { measure } from "./runtime/metricRecording.js";
@@ -174,6 +174,47 @@ export type SourceOutcome =
  * `paced` is how the caller learns that this source has just spent its group's slot, which the
  * poller holds per cycle and a single forced collection does not need at all.
  */
+/**
+ * Everything one failed attempt writes, in one transaction.
+ *
+ * Lifted out of `collectSource` when adding the ON CONFLICT that migration 076 made necessary put
+ * it one line over the length a declaration gets. It was the right thing to lift: the success path
+ * has `recordOutcome` in the store and the failure path had twenty lines inline, and the two are
+ * the same kind of thing -- what this loop records about an attempt, as opposed to what the
+ * collection itself persists.
+ */
+function recordFailedAttempt(
+  db: Database,
+  job: SourceDefinition,
+  diagnosis: Diagnosis,
+  checkedAt: string,
+  retryAt: string | null,
+): void {
+  const message = diagnosis.message;
+  writeTransaction(db, () => {
+    // The first failure of a run stamps when the outage began; later ones leave it alone, so
+    // the duration is measured from the start rather than from the latest confirmation.
+    db.query(
+      `INSERT INTO sources(id,last_error,last_error_kind,checked_at,failures,retry_at,failure_started_at,first_observed_at) VALUES(?,?,?,?,1,?,?,?)
+       ON CONFLICT(id) DO UPDATE SET last_error=excluded.last_error,last_error_kind=excluded.last_error_kind,checked_at=excluded.checked_at,
+         failures=MIN(sources.failures+1,6),retry_at=excluded.retry_at,
+         failure_started_at=COALESCE(sources.failure_started_at,excluded.failure_started_at),
+         first_observed_at=COALESCE(sources.first_observed_at,excluded.first_observed_at)`,
+    ).run(job.id, message, diagnosis.kind, checkedAt, retryAt, checkedAt, checkedAt);
+    db.query(
+      // As on the success path in `recordOutcome`: 076 made the key the table, and a collision
+      // on the millisecond overwrites rather than throwing inside a collection.
+      `INSERT INTO source_collection_metrics(source,collected_at,success,error,failure_kind) VALUES(?,?,0,?,?)
+       ON CONFLICT(source, collected_at) DO UPDATE SET success=0, error=excluded.error, failure_kind=excluded.failure_kind`,
+    ).run(job.id, checkedAt, message, diagnosis.kind);
+    // As on the success path: the fold is what the failure rates are read from.
+    addCollectionToDay(db, job.id, checkedAt);
+    if (diagnosis.evidence) recordFailureEvidence(db, job.id, checkedAt, diagnosis.kind, diagnosis.evidence);
+    // A failure breaks consecutive confirmation of a disappearance.
+    db.query("UPDATE records SET missing_count=0 WHERE source=?").run(job.id);
+  });
+}
+
 async function collectSource(
   db: Database,
   config: AppConfig,
@@ -252,25 +293,7 @@ async function collectSource(
     const message = diagnosis.message;
     const checkedAt = new Date().toISOString();
     const retryAt = error instanceof SourceHttpError ? error.retryAt : null;
-    writeTransaction(db, () => {
-      // The first failure of a run stamps when the outage began; later ones leave it alone, so
-      // the duration is measured from the start rather than from the latest confirmation.
-      db.query(
-        `INSERT INTO sources(id,last_error,last_error_kind,checked_at,failures,retry_at,failure_started_at,first_observed_at) VALUES(?,?,?,?,1,?,?,?)
-         ON CONFLICT(id) DO UPDATE SET last_error=excluded.last_error,last_error_kind=excluded.last_error_kind,checked_at=excluded.checked_at,
-           failures=MIN(sources.failures+1,6),retry_at=excluded.retry_at,
-           failure_started_at=COALESCE(sources.failure_started_at,excluded.failure_started_at),
-           first_observed_at=COALESCE(sources.first_observed_at,excluded.first_observed_at)`,
-      ).run(job.id, message, diagnosis.kind, checkedAt, retryAt, checkedAt, checkedAt);
-      db.query(
-        "INSERT INTO source_collection_metrics(source,collected_at,success,error,failure_kind) VALUES(?,?,0,?,?)",
-      ).run(job.id, checkedAt, message, diagnosis.kind);
-      // As on the success path: the fold is what the failure rates are read from.
-      addCollectionToDay(db, job.id, checkedAt);
-      if (diagnosis.evidence) recordFailureEvidence(db, job.id, checkedAt, diagnosis.kind, diagnosis.evidence);
-      // A failure breaks consecutive confirmation of a disappearance.
-      db.query("UPDATE records SET missing_count=0 WHERE source=?").run(job.id);
-    });
+    recordFailedAttempt(db, job, diagnosis, checkedAt, retryAt);
     // A refused credential is not a link that dropped: the backoff would keep asking, and the
     // answer would keep being no. Stop every source carrying that credential until it is
     // replaced, and say which credential it was rather than which collector noticed.
