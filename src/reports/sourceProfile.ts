@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { AppConfig } from "../config.js";
 import { buildSourceRegistry, type SourceDefinition } from "../sources/registry.js";
+import { dayFrom } from "../storage/collectionDays.js";
 
 /**
  * Everything this service knows about one source, in one answer.
@@ -202,15 +203,17 @@ function eventsOf(db: Database, source: string, since: string): SourceProfile["e
 function collectionsOf(db: Database, source: string, since: string): SourceProfile["collections"] {
   const window = db
     .query<{ attempts: number; failures: number | null }, [string, string]>(
-      "SELECT COUNT(*) attempts, SUM(success=0) failures FROM source_collection_metrics WHERE source=? AND collected_at>=?",
+      `SELECT SUM(attempts) attempts, SUM(CASE WHEN outcome='success' THEN 0 ELSE attempts END) failures
+       FROM source_collection_days WHERE source=? AND day>=?`,
     )
-    .get(source, since);
+    .get(source, dayFrom(since));
   const failureKinds: Record<string, number> = {};
   for (const row of db
     .query<{ kind: string | null; n: number }, [string, string]>(
-      "SELECT failure_kind kind, COUNT(*) n FROM source_collection_metrics WHERE source=? AND collected_at>=? AND success=0 GROUP BY failure_kind",
+      `SELECT outcome kind, SUM(attempts) n FROM source_collection_days
+       WHERE source=? AND day>=? AND outcome<>'success' GROUP BY outcome`,
     )
-    .all(source, since))
+    .all(source, dayFrom(since)))
     failureKinds[row.kind ?? "unclassified"] = row.n;
   const latest = db
     .query<

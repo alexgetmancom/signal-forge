@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { foldCollectionDays } from "../../src/storage/collectionDays.js";
 
 /**
  * Rows that satisfy the schema's CHECK constraints by construction.
@@ -80,16 +81,35 @@ export function anEvent(db: Database, fields: EventFields = {}): number {
   return row.id;
 }
 
-/** One collection attempt as the poller records it: success, or a failure with its kind. */
+/**
+ * One collection attempt as the poller records it: success, or a failure with its kind.
+ *
+ * Folded into `source_collection_days` on the way in, because that is where every count of
+ * collections is read from: an attempt inserted without its day leaves the reports reading an empty
+ * window, which is a passing report about nothing rather than a failing test.
+ */
 export function anAttempt(
   db: Database,
   source: string,
-  outcome: { error: string; kind: string } | null,
+  outcome: { error: string; kind?: string | null } | null,
   at = anInstant(),
+  measured: { peakRssMb?: number; records?: number; events?: number } = {},
 ): void {
   db.query(
-    "INSERT INTO source_collection_metrics(source,collected_at,success,error,failure_kind) VALUES(?,?,?,?,?)",
-  ).run(source, at, outcome ? 0 : 1, outcome?.error ?? null, outcome?.kind ?? null);
+    `INSERT INTO source_collection_metrics(
+       source,collected_at,success,error,failure_kind,peak_rss_mb,records_processed,events_created
+     ) VALUES(?,?,?,?,?,?,?,?)`,
+  ).run(
+    source,
+    at,
+    outcome ? 0 : 1,
+    outcome?.error ?? null,
+    outcome?.kind ?? null,
+    measured.peakRssMb ?? null,
+    measured.records ?? 0,
+    measured.events ?? 0,
+  );
+  foldCollectionDays(db, Date.parse(at));
 }
 
 /** One journalled call, which is what `usage` reads. */

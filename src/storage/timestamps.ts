@@ -50,6 +50,8 @@ export const TIMESTAMP_COLUMNS: readonly (readonly [table: string, column: strin
   ["records", "observed_at"],
   ["snapshots", "collected_at"],
   ["snapshots", "expired_at"],
+  ["source_collection_days", "first_at"],
+  ["source_collection_days", "last_at"],
   ["source_collection_metrics", "collected_at"],
   ["sources", "checked_at"],
   ["sources", "first_observed_at"],

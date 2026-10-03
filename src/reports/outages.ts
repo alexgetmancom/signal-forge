@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { AppConfig } from "../config.js";
 import { buildSourceRegistry } from "../sources/registry.js";
+import { RAW_COLLECTION_DAYS } from "../storage/retention.js";
 import { FAILURE_KIND } from "./failureKind.js";
 
 /**
@@ -46,8 +47,21 @@ export type Outage = {
 /** One source failing is a source. Two of the same group failing together is a host. */
 const MIN_SOURCES = 2;
 
+/**
+ * The start of a window over the raw attempts, refusing one that reaches past them.
+ *
+ * The minute a failure fell in is only in those rows, which keep a fortnight; the fold beside them
+ * keeps a quarter, but only by day, and a day is not a window an outage happens in. Asked for more
+ * than the rows hold, this says so rather than answering with the silence of an empty table.
+ */
+function rawWindowFrom(days: number, now: number): string {
+  if (days > RAW_COLLECTION_DAYS)
+    throw new Error(`Outages are clustered by the minute, which is kept for ${RAW_COLLECTION_DAYS} days`);
+  return new Date(now - days * 24 * 3_600_000).toISOString();
+}
+
 export function outages(db: Database, config: AppConfig, days = 7, now = Date.now()): Outage[] {
-  const from = new Date(now - days * 24 * 3_600_000).toISOString();
+  const from = rawWindowFrom(days, now);
   const registry = buildSourceRegistry(db, config).filter((definition) => definition.enabled);
   const groupOf = new Map(
     registry.map((definition) => [definition.id, definition.pace?.group ?? definition.group] as const),

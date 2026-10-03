@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import type { AppConfig } from "../config.js";
 import { round } from "../numbers.js";
 import { sourceJobs } from "../sources/registry.js";
+import { collectionWindowFrom, dayFrom } from "../storage/collectionDays.js";
 
 /**
  * What each source costs the machine it actually runs on.
@@ -58,12 +59,14 @@ function childPeaks(db: Database, since: string): Map<string, { worst: number; a
   return new Map(
     db
       .query<{ source: string; worst: number; average: number }, [string]>(
-        `SELECT source,MAX(peak_rss_mb) AS worst,AVG(peak_rss_mb) AS average
-         FROM source_collection_metrics
-         WHERE collected_at>=? AND peak_rss_mb IS NOT NULL
+        `SELECT source,
+                MAX(peak_rss_max) AS worst,
+                SUM(peak_rss_total)/SUM(peak_rss_samples) AS average
+         FROM source_collection_days
+         WHERE day>=? AND peak_rss_samples>0
          GROUP BY source`,
       )
-      .all(since)
+      .all(dayFrom(since))
       .map((row) => [row.source, { worst: row.worst, average: row.average }] as const),
   );
 }
@@ -89,9 +92,9 @@ function collectionCounts(db: Database, since: string): Map<string, number> {
   return new Map(
     db
       .query<{ source: string; runs: number }, [string]>(
-        "SELECT source,COUNT(*) AS runs FROM source_collection_metrics WHERE collected_at>=? GROUP BY source",
+        "SELECT source,SUM(attempts) AS runs FROM source_collection_days WHERE day>=? GROUP BY source",
       )
-      .all(since)
+      .all(dayFrom(since))
       .map((row) => [row.source, row.runs] as const),
   );
 }
@@ -99,13 +102,15 @@ function collectionCounts(db: Database, since: string): Map<string, number> {
 /**
  * What every configured source costs, worst first.
  *
- * The names come from the registry, never from the tables: `source_collection_metrics` keeps a row
+ * The names come from the registry, never from the tables: `source_collection_days` keeps a row
  * for every source that ever ran, so a `GROUP BY` over it reports on sources that were retired.
  */
 export function collectionCost(db: Database, config: AppConfig, days = 7, now = Date.now()): CollectionCostReport {
   if (!Number.isInteger(days) || days < 1 || days > 90)
     throw new Error("Collection cost days must be between 1 and 90");
-  const since = new Date(now - days * 24 * 3_600_000).toISOString();
+  // Whole days, because the collection counts are read from a fold that holds days; the parent
+  // sections below are then measured over the same bound rather than a slightly narrower one.
+  const since = collectionWindowFrom(days, now);
   const peaks = childPeaks(db, since);
   const growth = parentGrowth(db, since);
   const counts = collectionCounts(db, since);

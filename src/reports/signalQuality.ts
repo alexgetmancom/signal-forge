@@ -5,6 +5,7 @@ import { type IndependenceEvidence, sourceIndependenceFamily } from "../events/s
 import type { Confidence } from "../events/types.js";
 import { median, round } from "../numbers.js";
 import { sourceJobs } from "../sources/registry.js";
+import { collectionWindowFrom, dayFrom } from "../storage/collectionDays.js";
 
 type SignalQualitySource = {
   id: string;
@@ -110,9 +111,9 @@ export function signalQuality(db: Database, config: AppConfig, days = 7, now = D
   const since = new Date(now - days * 24 * 3_600_000).toISOString();
   const bounds = db
     .query<{ observedFrom: string | null; observedUntil: string | null }, [string]>(
-      "SELECT MIN(collected_at) AS observedFrom,MAX(collected_at) AS observedUntil FROM source_collection_metrics WHERE collected_at>=?",
+      "SELECT MIN(first_at) AS observedFrom,MAX(last_at) AS observedUntil FROM source_collection_days WHERE day>=?",
     )
-    .get(since);
+    .get(dayFrom(since));
   const observedHours =
     bounds?.observedFrom && bounds.observedUntil
       ? round(Math.max(0, Date.parse(bounds.observedUntil) - Date.parse(bounds.observedFrom)) / 3_600_000)
@@ -121,19 +122,19 @@ export function signalQuality(db: Database, config: AppConfig, days = 7, now = D
     db
       .query<CollectionAggregate, [string]>(
         `SELECT source,
-                COUNT(*) AS collections,
-                SUM(success) AS successful,
-                SUM(CASE WHEN success=0 THEN 1 ELSE 0 END) AS failed,
+                SUM(attempts) AS collections,
+                SUM(CASE WHEN outcome='success' THEN attempts ELSE 0 END) AS successful,
+                SUM(CASE WHEN outcome='success' THEN 0 ELSE attempts END) AS failed,
                 SUM(records_processed) AS records,
                 SUM(events_created) AS events,
                 SUM(new_events) AS newEvents,
                 SUM(changed_events) AS changedEvents,
                 SUM(removed_events) AS removedEvents
-         FROM source_collection_metrics
-         WHERE collected_at>=?
+         FROM source_collection_days
+         WHERE day>=?
          GROUP BY source`,
       )
-      .all(since)
+      .all(dayFrom(since))
       .map((row) => [row.source, row] as const),
   );
   const deliveries = db
@@ -214,9 +215,9 @@ export function signalQuality(db: Database, config: AppConfig, days = 7, now = D
   const freshness = new Map(
     db
       .query<{ source: string; latest: string | null }, [string]>(
-        "SELECT source,MAX(collected_at) AS latest FROM source_collection_metrics WHERE collected_at<=? AND success=1 GROUP BY source",
+        "SELECT source,MAX(last_at) AS latest FROM source_collection_days WHERE day<=? AND outcome='success' GROUP BY source",
       )
-      .all(new Date(now).toISOString())
+      .all(dayFrom(new Date(now).toISOString()))
       .map((row) => [row.source, row.latest] as const),
   );
 
@@ -320,7 +321,9 @@ export function signalQuality(db: Database, config: AppConfig, days = 7, now = D
     since,
     days,
     coverage: {
-      requestedSince: since,
+      // The bound the collections were actually counted from, which is the start of a day: the fold
+      // they are read from holds days, so a seven-day window begins when the seventh day back did.
+      requestedSince: collectionWindowFrom(days, now),
       observedFrom: bounds?.observedFrom ?? null,
       observedUntil: bounds?.observedUntil ?? null,
       observedHours,

@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { Destination } from "../config.js";
 import { collectionDegraded, SourceError, storageFailure } from "../failure.js";
+import { foldCollectionDays } from "../storage/collectionDays.js";
 import { storeSnapshot } from "../storage/snapshots.js";
 import { canonical } from "./canonical.js";
 import { comparisonBody, hasMoved } from "./changeDetection.js";
@@ -274,6 +275,9 @@ function recordOutcome(db: Database, c: Collection, emitted: Event[], contract: 
     emitted.filter((event) => event.kind === "changed").length,
     emitted.filter((event) => event.kind === "removed").length,
   );
+  // The day this collection belongs to, recomputed from the rows that now include it: every count
+  // of collections is read from the fold, so a report asked a second after this must see it.
+  foldCollectionDays(db, Date.parse(now), 1);
   db.query(
     // `first_observed_at` is written once and never moved: it is the instant from which a miss on
     // this source is ours, and a catalogue that hands us ten years of history on its first call is

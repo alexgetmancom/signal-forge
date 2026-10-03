@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { AppConfig } from "../config.js";
 import { buildSourceRegistry } from "../sources/registry.js";
-import { FAILURE_KIND } from "./failureKind.js";
+import { dayFrom } from "../storage/collectionDays.js";
 
 /**
  * Sources that fail often but not always -- the third kind of broken, and the one nothing reported.
@@ -88,28 +88,28 @@ export function flakySources(db: Database, config: AppConfig, days = 3, now = Da
       [string]
     >(
       `SELECT source,
-              COUNT(*) AS attempts,
-              SUM(success = 0) AS failures,
-              MAX(CASE WHEN success = 1 THEN collected_at END) AS last_success,
-              MAX(CASE WHEN success = 0 THEN collected_at END) AS last_failure
-       FROM source_collection_metrics
-       WHERE collected_at >= ?
+              SUM(attempts) AS attempts,
+              SUM(CASE WHEN outcome = 'success' THEN 0 ELSE attempts END) AS failures,
+              MAX(CASE WHEN outcome = 'success' THEN last_at END) AS last_success,
+              MAX(CASE WHEN outcome = 'success' THEN NULL ELSE last_at END) AS last_failure
+       FROM source_collection_days
+       WHERE day >= ?
        GROUP BY source`,
     )
-    .all(from);
-  // Rows written before migration 052 carry no kind. The guard's own refusals are still recognisable
-  // in them by the sentence it writes, and reading that here rather than in the poller keeps the
-  // recognition where a wrong guess costs a mislabelled report instead of a leaked response body.
+    .all(dayFrom(from));
+  // The kind is the fold's `outcome`, which is where FAILURE_KIND was resolved once, at fold time:
+  // a report that recognised the guard's own refusals by the sentence they carried would have to
+  // read the raw error text to do it, and the raw rows only reach back a fortnight.
   const kindRows = db
     .query<{ source: string; kind: string; failures: number }, [string]>(
       `SELECT source,
-              ${FAILURE_KIND} AS kind,
-              COUNT(*) AS failures
-       FROM source_collection_metrics
-       WHERE collected_at >= ? AND success = 0
+              outcome AS kind,
+              SUM(attempts) AS failures
+       FROM source_collection_days
+       WHERE day >= ? AND outcome <> 'success'
        GROUP BY source, kind`,
     )
-    .all(from);
+    .all(dayFrom(from));
   const byKind = new Map<string, Record<string, number>>();
   for (const row of kindRows) {
     const kinds = byKind.get(row.source) ?? {};

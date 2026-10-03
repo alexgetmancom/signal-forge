@@ -3,6 +3,7 @@ import { loadConfig } from "../src/config.js";
 import { sourceFailures } from "../src/reports/sourceFailures.js";
 import { openDatabase } from "../src/storage/database.js";
 import { listFailureEvidence, recordFailureEvidence } from "../src/storage/failureEvidence.js";
+import { anAttempt } from "./fixtures/build.js";
 
 const CONFIG = loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname });
 
@@ -33,10 +34,7 @@ test("evidence that cannot be serialised is dropped rather than raised", () => {
 
 test("one source's failures read back as kinds and structure", () => {
   const db = openDatabase(":memory:");
-  const attempt = (at: string, outcome: { error: string; kind: string } | null) =>
-    db
-      .query("INSERT INTO source_collection_metrics(source,collected_at,success,error,failure_kind) VALUES(?,?,?,?,?)")
-      .run("arena", at, outcome ? 0 : 1, outcome?.error ?? null, outcome?.kind ?? null);
+  const attempt = (at: string, outcome: { error: string; kind: string } | null) => anAttempt(db, "arena", outcome, at);
   attempt(minute(0), { error: "arena models: 2 of 1083 entries did not match", kind: "schema" });
   attempt(minute(1), { error: "Collection degraded: arena retained 301 of 1083 records", kind: "degraded" });
   attempt(minute(2), null);

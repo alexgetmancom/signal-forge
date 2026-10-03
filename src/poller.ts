@@ -10,6 +10,7 @@ import { measure } from "./runtime/metricRecording.js";
 import { SourceHttpError } from "./sources/http.js";
 import { type SourceDefinition, sourceJobs } from "./sources/registry.js";
 import { collectInSubprocess } from "./sources/subprocess.js";
+import { foldCollectionDays } from "./storage/collectionDays.js";
 import { recordFailureEvidence } from "./storage/failureEvidence.js";
 import { recordSourceShape } from "./storage/sourceShapes.js";
 import { writeTransaction } from "./storage/transaction.js";
@@ -225,12 +226,15 @@ async function collectSource(
         // Here rather than inside the store: the store persists evidence, and how much memory
         // another process took to fetch it is this loop's observation, not the collection's.
         // Keyed by the instant the same transaction wrote, so it can match no other run.
-        if (child?.peakRssMb !== null && child?.peakRssMb !== undefined)
+        if (child?.peakRssMb !== null && child?.peakRssMb !== undefined) {
           db.query("UPDATE source_collection_metrics SET peak_rss_mb=? WHERE source=? AND collected_at=?").run(
             child.peakRssMb,
             job.id,
             checkedAt,
           );
+          // Written after the store folded this day, so the day is folded again to carry it.
+          foldCollectionDays(db, Date.parse(checkedAt), 1);
+        }
         return emitted;
       }),
     );
@@ -261,6 +265,8 @@ async function collectSource(
       db.query(
         "INSERT INTO source_collection_metrics(source,collected_at,success,error,failure_kind) VALUES(?,?,0,?,?)",
       ).run(job.id, checkedAt, message, diagnosis.kind);
+      // As on the success path: the fold is what the failure rates are read from.
+      foldCollectionDays(db, Date.parse(checkedAt), 1);
       if (diagnosis.evidence) recordFailureEvidence(db, job.id, checkedAt, diagnosis.kind, diagnosis.evidence);
       // A failure breaks consecutive confirmation of a disappearance.
       db.query("UPDATE records SET missing_count=0 WHERE source=?").run(job.id);

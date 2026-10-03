@@ -76,6 +76,7 @@ export function queryShape(query: string): string {
 const COVERED_BY: Readonly<Record<string, string>> = {
   code_metrics: "timings",
   source_collection_metrics: "flaky, failures, outages",
+  source_collection_days: "flaky, failures, signal-quality, collection-cost",
   sources: "source, issues, silent-sources",
   live_sources: "source, issues, silent-sources",
   operator_journal: "usage, journal",

@@ -1,4 +1,6 @@
+import type { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
+import { foldCollectionDays } from "../src/storage/collectionDays.js";
 import { openDatabase } from "../src/storage/database.js";
 import { HttpCache } from "../src/storage/httpCache.js";
 import {
@@ -11,6 +13,17 @@ import { readSnapshot, storeSnapshot } from "../src/storage/snapshots.js";
 import { aBatch, anEvent } from "./fixtures/build.js";
 
 const now = Date.parse("2026-09-12T00:00:00.000Z");
+
+/**
+ * The fold as the service runs it covers the last couple of days; a retention test writes history
+ * years deep, so this folds each day present by calling the real fold at that day's end.
+ */
+function foldAllDays(db: Database): void {
+  for (const row of db
+    .query<{ day: string }, []>("SELECT DISTINCT substr(collected_at,1,10) AS day FROM source_collection_metrics")
+    .all())
+    foldCollectionDays(db, Date.parse(`${row.day}T23:59:59.000Z`));
+}
 
 function snapshot(db: ReturnType<typeof openDatabase>, source: string, hoursAgo: number): void {
   // Each reading differs, as real payloads do; identical bytes would be stored once.
@@ -237,10 +250,25 @@ test("collection metrics older than the horizon are dropped, recent ones kept", 
       .query("INSERT INTO source_collection_metrics(source,collected_at,success) VALUES(?,?,1)")
       .run("arena", new Date(now - daysAgo * 24 * 3_600_000).toISOString());
   for (const days of [200, 120, 91, 89, 30, 1]) write(days);
+  foldAllDays(db);
 
-  expect(pruneSourceCollectionMetrics(db, now)).toBe(3);
+  expect(pruneSourceCollectionMetrics(db, now)).toBe(5);
   const left = db.query<{ c: number }, []>("SELECT COUNT(*) c FROM source_collection_metrics").get()?.c;
-  expect(left).toBe(3);
+  expect(left).toBe(1);
+  db.close();
+});
+
+test("a raw attempt whose day the fold has not recorded is never deleted", () => {
+  const db = openDatabase(":memory:");
+  const old = new Date(now - 200 * 24 * 3_600_000).toISOString();
+  db.query("INSERT INTO source_collection_metrics(source,collected_at,success) VALUES(?,?,1)").run("arena", old);
+
+  // The fold has never run, so this history is the only copy there is of it.
+  expect(pruneSourceCollectionMetrics(db, now)).toBe(0);
+  expect(db.query<{ c: number }, []>("SELECT COUNT(*) c FROM source_collection_metrics").get()?.c).toBe(1);
+
+  foldAllDays(db);
+  expect(pruneSourceCollectionMetrics(db, now)).toBe(1);
   db.close();
 });
 
@@ -249,6 +277,7 @@ test("a backlog larger than one chunk is cleared, not partly cleared", () => {
   const old = new Date(now - 200 * 24 * 3_600_000).toISOString();
   const insert = db.query("INSERT INTO source_collection_metrics(source,collected_at,success) VALUES(?,?,1)");
   for (let i = 0; i < 2_500; i++) insert.run("arena", old);
+  foldAllDays(db);
   expect(pruneSourceCollectionMetrics(db, now)).toBe(2_500);
   expect(db.query<{ c: number }, []>("SELECT COUNT(*) c FROM source_collection_metrics").get()?.c).toBe(0);
   db.close();

@@ -136,7 +136,7 @@ export function sourceVerdicts(
   const collectingSince = new Map(
     db
       .query<{ source: string; first: string }, []>(
-        "SELECT source, MIN(collected_at) AS first FROM source_collection_metrics WHERE success=1 GROUP BY source",
+        "SELECT source, MIN(first_at) AS first FROM source_collection_days WHERE outcome='success' GROUP BY source",
       )
       .all()
       .map((row) => [row.source, row.first]),

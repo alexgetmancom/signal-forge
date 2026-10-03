@@ -6,7 +6,7 @@ import { saveCollection } from "../src/events/pipeline.js";
 import type { Collection } from "../src/events/types.js";
 import { signalQuality } from "../src/reports/signalQuality.js";
 import { openDatabase } from "../src/storage/database.js";
-import { anEvent } from "./fixtures/build.js";
+import { anAttempt, anEvent } from "./fixtures/build.js";
 import { registered } from "./registered.js";
 
 const config = loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname });
@@ -59,9 +59,7 @@ test("signal quality reports collection outcomes, delivery modes and suppressed 
     "2026-09-08T02:00:00.000Z",
   );
   prepareDeliveries(db, Date.parse("2026-09-08T03:00:00.000Z"));
-  db.query(
-    "INSERT INTO source_collection_metrics(source,collected_at,success,error) VALUES('openrouter','2026-09-08T00:30:00.000Z',0,'safe failure')",
-  ).run();
+  anAttempt(db, "openrouter", { error: "safe failure" }, "2026-09-08T00:30:00.000Z");
 
   const report = signalQuality(db, config, 7, Date.parse("2026-09-09T00:00:00.000Z"));
   expect(report.coverage).toEqual({

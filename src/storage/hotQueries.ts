@@ -37,9 +37,9 @@ export const HOT_QUERIES: readonly HotQuery[] = [
     params: ["arena"],
   },
   {
-    name: "collection metrics in a window",
-    sql: "SELECT source, COUNT(*) FROM source_collection_metrics WHERE collected_at >= ? GROUP BY source",
-    params: ["2026-01-01T00:00:00.000Z"],
+    name: "collection days in a window",
+    sql: "SELECT source, SUM(attempts) FROM source_collection_days WHERE day >= ? GROUP BY source",
+    params: ["2026-01-01"],
   },
   {
     name: "failures of one source",

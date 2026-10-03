@@ -114,36 +114,39 @@ export function expireSnapshotBodies(db: Database, now = Date.now()): number {
 }
 
 /**
- * Every collection attempt writes a row here, success or failure, and nothing ever deleted one.
+ * How long the raw attempts are kept, now that every count of them is read from the daily fold.
  *
- * Measured on production 2026-09-24: 146,529 rows against 11,131 events, growing by 15--21 thousand
- * a day and accelerating with each source added. It is the only operational table that was never
- * given a horizon -- `code_metrics` has ninety days, snapshots have theirs -- and the reports that
- * read it never look past a week.
+ * Ninety days was the horizon while this table was what the reports read, and it could not be
+ * shortened: `sourceVerdicts` reads the first successful collection across all of history to say
+ * how long a source has been observed, and a shorter horizon silently caps every source's apparent
+ * age at the horizon -- the verdicts keep rendering, with a wrong denominator. `signalQuality` and
+ * five other reports take a window of up to ninety days for the same reason.
  *
- * Ninety days, to match the metrics it sits beside: long enough that a source's failure rate over
- * a quarter is still answerable, short enough that the table stops being the largest thing in the
- * database that nobody reads.
- *
- * Thirty was considered and rejected. `sourceVerdicts` reads `MIN(collected_at)` across all of
- * history to say how long a source has been observed, and that number decides whether a source is
- * old enough to be judged at all. Shorten the horizon and every source's apparent age silently
- * caps at the horizon: the verdicts keep rendering, with a wrong denominator. Any future change to
- * this constant has to answer that query first.
+ * `source_collection_days` answers all of those now and keeps the full ninety days of them, so what
+ * a raw attempt is still needed for is the two things a fold cannot carry: the minute `outages`
+ * clusters a failure in, and the sentence `failures` shows an example of. A fortnight covers both --
+ * `outages` and the raw half of `failures` are capped to it in one place, `RAW_COLLECTION_DAYS`,
+ * so a question that reaches past the rows is refused rather than answered short.
  */
-const COLLECTION_METRICS_LIFETIME_DAYS = 90;
+export const RAW_COLLECTION_DAYS = 14;
 
 export function pruneSourceCollectionMetrics(db: Database, now = Date.now()): number {
-  const cutoff = new Date(now - COLLECTION_METRICS_LIFETIME_DAYS * 24 * 3_600_000).toISOString();
+  const cutoff = new Date(now - RAW_COLLECTION_DAYS * 24 * 3_600_000).toISOString();
   let removed = 0;
   for (let chunk = 0; chunk < MAX_CHUNKS; chunk++) {
     try {
       // Chunked like the snapshots above: the first run after this ships has a six-figure backlog
       // to clear, and one statement for all of it holds a write lock for the length of it.
+      //
+      // Never past a day the fold has not recorded. A fold that failed, or that has never run, would
+      // otherwise have this delete the only copy of a quarter of collection history one chunk every
+      // five minutes, and every report above it would keep answering from a window quietly emptying.
       const deleted = db
         .query<{ removed: number }, [string, number]>(
           `DELETE FROM source_collection_metrics WHERE rowid IN (
-             SELECT rowid FROM source_collection_metrics WHERE collected_at < ? LIMIT ?
+             SELECT rowid FROM source_collection_metrics
+             WHERE collected_at < ? AND substr(collected_at, 1, 10) IN (SELECT day FROM source_collection_days)
+             LIMIT ?
            ) RETURNING 1 AS removed`,
         )
         .all(cutoff, CHUNK * 20).length;

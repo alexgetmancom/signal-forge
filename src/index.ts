@@ -23,6 +23,7 @@ import { RuntimeSupervisor } from "./runtime/supervisor.js";
 import { startIntervalWorker } from "./runtime/worker.js";
 import { buildSourceRegistry, recordSourceIdentities } from "./sources/registry.js";
 import { publishBoard } from "./status.js";
+import { foldCollectionDays } from "./storage/collectionDays.js";
 import { openDatabase } from "./storage/database.js";
 import { HttpCache } from "./storage/httpCache.js";
 import {
@@ -126,6 +127,9 @@ supervisor.register(
     // Each step is timed on its own: the cycle takes seconds and its total does not say which.
     measure(db, "status.prune:metrics", () => pruneCodeMetrics(db));
     measure(db, "status.prune:snapshots", () => pruneSnapshots(db));
+    // Folded before pruned, and in that order: the prune refuses to delete a day the fold has not
+    // recorded, so a cycle that folds first is a cycle that can also shrink the raw table.
+    measure(db, "status.fold:collection-days", () => foldCollectionDays(db));
     measure(db, "status.prune:collection-metrics", () => pruneSourceCollectionMetrics(db));
     measure(db, "status.prune:journal", () => pruneOperatorJournal(db));
     measure(db, "status.prune:failure-evidence", () => pruneFailureEvidence(db));

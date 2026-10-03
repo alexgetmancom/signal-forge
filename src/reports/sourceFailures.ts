@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { AppConfig } from "../config.js";
 import { buildSourceRegistry } from "../sources/registry.js";
+import { collectionWindowFrom, dayFrom } from "../storage/collectionDays.js";
 import { listFailureEvidence } from "../storage/failureEvidence.js";
 import { listSourceShapes, shapeDifference } from "../storage/sourceShapes.js";
 import { FAILURE_KIND } from "./failureKind.js";
@@ -53,28 +54,37 @@ export function sourceFailures(
   days = 7,
   now = Date.now(),
 ): SourceFailures {
-  const from = new Date(now - days * 24 * 3_600_000).toISOString();
+  // Whole days: the counts come from the fold, and the example sentence is then looked for over the
+  // same bound rather than over a window the counts did not use.
+  const from = collectionWindowFrom(days, now);
   const totals = db
     .query<{ attempts: number; failures: number }, [string, string]>(
-      "SELECT COUNT(*) AS attempts, SUM(success = 0) AS failures FROM source_collection_metrics WHERE source=? AND collected_at >= ?",
+      `SELECT SUM(attempts) AS attempts,
+              SUM(CASE WHEN outcome = 'success' THEN 0 ELSE attempts END) AS failures
+       FROM source_collection_days WHERE source=? AND day >= ?`,
     )
-    .get(source, from) ?? { attempts: 0, failures: 0 };
+    .get(source, dayFrom(from)) ?? { attempts: 0, failures: 0 };
   const kinds = db
     .query<
       { kind: string; failures: number; first_at: string; last_at: string; example: string | null },
-      [string, string]
+      [string, string, string]
     >(
-      `SELECT ${FAILURE_KIND} AS kind,
-              COUNT(*) AS failures,
-              MIN(collected_at) AS first_at,
-              MAX(collected_at) AS last_at,
-              MAX(error) AS example
-       FROM source_collection_metrics
-       WHERE source=? AND collected_at >= ? AND success = 0
+      `SELECT d.outcome AS kind,
+              SUM(d.attempts) AS failures,
+              MIN(d.first_at) AS first_at,
+              MAX(d.last_at) AS last_at,
+              -- The sentence itself, from the raw attempts the fold does not carry one into. A kind
+              -- whose last occurrence is older than those rows reach keeps its count and loses its
+              -- example, which is the honest shape of "it happened, and the wording is gone".
+              (SELECT MAX(m.error) FROM source_collection_metrics m
+                WHERE m.source = d.source AND m.success = 0 AND ${FAILURE_KIND} = d.outcome
+                  AND m.collected_at >= ?) AS example
+       FROM source_collection_days d
+       WHERE d.source=? AND d.day >= ? AND d.outcome <> 'success'
        GROUP BY kind
        ORDER BY failures DESC`,
     )
-    .all(source, from);
+    .all(from, source, dayFrom(from));
   const shapes = listSourceShapes(db, source);
   const [newest, previous] = shapes;
   const registered = buildSourceRegistry(db, config).some((definition) => definition.id === source);
