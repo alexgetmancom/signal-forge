@@ -14,6 +14,7 @@ import type { SourceContext, SourceEntry } from "../definition.js";
 import { collectGoogleSkus } from "../googleSkus.js";
 import { type SourceKind, sourcesOfKind } from "../kinds.js";
 import { collectModelsDev, collectTrueFoundryAzure } from "../mirrors.js";
+import { collectClaudeModelCatalog } from "../modelCatalog.js";
 import { collectAnthropicModelIndex, collectOpenAIModelIndex } from "../modelIndex.js";
 import { collectOpenAIPricing } from "../openaiDocs.js";
 import {
@@ -42,6 +43,31 @@ function npmChannels(db: Database, source: string): NpmChannels {
       channels.set(row.id, { version: body.version, published: body.published });
   }
   return channels;
+}
+
+/**
+ * A maker's own catalogue for its own clients, which is not its API's answer and is not a
+ * third party's view either: `claude-opus-4-1-20250805` is offered here and absent from this
+ * account's `/v1/models`. `availability_catalogue` and `supported` say that -- a model listed
+ * here is one Anthropic offers a client, not one this service has been told it may call.
+ *
+ * Hourly: it is signed, 147 KB, and moved 110 versions in the day it was first read, so it is
+ * the cheapest first-party sighting here and the one most likely to move between polls.
+ */
+const CLIENT_CATALOGUE: SourceKind = {
+  kind: "client-catalogue",
+  authority: "first_party",
+  evidence: "availability_catalogue",
+  confidence: "supported",
+  group: "Catalogues",
+  stream: "api-models",
+  intervalSeconds: 3600,
+};
+
+function claudeClientCatalogue(db: Database): SourceEntry[] {
+  return sourcesOfKind(CLIENT_CATALOGUE, [
+    { id: "claude-model-catalog", vendor: "Anthropic", collector: () => collectClaudeModelCatalog(db) },
+  ]);
 }
 
 /**
@@ -222,6 +248,7 @@ export function cataloguesSources({ db, config, cache }: SourceContext): SourceE
       intervalSeconds: 21600,
       collector: () => collectOpenRouterUsage(),
     },
+    ...claudeClientCatalogue(db),
     ...sourcesOfKind(MAKER_API, [
       {
         id: "openai",

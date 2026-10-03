@@ -65,6 +65,7 @@ const STATIC_LABELS: Record<string, string> = {
   weirdml: "WeirdML · leaderboard",
   simplebench: "SimpleBench · leaderboard",
   "claude-web": "Claude · interface",
+  "claude-model-catalog": "Claude · client model catalogue",
   "codex-docs": "Codex · docs",
   // Named for what it tracks, not by its domain: a card does not advertise somebody else's site.
   "codex-resets": "Codex · weekly resets",

@@ -6,7 +6,15 @@
     "useIgnoreFile": true
   },
   "files": {
-    "includes": ["**", "!dist", "!node_modules", "!data", "!*.log", "!.claude"]
+    "includes": [
+      "**",
+      "!dist",
+      "!node_modules",
+      "!data",
+      "!*.log",
+      "!.claude",
+      "!tests/fixtures/claudeModelCatalog*.json"
+    ]
   },
   "formatter": {
     "enabled": true,
