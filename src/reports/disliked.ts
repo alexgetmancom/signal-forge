@@ -70,39 +70,23 @@ const MODALITY_WORDS: readonly { modality: string; pattern: RegExp }[] = [
   { modality: "code", pattern: /code|coder|webdev|web-dev|swe/i },
 ];
 
-function modalityOf(record: Record<string, unknown>, entityId: string): string {
-  const category = typeof record.category === "string" ? record.category : "";
-  const name = `${category} ${entityId} ${typeof record.name === "string" ? record.name : ""}`;
-  const arrays = [record.input, record.output].flatMap((side) => (Array.isArray(side) ? side : []));
-  const pricing = record.pricing && typeof record.pricing === "object" ? Object.keys(record.pricing) : [];
-  const text = [name, ...arrays.map(String), ...pricing].join(" ");
+function modalityOf(row: DeliveredRow): string {
+  const sides = [row.inputs, row.outputs].filter((side): side is string => typeof side === "string");
+  const text = [row.category, row.entity_id, row.name, row.price_fields, ...sides].filter(Boolean).join(" ");
   for (const { modality, pattern } of MODALITY_WORDS) if (pattern.test(text)) return modality;
-  return arrays.includes("text") || /text/.test(category) ? "text" : "unknown";
+  return /text/.test(sides.join(" ")) || /text/.test(row.category ?? "") ? "text" : "unknown";
 }
 
 /** The handles one event offers: who made it, what it is about, and the board it came from. */
-function facetsOf(event: {
-  source: string;
-  stream: string;
-  signal: string | null;
-  after_json: string | null;
-}): Facet[] {
-  let record: Record<string, unknown> = {};
-  try {
-    const parsed: unknown = JSON.parse(event.after_json ?? "{}");
-    if (parsed && typeof parsed === "object") record = parsed as Record<string, unknown>;
-  } catch {
-    record = {};
-  }
-  const entityId = typeof record.id === "string" ? record.id : "";
+function facetsOf(row: DeliveredRow): Facet[] {
   const facets: Facet[] = [
-    { axis: "source", value: event.source },
-    { axis: "stream", value: event.stream },
-    { axis: "signal", value: event.signal || "unclassified" },
-    { axis: "modality", value: modalityOf(record, entityId) },
+    { axis: "source", value: row.source },
+    { axis: "stream", value: row.stream },
+    { axis: "signal", value: row.signal || "unclassified" },
+    { axis: "modality", value: modalityOf(row) },
   ];
-  if (typeof record.category === "string") facets.push({ axis: "board", value: record.category });
-  if (typeof record.maker === "string") facets.push({ axis: "maker", value: record.maker });
+  if (row.category) facets.push({ axis: "board", value: row.category });
+  if (row.maker) facets.push({ axis: "maker", value: row.maker });
   return facets;
 }
 
@@ -145,7 +129,16 @@ type DeliveredRow = {
   source: string;
   stream: string;
   signal: string | null;
-  after_json: string | null;
+  /** The handful of keys the facets are derived from. The record itself is never read: a body costs
+   * what the archive has grown to, and five scalars are what this answer keeps. */
+  entity_id: string | null;
+  category: string | null;
+  maker: string | null;
+  name: string | null;
+  inputs: string | null;
+  outputs: string | null;
+  /** The price table's field names, which is where Vercel says a model speaks and nothing else does. */
+  price_fields: string | null;
 };
 
 /** Every card that reached a channel in the window, with its events and whatever a reader did to it. */
@@ -154,7 +147,14 @@ function delivered(db: Database, since: string): DeliveredRow[] {
     .query<DeliveredRow, [string]>(
       `SELECT d.id delivery_id, d.batch_id, d.destination_id, d.body, d.updated_at,
               COALESCE(r.votes,0) favour, COALESCE(r.against,0) against,
-              e.source, e.stream, e.signal, e.after_json
+              e.source, e.stream, e.signal,
+              json_extract(e.after_json,'$.id') entity_id,
+              json_extract(e.after_json,'$.category') category,
+              json_extract(e.after_json,'$.maker') maker,
+              json_extract(e.after_json,'$.name') name,
+              json_extract(e.after_json,'$.input') inputs,
+              json_extract(e.after_json,'$.output') outputs,
+              (SELECT group_concat(key) FROM json_each(e.after_json,'$.pricing')) price_fields
          FROM deliveries d
          JOIN delivery_events de ON de.delivery_id = d.id
          JOIN events e ON e.id = de.event_id
