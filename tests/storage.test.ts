@@ -74,50 +74,42 @@ function seeded() {
   return db;
 }
 
-test("bodies are counted in bytes, by table, largest first", () => {
+test("every table is weighed, by its own columns, largest first", () => {
   const db = seeded();
   const report = storageReport(db, { days: 14, top: 10, now });
   const sizeOf = (text: string, extra = "") => Buffer.byteLength(JSON.stringify({ text })) + Buffer.byteLength(extra);
+  const of = (table: string) => report.tables.find((entry) => entry.table === table);
 
-  const events = report.bodies.find((body) => body.table === "events");
-  expect(events?.rows).toBe(4);
-  expect(events?.bytes).toBe(
-    sizeOf("o".repeat(10)) + sizeOf("a".repeat(100)) + sizeOf("b".repeat(200), "{}") + sizeOf("c".repeat(50)),
-  );
-  expect(report.bodies.find((body) => body.table === "records")).toEqual({ table: "records", rows: 1, bytes: 40 });
-  expect(report.bodies.find((body) => body.table === "http_cache")).toEqual({
-    table: "http_cache",
-    rows: 1,
-    bytes: Bun.gzipSync(Buffer.from("y".repeat(500))).length,
-  });
-  expect(report.bodies.map((body) => body.bytes)).toEqual(
-    [...report.bodies.map((body) => body.bytes)].sort((a, b) => b - a),
+  // The sum is over every column, not only the bodies, so a table weighs at least its bodies and
+  // more: the four events here also carry a source, a stream, an entity and two timestamps.
+  const bodies =
+    sizeOf("o".repeat(10)) + sizeOf("a".repeat(100)) + sizeOf("b".repeat(200), "{}") + sizeOf("c".repeat(50));
+  expect(of("events")?.bytes).toBeGreaterThan(bodies);
+  // A blob is weighed as stored, so the HTTP cache is its gzipped size and not the 500 bytes in.
+  expect(of("http_cache")?.bytes).toBeGreaterThan(Bun.gzipSync(Buffer.from("y".repeat(500))).length);
+  expect(of("http_cache")?.bytes).toBeLessThan(500);
+  // Tables nothing wrote to are weighed as nothing, rather than left out: a table that is empty and
+  // a table the report has never heard of looked the same while this was a list of four names.
+  expect(of("stories")).toEqual({ table: "stories", bytes: 0, rows: null });
+  expect(report.tables.length).toBeGreaterThan(20);
+  expect(report.tables.map((table) => table.bytes)).toEqual(
+    [...report.tables.map((table) => table.bytes)].sort((a, b) => b - a),
   );
   db.close();
 });
 
-test("every table in the file is named, and the remainder is page overhead", () => {
+test("the remainder is what is left when every table has been named", () => {
   const db = seeded();
   const report = storageReport(db, { days: 14, top: 10, now });
-  const paged = report.tables.reduce((sum, table) => sum + table.bytes + table.indexBytes, 0);
+  const held = report.tables.reduce((sum, table) => sum + table.bytes, 0);
   expect(report.file.bytes).toBeGreaterThan(0);
   expect(report.file.budgetBytes).toBe(5 * 1024 ** 3);
-  expect(report.unaccountedBytes).toBe(Math.max(0, report.file.bytes - report.file.freeBytes - paged));
-  // The point of reading `dbstat` rather than a list of four tables: what the report cannot name
-  // was 46% of production. Every page is now charged to a table, so the remainder is a rounding.
-  expect(report.unaccountedBytes).toBeLessThan(report.file.bytes / 10);
-  // The tables the payload breakdown weighs are among the ones the page breakdown names, and the
-  // pages a table occupies are never fewer than the payload stored in it.
-  for (const body of report.bodies) {
-    const table = report.tables.find((entry) => entry.table === body.table);
-    expect(table?.bytes ?? 0).toBeGreaterThanOrEqual(0);
-  }
-  expect(report.tables.map((table) => table.bytes + table.indexBytes)).toEqual(
-    [...report.tables.map((table) => table.bytes + table.indexBytes)].sort((a, b) => b - a),
-  );
+  expect(report.unaccountedBytes).toBe(Math.max(0, report.file.bytes - report.file.freeBytes - held));
+  // It is indexes and page overhead now, where it used to be indexes, overhead and every table
+  // this report did not weigh -- which on production was 46% of the file and hid the second-largest
+  // table in the database. What is left cannot name a table, because every table is named above.
   expect(report.tables.some((table) => table.table === "snapshots")).toBe(true);
-  // An in-memory database has no file beside it, so there is no log to weigh.
-  expect(report.file.walBytes).toBeNull();
+  expect(report.tables.some((table) => table.table === "code_metrics")).toBe(true);
   db.close();
 });
 

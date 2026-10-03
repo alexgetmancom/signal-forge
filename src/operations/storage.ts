@@ -20,14 +20,14 @@ export function storageOperations(db: Database, _config: AppConfig): OperationMa
         "What the database file is made of: every table and its indexes, payload bytes, the sources behind both, and how fast events grow.",
       startHere: "the database is growing, or the size alert fired, and I need to know what it is made of",
       note:
-        "`tables` is the whole file: every table from `dbstat`, largest first, with what its own " +
-        "indexes cost beside it, so the biggest thing in the database is the first row rather than " +
-        "something to go looking for. Start there. `rows` is `ANALYZE`'s estimate, null for a table " +
-        "it has not reached. `bodies` is the narrower question of what the large columns weigh; " +
-        "snapshots and HTTP cache are counted as stored, gzipped, so a table's payload is smaller " +
-        "than its pages. `unaccountedBytes` is now page overhead only -- it was 46% of production " +
-        "while this report named four tables, and the largest thing it hid was a table with no entry " +
-        "here at all. `events.bySource` says which sources' events weigh the most and what one of " +
+        "`tables` weighs every table in the file, largest first, so the biggest thing in the " +
+        "database is the first row rather than something to go looking for. Start there. It is the " +
+        "sum of every column of every row -- blobs as stored, so gzipped -- and `rows` is " +
+        "`ANALYZE`'s estimate, null for a table it has not reached. `unaccountedBytes` is the file " +
+        "less those and the free pages, which is indexes and page overhead: per-index bytes need " +
+        "`dbstat` and this Bun is built without it. It was 46% of the file while this report weighed " +
+        "four tables, and what it hid was the second-largest table in the database. " +
+        "`events.bySource` says which sources' events weigh the most and what one of " +
         "them averages, which is the breakdown that explains a jump; `snapshots.bySource` " +
         "is where to look before widening retention: it lists the sources holding the most stored " +
         "payload and the share they hold, and a row with `keptRows` far below `rows` is retention " +

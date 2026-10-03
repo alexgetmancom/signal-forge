@@ -16,20 +16,25 @@ import { DATABASE_SIZE_BUDGET, databaseSize } from "../storage/retention.js";
  *
  * Nothing here reads a body: SQLite sums the lengths and one number comes back.
  *
- * `bodies` is payload and `tables` is pages, and the second was added because the first could not
- * answer the question it was built for. `bodies` names four tables, so everything else in the file
- * landed in `unaccountedBytes` -- 115 MB of a 252 MB database on 2026-10-03, 46% of it, and the
- * largest single thing in there was a table the report had no way to mention. Finding it meant
- * querying `dbstat` by hand. `tables` is that query: every b-tree in the file, its own indexes
- * counted beside it, so the remainder is page overhead and nothing else.
+ * `tables` weighs every table, which it did not always do. It weighed four -- the ones that carry
+ * bodies -- and everything else in the file landed in `unaccountedBytes`: 115 MB of a 252 MB
+ * database on 2026-10-03, 46% of it, and the largest single thing in there was `code_metrics`, a
+ * table this report had no way to mention. Finding it took a hand-written query.
+ *
+ * So the four are generated from the schema instead of listed, and the remainder is indexes and
+ * page overhead rather than tables. Per-index bytes would need `dbstat`, which this cannot use:
+ * production's Bun is built without it, and the only reason I know that is that the gate refused
+ * the query on Linux after it had worked all afternoon on a Mac. A report that names every table
+ * and cannot apportion the indexes is the honest version of the one that was wanted.
  */
 export type StorageReport = {
   file: { bytes: number; freeBytes: number; walBytes: number | null; budgetBytes: number };
-  /** Payload bytes by table, largest first. Snapshots and HTTP cache are counted as stored, gzipped. */
-  bodies: { table: BodyTable; rows: number; bytes: number }[];
-  /** Every table in the file, largest first, with what its own indexes cost beside it. */
-  tables: { table: string; bytes: number; indexBytes: number; rows: number | null }[];
-  /** Page overhead the tables above do not account for. A remainder, and now a small one. */
+  /**
+   * Payload bytes of every table, largest first. Blobs are counted as stored, so the snapshots and
+   * the HTTP cache are their gzipped size. `rows` is `ANALYZE`'s estimate, null where it has not run.
+   */
+  tables: { table: string; bytes: number; rows: number | null }[];
+  /** The file less those and the free pages: indexes and page overhead. A remainder, not a measurement. */
   unaccountedBytes: number;
   snapshots: {
     rows: number;
@@ -54,97 +59,62 @@ export type StorageReport = {
   };
 };
 
-type BodyTable = "events" | "records" | "snapshots" | "http_cache";
-
 export function storageReport(db: Database, options: { days: number; top: number; now?: Date }): StorageReport {
   const now = options.now ?? new Date();
   const size = databaseSize(db);
   const freePages = db.query<{ freelist_count: number }, []>("PRAGMA freelist_count").get()?.freelist_count ?? 0;
   const pageSize = db.query<{ page_size: number }, []>("PRAGMA page_size").get()?.page_size ?? 0;
-  const bodies = bodiesOf(db);
   const tables = tablesOf(db);
-  const paged = tables.reduce((total, table) => total + table.bytes + table.indexBytes, 0);
+  const held = tables.reduce((total, table) => total + table.bytes, 0);
   const freeBytes = freePages * pageSize;
   return {
     file: { bytes: size.bytes, freeBytes, walBytes: size.walBytes, budgetBytes: DATABASE_SIZE_BUDGET },
-    bodies,
     tables,
-    unaccountedBytes: Math.max(0, size.bytes - freeBytes - paged),
+    unaccountedBytes: Math.max(0, size.bytes - freeBytes - held),
     snapshots: snapshotsOf(db, options.top),
     events: eventsOf(db, options.days, now),
   };
 }
 
-function bodiesOf(db: Database): StorageReport["bodies"] {
-  const one = (table: BodyTable, sql: string): StorageReport["bodies"][number] => {
-    const row = db.query<{ n: number; b: number | null }, []>(sql).get();
-    return { table, rows: row?.n ?? 0, bytes: row?.b ?? 0 };
-  };
-  return [
-    // `CAST ... AS BLOB` is the length in bytes of a text value, which is what it occupies, and is
-    // written out in each statement rather than assembled: `check-sql` can only vouch for a column
-    // name it can read, and a wrong one here would be a report that says nothing weighs anything.
-    one(
-      "events",
-      "SELECT COUNT(*) n, SUM(LENGTH(CAST(COALESCE(before_json,'') AS BLOB))+LENGTH(CAST(COALESCE(after_json,'') AS BLOB))) b FROM events",
-    ),
-    one(
-      "records",
-      "SELECT COUNT(*) n, SUM(LENGTH(CAST(body AS BLOB))+LENGTH(CAST(COALESCE(candidate_body,'') AS BLOB))) b FROM records",
-    ),
-    // A blob's length is in its header, so this does not read a megabyte to count one.
-    one("snapshots", "SELECT COUNT(*) n, SUM(LENGTH(body)) b FROM snapshots"),
-    one("http_cache", "SELECT COUNT(*) n, SUM(LENGTH(body)) b FROM http_cache"),
-  ].sort((one, other) => other.bytes - one.bytes);
-}
-
 /**
- * Every b-tree in the file, from `dbstat`, with each index charged to the table it indexes.
+ * Every table, weighed by summing the length of every column of every row.
  *
- * `aggregate=TRUE` returns one row per b-tree instead of one per page: 114 rows rather than sixty
- * thousand. It still walks the trees, so it is not free -- measured at 251 ms and 11 MB of
- * high-water on a 252 MB copy of production, and nothing on a second call. That is cheaper than one
- * ordinary collection, which is the bar a read answered inside the long-lived service has to clear.
+ * The statement is generated from `sqlite_master` and `pragma_table_info` rather than written out,
+ * which is the opposite of what this file used to do: four statements, each naming its columns, so
+ * that `check-sql` could vouch for every name. That bought a report which could not name the
+ * largest table in the database. The names here come from the schema itself, so there is nothing to
+ * get wrong and nothing to keep in step -- a table added by a migration is weighed by the next
+ * call, and `check-sql` cannot read these statements because they do not exist until it runs.
  *
- * Row counts come from `sqlite_stat1`, which `ANALYZE` wrote, rather than from 114 `COUNT(*)`
- * statements. That makes them an estimate as of the last `ANALYZE`, and `null` for a table no
- * `ANALYZE` has reached; a count that is exact is not worth scanning every table to print.
+ * `CAST(... AS BLOB)` is the length in bytes of a text value, which is what it occupies. A blob's
+ * length is in its header, so a 500 KB snapshot body is weighed without being read.
+ *
+ * Measured on a 252 MB copy of production: 45 tables, 261 ms, 16 MB of high-water once. That is the
+ * same order as the `dbstat` version this replaced, and it runs where that one cannot.
  */
 function tablesOf(db: Database): StorageReport["tables"] {
-  const owner = new Map(
-    db
-      .query<{ name: string; tbl_name: string }, []>("SELECT name, tbl_name FROM sqlite_master WHERE type='index'")
-      .all()
-      .map((row) => [row.name, row.tbl_name] as const),
-  );
   const rows = new Map(
     db
       .query<{ tbl: string; stat: string }, []>("SELECT tbl, stat FROM sqlite_stat1")
       .all()
       .map((row) => [row.tbl, Number.parseInt(row.stat.split(" ")[0] ?? "", 10)] as const),
   );
-  const totals = new Map<string, { bytes: number; indexBytes: number }>();
-  for (const btree of db
-    .query<{ name: string; b: number }, []>("SELECT name, SUM(pgsize) b FROM dbstat WHERE aggregate=TRUE GROUP BY name")
-    .all()) {
-    // An autoindex is a WITHOUT ROWID table's own storage, or a UNIQUE constraint's index, and
-    // `sqlite_master` has no row for either; the owner is in the name. Everything else is a table.
-    const auto = autoindexOwner(btree.name);
-    const table = owner.get(btree.name) ?? auto ?? btree.name;
-    const asIndex = owner.has(btree.name) || auto !== null;
-    const total = totals.get(table) ?? { bytes: 0, indexBytes: 0 };
-    if (asIndex) total.indexBytes += btree.b;
-    else total.bytes += btree.b;
-    totals.set(table, total);
+  const names = db
+    .query<{ name: string }, []>(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+    )
+    .all();
+  const weighed: StorageReport["tables"] = [];
+  for (const { name } of names) {
+    const columns = db.query<{ name: string }, [string]>("SELECT name FROM pragma_table_info(?)").all(name);
+    if (columns.length === 0) continue;
+    const sum = columns.map((column) => `LENGTH(CAST(COALESCE("${column.name}",'') AS BLOB))`).join("+");
+    // Quoted identifiers, out of the schema of the database being read: there is no value here that
+    // came from anywhere but SQLite's own catalogue, which is the only reason this is built as text.
+    const bytes = db.query<{ b: number | null }, []>(`SELECT SUM(${sum}) b FROM "${name}"`).get()?.b ?? 0;
+    weighed.push({ table: name, bytes, rows: rows.get(name) ?? null });
   }
-  return [...totals]
-    .map(([table, total]) => ({ table, ...total, rows: rows.get(table) ?? null }))
-    .sort((one, other) => other.bytes + other.indexBytes - (one.bytes + one.indexBytes));
-}
-
-/** The table a `sqlite_autoindex_<table>_<n>` belongs to, or null when the name is not one. */
-function autoindexOwner(name: string): string | null {
-  return /^sqlite_autoindex_(.+)_\d+$/.exec(name)?.[1] ?? null;
+  return weighed.sort((one, other) => other.bytes - one.bytes);
 }
 
 function snapshotsOf(db: Database, top: number): StorageReport["snapshots"] {
