@@ -27,7 +27,46 @@ export function classify(db: Database, event: Event): SignalClass {
   if (signal === "change" && supersededModel(db, event) && !movesWhatAReaderActsOn(event)) return "evidence";
   if (signal === "change" && sideRepricingAtReseller(event)) return "evidence";
   if (signal === "change" && learnedARateItDidNotKnow(event)) return "evidence";
+  // A pointer moving is not the class a price move is, and `change` reaches nobody: no destination
+  // subscribes to it, because 2,379 of them arrived in the 30 days to 2026-10-04 against 37
+  // releases. See `aliasMovedTo`.
+  const moved = signal === "change" ? aliasMovedTo(event) : null;
+  if (moved) return listedAnywhere(db, moved) ? "release" : "codename";
   return signal;
+}
+
+/**
+ * The model a moving pointer now resolves to, or null for anything that is not that.
+ *
+ * `~openai/gpt-sol-latest` is what a caller gets when they ask for no version, so the pointer
+ * moving is the only event here that changes what an unchanged line of somebody's code does. It
+ * reads as a field edit on a pseudo-model and it is the opposite of one, which is why it is lifted
+ * out of `change` by hand: eighteen of these existed on 2026-10-04, none of them moved in the
+ * forty-four hours of catalogue bodies retained, and `change` is a class with no reader.
+ *
+ * Only a move. The field appearing for the first time is this service starting to read it, which
+ * happened once, to eighteen records at once, and `batchViewOf` already knows that shape.
+ */
+function aliasMovedTo(event: Event): string | null {
+  if (event.kind !== "changed" || !event.before_json) return null;
+  const before = (JSON.parse(event.before_json) as { aliasTarget?: unknown }).aliasTarget;
+  const after = (recordFor(event) as { aliasTarget?: unknown } | null)?.aliasTarget;
+  if (typeof before !== "string" || typeof after !== "string" || before === after) return null;
+  return after;
+}
+
+/**
+ * Whether any catalogue here has ever listed the model a pointer now aims at.
+ *
+ * Both answers are news and they are different news. A pointer moving to a model already listed is
+ * the maker switching the default, which is what a reader who calls the stable name is served from
+ * now on -- a release, in the one channel that carries releases. A pointer aiming at a name nothing
+ * here has ever recorded is a model that exists before it is announced, which is the earliest word
+ * there is and belongs with the codenames. All eighteen targets on 2026-10-04 were listed, so the
+ * second branch is the one worth having ready rather than the one that fires today.
+ */
+function listedAnywhere(db: Database, modelId: string): boolean {
+  return Boolean(db.query<{ one: number }, [string]>("SELECT 1 AS one FROM records WHERE id=? LIMIT 1").get(modelId));
 }
 
 /**

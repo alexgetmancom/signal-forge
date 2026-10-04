@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test";
+import { classify } from "../src/events/classify.js";
 import { pingWorthy, signalClass } from "../src/events/signals.js";
 import type { Event, RecordData } from "../src/events/types.js";
+import { openDatabase } from "../src/storage/database.js";
+import { aRecord } from "./fixtures/build.js";
 
 const event = (
   overrides: Partial<Event> & { stream: Event["stream"]; kind: Event["kind"] },
@@ -469,4 +472,45 @@ test("a page about making pictures or speech is a trail, not news", () => {
   expect(signalClass(page("/gemini-api/docs/generate-content/voice-design"))).toBe("evidence");
   expect(signalClass(page("/gemini-api/docs/voices"))).toBe("evidence");
   expect(signalClass(page("/gemini-api/docs/quickstart"))).not.toBe("codename");
+});
+
+/**
+ * Where a moving pointer goes, which is not where a price move goes.
+ *
+ * `change` is a class with no reader: 2,379 of them arrived in the 30 days to 2026-10-04 and no
+ * destination subscribes to it. A pointer moving is the only event here that changes what an
+ * unchanged line of somebody's code is served, so it leaves that class -- a release when the model
+ * it now aims at is one some catalogue here has listed, and the earliest word there is when it is a
+ * name nothing has ever recorded.
+ */
+test("a moving pointer leaves the class nobody reads", () => {
+  const db = openDatabase(":memory:");
+  const pointer = (before: string | null, after: string) =>
+    ({
+      signal: null,
+      id: 1,
+      source: "openrouter",
+      stream: "openrouter",
+      entity_id: "~openai/gpt-sol-latest",
+      kind: "changed",
+      before_json: before
+        ? JSON.stringify({ id: "~openai/gpt-sol-latest", name: "OpenAI: GPT Sol Latest", aliasTarget: before })
+        : JSON.stringify({ id: "~openai/gpt-sol-latest", name: "OpenAI: GPT Sol Latest" }),
+      after_json: JSON.stringify({
+        id: "~openai/gpt-sol-latest",
+        name: "OpenAI: GPT Sol Latest",
+        aliasTarget: after,
+      }),
+      detected_at: "2026-10-04T07:52:13.233Z",
+      confidence: "observed",
+      evidence_type: "availability_catalogue",
+      authority: "third_party",
+    }) as unknown as Event;
+  // Nothing listed yet: a pointer aiming at a name no catalogue here has recorded.
+  expect(classify(db, pointer("openai/gpt-6-astra", "openai/gpt-6.1-sol"))).toBe("codename");
+  aRecord(db, { source: "openrouter", id: "openai/gpt-6.1-sol" });
+  expect(classify(db, pointer("openai/gpt-6-astra", "openai/gpt-6.1-sol"))).toBe("release");
+  // The field appearing is this service starting to read it, not the maker switching anything.
+  expect(classify(db, pointer(null, "openai/gpt-6.1-sol"))).toBe("change");
+  db.close();
 });
