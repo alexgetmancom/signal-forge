@@ -30,6 +30,11 @@ export const BENCH: Bench[] = [
   },
   {
     group: "ask",
+    command: "prod traffic",
+    when: "Which collector downloads the most for the least. Ranked by bytes per event, so the top row is the next one to narrow -- then `bun run probe` against that endpoint to compare what it asks for with the fields the collector reads.",
+  },
+  {
+    group: "ask",
     command: "prod broken",
     when: "Open a session with it. It asks all four readings of 'broken' at once and says which sources more than one of them agrees on.",
   },

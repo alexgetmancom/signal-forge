@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { safeErrorType } from "../runtime/deepseekLedger.js";
+import { countBody, countNotModified, countRequest } from "../runtime/traffic.js";
 import { type CacheEntry, freshUntil, type HttpCache } from "../storage/httpCache.js";
 
 /**
@@ -98,6 +99,10 @@ export async function fetchResponse(
 ): Promise<Response> {
   const headers = new Headers({ "user-agent": USER_AGENT });
   for (const [name, value] of new Headers(init.headers)) headers.set(name, value);
+  // Counted before the answer, and once per call rather than once per retry: what this says is how
+  // often this service decided to ask upstream something, which is the number a pace is read
+  // against. `attempt`'s retries are the transport working, not a second question.
+  countRequest();
   try {
     return await attempt(url, request, { ...init, headers }, retryDelaysMs);
   } catch (error) {
@@ -153,6 +158,7 @@ export async function acceptedEtagUnchanged(
     await requireOk(response);
     return false;
   }
+  countNotModified();
   cache.touch(url, 0);
   return true;
 }
@@ -161,6 +167,11 @@ export async function acceptedEtagUnchanged(
 export async function readResponseBytes(response: Response): Promise<Buffer> {
   const reader = response.body?.getReader();
   if (!reader) throw new SourceError("protocol", "Source returned no body");
+  // What upstream said it was sending, against what we end up holding. `fetch` decompresses
+  // transparently, so these differ by the compression ratio on every source that uses it, and the
+  // pair is what tells a network cost from a memory cost. Zero when no length was given.
+  const declared = Number(response.headers.get("content-length"));
+  const wire = Number.isSafeInteger(declared) && declared >= 0 ? declared : 0;
   const chunks: Uint8Array[] = [];
   let size = 0;
   try {
@@ -172,6 +183,10 @@ export async function readResponseBytes(response: Response): Promise<Buffer> {
       chunks.push(value);
     }
   } finally {
+    // In `finally` so that a body abandoned part-way -- the 20 MB refusal above, a link that died
+    // mid-answer -- is still counted for what it cost before it was abandoned. A source that is
+    // expensive only on the attempts that fail is exactly the one worth seeing.
+    countBody(size, wire);
     await reader.cancel();
   }
   return Buffer.concat(chunks);
@@ -203,6 +218,10 @@ export async function fetchText(
     cached = send || unconditional ? null : (cache?.get(url) ?? null);
     if (cached && cached.freshUntil > Date.now()) {
       cache?.touch(url, cached.freshUntil);
+      // Nothing was asked and nothing came back: the body below was never fetched. Counted here so
+      // that a source whose traffic is low because its cache is working can be told apart from one
+      // whose traffic is low because it has stopped asking.
+      countNotModified();
       return cached.body;
     }
     const conditional: Record<string, string> = {};
@@ -241,6 +260,7 @@ export async function fetchText(
   }
   if (!response) throw new SourceError("protocol", "Source returned no response");
   if (response.status === 304 && cached) {
+    countNotModified();
     await response.body?.cancel();
     cache?.touch(url, freshUntil(response.headers.get("cache-control")));
     return cached.body;

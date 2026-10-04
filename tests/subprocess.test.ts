@@ -6,6 +6,7 @@ import { loadConfig } from "../src/config.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import { SourceError } from "../src/failure.js";
 import { classifyFailure } from "../src/failureDiagnosis.js";
+import { emptyTraffic } from "../src/runtime/traffic.js";
 import { SourceHttpError } from "../src/sources/http.js";
 import { type ChildRun, collectInSubprocess, fromWire, readAnswer, toWire } from "../src/sources/subprocess.js";
 import { openDatabase } from "../src/storage/database.js";
@@ -50,6 +51,7 @@ test("a heavy child uses its parent's database even when the environment names a
 const ran = (over: Partial<ChildRun>): ChildRun => ({
   answer: null,
   peakRssMb: null,
+  traffic: null,
   code: 0,
   timedOut: false,
   ...over,
@@ -93,12 +95,24 @@ test("a runtime failure keeps the name and the code its diagnosis is read off", 
 test("a child that answers hands back the collection it collected and what it cost", () => {
   const collection = { source: "npm:x", stream: "github", url: "https://x.test", raw: "a", records: [] };
   const got = readAnswer("npm:x", ran({ answer: JSON.stringify({ ok: true, collection }), peakRssMb: 417 }));
-  expect(got).toEqual({ collection, peakRssMb: 417 });
+  expect(got).toEqual({ collection, peakRssMb: 417, traffic: emptyTraffic() });
   // A child stopped after writing its answer but before writing the measurement has no peak.
   const stopped = readAnswer("npm:x", ran({ answer: JSON.stringify({ ok: true, collection }) }));
-  expect(stopped).toEqual({ collection, peakRssMb: null });
+  expect(stopped).toEqual({ collection, peakRssMb: null, traffic: emptyTraffic() });
   const unmeasured = readAnswer("npm:x", ran({ answer: JSON.stringify({ ok: true, collection }), peakRssMb: 0 }));
-  expect(unmeasured).toEqual({ collection, peakRssMb: null });
+  expect(unmeasured).toEqual({ collection, peakRssMb: null, traffic: emptyTraffic() });
+  // A child that counted its network sends the tally home beside the peak, failures included.
+  const counted = readAnswer(
+    "npm:x",
+    ran({
+      answer: JSON.stringify({ ok: true, collection }),
+      traffic: JSON.stringify({ requests: 3, bytesDecoded: 900, bytesWire: 300, notModified: 1 }),
+    }),
+  );
+  expect(counted.traffic).toEqual({ requests: 3, bytesDecoded: 900, bytesWire: 300, notModified: 1 });
+  // A tally that will not parse is no traffic, never a lost collection.
+  const babbled = readAnswer("npm:x", ran({ answer: JSON.stringify({ ok: true, collection }), traffic: "{" }));
+  expect(babbled.traffic).toEqual(emptyTraffic());
 });
 
 test("a child that dies, times out or babbles is a failure with a kind rather than a silent nothing", () => {

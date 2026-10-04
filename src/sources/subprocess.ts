@@ -6,6 +6,7 @@ import type { AppConfig } from "../config.js";
 import type { Collection } from "../events/types.js";
 import { type FailureKind, SourceError } from "../failure.js";
 import { measure } from "../runtime/metricRecording.js";
+import { emptyTraffic, readTraffic, type Traffic } from "../runtime/traffic.js";
 import { SourceHttpError } from "./http.js";
 
 /**
@@ -49,7 +50,7 @@ type WireFailure =
 type WireAnswer = { ok: true; collection: Collection } | { ok: false; failure: WireFailure };
 
 /** One collection by a child: what it found, and what the process that found it cost. */
-export type ChildCollection = { collection: Collection; peakRssMb: number | null };
+export type ChildCollection = { collection: Collection; peakRssMb: number | null; traffic: Traffic };
 
 /** What the child writes down about a failure, in the child. */
 export function toWire(error: unknown): WireFailure {
@@ -98,6 +99,12 @@ export function fromWire(failure: WireFailure): Error {
 export type ChildRun = {
   answer: string | null;
   peakRssMb: number | null;
+  /**
+   * The child's network tally, in its own companion file for the same reason the peak is in one:
+   * putting it inside the answer would mean a child that failed carried no tally, and a heavy
+   * source that downloads eight megabytes and then throws is exactly the one worth counting.
+   */
+  traffic: string | null;
   code: number | null;
   timedOut: boolean;
 };
@@ -121,6 +128,9 @@ export function readAnswer(id: string, run: ChildRun): ChildCollection {
   return {
     collection: parsed.collection,
     peakRssMb: run.peakRssMb !== null && Number.isFinite(run.peakRssMb) && run.peakRssMb > 0 ? run.peakRssMb : null,
+    // An unreadable or missing tally is no traffic rather than a thrown collection: a number for
+    // a report must never be the reason an observation is lost.
+    traffic: (run.traffic !== null ? readTraffic(run.traffic) : null) ?? emptyTraffic(),
   };
 }
 
@@ -149,13 +159,14 @@ export async function collectInSubprocess(db: Database, config: AppConfig, id: s
       readAnswer(id, {
         answer: !timedOut && existsSync(path) ? readFileSync(path, "utf8") : null,
         peakRssMb: !timedOut && existsSync(`${path}.peak`) ? Number(readFileSync(`${path}.peak`, "utf8")) : null,
+        traffic: !timedOut && existsSync(`${path}.traffic`) ? readFileSync(`${path}.traffic`, "utf8") : null,
         code,
         timedOut,
       }),
     );
   } finally {
     clearTimeout(timer);
-    for (const file of [path, `${path}.peak`])
+    for (const file of [path, `${path}.peak`, `${path}.traffic`])
       try {
         unlinkSync(file);
       } catch {

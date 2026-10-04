@@ -11,6 +11,7 @@ import { releaseAudit } from "../reports/releaseAudit.js";
 import { silentSources } from "../reports/silentSources.js";
 import { sourceKinds } from "../reports/sourceKinds.js";
 import { sourceVerdicts } from "../reports/sourceVerdicts.js";
+import { traffic } from "../reports/traffic.js";
 import { METRIC_DAYS } from "../runtime/metricRecording.js";
 import { count, type OperationMap } from "./definition.js";
 
@@ -54,6 +55,7 @@ export function sourcesOperations(db: Database, config: AppConfig, _all: () => O
       http: { method: "get", path: "/api/silent-sources" },
       handler: (input: { days: number }) => silentSources(db, config, input.days),
     },
+    traffic: trafficOperation(db, config),
     collection_cost: {
       section: "sources",
       summary:
@@ -155,5 +157,42 @@ export function sourcesOperations(db: Database, config: AppConfig, _all: () => O
       http: { method: "get", path: "/api/credentials" },
       handler: () => openCredentialCircuits(db),
     },
+  };
+}
+
+/**
+ * The one operation that is a declaration of its own, because the registry it belongs to is at the
+ * length a declaration gets and `check-size` only turns the ratchet down. Nothing else distinguishes
+ * it: it is read, built and documented exactly as every entry beside it is.
+ */
+function trafficOperation(db: Database, config: AppConfig): OperationMap[string] {
+  return {
+    section: "sources",
+    summary: "What each source asks of the network and what it returns for it, ranked by bytes downloaded per event.",
+    startHere: "which collector is downloading the most for the least, and should be narrowed next",
+    note:
+      "Ranked by `bytesPerEvent`, never by bytes: bytes alone name the largest catalogue, which " +
+      "is usually doing its job, while bytes against what the collection produced name the " +
+      "download that is mostly discarded. A null ratio is a window that produced no events, not " +
+      "a free source, and those sort last rather than first. `bytesWire` is what crossed the " +
+      "link and `bytesDecoded` is what had to be held in memory; far apart means compression is " +
+      "working and the remaining cost is parsing, close together on a large body means nothing " +
+      "is compressed at all. `requests` includes the cheap `nothingNew` probe, which is most of " +
+      "some sources' request count and almost none of their bytes, and excludes transport " +
+      "retries. `notModifiedShare` is the part that cost no body, so a low-traffic source with a " +
+      "high share is a cache working rather than a collector that stopped. What a top row means " +
+      "is to open that collector and compare the fields it reads against the answer it asks for " +
+      "-- `bun run probe` against the live endpoint -- which is the half no counter can do. " +
+      "`unmeasured` lists sources that collected in the window before anything was counted for " +
+      "them; it empties as the window moves past the deploy.",
+    mutates: false,
+    agent: true,
+    // Capped at the collection fold's horizon for the same reason `collection-cost` is: the
+    // numbers come from `source_collection_days`, and a window reaching past the rows would be
+    // answered from the days that happen to be left rather than refused.
+    schema: z.object({ days: count(METRIC_DAYS, 7) }),
+    cli: { args: [{ name: "days", optional: true }] },
+    http: { method: "get", path: "/api/traffic" },
+    handler: (input: { days: number }) => traffic(db, config, input.days),
   };
 }
