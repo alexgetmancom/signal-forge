@@ -36,6 +36,16 @@ export const destinationSchema = z.discriminatedUnion("platform", [
     chatId: z.string().regex(/^-?\d+$/),
     topicId: z.number().int().positive().optional(),
     signals,
+    /**
+     * Whether what a reader presses here is a measurement.
+     *
+     * `votes` is a room with readers: the bot puts 👍 and 👎 under each card and the counts answer
+     * "was this worth sending" for the reports and for a source's standing. `none` is a channel the
+     * owner keeps for himself, where the only hand is his own -- the reactions are still read,
+     * because that is how a card is marked for the wire, but a count of one is not an audience and
+     * must never reach a quality report as if it were.
+     */
+    feedback: z.enum(["votes", "none"]).optional(),
     /** As a Discord channel's: a Telegram topic reads the same cards, told in its markup. */
     detail: z.enum(["brief", "evidence"]).optional(),
   }),
@@ -44,6 +54,16 @@ export const destinationSchema = z.discriminatedUnion("platform", [
     platform: z.literal("discord"),
     channelId: z.string().regex(/^\d+$/),
     signals,
+    /**
+     * Whether what a reader presses here is a measurement.
+     *
+     * `votes` is a room with readers: the bot puts 👍 and 👎 under each card and the counts answer
+     * "was this worth sending" for the reports and for a source's standing. `none` is a channel the
+     * owner keeps for himself, where the only hand is his own -- the reactions are still read,
+     * because that is how a card is marked for the wire, but a count of one is not an audience and
+     * must never reach a quality report as if it were.
+     */
+    feedback: z.enum(["votes", "none"]).optional(),
     /**
      * How much of a card its readers get. `brief` is a news reader's card: what happened and the one
      * or two values behind it. `evidence` adds what a scout checks it against: raw ids, other names,
@@ -141,20 +161,39 @@ export const settingsSchema = z
     /** Channel holding the platform status board, edited in place. Defaults to the status channel. */
     platformBoardChannelId: z.string().regex(/^\d+$/).optional(),
     /**
-     * How many readers it takes to vouch for an early signal.
+     * The pair the bot puts under every card in a room with readers, and counts back.
      *
-     * `radar` carries what is unconfirmed; whether a stranger should be shown it is a judgement, and
-     * its readers are what makes it. An `ownerUserId` whose single like settled this alone was
-     * dropped on 2026-09-20: it mattered while `radar` was hidden and promotion was the only way to
-     * publish, and both channels are now open. A key left in the file is ignored.
+     * Two emoji and nothing else: this is the measurement, and it decides nothing on its own. What
+     * a card is allowed to do once it has been pressed is `promotion`, which is a different field
+     * because it is a different question -- they were one block until 2026-10-04, and switching the
+     * action off would have taken the counts with it.
+     */
+    reactions: z
+      .object({
+        likeEmoji: z.string().min(1).default("\u{1F44D}"),
+        dislikeEmoji: z.string().min(1).default("\u{1F44E}"),
+      })
+      .default({ likeEmoji: "\u{1F44D}", dislikeEmoji: "\u{1F44E}" }),
+    /**
+     * The owner's own mark, and what it publishes.
+     *
+     * The channels the owner keeps for himself carry classes the wire is not subscribed to -- the
+     * trail of articles and research, the release desk. Most of it is his alone; some of it should
+     * be read by everyone, and he is the only one who can tell which. He presses `publishEmoji`
+     * under the card and it is carried to the channels subscribed to `launch`, as written.
+     *
+     * Readers used to be able to do this instead: three 👍 in `radar` carried a sighting to `news`.
+     * That mattered while `radar` was hidden and promotion was the only way to publish. Both
+     * channels have been open since 2026-09-20, the trigger carried nothing in the two weeks after
+     * it, and the one card it ever carried was a recap that `news` had already received. Two doors
+     * into the same channel with different rules means every promotion is read with "and how did
+     * this one get here"; there is one door, and it is this.
      */
     promotion: z
       .object({
-        // One pair, put under every card by the bot itself: a reader answers by pressing, not by
-        // finding the right emoji.
-        likeEmoji: z.string().min(1).default("👍"),
-        dislikeEmoji: z.string().min(1).default("👎"),
-        readerVotes: z.number().int().min(2).default(3),
+        ownerUserId: z.string().regex(/^\d+$/),
+        /** Not the like: in a room with readers 👍 is a vote, and one emoji may not mean two things. */
+        publishEmoji: z.string().min(1).default("\u2764\uFE0F"),
       })
       .optional(),
     /** Private channel for operational alerts: collector outages, not model news. */
@@ -217,3 +256,9 @@ export type CredentialName = Extract<
   keyof AppConfig,
   `${string}_KEY` | `${string}_KEY_ID` | `${string}_TOKEN` | `${string}_SERVICE_ACCOUNT`
 >;
+
+/**
+ * A channel whose presses are a measurement. Absent means yes: a room with readers is the ordinary
+ * case, and only the owner's own channels have to say otherwise.
+ */
+export const judged = (destination: Destination): boolean => destination.feedback !== "none";

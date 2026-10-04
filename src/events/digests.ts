@@ -30,17 +30,18 @@ export function preparePromotion(db: Database, batch: PendingBatch, targets: Bat
   const original = db
     .query<{ body: string }, [number]>("SELECT body FROM deliveries WHERE id=?")
     .get(context.deliveryId);
-  // The card the scouts approved, carried as it was written. Nothing is re-rendered, because a
-  // record that has moved since would publish something they never saw.
+  // The card as it was written, carried whole. Nothing is re-rendered, because a record that has
+  // moved since would publish something nobody approved.
   if (original)
     for (const target of targets) {
       const destination = JSON.parse(target.destination_json) as Destination;
-      if (destination.platform !== "discord") continue;
+      if (!readsCards(destination)) continue;
       const payload = JSON.parse(original.body) as Record<string, unknown>;
-      const vouched = `🔎 ${context.votes} readers vouched for this, first seen on the radar`;
-      // A promotion never pings: the room already decided, and a role mention would make the
-      // public channel louder than the observation deserves.
-      const body = JSON.stringify({ ...payload, content: vouched, allowed_mentions: { parse: [] } });
+      // A promotion never pings and says nothing about where it came from: the owner's private
+      // channels are his bookkeeping, and a public reader is owed the observation, not its route.
+      // Rows written before 2026-10-04 were carried by readers and still say so.
+      const content = context.reason === "readers" ? `\u{1F50E} ${context.votes} readers vouched for this` : "";
+      const body = JSON.stringify({ ...payload, content, allowed_mentions: { parse: [] } });
       upsertDelivery(db, batch.id, target, body, 0, now, false);
     }
   sealBatch(db, batch.id);

@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
-import type { AppConfig, Destination } from "./config.js";
+import { type AppConfig, type Destination, judged } from "./config.js";
 import { storageFailure } from "./failure.js";
 import { featureEnabled } from "./features.js";
 import type { Fetch } from "./http-client.js";
@@ -8,30 +8,30 @@ import { log } from "./logger.js";
 import { writeTransaction } from "./storage/transaction.js";
 
 /**
- * The readers of `radar` deciding what a stranger should see.
+ * What readers press under a Discord card, and the owner's one press that publishes it.
  *
- * Everything in `radar` is early, and whether an unnamed arena entry deserves a public reader's
- * attention is a judgement no rule here can make. The readers of that channel can, and a reaction is
- * how they say so: enough of them and the message travels to `news`.
+ * Two things that used to be one. The counting is a measurement: the bot puts 👍 and 👎 under every
+ * card in a channel with readers, reads the counts back, and `scout_reactions` is what the reports
+ * and a source's standing are built on. The publishing is an action, and the only one left: the
+ * owner presses `publishEmoji` under a card in a channel of his own and it travels to the wire.
  *
- * The owner's own like used to settle it alone. That power was worth having when `radar` was hidden
- * and `news` was the only thing a stranger could see, so a promotion was the one way to publish. Both
- * channels are now visible, nothing is waiting behind a door, and a card the owner alone liked was
- * being copied from one open channel to another for no one's benefit. Only the readers move anything.
+ * They are apart because switching the action off used to take the measurement with it -- one
+ * feature flag stood in front of both, and turning off a promotion nobody used would have emptied
+ * the votes column and looked like readers who had stopped answering.
+ *
+ * The readers' own trigger is gone. Three 👍 in `radar` carried a sighting to `news` while `radar`
+ * was hidden; both channels have been open since 2026-09-20 and it carried nothing in the two weeks
+ * after. Its counts are still read -- votes say which sources a room vouches for, which is worth
+ * knowing whether or not anything moves because of them.
  *
  * What travels is the message, not the event. The card was rendered when the observation was made,
  * with the evidence and the standing sentence that were true then; re-deriving it a day later
  * against records that have since moved would publish something nobody approved.
  *
  * Reactions are read, never listened for: one request lists the recent messages of a channel with
- * their counts, and the counts are the whole answer -- so this needs no socket held open and no port
- * of our own.
- *
- * The bot puts both reactions under each card it sends, and both channels are read, not only
- * `radar`. A reader answers by pressing what is already there, and the three answers stay apart: a like
- * is worth sending, a dislike is not, and an untouched card is one nobody read. Counted as approval,
- * silence and refusal were the same number, which is why the column could never be compared with
- * Jev's judgement of the same event.
+ * their counts, so this needs no socket held open and no port of our own. Who pressed is asked only
+ * when the publish mark is there and is not ours, because a count cannot say whose hand it was and
+ * only the owner's publishes.
  */
 const messagesSchema = z.array(
   z.object({
@@ -48,10 +48,11 @@ const messagesSchema = z.array(
       .default([]),
   }),
 );
+const reactorsSchema = z.array(z.object({ id: z.string() }));
 export const promotionContextSchema = z.object({
   deliveryId: z.number(),
-  /** Kept as a field, not dropped, because rows written before the owner's own vote was retired carry it. */
-  reason: z.literal("readers"),
+  /** `readers` is kept because rows written before the owner became the only door carry it. */
+  reason: z.enum(["owner", "readers"]),
   votes: z.number(),
 });
 type PromotionContext = z.infer<typeof promotionContextSchema>;
@@ -60,22 +61,9 @@ const API = "https://discord.com/api/v10";
 
 type DiscordDestination = Extract<Destination, { platform: "discord" }>;
 
-/**
- * The two channels, found by what they carry rather than by name: `radar` is the one subscribed to
- * `codename`, `news` the ones subscribed to `launch`. Renaming a channel in Discord therefore
- * changes nothing here, which is how `signals` and `scouts` became `news` and `radar` on 2026-09-20.
- */
-function radarAndNews(config: AppConfig): { radar: DiscordDestination; news: Destination[] } | null {
-  const destinations = config.destinations as Destination[];
-  const radar = destinations.find(
-    (destination): destination is DiscordDestination =>
-      destination.platform === "discord" && destination.signals.includes("codename"),
-  );
-  const news = destinations.filter(
-    (destination) => destination.platform === "discord" && destination.signals.includes("launch"),
-  );
-  return radar && news.length && !news.includes(radar) ? { radar, news } : null;
-}
+/** Where a published card goes: the channels subscribed to `launch`, found by what they carry. */
+const wire = (config: AppConfig): Destination[] =>
+  (config.destinations as Destination[]).filter((destination) => destination.signals.includes("launch"));
 
 async function read<T>(url: string, config: AppConfig, request: Fetch, schema: z.ZodType<T>): Promise<T | null> {
   const response = await request(url, {
@@ -127,25 +115,91 @@ async function offer(channelId: string, messageId: string, emoji: string, config
 const SEED_WINDOW_MS = 7 * 24 * 3_600_000;
 const MAX_SEEDS = 60;
 
+type Card = {
+  id: number;
+  body: string;
+  updated_at: string;
+  kind: string;
+};
+
+/** Was the publish mark pressed by the owner? A count cannot say whose hand it was, so we ask. */
+async function ownerMarked(
+  channel: DiscordDestination,
+  messageId: string,
+  config: AppConfig,
+  request: Fetch,
+): Promise<boolean> {
+  const rule = config.promotion;
+  if (!rule) return false;
+  const reactors = await read(
+    `${API}/channels/${channel.channelId}/messages/${messageId}/reactions/${encodeURIComponent(rule.publishEmoji)}?limit=100`,
+    config,
+    request,
+    reactorsSchema,
+  );
+  return (reactors ?? []).some((reactor) => reactor.id === rule.ownerUserId);
+}
+
 /**
- * Promote every message in `radar` that its readers have vouched for since the last pass.
+ * Carry one card to the wire, exactly as it was written, and remember that it went.
+ *
+ * A card already in a wire channel is not carried: the readers it would be published to are the
+ * readers who have it, and the owner pressing the mark there means he liked it.
+ */
+function publish(db: Database, config: AppConfig, card: Card, now: number): boolean {
+  const targets = wire(config);
+  if (!targets.length) return false;
+  if (db.query("SELECT 1 FROM promoted_deliveries WHERE delivery_id=?").get(card.id)) return false;
+  const context: PromotionContext = { deliveryId: card.id, reason: "owner", votes: 0 };
+  promotionContextSchema.parse(context);
+  writeTransaction(db, () => {
+    const batch = db
+      .query<{ id: number }, [string, string]>(
+        "INSERT INTO batches(source,digest,ready_at,kind,context_json) VALUES('scout-promotion',0,?,'promotion',?) RETURNING id",
+      )
+      .get(new Date(now).toISOString(), JSON.stringify(context));
+    if (!batch) throw storageFailure("a promotion batch");
+    for (const destination of targets)
+      db.query("INSERT INTO batch_targets(batch_id,destination_id,destination_json) VALUES(?,?,?)").run(
+        batch.id,
+        destination.id,
+        JSON.stringify(destination),
+      );
+    db.query("INSERT INTO promoted_deliveries(delivery_id,batch_id,reason,votes,promoted_at) VALUES(?,?,?,?,?)").run(
+      card.id,
+      batch.id,
+      context.reason,
+      context.votes,
+      new Date(now).toISOString(),
+    );
+  });
+  return true;
+}
+
+/**
+ * Read every Discord channel's recent cards: count the thumbs where there are readers to raise
+ * them, and carry what the owner has marked.
  *
  * Returns how many travelled, which is what the worker logs and the tests assert.
  */
-export async function promoteVouchedMessages(
+export async function readReactionsAndPublish(
   db: Database,
   config: AppConfig,
   request: Fetch = fetch,
   now = Date.now(),
 ): Promise<number> {
-  const rule = config.promotion;
-  const channels = radarAndNews(config);
-  if (!rule || !channels || !config.DISCORD_BOT_TOKEN || !featureEnabled(config, "promotion")) return 0;
+  if (!config.DISCORD_BOT_TOKEN) return 0;
+  const counting = featureEnabled(config, "reader-votes");
+  const publishing = featureEnabled(config, "promotion") && Boolean(config.promotion);
+  if (!counting && !publishing) return 0;
+  const channels = (config.destinations as Destination[]).filter(
+    (destination): destination is DiscordDestination => destination.platform === "discord",
+  );
+  const onTheWire = new Set(wire(config).map((destination) => destination.id));
   let promoted = 0;
   let seeds = 0;
-  // Both channels, because a vote in `news` is the same measurement as a vote in `radar`; only
-  // `radar`'s votes move anything, since `news` is already where a promotion would send it.
-  for (const channel of [channels.radar, ...channels.news] as DiscordDestination[]) {
+  for (const channel of channels) {
+    const counted = counting && judged(channel);
     const messages = await read(
       `${API}/channels/${channel.channelId}/messages?limit=50`,
       config,
@@ -154,63 +208,47 @@ export async function promoteVouchedMessages(
     );
     if (!messages) continue;
     for (const message of messages) {
-      const delivery = db
-        .query<{ id: number; body: string; updated_at: string; kind: string }, [string, string]>(
+      const card = db
+        .query<Card, [string, string]>(
           `SELECT d.id,d.body,d.updated_at,b.kind FROM deliveries d JOIN batches b ON b.id=d.batch_id
             WHERE d.external_id=? AND d.destination_id=? AND d.status='sent'`,
         )
         .get(message.id, channel.id);
-      if (!delivery) continue;
+      if (!card) continue;
       const reaction = (name: string) => message.reactions.find((entry) => entry.emoji.name === name);
       const votesFor = (name: string) => {
         const entry = reaction(name);
         return entry ? entry.count - (entry.me ? 1 : 0) : 0;
       };
-      const readerVotes = votesFor(rule.likeEmoji);
-      // Every card's count is kept, not only the ones that travel: which source the readers vouch for
-      // is the measurement, and promotion is one use of it.
-      db.query(
-        `INSERT INTO scout_reactions(delivery_id,votes,against,read_at) VALUES(?,?,?,?)
-         ON CONFLICT(delivery_id) DO UPDATE SET votes=excluded.votes,against=excluded.against,read_at=excluded.read_at`,
-      ).run(delivery.id, readerVotes, votesFor(rule.dislikeEmoji), new Date(now).toISOString());
+      const rule = config.reactions;
+      // Only where there are readers: one hand in the owner's own channel is not an audience, and a
+      // count of one in a quality report reads as if a room had answered.
+      if (counted)
+        db.query(
+          `INSERT INTO scout_reactions(delivery_id,votes,against,read_at) VALUES(?,?,?,?)
+           ON CONFLICT(delivery_id) DO UPDATE SET votes=excluded.votes,against=excluded.against,read_at=excluded.read_at`,
+        ).run(card.id, votesFor(rule.likeEmoji), votesFor(rule.dislikeEmoji), new Date(now).toISOString());
 
-      if (seeds < MAX_SEEDS && now - Date.parse(delivery.updated_at) < SEED_WINDOW_MS)
-        for (const emoji of [rule.likeEmoji, rule.dislikeEmoji])
+      // What the bot offers is what the channel is for: a pair to answer with where there are
+      // readers, the publish mark where the only hand is the owner's.
+      const pair = [...(counted ? [rule.likeEmoji, rule.dislikeEmoji] : [])];
+      if (publishing && config.promotion && !onTheWire.has(channel.id)) pair.push(config.promotion.publishEmoji);
+      if (seeds < MAX_SEEDS && now - Date.parse(card.updated_at) < SEED_WINDOW_MS)
+        for (const emoji of pair)
           if (!reaction(emoji)?.me) {
             await offer(channel.channelId, message.id, emoji, config, request);
             seeds += 1;
           }
 
-      if (channel.id !== channels.radar.id) continue;
+      if (!publishing || !config.promotion || onTheWire.has(channel.id)) continue;
       // A card travels; a recap does not. The morning recap in `radar` drew a vote on 2026-09-20 and
       // the whole of it was reposted to `news`, where the same lines had already been sent an hour
       // and a half earlier. Only the message about one thing is a message worth moving.
-      if (delivery.kind !== "event") continue;
-      if (db.query("SELECT 1 FROM promoted_deliveries WHERE delivery_id=?").get(delivery.id)) continue;
-
-      // A channel that is arguing has not vouched for anything: the dislikes have to be the minority.
-      if (readerVotes < rule.readerVotes || votesFor(rule.dislikeEmoji) >= readerVotes) continue;
-
-      const context: PromotionContext = { deliveryId: delivery.id, reason: "readers", votes: readerVotes };
-      promotionContextSchema.parse(context);
-      writeTransaction(db, () => {
-        const batch = db
-          .query<{ id: number }, [string, string]>(
-            "INSERT INTO batches(source,digest,ready_at,kind,context_json) VALUES('scout-promotion',0,?,'promotion',?) RETURNING id",
-          )
-          .get(new Date(now).toISOString(), JSON.stringify(context));
-        if (!batch) throw storageFailure("a promotion batch");
-        for (const destination of channels.news)
-          db.query("INSERT INTO batch_targets(batch_id,destination_id,destination_json) VALUES(?,?,?)").run(
-            batch.id,
-            destination.id,
-            JSON.stringify(destination),
-          );
-        db.query(
-          "INSERT INTO promoted_deliveries(delivery_id,batch_id,reason,votes,promoted_at) VALUES(?,?,?,?,?)",
-        ).run(delivery.id, batch.id, context.reason, context.votes, new Date(now).toISOString());
-      });
-      promoted += 1;
+      if (card.kind !== "event") continue;
+      if (votesFor(config.promotion.publishEmoji) < 1) continue;
+      if (db.query("SELECT 1 FROM promoted_deliveries WHERE delivery_id=?").get(card.id)) continue;
+      if (!(await ownerMarked(channel, message.id, config, request))) continue;
+      if (publish(db, config, card, now)) promoted += 1;
     }
   }
   return promoted;

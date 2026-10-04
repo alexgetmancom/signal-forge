@@ -93,9 +93,17 @@ const DETECTORS = {
 const READERS = {
   promotion: {
     section: "readers",
-    summary: "An unconfirmed card the scouts vouched for, carried to the wire.",
+    summary: "A card the owner marked in a channel of his own, carried to the wire as it was written.",
     defaultOn: true,
-    unavailable: (config) => (config.promotion ? null : "no promotion thresholds are configured"),
+    unavailable: (config) => (config.promotion ? null : "no owner is configured to mark a card"),
+  },
+  "reader-votes": {
+    section: "readers",
+    summary: "The thumbs under a Discord card, counted for the reports and for a source's standing.",
+    defaultOn: true,
+    // Switching this off leaves the owner's mark working: the measurement and the action were one
+    // feature until 2026-10-04, and an unused promotion could not be retired without the votes.
+    unavailable: needs(["DISCORD_BOT_TOKEN"]),
   },
   "telegram-reactions": {
     section: "readers",

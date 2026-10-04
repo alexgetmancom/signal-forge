@@ -1,27 +1,30 @@
 import { expect, test } from "bun:test";
 import type { AppConfig } from "../src/config.js";
 import { prepareDeliveries } from "../src/events/batching.js";
-import { promoteVouchedMessages } from "../src/promotion.js";
+import { readReactionsAndPublish } from "../src/promotion.js";
 import { openDatabase } from "../src/storage/database.js";
 import { aBatch, aDelivery } from "./fixtures/build.js";
 
 const config = {
   DISCORD_BOT_TOKEN: "fake",
   destinations: [
-    { id: "radar", platform: "discord", channelId: "10", signals: ["codename", "evidence"] },
+    { id: "trail", platform: "discord", channelId: "10", signals: ["article"], feedback: "none" },
     { id: "news", platform: "discord", channelId: "20", signals: ["launch", "change"] },
+    { id: "tg-news", platform: "telegram", chatId: "-100", signals: ["launch", "change"] },
   ],
-  promotion: { likeEmoji: "👍", dislikeEmoji: "👎", readerVotes: 3 },
+  reactions: { likeEmoji: "👍", dislikeEmoji: "👎" },
+  promotion: { ownerUserId: "777", publishEmoji: "❤️" },
 } as unknown as AppConfig;
 
-function sighting(db: ReturnType<typeof openDatabase>) {
-  aBatch(db, { id: 1, readyAt: "2026-09-08T00:00:00.000Z" });
+/** A card in the owner's own channel: nobody else reads it, and nothing goes out from it by itself. */
+function card(db: ReturnType<typeof openDatabase>, destinationId = "trail", kind?: "weekly_recap") {
+  aBatch(db, { id: 1, readyAt: "2026-09-08T00:00:00.000Z", ...(kind ? { kind, source: "daily-recap" } : {}) });
   aDelivery(db, {
     id: 1,
     batchId: 1,
-    destinationId: "radar",
+    destinationId,
     destinationJson: "{}",
-    body: '{"content":"","embeds":[{"title":"spicy-mayo"}]}',
+    body: '{"content":"","embeds":[{"title":"Anthropic on interpretability"}]}',
     externalId: "555",
     updatedAt: "2026-09-08T00:00:00.000Z",
   });
@@ -43,59 +46,92 @@ const answer = (reactions: { name: string; count: number; me?: boolean }[], reac
         ]);
   }) as never;
 
-test("enough readers carry a sighting into the public channel, once", async () => {
+test("the owner's mark carries a card out of his own channel onto the whole wire, once", async () => {
   const db = openDatabase(":memory:");
-  sighting(db);
+  card(db);
   const at = Date.parse("2026-09-08T00:30:00.000Z");
-  expect(await promoteVouchedMessages(db, config, answer([{ name: "👍", count: 3 }], []), at)).toBe(1);
-  expect(await promoteVouchedMessages(db, config, answer([{ name: "👍", count: 4 }], []), at)).toBe(0);
+  expect(await readReactionsAndPublish(db, config, answer([{ name: "❤️", count: 1 }], ["777"]), at)).toBe(1);
+  expect(await readReactionsAndPublish(db, config, answer([{ name: "❤️", count: 1 }], ["777"]), at)).toBe(0);
 
   prepareDeliveries(db, Date.parse("2026-09-08T01:00:00.000Z"));
-  const body = db
-    .query<{ body: string }, [string]>("SELECT body FROM deliveries WHERE destination_id=?")
-    .get("news")?.body;
-  const payload = JSON.parse(String(body));
-  expect(payload.embeds[0].title).toBe("spicy-mayo");
-  expect(payload.content).toContain("3 readers vouched");
+  // Both transports of the wire, because a lane is one audience reached two ways.
+  const rows = db
+    .query<{ destination_id: string; body: string }, []>(
+      "SELECT destination_id,body FROM deliveries WHERE id>1 ORDER BY destination_id",
+    )
+    .all();
+  expect(rows.map((row) => row.destination_id)).toEqual(["news", "tg-news"]);
+  const payload = JSON.parse(String(rows[0]?.body));
+  expect(payload.embeds[0].title).toBe("Anthropic on interpretability");
+  // Where it came from is the owner's bookkeeping; the reader is owed the observation.
+  expect(payload.content).toBe("");
   expect(payload.allowed_mentions).toEqual({ parse: [] });
 });
 
-test("two readers are not enough on their own", async () => {
+test("somebody else's heart carries nothing: a count cannot say whose hand it was", async () => {
   const db = openDatabase(":memory:");
-  sighting(db);
-  expect(await promoteVouchedMessages(db, config, answer([{ name: "👍", count: 2 }], []))).toBe(0);
+  card(db);
+  expect(await readReactionsAndPublish(db, config, answer([{ name: "❤️", count: 2 }], ["999"]))).toBe(0);
+  expect(db.query("SELECT COUNT(*) c FROM promoted_deliveries").get()).toEqual({ c: 0 });
 });
 
-test("the owner's own like no longer carries anything by itself", async () => {
-  // It did while `radar` was hidden and promotion was the only way to publish. Both channels are
-  // open now, so an owner-only like was copying a card from one visible channel to another.
+test("nobody is asked who reacted until there is a mark to ask about", async () => {
   const db = openDatabase(":memory:");
-  sighting(db);
-  expect(await promoteVouchedMessages(db, config, answer([{ name: "\u{1F44D}", count: 1 }], ["999"]))).toBe(0);
-  expect(db.query("SELECT COUNT(*) c FROM promoted_deliveries").get()).toEqual({ c: 0 });
-  // Nobody is asked who reacted any more: the counts are the whole answer.
+  card(db);
   const asked: string[] = [];
   const watch = (async (url: string) => {
     asked.push(String(url));
-    return Response.json([{ id: "555", reactions: [{ count: 1, me: false, emoji: { name: "\u{1F44D}" } }] }]);
+    return Response.json([{ id: "555", reactions: [{ count: 1, me: true, emoji: { name: "❤️" } }] }]);
   }) as never;
-  await promoteVouchedMessages(db, config, watch);
+  // Our own seed is the only heart there: the owner has not pressed anything.
+  expect(await readReactionsAndPublish(db, config, watch)).toBe(0);
   expect(asked.some((url) => url.includes("/reactions/"))).toBe(false);
 });
 
-test("the bot puts both reactions under a fresh card, and its own press is not a vote", async () => {
+test("readers no longer carry anything, and their thumbs are still counted", async () => {
+  // Three 👍 in a public channel moved a card while the scout channel was hidden. Both channels
+  // have been open since 2026-09-20; the votes are a measurement now and nothing else.
   const db = openDatabase(":memory:");
-  sighting(db);
+  card(db, "news");
+  const at = Date.parse("2026-09-08T00:30:00.000Z");
+  const reactions = [
+    { name: "👍", count: 5 },
+    { name: "👎", count: 1 },
+  ];
+  expect(await readReactionsAndPublish(db, config, answer(reactions, []), at)).toBe(0);
+  expect(db.query("SELECT votes,against FROM scout_reactions WHERE delivery_id=1").get()).toEqual({
+    votes: 5,
+    against: 1,
+  });
+});
+
+test("the owner's own channel offers the mark and no thumbs, and keeps no vote", async () => {
+  const db = openDatabase(":memory:");
+  card(db);
   const put: string[] = [];
   const at = Date.parse("2026-09-08T00:30:00.000Z");
-  expect(await promoteVouchedMessages(db, config, answer([], [], put), at)).toBe(0);
-  expect(put).toEqual([
-    "https://discord.com/api/v10/channels/10/messages/555/reactions/%F0%9F%91%8D/@me",
-    "https://discord.com/api/v10/channels/10/messages/555/reactions/%F0%9F%91%8E/@me",
-  ]);
+  expect(await readReactionsAndPublish(db, config, answer([], [], put), at)).toBe(0);
+  expect(put).toEqual(["https://discord.com/api/v10/channels/10/messages/555/reactions/%E2%9D%A4%EF%B8%8F/@me"]);
+  // One hand is not an audience: a count of one here would read in a quality report as a room.
+  expect(db.query("SELECT COUNT(*) c FROM scout_reactions").get()).toEqual({ c: 0 });
+});
 
-  // Both now carry our own seed, and a card nobody has answered must read as nobody, not as one.
-  await promoteVouchedMessages(
+test("a channel with readers offers the pair to answer with, and not the mark", async () => {
+  const db = openDatabase(":memory:");
+  card(db, "news");
+  const put: string[] = [];
+  const at = Date.parse("2026-09-08T00:30:00.000Z");
+  await readReactionsAndPublish(db, config, answer([], [], put), at);
+  expect(put).toEqual([
+    "https://discord.com/api/v10/channels/20/messages/555/reactions/%F0%9F%91%8D/@me",
+    "https://discord.com/api/v10/channels/20/messages/555/reactions/%F0%9F%91%8E/@me",
+  ]);
+});
+
+test("the bot's own press is not a vote", async () => {
+  const db = openDatabase(":memory:");
+  card(db, "news");
+  await readReactionsAndPublish(
     db,
     config,
     answer(
@@ -105,7 +141,7 @@ test("the bot puts both reactions under a fresh card, and its own press is not a
       ],
       [],
     ),
-    at,
+    Date.parse("2026-09-08T00:30:00.000Z"),
   );
   expect(db.query("SELECT votes,against FROM scout_reactions WHERE delivery_id=1").get()).toEqual({
     votes: 0,
@@ -113,39 +149,18 @@ test("the bot puts both reactions under a fresh card, and its own press is not a
   });
 });
 
-test("a channel that dislikes a card more than it likes it carries nothing", async () => {
-  const db = openDatabase(":memory:");
-  sighting(db);
-  const reactions = [
-    { name: "👍", count: 4, me: true },
-    { name: "👎", count: 4, me: true },
-  ];
-  expect(await promoteVouchedMessages(db, config, answer(reactions, []))).toBe(0);
-});
-
 test("a rejected read promotes nothing", async () => {
   const db = openDatabase(":memory:");
-  sighting(db);
+  card(db);
   const rejected = (async () => new Response("nope", { status: 403 })) as never;
-  expect(await promoteVouchedMessages(db, config, rejected)).toBe(0);
+  expect(await readReactionsAndPublish(db, config, rejected)).toBe(0);
 });
 
-test("a recap the readers liked is not carried into the other channel", async () => {
-  // The morning recap in `radar` drew votes on 2026-09-20 and was reposted whole to `news`, which
-  // had received the same lines an hour and a half earlier. A recap is not a card about one thing.
+test("a recap the owner marked is not carried into the wire", async () => {
+  // The morning recap drew a press on 2026-09-20 and was reposted whole to `news`, which had
+  // received the same lines an hour and a half earlier. A recap is not a card about one thing.
   const db = openDatabase(":memory:");
-  aBatch(db, { id: 1, source: "daily-recap", readyAt: "2026-09-08T00:00:00.000Z", kind: "weekly_recap" });
-  aDelivery(db, {
-    id: 1,
-    batchId: 1,
-    destinationId: "radar",
-    destinationJson: "{}",
-    body: '{"content":"","embeds":[{"title":"WHAT MOVED"}]}',
-    externalId: "555",
-    updatedAt: "2026-09-08T00:00:00.000Z",
-  });
-  expect(await promoteVouchedMessages(db, config, answer([{ name: "👍", count: 5 }], []))).toBe(0);
+  card(db, "trail", "weekly_recap");
+  expect(await readReactionsAndPublish(db, config, answer([{ name: "❤️", count: 1 }], ["777"]))).toBe(0);
   expect(db.query("SELECT COUNT(*) c FROM promoted_deliveries").get()).toEqual({ c: 0 });
-  // The vote is still recorded: it says the readers wanted that, wherever it can travel.
-  expect(db.query("SELECT votes FROM scout_reactions WHERE delivery_id=1").get()).toEqual({ votes: 5 });
 });

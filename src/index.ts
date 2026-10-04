@@ -13,7 +13,7 @@ import { rebuildLifecycleDeadlines, scheduleLifecycleReminders } from "./lifecyc
 import { configureLogger, log } from "./logger.js";
 import { rebuildModelFacts } from "./modelFacts.js";
 import { pollSources } from "./poller.js";
-import { promoteVouchedMessages } from "./promotion.js";
+import { readReactionsAndPublish } from "./promotion.js";
 import { syncPublications } from "./publications.js";
 import { scheduleRecaps } from "./recapSchedule.js";
 import { foldCodeMetricDays } from "./runtime/metricFold.js";
@@ -101,7 +101,7 @@ supervisor.register(
 );
 supervisor.register(
   startIntervalWorker(db, "promotion", 300_000, async () => {
-    await promoteVouchedMessages(db, config);
+    await readReactionsAndPublish(db, config);
   }),
 );
 supervisor.register(

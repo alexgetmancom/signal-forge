@@ -74,7 +74,7 @@ test("states are listed in the order the sections are read", () => {
   expect(featureStates(base).map((feature) => feature.section)).toEqual([
     ...Array(4).fill("periodic"),
     ...Array(2).fill("detectors"),
-    ...Array(2).fill("readers"),
+    ...Array(3).fill("readers"),
     ...Array(3).fill("boards"),
     ...Array(3).fill("enrichment"),
   ]);

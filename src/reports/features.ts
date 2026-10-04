@@ -73,6 +73,10 @@ const TRACES: Record<FeatureId, Trace> = {
   breakouts: noTrace("nothing: a breakout is delivered as an ordinary card under the board's own source"),
   corroboration: noTrace("nothing: a corroborated event is delivered as an ordinary card under its own source"),
   promotion: instantTrace("the last promotion batch", "SELECT MAX(ready_at) AS at FROM batches WHERE kind='promotion'"),
+  "reader-votes": instantTrace(
+    "the last Discord card whose thumbs were counted",
+    "SELECT MAX(read_at) AS at FROM scout_reactions",
+  ),
   "telegram-reactions": noTrace("nothing: telegram_reactions keeps a count per message and no time it was read"),
   "status-boards": noTrace("nothing: a board is edited in place and its state is keyed, not dated"),
   "operational-alerts": millisecondsTrace(
