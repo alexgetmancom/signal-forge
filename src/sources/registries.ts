@@ -66,6 +66,9 @@ export const HF_AUTHORS = [
   // MiMo V2.6's weights reached the Hub on 2026-09-21 and were seen only once they trended.
   "XiaomiMiMo",
   "stepfun-ai",
+  // Kolibri-1 shipped on 2026-10-03 as Apache 2.0 weights and a post, and reached nothing else we
+  // read: no catalogue carried it, so the week it came out had no word of it anywhere here.
+  "Aleph-Alpha",
 ];
 
 /**
@@ -86,6 +89,7 @@ export const HF_LABS = new Set([
   "xai-org",
   "XiaomiMiMo",
   "stepfun-ai",
+  "Aleph-Alpha",
 ]);
 
 /**

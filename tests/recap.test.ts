@@ -523,6 +523,63 @@ test("an outage is not one of the week's arrivals", () => {
   expect(JSON.stringify(context.arrivals)).not.toContain("Elevated errors");
 });
 
+test("a video model and a benchmark's grader are not the week's models", () => {
+  const db = openDatabase(":memory:");
+  week(db);
+  // Both reached the 27 September card: the first out of xAI's own API, which is the strongest
+  // provenance there is, and the second out of a watched lab's own organisation. A source's first
+  // collection is its baseline, so each is listed once before the row under test is added.
+  const xai: Collection = {
+    source: "xai",
+    stream: "api-models",
+    url: "https://api.x.ai/v1/models",
+    raw: [],
+    records: [{ id: "grok-4", name: "Grok 4" }],
+  };
+  saveCollection(db, xai, [wire], "2026-09-08T11:00:00.000Z");
+  xai.records.push({
+    id: "grok-imagine-video-1.5-lite",
+    name: "Grok Imagine Video 1.5 Lite",
+    created: "2026-09-10T00:00:00.000Z",
+  });
+  saveCollection(db, xai, [wire], "2026-09-10T11:00:00.000Z");
+  const weights: Collection = {
+    source: "huggingface:internlm",
+    stream: "weights",
+    url: "https://huggingface.co/api/models",
+    raw: [],
+    records: [{ id: "internlm/Intern-S2", name: "internlm/Intern-S2" }],
+  };
+  saveCollection(db, weights, [wire], "2026-09-08T12:00:00.000Z");
+  weights.records.push({
+    id: "internlm/AdvancedMathBench-AutoVerifier",
+    name: "internlm/AdvancedMathBench-AutoVerifier",
+    created: "2026-09-10T00:00:00.000Z",
+  });
+  saveCollection(db, weights, [wire], "2026-09-10T12:00:00.000Z");
+  // Both were recorded as arrivals; neither is one of the week's models.
+  expect(db.query("SELECT COUNT(*) AS n FROM events WHERE kind='new'").get()).toMatchObject({ n: 3 });
+  const context = recapContext(db, "2026-09-13T18:00:00.000Z");
+  expect(context.arrivals).toEqual([{ vendor: "OpenAI", names: ["GPT-6 Astra"] }]);
+});
+
+test("a coding tool's own model list carries a maker nothing else has heard of", () => {
+  const db = openDatabase(":memory:");
+  week(db);
+  const tool: Collection = {
+    source: "opencode-zen",
+    stream: "api-models",
+    url: "https://opencode.ai/models",
+    raw: [],
+    records: [{ id: "known", name: "Known" }],
+  };
+  saveCollection(db, tool, [wire], "2026-09-08T11:00:00.000Z");
+  tool.records.push({ id: "fledge-alpha", name: "Fledge Alpha", created: "2026-09-10T00:00:00.000Z" });
+  saveCollection(db, tool, [wire], "2026-09-10T11:00:00.000Z");
+  const context = recapContext(db, "2026-09-13T18:00:00.000Z");
+  expect(JSON.stringify(context.arrivals)).toContain("Fledge Alpha");
+});
+
 test("the week reports what went away in it, not what is scheduled to", () => {
   const db = openDatabase(":memory:");
   const lifecycle: Collection = {

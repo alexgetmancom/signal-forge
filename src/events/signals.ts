@@ -249,6 +249,30 @@ export function pingWorthy(event: Event): boolean {
 export const ANNOUNCEMENT_STREAMS = new Set(["news", "pages", "changelog"]);
 
 /**
+ * The model lists the coding tools themselves ship, which is this feed's subject answering for it.
+ *
+ * A maker nobody has heard of is normally the end of the question -- `isRealArrival` drops an
+ * Unknown vendor because no benchmark, arena or API has anything to say about it. But a model a
+ * coding agent has added to its own list of models is one this feed's readers can select this
+ * minute, and that is a stronger answer than recognising the maker's name: Ling 3.1 Flash reached
+ * OpenCode before it reached anything that knew who InclusionAI were.
+ *
+ * Only the curated lists. `discovery:opencode-data` is a dump of everything OpenCode has ever
+ * known, and it named `gpt-3.5-turbo`, `gpt-4` and nine Command snapshots in one call on
+ * 27 September.
+ */
+export const CODING_TOOL_SOURCES = new Set([
+  "claude-code-models",
+  "command-code-models",
+  "qwen-code-models",
+  "opencode-zen",
+  "opencode-go",
+  "github:anomalyco/opencode:models",
+  "github:MiniMax-AI/minimax-code:models",
+  "github:openai/codex:models",
+]);
+
+/**
  * A post the model's own maker wrote about it.
  *
  * The catalogue says a model is callable; the post is the page a reader opens to find out what it

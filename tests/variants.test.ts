@@ -2,11 +2,14 @@ import { expect, test } from "bun:test";
 import type { Event } from "../src/events/types.js";
 import {
   arrivalWeight,
+  isAnEvaluation,
   isModelVariant,
   isRepublished,
   isTrainingArtefact,
   modelSubject,
   oneLinePerModel,
+  precisionBase,
+  servesAnotherModality,
 } from "../src/events/variants.js";
 
 test("a tier, an alias and a snapshot are not releases", () => {
@@ -87,4 +90,40 @@ test("a dated snapshot is named by the model it is a build of", () => {
   // be named by: "MAI Image 2e 2026 04 09" is a deployment date read as part of a model's name.
   const collapsed = oneLinePerModel([{ name: "MAI-Image-2e-2026-04-09", reseller: "TrueFoundry", maker: "Microsoft" }]);
   expect(collapsed[0]?.name).toBe("MAI-Image-2e");
+});
+
+test("a model that answers in pictures or sound is a different craft", () => {
+  // The word in the middle of the name, which the trailing-word fold never reached.
+  expect(servesAnotherModality("Grok Imagine Video 1.5 Lite")).toBe(true);
+  expect(servesAnotherModality("MAI-Voice-2.1-Flash")).toBe(true);
+  expect(servesAnotherModality("Cohere Embed 5 Pro")).toBe(true);
+  expect(servesAnotherModality("Claude Sonnet 5.5")).toBe(false);
+  expect(servesAnotherModality("Ling 3.1 Flash")).toBe(false);
+});
+
+test("a catalogue's own modalities outrank the name, and a token ceiling is not a modality", () => {
+  const picture = { id: "x", name: "Something Neutral", output: ["image"] };
+  expect(servesAnotherModality("Something Neutral", picture)).toBe(true);
+  const text = { id: "x", name: "Imagine Reasoner", output: ["text"] };
+  expect(servesAnotherModality("Imagine Reasoner", text)).toBe(false);
+  // models.dev spells `output` as a token ceiling; read as a modality it calls everything a picture.
+  const ceiling = { id: "x", name: "Claude Sonnet 5.5", output: 128000 };
+  expect(servesAnotherModality("Claude Sonnet 5.5", ceiling)).toBe(false);
+});
+
+test("a grader published by a watched lab is not that lab's release", () => {
+  expect(isAnEvaluation("internlm/AdvancedMathBench-AutoVerifier")).toBe(true);
+  expect(isAnEvaluation("SWE-bench-verified")).toBe(true);
+  expect(isAnEvaluation("Qwen3-Coder-Eval")).toBe(true);
+  expect(isAnEvaluation("Claude Sonnet 5.5")).toBe(false);
+  expect(isAnEvaluation("Kolibri-1")).toBe(false);
+});
+
+test("a lab's own FP8 build is the release at another precision", () => {
+  const base = modelSubject("Aleph-Alpha/Kolibri-1");
+  expect(precisionBase("Aleph-Alpha/Kolibri-1-BF16")).toBe(base);
+  expect(precisionBase("Aleph-Alpha/Kolibri-1-FP8")).toBe(base);
+  expect(precisionBase("Aleph-Alpha/Kolibri-1")).toBe(null);
+  // A name that ends in a number is not a precision: Llama 4 Scout 17B is the model.
+  expect(precisionBase("Llama 4 Scout 17B Instruct")).toBe(null);
 });

@@ -184,6 +184,63 @@ export function modalityBase(name: string): string | null {
 }
 
 /**
+ * A model that answers in something other than text.
+ *
+ * This feed is read for what it can be coded against, and a model that returns a picture, a clip or
+ * a vector is a different craft however large it is. `modalityBase` already folds a modality head
+ * into the family it belongs to, but only as a trailing word and only once the family is in hand:
+ * `Grok Imagine Video 1.5 Lite` carries the word in the middle, is the whole of xAI's week, and
+ * reached the 27 September card as one of five models because nothing here asked what it returns.
+ *
+ * Two readings, because neither covers the other. A catalogue that publishes output modalities has
+ * settled the question -- but only openrouter and the mirrors publish them as a list, models.dev
+ * spells `output` as a token ceiling, and xAI's own API says nothing at all. So the name answers
+ * when the record does not, and silence on both means text: the overwhelming majority of rows carry
+ * no modalities, and a gate that read silence as doubt would empty the feed.
+ */
+const ANOTHER_MODALITY =
+  /(?:^|[\s:_/-])(tts|stt|asr|ocr|img|image|imagine|vision|audio|voice|speech|transcribe|video|diffusion|embed|embedding|rerank|reranker)(?:$|[\s:_/-])/i;
+export function servesAnotherModality(name: string, record?: RecordData | null): boolean {
+  const output = record?.output;
+  // Only a list is a list of modalities. `output: 128000` is models.dev spelling a token ceiling
+  // into the same field, and reading it as a modality calls every model it lists a picture.
+  if (Array.isArray(output) && output.length > 0) {
+    return !output.some((modality) => String(modality).toLowerCase() === "text");
+  }
+  return ANOTHER_MODALITY.test(name.trim());
+}
+
+/**
+ * Something published to measure models rather than to be one.
+ *
+ * A watched organisation's new repository is read as that lab's new model, which is the whole point
+ * of watching it -- and InternLM published `AdvancedMathBench-AutoVerifier` on 29 September, a
+ * grader for a benchmark, which took a line on the week's card with the authority of a first-party
+ * release. The organisations worth watching are exactly the ones that also publish the evaluations,
+ * so this is not a rare shape.
+ */
+const AN_EVALUATION =
+  /(?:^|[\s:_/-])(bench|benchmark|autoverifier|verifier|eval|evals|evaluation|dataset|leaderboard|testbed|arena)(?:$|[\s:_/-])|bench(?:mark)?[-_]?(?:v?\d|suite|auto)/i;
+export function isAnEvaluation(name: string): boolean {
+  return AN_EVALUATION.test(name.trim());
+}
+
+/**
+ * The same weights at a different precision, which a lab publishes beside the release.
+ *
+ * Aleph-Alpha shipped `Kolibri-1`, `Kolibri-1-BF16` and `Kolibri-1-FP8` into one organisation on
+ * one morning. `isRepublished` already covers somebody else's quantisation of another lab's model;
+ * this is the lab's own, where the handle matches and nothing marks it as derived. Like a tier, it
+ * only folds away once the model it is a precision of is in hand -- a lab whose only published
+ * artefact is an FP8 build has still published something.
+ */
+const PRECISION_WORD = /[\s:_-](bf16|fp16|fp8|fp4|nvfp4|int[48]|w[48]a\d+|gguf|gptq|awq|mlx|bnb|\d-?bit)$/i;
+export function precisionBase(name: string): string | null {
+  const trimmed = name.trim();
+  return PRECISION_WORD.test(trimmed) ? modelSubject(trimmed.replace(PRECISION_WORD, "")) : null;
+}
+
+/**
  * Something a catalogue serves that is not a model at all.
  *
  * `TypeSafe: Jev Router` picks a model per request; it has a row, a price and no weights. A recap

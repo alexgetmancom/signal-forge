@@ -40,6 +40,9 @@ const VENDORS: [RegExp, string][] = [
   [/xiaomi|\bmimo\b/i, "Xiaomi"],
   [/baidu|ernie/i, "Baidu"],
   [/upstage|\bsolar\b/i, "Upstage"],
+  // `kolibri` as well as the handle: the weights are published as `Aleph-Alpha/Kolibri-1`, but a
+  // catalogue that picks the family up later will carry only the family's own name.
+  [/aleph[\s-]?alpha|\bkolibri\b|\bpharia\b/i, "Aleph Alpha"],
   // "step" alone is an ordinary word in a handle and a repository name; only the company's own
   // spelling and its numbered family count. Step 5 Preview spent a day recorded as Unknown because
   // neither was here, so its cards carried no maker and its events joined no vendor's story.

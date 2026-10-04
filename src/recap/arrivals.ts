@@ -1,8 +1,9 @@
 import { readableName } from "../events/naming.js";
-import { ANNOUNCEMENT_STREAMS } from "../events/signals.js";
+import { ANNOUNCEMENT_STREAMS, CODING_TOOL_SOURCES } from "../events/signals.js";
 import type { Event } from "../events/types.js";
 import {
   arrivalWeight,
+  isAnEvaluation,
   isBesideTheRelease,
   isModelVariant,
   isNotAModel,
@@ -10,6 +11,8 @@ import {
   isTrainingArtefact,
   modalityBase,
   modelSubject,
+  precisionBase,
+  servesAnotherModality,
   tierBase,
 } from "../events/variants.js";
 import { vendorOf, vendorOfName, vendorRank } from "../events/vendors.js";
@@ -74,7 +77,16 @@ function isRealArrival(event: Event, renamed: Set<number>): boolean {
   // collect has ever heard of them -- no benchmark, no arena, no maker's API -- so the only
   // judgement available is whether the maker is one this tracker follows. Adding a maker to that
   // table is how a new name gets in, and it is one line.
-  if (vendorOf(event, record) === "Unknown") return false;
+  // -- unless a coding tool has already put it in front of the reader, which answers the same
+  // question the maker's name was standing in for: can this be used, and for this.
+  if (vendorOf(event, record) === "Unknown" && !CODING_TOOL_SOURCES.has(event.source)) return false;
+  // What this feed is read for. A model that returns a picture, a clip or a vector is a different
+  // craft, and the reader cannot code against it however large the maker is: Grok Imagine Video
+  // 1.5 Lite was one of the five models on the 27 September card and was nobody's news here.
+  if (servesAnotherModality(name, record)) return false;
+  // A grader is not a release. `internlm/AdvancedMathBench-AutoVerifier` took a line on that same
+  // card, with the authority of a watched lab publishing to its own organisation.
+  if (isAnEvaluation(name)) return false;
   return !isModelVariant(name) && !isTrainingArtefact(name) && !isNotAModel(name) && !isRepublished(event, record);
 }
 
@@ -153,7 +165,7 @@ export function periodArrivals(reading: PeriodReading): {
     // before this week folds away here; a tier of something arriving in the same week is folded
     // in the pass below, because whether the base is in hand depends on collection order and
     // "GPT-6 Luna Pro" led the week's OpenAI line ahead of GPT-6 Luna itself.
-    const base = tierBase(name) ?? modalityBase(name);
+    const base = tierBase(name) ?? modalityBase(name) ?? precisionBase(name);
     if (base && alreadyNamed.has(base)) continue;
     const weight = arrivalWeight(event);
     const held = bySubject.get(subject);
@@ -164,7 +176,7 @@ export function periodArrivals(reading: PeriodReading): {
   // speeds and two prices -- and OpenRouter carried "GPT-6 Luna Pro" for a model OpenAI announced
   // as GPT-6 Luna. Four of the week's twenty-six names were the same four models said twice.
   for (const [subject, arrival] of [...bySubject]) {
-    const base = tierBase(arrival.name) ?? modalityBase(arrival.name);
+    const base = tierBase(arrival.name) ?? modalityBase(arrival.name) ?? precisionBase(arrival.name);
     if (base && base !== subject && bySubject.has(base)) bySubject.delete(subject);
   }
   // Weight first, then a maker a reader has heard of: a research artefact published as weights
