@@ -1462,11 +1462,15 @@ test("a dropped connection is retried, a refusal is not", async () => {
   calls = 0;
   const failing = async () => {
     calls += 1;
-    throw new Error("network is unreachable");
+    throw new TypeError("fetch failed: https://signed.example.test/path?token=secret");
   };
-  await expect(fetchText("https://example.test/c", {}, failing, undefined, undefined, instantly)).rejects.toThrow(
-    "unreachable",
+  const error = await fetchText("https://example.test/c", {}, failing, undefined, undefined, instantly).catch(
+    (caught: unknown) => caught,
   );
+  expect(error).toBeInstanceOf(SourceError);
+  expect(error).toMatchObject({ kind: "network", message: "Source could not be reached (TypeError)" });
+  expect(String(error)).not.toContain("secret");
+  expect((error as SourceError).cause).toBeInstanceOf(TypeError);
   expect(calls).toBe(3);
 });
 

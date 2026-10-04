@@ -10,7 +10,7 @@ import { collectGithubCommits, collectGithubPulls, collectGithubReleases, github
 import { type KindMember, type SourceKind, sourcesOfKind } from "../kinds.js";
 import { collectPolymarket } from "../markets.js";
 import { collectModelMentions, MODEL_MENTION_REPOS, mentionSource } from "../modelMentions.js";
-import { collectOpenCodeData } from "../opencodeData.js";
+import { collectOpenCodeData, openCodeDataUnchanged } from "../opencodeData.js";
 import { collectDocsProbe, PROBE_SITES } from "../probes.js";
 import { collectRepoTalk, talkSource } from "../repoTalk.js";
 import { collectMimoTraining } from "../training.js";
@@ -206,21 +206,15 @@ function discoverySources({ db, config, cache }: SourceContext): SourceEntry[] {
     id: "discovery:opencode-data",
     appendOnly: true,
     authority: "third_party",
-    // OpenCode's own catalogue of other makers' models: availability, and never a maker's word.
+    // The canonical registry behind OpenCode's pages: availability, never a maker's word.
     evidence: "availability_catalogue",
     confidence: "observed",
     group: "Discovery",
     stream: "api-models",
     intervalSeconds: 900,
-    pace: { group: "opencode.ai", seconds: 5 },
-    /**
-     * Thirty-two lab pages of about 150 KB each, because this reads OpenCode's catalogue rather than
-     * guessing at addresses in it. Measured 2026-09-27 with `source-cost`: 27 MB claimed on the
-     * first pass and 9 MB more on the second, and RSS is never given back, so in the long-lived
-     * service that would be a floor that keeps rising. Collected in a child, which ends.
-     */
-    heavy: true,
-    collector: () => collectOpenCodeData(db, fetch),
+    pace: { group: "models.opencode.ai", seconds: 5 },
+    nothingNew: () => openCodeDataUnchanged(db, cache),
+    collector: () => collectOpenCodeData(fetch, cache),
   });
   definitions.push({
     id: "discovery:huggingface-trending",

@@ -124,7 +124,7 @@ test("Model Garden is read for every publisher and ids carry the publisher", asy
   };
   const collection = await collectVertexModelGarden(config, request);
   expect(collection.records).toHaveLength(MODEL_GARDEN_PUBLISHERS.length + 1);
-  expect(seen.some((url) => url.includes("publishers/google/models?pageSize=100&pageToken=g2"))).toBe(true);
+  expect(seen.some((url) => url.includes("publishers/google/models?pageSize=200&pageToken=g2"))).toBe(true);
   expect(collection.records).toContainEqual({
     id: "xai/xai-model",
     name: "xai-model",
@@ -133,6 +133,66 @@ test("Model Garden is read for every publisher and ids carry the publisher", asy
     version: "001",
     stage: "GA",
   });
+});
+
+test("four publishers run together, and full evidence stays in publisher order when replies arrive backwards", async () => {
+  const first = MODEL_GARDEN_PUBLISHERS.slice(0, 4);
+  const gates = new Map(first.map((publisher) => [publisher, Promise.withResolvers<Response>()]));
+  const finished = new Map(first.map((publisher) => [publisher, Promise.withResolvers<void>()]));
+  const started = Promise.withResolvers<void>();
+  const seen: string[] = [];
+  let active = 0;
+  let peak = 0;
+  const bodies = MODEL_GARDEN_PUBLISHERS.map((publisher) => ({
+    publisherModels: [{ name: `publishers/${publisher}/models/model`, description: publisher, future: { full: true } }],
+    futurePageField: { publisher },
+  }));
+  const collection = collectVertexModelGarden(config, async (url) => {
+    if (url === account.token_uri) return Response.json({ access_token: "token-1", expires_in: 3599 });
+    const publisher = MODEL_GARDEN_PUBLISHERS.find((name) => url.includes(`/publishers/${name}/models`));
+    if (!publisher) throw new Error("Unexpected publisher");
+    expect(new URL(url).searchParams.get("pageSize")).toBe("200");
+    seen.push(publisher);
+    peak = Math.max(peak, ++active);
+    if (seen.length === 4) started.resolve();
+    const response = gates.get(publisher)
+      ? await gates.get(publisher)?.promise
+      : Response.json(bodies[MODEL_GARDEN_PUBLISHERS.indexOf(publisher)]);
+    active--;
+    finished.get(publisher)?.resolve();
+    if (!response) throw new Error("Missing test response");
+    return response;
+  });
+  await started.promise;
+  expect(seen).toEqual(first);
+  for (const publisher of [...first].reverse()) {
+    gates.get(publisher)?.resolve(Response.json(bodies[MODEL_GARDEN_PUBLISHERS.indexOf(publisher)]));
+    await finished.get(publisher)?.promise;
+    expect(seen).toEqual(first);
+  }
+  const result = await collection;
+  expect(peak).toBe(4);
+  expect(seen).toEqual([...MODEL_GARDEN_PUBLISHERS]);
+  expect(result.records.map((record) => record.id)).toEqual(MODEL_GARDEN_PUBLISHERS.map((name) => `${name}/model`));
+  expect(result.raw).toEqual(bodies);
+});
+
+test("a malformed publisher or a repeated cursor fails the whole Model Garden read", async () => {
+  const request = (body: unknown) => async (url: string) =>
+    url === account.token_uri
+      ? Response.json({ access_token: "token-1", expires_in: 3599 })
+      : Response.json(
+          url.includes("publishers/google/") ? body : { publisherModels: [{ name: "publishers/x/models/y" }] },
+        );
+  await expect(
+    collectVertexModelGarden(config, request({ publisherModels: [{ name: "malformed" }] })),
+  ).rejects.toThrow();
+  await expect(
+    collectVertexModelGarden(
+      config,
+      request({ publisherModels: [{ name: "publishers/google/models/gemini" }], nextPageToken: "same" }),
+    ),
+  ).rejects.toMatchObject({ kind: "protocol", message: "Model Garden pagination did not advance" });
 });
 
 test("a publisher answering with no models keeps its catalogue, and the other publishers are still read", async () => {

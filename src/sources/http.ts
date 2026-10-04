@@ -160,14 +160,14 @@ export async function fetchText(
     else if (cached?.lastModified) conditional["if-modified-since"] = cached.lastModified;
     const requestHeaders = new Headers({ "user-agent": USER_AGENT, ...conditional });
     for (const [name, value] of Object.entries(headers)) requestHeaders.set(name, value);
-    response = await attempt(
+    response = await fetchResponse(
       url,
-      request,
       {
         headers: requestHeaders,
         redirect: "manual",
         ...(send ? { method: send.method, body: send.body } : {}),
       },
+      request,
       retryDelaysMs,
     );
     // 304 shares the 3xx range but is an answer, not a redirect: it means the cached body stands.
