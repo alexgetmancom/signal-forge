@@ -805,3 +805,40 @@ test("a maker's own announcement dates its own model, hyphens and all", () => {
   expect(context.arrivals).toEqual([{ vendor: "DeepSeek", names: ["DeepSeek V4.1 Flash"] }]);
   expect(context.arrivalCount).toBe(1);
 });
+
+test("a model nobody can call yet is held, and arrives in the week its catalogue opens", () => {
+  const db = openDatabase(":memory:");
+  const garden: Collection = {
+    source: "vertex-model-garden",
+    stream: "api-models",
+    url: "https://console.cloud.google.com/vertex-ai/model-garden",
+    raw: [],
+    records: [{ id: "baseline", name: "Baseline", stage: "GA" }],
+  };
+  saveCollection(db, garden, [wire], "2026-09-28T10:00:00.000Z");
+  // Announced, and listed for an audience these readers are not in.
+  garden.records.push({
+    id: "gemini-4-argon",
+    name: "Gemini 4 Argon",
+    stage: "PRIVATE_PREVIEW",
+    created: "2026-09-30T00:00:00.000Z",
+  });
+  saveCollection(db, garden, [wire], "2026-09-30T20:05:09.890Z");
+  expect(recapContext(db, "2026-10-04T18:00:00.000Z").arrivals).toEqual([]);
+
+  // The week it opens, the same listing is the week's news: a mention is not an arrival, so the
+  // model held back is still the model that has not arrived.
+  // Its own date is unchanged, because a catalogue opening a model does not re-date it: what dates
+  // this to the week is the opening, which is a change this deployment watched happen.
+  garden.records[1] = {
+    id: "gemini-4-argon",
+    name: "Gemini 4 Argon",
+    stage: "GA",
+    created: "2026-09-30T00:00:00.000Z",
+  };
+  saveCollection(db, garden, [wire], "2026-10-07T09:00:00.000Z");
+  expect(recapContext(db, "2026-10-11T18:00:00.000Z").arrivals).toEqual([
+    { vendor: "Google", names: ["Gemini 4 Argon"] },
+  ]);
+  db.close();
+});

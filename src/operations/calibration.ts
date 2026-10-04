@@ -126,7 +126,15 @@ export function calibrationOperations(db: Database, config: AppConfig, _all: () 
         "not misses, and they are what the first version of `lateAndSilent` was entirely made of -- " +
         "32 rows on 2026-09-27, DeepSeek V3 at 623 days among them. `watchedSince` and " +
         "`historyImport` say which a row is. `releasedAt` is null on the roughly two thirds of " +
-        "subjects no catalogue dates, and null there means no claim, never a fresh release.",
+        "subjects no catalogue dates, and null there means no claim, never a fresh release. " +
+        "`heldOnAvailability` is the third class, and the one this report could not see at all: " +
+        "silent subjects a catalogue lists and nobody outside the maker can call, which is what the " +
+        "week's arrivals now hold rather than discard -- the week a listing opens, the recap reports " +
+        "it. Every row in it is a reader correctly not interrupted, so it is a queue length and not " +
+        "an alarm. `listings` on a row is the count behind it, callable against unreachable, and " +
+        "`nobodyCanCallIt` is the wider fact that nothing we hold about the subject can be called at " +
+        "all: true of Gemini 4 Argon on the evening of 2026-09-30, and true of every post a company " +
+        "makes about its quarter, which is why the number counts the narrower thing.",
       mutates: false,
       agent: true,
       schema: z.object({ days: count(90, 7), limit: count(200, 50) }),

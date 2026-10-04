@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { CATALOGUE_STREAMS, reachableListingSql } from "../events/availability.js";
 import { corroborationOf, INDEPENDENT_SOURCES } from "../events/corroboration.js";
 import { sourceIndependenceFamily } from "../events/sourceFamily.js";
 import type { SourceAuthority } from "../events/types.js";
@@ -66,6 +67,22 @@ type PassedOverStory = {
    */
   watchedSince: string | null;
   /**
+   * Whether anything we hold about this subject is a listing a reader could call.
+   *
+   * The fact this report had no way of stating. Both its headline numbers are about a subject
+   * accumulating agreement or arriving late, and a subject nobody serves does neither: Gemini 4
+   * Argon was announced on 2026-09-30, scored one family, carried no release date and sat below
+   * every threshold here. Being silent about it was right -- there was nothing for a reader to call
+   * -- but the mechanism could not say so, and the next one would have been found by hand too.
+   *
+   * True of a great deal that is not a model, too: a company's own post about its quarter is a story
+   * nobody can call either. It is a fact about the subject and not an alarm, which is why the
+   * headline below counts the narrower thing.
+   */
+  nobodyCanCallIt: boolean;
+  /** Listings of this subject a reader could call, and the ones whose own words say they cannot. */
+  listings: { callable: number; unreachable: number };
+  /**
    * Whether the subject came out before we were reading any source that recorded it.
    *
    * A catalogue hands over its whole history on the first call, so the first week of `lateByDays`
@@ -119,6 +136,16 @@ export type PassedOverReport = {
    * denominator that says whether the lateness above is measuring anything.
    */
   historyImportsAndSilent: number;
+  /**
+   * Silent subjects a catalogue lists and nobody can call: the queue the availability gate holds.
+   *
+   * Not a miss, and that is the point of counting it separately -- every row here is a reader
+   * correctly not interrupted, and the week a listing opens the recap reports it as an arrival. It
+   * counts the same thing the gate holds and nothing else: a subject with a listing whose own words
+   * say it is private, rather than any subject nobody serves, which is most of a newsroom's output
+   * and none of it a loss. Read beside `nobodyCanCallIt` on the rows, which is the wider fact.
+   */
+  heldOnAvailability: number;
   stories: PassedOverStory[];
 };
 
@@ -133,6 +160,9 @@ type Row = {
   kind: string;
   source: string;
   stream: string;
+  signal: string | null;
+  /** 1 when this event is a listing whose own words say nobody outside the maker can call it. */
+  unreachable_listing: number;
   authority: SourceAuthority;
   source_vendor: string | null;
   source_first_observed_at: string | null;
@@ -148,10 +178,12 @@ type Row = {
  * a threshold is tuned against.
  */
 function rows(db: Database, since: string): Row[] {
+  const streams = [...CATALOGUE_STREAMS].map((stream) => `'${stream}'`).join(",");
   return db
     .query<Row, [string]>(
       `SELECT s.id AS story_id,s.title,s.vendor,s.first_seen_at,s.updated_at,s.released_at,
-              e.id AS event_id,e.kind,e.source,e.stream,e.authority,src.vendor AS source_vendor,
+              e.id AS event_id,e.kind,e.source,e.stream,e.signal,e.authority,src.vendor AS source_vendor,
+              (e.stream IN (${streams}) AND NOT (${reachableListingSql("e.after_json")})) AS unreachable_listing,
               src.first_observed_at AS source_first_observed_at,
               EXISTS(SELECT 1 FROM batch_events be JOIN deliveries d ON d.batch_id=be.batch_id
                      WHERE be.event_id=e.id) AS delivered,
@@ -232,6 +264,9 @@ export function passedOver(db: Database, days = 7, limit = 50, now = Date.now())
         vendor: event.source_vendor,
       });
     const families = new Set(events.map(familyOf));
+    // A listing a reader could call, from any source: what makes a silence a hold rather than a miss.
+    const listings = events.filter((event) => CATALOGUE_STREAMS.has(event.stream));
+    const unreachable = listings.filter((event) => event.unreachable_listing === 1);
     const arrivalFamilies = new Set(events.filter((event) => event.kind === "new").map(familyOf));
     const tally = new Map<string, number>();
     for (const event of events)
@@ -262,6 +297,8 @@ export function passedOver(db: Database, days = 7, limit = 50, now = Date.now())
       releasedAt: first.released_at,
       lateByDays: lateByDays(first.released_at, first.first_seen_at),
       watchedSince,
+      nobodyCanCallIt: listings.length === unreachable.length,
+      listings: { callable: listings.length - unreachable.length, unreachable: unreachable.length },
       historyImport: Boolean(
         first.released_at && watchedSince && Date.parse(first.released_at) < Date.parse(watchedSince),
       ),
@@ -295,6 +332,9 @@ export function passedOver(db: Database, days = 7, limit = 50, now = Date.now())
       (story) => !story.spoke && story.lateAfterWatchingDays !== null && story.lateAfterWatchingDays > LATE_DAYS,
     ).length,
     historyImportsAndSilent: stories.filter((story) => !story.spoke && story.historyImport).length,
+    heldOnAvailability: stories.filter(
+      (story) => !story.spoke && story.listings.unreachable > 0 && story.listings.callable === 0,
+    ).length,
     stories: stories.slice(0, limit),
   };
 }

@@ -333,3 +333,57 @@ test("a source with no collection on record dates nothing, and the release date 
   expect(story?.lateByDays).toBe(958);
   db.close();
 });
+
+test("a listing nobody can call is counted as held on availability, not as a miss", () => {
+  const db = openDatabase(":memory:");
+  db.exec("INSERT INTO snapshots(id,source,collected_at) VALUES(1,'x','2026-09-30T00:00:00.000Z')");
+  db.exec(
+    `INSERT INTO stories(id,stable_key,title,normalized_subject,vendor,first_seen_at,updated_at)
+     VALUES(1,'google:gemini-4-argon','Gemini 4 Argon','gemini 4 argon','Google',
+            '2026-09-30T20:05:09.890Z','2026-10-01T05:00:00.000Z')`,
+  );
+  const add = (source: string, stream: string, authority: string, at: string, record: object) => {
+    const id =
+      db
+        .query<{ id: number }, [string, string, string, string, string]>(
+          `INSERT INTO events(source,stream,entity_id,kind,after_json,detected_at,snapshot_id,authority)
+           VALUES(?,?,'gemini-4-argon','new',?,?,1,?) RETURNING id`,
+        )
+        .get(source, stream, JSON.stringify(record), at, authority)?.id ?? 0;
+    db.query("INSERT INTO story_events(story_id,event_id) VALUES(1,?)").run(id);
+    return id;
+  };
+  // The evening of 2026-09-30 as production saw it: the maker's own post, and a board placing.
+  add("gemini-models-blog", "news", "first_party", "2026-09-30T20:05:09.890Z", { name: "Gemini 4 Argon" });
+  add("arena-leaderboards", "leaderboards", "third_party", "2026-09-30T20:19:53.728Z", { name: "Gemini 4 Argon" });
+  const announced = passedOver(db, 7, 50, Date.parse("2026-10-01T06:00:00.000Z"));
+  // Nothing serves it, which the report could not say before; and it is not yet a hold, because no
+  // catalogue has listed it at all. Below every threshold this report has, in both readings.
+  expect(announced.stories[0]?.nobodyCanCallIt).toBe(true);
+  expect(announced.stories[0]?.listings).toEqual({ callable: 0, unreachable: 0 });
+  expect(announced.overThresholdAndSilent).toBe(0);
+  expect(announced.lateAndSilent).toBe(0);
+  expect(announced.heldOnAvailability).toBe(0);
+
+  // The catalogue lists it for an audience these readers are not in: now it is a hold, and the
+  // number says how long the queue is that the week's arrivals are holding back.
+  const listing = add("vertex-model-garden", "api-models", "vendor_owned", "2026-10-01T05:00:00.000Z", {
+    name: "Gemini 4 Argon",
+    stage: "PRIVATE_PREVIEW",
+  });
+  const held = passedOver(db, 7, 50, Date.parse("2026-10-01T06:00:00.000Z"));
+  expect(held.stories[0]?.listings).toEqual({ callable: 0, unreachable: 1 });
+  expect(held.stories[0]?.nobodyCanCallIt).toBe(true);
+  expect(held.heldOnAvailability).toBe(1);
+
+  // And the day it opens there is something to call, so the hold is over and the recap reports it.
+  db.query("UPDATE events SET after_json=? WHERE id=?").run(
+    JSON.stringify({ name: "Gemini 4 Argon", stage: "GA" }),
+    listing,
+  );
+  const open = passedOver(db, 7, 50, Date.parse("2026-10-01T06:00:00.000Z"));
+  expect(open.stories[0]?.listings).toEqual({ callable: 1, unreachable: 0 });
+  expect(open.stories[0]?.nobodyCanCallIt).toBe(false);
+  expect(open.heldOnAvailability).toBe(0);
+  db.close();
+});
