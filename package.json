@@ -46,6 +46,7 @@
     "read-cost": "bun scripts/read-cost.ts",
     "check-indexes": "bun scripts/check-indexes.ts",
     "index-cost": "bun scripts/index-cost.ts",
+    "backfill-judgements": "bun scripts/backfill-judgements.ts",
     "guide": "bun scripts/workbench.ts"
   },
   "dependencies": {

@@ -13,7 +13,7 @@ import {
   worthCutoffs,
 } from "./jev.js";
 import { votedDeliveries } from "./reports/readerVotes.js";
-import { publishMonthlyAudit, publishWeeklyVotes } from "./review.js";
+import { publishWeeklyAudit, publishWeeklyVotes } from "./review.js";
 import { olderThanKnown } from "./sources/mentionStage.js";
 import { summarizeForRecap } from "./summary/recap.js";
 
@@ -115,7 +115,7 @@ export async function prepareInsights(db: Database, config: AppConfig, request: 
   // Judged first, so the commits worth a line are known before DeepSeek is asked about them.
   const commits = await noteCommits(db, config, request, now);
   const findings = await noteFindings(db, config, request, now);
-  const audited = await publishMonthlyAudit(db, config, request, now.getTime());
+  const audited = await publishWeeklyAudit(db, config, request, now.getTime());
   await publishWeeklyVotes(db, config, request, now.getTime());
   return { judged, commits, findings, audited };
 }

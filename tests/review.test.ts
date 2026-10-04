@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { loadConfig } from "../src/config.js";
 import { renderRecapEmbed } from "../src/events/render/lifecycle.js";
 import { recapContextSchema } from "../src/recap/schema.js";
-import { publishMonthlyAudit, publishWeeklyVotes } from "../src/review.js";
+import { publishWeeklyAudit, publishWeeklyVotes } from "../src/review.js";
 import { readState, writeState } from "../src/storage/appState.js";
 import { openDatabase } from "../src/storage/database.js";
 
@@ -40,19 +40,21 @@ function deepseek(text: string, seen: { urls: string[]; bodies: string[] }) {
   };
 }
 
-test("the monthly audit goes to the status channel once, on the first", async () => {
+test("the audit goes to the status channel once, on Sunday evening", async () => {
   const db = openDatabase(":memory:");
   seedDelivery(db, "2026-09-18T10:00:00.000Z");
   const seen = { urls: [] as string[], bodies: [] as string[] };
   const long = Array.from({ length: 120 }, (_, i) => `- line ${i} ${"x".repeat(60)}`).join("\n");
   const request = deepseek(`**Missed**\n${long}`, seen) as unknown as typeof fetch;
-  expect(await publishMonthlyAudit(db, config, request, Date.parse("2026-09-30T12:00:00Z"))).toBe(false);
-  expect(await publishMonthlyAudit(db, config, request, Date.parse("2026-10-01T08:00:00Z"))).toBe(true);
-  expect(await publishMonthlyAudit(db, config, request, Date.parse("2026-10-01T09:00:00Z"))).toBe(false);
+  // A Sunday before eight, and a weekday evening: the slot is both halves, not either.
+  expect(await publishWeeklyAudit(db, config, request, Date.parse("2026-10-04T19:00:00Z"))).toBe(false);
+  expect(await publishWeeklyAudit(db, config, request, Date.parse("2026-10-07T20:00:00Z"))).toBe(false);
+  expect(await publishWeeklyAudit(db, config, request, Date.parse("2026-10-04T20:00:00Z"))).toBe(true);
+  expect(await publishWeeklyAudit(db, config, request, Date.parse("2026-10-04T21:00:00Z"))).toBe(false);
   const posts = seen.urls.filter((url) => url.includes("discord.com"));
   expect(posts.length).toBeGreaterThan(1);
   expect(posts.every((url) => url.includes("/channels/123/messages"))).toBe(true);
-  expect(readState(db, "audit:2026-10")).toBe("sent");
+  expect(readState(db, "audit:2026-10-04")).toBe("sent");
 });
 
 test("nothing a model wrote reaches the weekly recap", () => {
@@ -121,23 +123,23 @@ test("an audit that posted nothing is tried again an hour later, and a restart m
   seedDelivery(db, "2026-09-18T10:00:00.000Z");
   const remote = flaky();
   remote.behaviour.deepseek = "503";
-  expect(await publishMonthlyAudit(db, config, remote.request, Date.parse("2026-10-01T08:00:00Z"))).toBe(false);
-  expect(readState(db, "audit:2026-10")).toStartWith("retry:");
+  expect(await publishWeeklyAudit(db, config, remote.request, Date.parse("2026-10-04T20:00:00Z"))).toBe(false);
+  expect(readState(db, "audit:2026-10-04")).toStartWith("retry:");
   // Not asked again within the hour: a provider that is down is not a reason to ask every cycle.
-  expect(await publishMonthlyAudit(db, config, remote.request, Date.parse("2026-10-01T08:30:00Z"))).toBe(false);
+  expect(await publishWeeklyAudit(db, config, remote.request, Date.parse("2026-10-04T20:30:00Z"))).toBe(false);
   expect(remote.asked.deepseek).toBe(1);
   remote.behaviour.deepseek = "up";
-  expect(await publishMonthlyAudit(db, config, remote.request, Date.parse("2026-10-01T09:05:00Z"))).toBe(true);
-  expect(readState(db, "audit:2026-10")).toBe("sent");
-  expect(await publishMonthlyAudit(db, config, remote.request, Date.parse("2026-10-01T23:00:00Z"))).toBe(false);
+  expect(await publishWeeklyAudit(db, config, remote.request, Date.parse("2026-10-04T21:05:00Z"))).toBe(true);
+  expect(readState(db, "audit:2026-10-04")).toBe("sent");
+  expect(await publishWeeklyAudit(db, config, remote.request, Date.parse("2026-10-04T23:30:00Z"))).toBe(false);
   expect(remote.asked.discord).toBe(1);
 
   // A claim with no outcome is a process that stopped in the middle: it may have posted, so it is not retried.
   const interrupted = openDatabase(":memory:");
   seedDelivery(interrupted, "2026-09-18T10:00:00.000Z");
-  writeState(interrupted, "audit:2026-10", "claimed");
+  writeState(interrupted, "audit:2026-10-04", "claimed");
   const untouched = flaky();
-  expect(await publishMonthlyAudit(interrupted, config, untouched.request, Date.parse("2026-10-01T12:00:00Z"))).toBe(
+  expect(await publishWeeklyAudit(interrupted, config, untouched.request, Date.parse("2026-10-04T23:00:00Z"))).toBe(
     false,
   );
   expect(untouched.asked).toEqual({ deepseek: 0, discord: 0 });
@@ -149,10 +151,10 @@ test("an audit whose first post was refused is tried again, and one that was par
   seedDelivery(refused, "2026-09-18T10:00:00.000Z");
   const remote = flaky(`**Missed**\n${long}`);
   remote.behaviour.discord = "403";
-  expect(await publishMonthlyAudit(refused, config, remote.request, Date.parse("2026-10-01T08:00:00Z"))).toBe(false);
-  expect(readState(refused, "audit:2026-10")).toStartWith("retry:");
+  expect(await publishWeeklyAudit(refused, config, remote.request, Date.parse("2026-10-04T20:00:00Z"))).toBe(false);
+  expect(readState(refused, "audit:2026-10-04")).toStartWith("retry:");
   remote.behaviour.discord = "up";
-  expect(await publishMonthlyAudit(refused, config, remote.request, Date.parse("2026-10-01T09:05:00Z"))).toBe(true);
+  expect(await publishWeeklyAudit(refused, config, remote.request, Date.parse("2026-10-04T21:05:00Z"))).toBe(true);
 
   // The first part reached the channel and the second did not: posting it all again would double
   // what is already there, so this month's audit stays as it is.
@@ -160,10 +162,10 @@ test("an audit whose first post was refused is tried again, and one that was par
   seedDelivery(partial, "2026-09-18T10:00:00.000Z");
   const half = flaky(`**Missed**\n${long}`);
   half.behaviour.discordFailsAfter = 1;
-  expect(await publishMonthlyAudit(partial, config, half.request, Date.parse("2026-10-01T08:00:00Z"))).toBe(false);
-  expect(readState(partial, "audit:2026-10")).toBe("claimed");
+  expect(await publishWeeklyAudit(partial, config, half.request, Date.parse("2026-10-04T20:00:00Z"))).toBe(false);
+  expect(readState(partial, "audit:2026-10-04")).toBe("claimed");
   half.behaviour.discordFailsAfter = Infinity;
-  expect(await publishMonthlyAudit(partial, config, half.request, Date.parse("2026-10-01T10:00:00Z"))).toBe(false);
+  expect(await publishWeeklyAudit(partial, config, half.request, Date.parse("2026-10-04T22:00:00Z"))).toBe(false);
 });
 
 test("the readers' votes are tried again when Discord did not take them", async () => {

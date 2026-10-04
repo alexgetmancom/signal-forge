@@ -135,7 +135,7 @@ const BOARDS = {
   },
   "review-posts": {
     section: "boards",
-    summary: "The monthly audit and the weekly reading of the readers' votes, written into the operator's channel.",
+    summary: "The weekly audit and the weekly reading of the readers' votes, written into the operator's channel.",
     defaultOn: true,
     unavailable: needsAll([
       needsDiscordChannel("status channel", (config) => config.statusChannelId),

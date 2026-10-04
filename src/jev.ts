@@ -36,6 +36,14 @@ const MAX_STATE_CHARS = 4_000;
  * Raise this whenever QUESTIONS, KINDS or what evidenceOf hands over changes. Judgements are stored
  * per prompt version, so the new questions are asked again of the recent window and the two sets
  * can be compared instead of being mixed in one column.
+ *
+ * Raising it is two steps, and the second is `bun run backfill-judgements`. A bump alone reaches
+ * only what the cycle judges next, forty events at a time over a day's window, so the history keeps
+ * its answers from the version before and nothing can be compared with anything. Version 4 was
+ * backfilled and version 5 was not: on 2026-10-04 eighty-four cards carried a reader's thumb and
+ * twenty of them had a judgement on the scale in force, which is a calibration of a fifth of the
+ * evidence that was there. The backfill asks only what the current version has not answered, so
+ * running it when nothing changed costs nothing.
  */
 export const PROMPT_VERSION = "5";
 const EVALUATOR = "jev";
@@ -170,7 +178,7 @@ const STORY_SHARE = 0.045;
  * Beside `worthCutoff` rather than in `insights.ts`, where it was until 2026-10-04: a threshold on
  * this scale is a property of the scale, and the reports that measure the scale -- `judge-gap`,
  * `judge-calibration` -- have to read it without reaching through the recap that acts on it. Taking
- * the long way round made the monthly audit's new evidence a circular import.
+ * the long way round made the audit's new evidence a circular import.
  */
 export function worthCutoffs(db: Database, now = new Date()): { commit: number; story: number } {
   return {

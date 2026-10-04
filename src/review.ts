@@ -19,6 +19,13 @@ import { readState, writeState } from "./storage/appState.js";
  * name the week's most important developments it produced the register of a press release, and
  * every fact in it was already a line below it. Nothing a model writes goes to a reader now.
  *
+ * It ran on the first of the month until 2026-10-04, which was never a decision: the monthly audit
+ * arrived as the pair of a weekly reader-facing paragraph, and that paragraph was deleted three days
+ * later. It reads on Sunday evening now, when a week has closed, and still reads thirty days back --
+ * cadence and window are two knobs and only one of them was wrong. The windows overlap by design:
+ * forty-six voted cards took thirty days to arrive, and a seven-day slice of them bands into threes
+ * and twos, which is a report whose numbers move with the weather.
+ *
  * What it is asked about widened on 2026-10-04 and where it goes did not. It used to see a month of
  * messages and the items an independent classifier rated highly that no message named, so the only
  * recommendation it could make was about an item. The three standing measurements go in with them
@@ -152,23 +159,26 @@ function parts(text: string, size = 3_800): string[] {
 }
 
 /**
- * The month read back as a whole, for the owner alone: what a classifier thought mattered and no
- * channel carried, what was sent that should not have been, what was sent twice. It goes to the
- * status channel on the first of the month and never to a reader.
+ * The last thirty days read back as a whole, for the owner alone: what a classifier thought mattered
+ * and no channel carried, what was sent that should not have been, what was sent twice. It goes to
+ * the status channel on Sunday evening, after the week has closed, and never to a reader.
  */
-export async function publishMonthlyAudit(
+export async function publishWeeklyAudit(
   db: Database,
   config: AppConfig,
   request: Fetch = fetch,
   now = Date.now(),
 ): Promise<boolean> {
   const date = new Date(now);
-  if (date.getUTCDate() !== 1 || date.getUTCHours() < 7) return false;
+  // Sunday evening, in UTC as every other slot here is: the week is over and the owner is not
+  // reading it between other work. Twenty o'clock rather than seven, because this one is not news.
+  if (date.getUTCDay() !== 0 || date.getUTCHours() < 20) return false;
   const channel = config.statusChannelId;
   if (!channel || !config.DISCORD_BOT_TOKEN || !config.DEEPSEEK_API_KEY) return false;
   if (!featureEnabled(config, "review-posts")) return false;
-  const key = `${AUDIT_PREFIX}${date.toISOString().slice(0, 7)}`;
-  // Claimed before the slow read: a restart mid-audit loses one month's audit, never doubles it.
+  // The day, not the month: a weekly report keyed by month would post once and call four weeks done.
+  const key = `${AUDIT_PREFIX}${date.toISOString().slice(0, 10)}`;
+  // Claimed before the slow read: a restart mid-audit loses one audit, never doubles it.
   if (!takeClaim(db, key, now)) return false;
   const text = await audit(db, config, request, now);
   if (!text) {
@@ -184,7 +194,7 @@ export async function publishMonthlyAudit(
       body: JSON.stringify({
         embeds: [
           {
-            ...(index === 0 ? { title: `Monthly audit · last ${AUDIT_DAYS} days` } : {}),
+            ...(index === 0 ? { title: `Weekly audit · last ${AUDIT_DAYS} days` } : {}),
             description: chunk,
             color: 0x95a5a6,
             footer: { text: `DeepSeek · ${index + 1}/${chunks.length}` },
