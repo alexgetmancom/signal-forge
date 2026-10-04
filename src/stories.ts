@@ -583,7 +583,7 @@ function storyEvents(db: Database, afterId?: number): StoryEvent[] {
     .all(...(afterId === undefined ? [] : [afterId]));
 }
 
-const REBUILD_PAGE_SIZE = 1000;
+const REBUILD_PAGE_SIZE = 250;
 
 /**
  * A full rebuild reads every event ever recorded and needs none of them after the row in front of

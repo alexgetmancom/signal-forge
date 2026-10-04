@@ -28,26 +28,45 @@ export const GITHUB_DISCOVERY_QUERIES = [
 type GithubDiscoveryQuery = (typeof GITHUB_DISCOVERY_QUERIES)[number];
 
 const repositorySchema = z.object({
-  full_name: z.string().regex(/^[^/\s]+\/[^/\s]+$/),
-  name: z.string().min(1),
-  html_url: z.url(),
+  nameWithOwner: z.string().regex(/^[^/\s]+\/[^/\s]+$/),
+  url: z.url(),
   owner: z.object({ login: z.string().min(1) }),
   description: z.string().nullable(),
-  created_at: z.string().min(1),
-  updated_at: z.string().min(1),
-  stargazers_count: z.number().int().nonnegative(),
-  forks_count: z.number().int().nonnegative(),
-  language: z.string().nullable(),
-  topics: z.array(z.string()).default([]),
-  fork: z.boolean(),
-  archived: z.boolean(),
+  createdAt: z.string().min(1),
+  updatedAt: z.string().min(1),
+  stargazerCount: z.number().int().nonnegative(),
+  forkCount: z.number().int().nonnegative(),
+  primaryLanguage: z.object({ name: z.string().min(1) }).nullable(),
+  repositoryTopics: z.object({ nodes: z.array(z.object({ topic: z.object({ name: z.string().min(1) }) })).max(100) }),
+  isFork: z.boolean(),
+  isArchived: z.boolean(),
 });
 
 const githubSearchSchema = z.object({
-  total_count: z.number().int().nonnegative(),
-  incomplete_results: z.boolean(),
-  items: z.array(repositorySchema).max(100),
+  search: z.object({
+    repositoryCount: z.number().int().nonnegative(),
+    pageInfo: z.object({ hasNextPage: z.boolean() }),
+    nodes: z.array(repositorySchema).max(100),
+  }),
 });
+
+const githubResponseSchema = z.object({ data: z.unknown(), errors: z.array(z.unknown()).optional() });
+
+// REST returned 1.20 MB for these four searches on 2026-10-04; the same 202 repositories and
+// every field read below took 151 KB with GraphQL. The search still reads only the newest page.
+const GITHUB_SEARCH = `query($query: String!) {
+  search(query: $query, type: REPOSITORY, first: 100) {
+    repositoryCount
+    pageInfo { hasNextPage }
+    nodes {
+      ... on Repository {
+        nameWithOwner url owner { login } description createdAt updatedAt
+        stargazerCount forkCount primaryLanguage { name } isFork isArchived
+        repositoryTopics(first: 100) { nodes { topic { name } } }
+      }
+    }
+  }
+}`;
 
 const trendingModel = z.object({
   id: z.string().min(1),
@@ -128,49 +147,62 @@ export async function collectGithubDiscovery(
   query: GithubDiscoveryQuery,
   request: Fetch = fetch,
   now = new Date(),
-  cache?: HttpCache,
 ): Promise<Collection> {
   if (!config.GITHUB_TOKEN) throw new SourceError("credential", "GITHUB_TOKEN is required for GitHub discovery");
   const q = githubQuery(query, now);
-  const url = `https://api.github.com/search/repositories?q=${encodeURIComponent(q)}&sort=created&order=desc&per_page=100`;
-  const body: unknown = JSON.parse(
-    await fetchText(
-      url,
-      { Accept: "application/vnd.github+json", Authorization: `Bearer ${config.GITHUB_TOKEN}` },
-      request,
-      undefined,
-      cache,
+  const response = githubResponseSchema.parse(
+    JSON.parse(
+      await fetchText(
+        "https://api.github.com/graphql",
+        {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${config.GITHUB_TOKEN}`,
+        },
+        request,
+        {
+          method: "POST",
+          body: JSON.stringify({ query: GITHUB_SEARCH, variables: { query: `${q} sort:created-desc` } }),
+        },
+      ),
     ),
   );
-  const data = githubSearchSchema.parse(body);
-  // GitHub stops a search that runs out of time and says so; a partial page is not the ranking.
-  if (data.incomplete_results) throw new SourceError("protocol", "GitHub search returned incomplete results");
-  const records: RecordData[] = data.items
-    .filter((repository) => !repository.fork && !repository.archived)
+  // GraphQL can answer HTTP 200 with partial data and errors. Neither is a successful search.
+  if (response.errors?.length || !response.data)
+    throw new SourceError("protocol", "GitHub search returned incomplete results");
+  const data = githubSearchSchema.parse(response.data).search;
+  if (
+    data.nodes.length !== Math.min(100, data.repositoryCount) ||
+    data.pageInfo.hasNextPage !== data.repositoryCount > 100
+  )
+    throw new SourceError("protocol", "GitHub search returned incomplete results");
+  const records: RecordData[] = data.nodes
+    .filter((repository) => !repository.isFork && !repository.isArchived)
     .map((repository) => {
+      const topics = repository.repositoryTopics.nodes.map(({ topic }) => topic.name);
       const attention = attentionScore(
         {
-          name: repository.full_name,
+          name: repository.nameWithOwner,
           description: repository.description,
-          topics: repository.topics,
-          created: repository.created_at,
-          stars: repository.stargazers_count,
-          forks: repository.forks_count,
+          topics,
+          created: repository.createdAt,
+          stars: repository.stargazerCount,
+          forks: repository.forkCount,
         },
         now.getTime(),
       );
       return {
-        id: repository.full_name,
-        name: repository.full_name,
-        url: repository.html_url,
+        id: repository.nameWithOwner,
+        name: repository.nameWithOwner,
+        url: repository.url,
         owner: repository.owner.login,
         description: repository.description,
-        created: repository.created_at,
-        updated: repository.updated_at,
-        stars: repository.stargazers_count,
-        forks: repository.forks_count,
-        language: repository.language,
-        topics: [...repository.topics].sort(),
+        created: repository.createdAt,
+        updated: repository.updatedAt,
+        stars: repository.stargazerCount,
+        forks: repository.forkCount,
+        language: repository.primaryLanguage?.name ?? null,
+        topics: topics.sort(),
         query: q,
         discoveryStatus: "candidate",
         attentionScore: attention.score,
@@ -180,7 +212,7 @@ export async function collectGithubDiscovery(
   return {
     source: `discovery:github-${query.id}`,
     stream: "github",
-    url,
+    url: `https://github.com/search?q=${encodeURIComponent(q)}&type=repositories`,
     raw: data,
     records,
   };

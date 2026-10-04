@@ -30,6 +30,7 @@ test("a documentation page that exists for an unannounced model is a sighting", 
   });
   const request = async (url: string, init?: RequestInit) => {
     agents.push(new Headers(init?.headers).get("user-agent") ?? "");
+    expect(init?.method).toBe("GET");
     return pages(url);
   };
   const collection = await collectDocsProbe(catalogue(["claude-opus-5-5", "claude-opus-5-5-fast"]), anthropic, request);
@@ -109,6 +110,54 @@ test("a tier behind the rest is asked the questions the furthest tier earns", as
   expect(asked).toContain("gemini-4-pro");
   expect(asked).toContain("gemini-3.9-pro");
   expect(asked).toContain("gemini-3.2-pro");
+});
+
+test("Google asks HEAD controls first, then at most four guesses, and retains sorted answers", async () => {
+  const google = PROBE_SITES.find((site) => site.id === "discovery:docs-google");
+  if (!google) throw new Error("the Google probe is gone");
+  const db = catalogue(["gemini-3.8-flash", "gemini-3.1-pro", "gemini-3.5-flash-lite"]);
+  const asked: string[] = [];
+  const held: (() => void)[] = [];
+  let started = () => {};
+  const fourStarted = new Promise<void>((resolve) => {
+    started = resolve;
+  });
+  let active = 0;
+  let peak = 0;
+  const request = async (url: string, init?: RequestInit) => {
+    expect(init?.method).toBe("HEAD");
+    const slug = url.split("/").at(-1) ?? "";
+    asked.push(slug);
+    if (slug === "gemini-3.8-flash" || slug === "gemini-99.99-flash") {
+      expect(active).toBe(0);
+      return new Response(null, { status: slug === "gemini-3.8-flash" ? 200 : 404 });
+    }
+    expect(asked.slice(0, 2)).toEqual(["gemini-3.8-flash", "gemini-99.99-flash"]);
+    active++;
+    peak = Math.max(peak, active);
+    if (held.length < 4)
+      await new Promise<void>((resolve) => {
+        held.push(resolve);
+        if (held.length === 4) started();
+      });
+    active--;
+    return new Response(null, { status: 200 });
+  };
+  const reading = collectDocsProbe(db, google, request, Date.parse("2026-10-04T12:00:00Z"));
+  await fourStarted;
+  expect(peak).toBe(4);
+  for (const release of [...held].reverse()) release();
+  const collection = await reading;
+  expect(peak).toBe(4);
+  const guesses = asked.slice(2);
+  expect(guesses.length).toBeGreaterThan(4);
+  expect(new Set(guesses).size).toBe(guesses.length);
+  const sorted = [...guesses].sort();
+  expect(collection.records.map((record) => record.id)).toEqual(sorted);
+  const answers = collection.raw as Record<string, { status: number }>;
+  expect(Object.keys(answers)).toEqual([...sorted, "gemini-3.8-flash", "gemini-99.99-flash"]);
+  expect(answers["gemini-99.99-flash"]).toMatchObject({ status: 404 });
+  db.close();
 });
 
 test("a version no maker could be at is a spelling, not a version", () => {

@@ -18,7 +18,7 @@ import type { Vendor } from "./vendors.js";
  * `z.ai/blog/<model>` answered 200 for `glm-5.3` and 404 for `glm-5.4`, which is a maker whose
  * announcement is the address of the model itself.
  *
- * Nothing here defeats a protection: these are plain GETs identified as SignalForge, and a site
+ * These are ordinary HTTP requests identified as SignalForge, and a site
  * that answers a challenge instead of a page simply yields no candidate. The guesses are versions
  * of families the vendor already ships, so the request rate is a handful of addresses per poll.
  *
@@ -96,6 +96,8 @@ export type Site = {
   id: string;
   /** Spelled the way the registry spells it, because a probe is a registered source like any other. */
   vendor: Vendor;
+  /** The method whose positive and negative statuses this site has been checked to preserve. */
+  method: "GET" | "HEAD";
   /** The shapes to follow, as a pattern over a model id: group one is the major, group two the minor. */
   shapes: readonly { family: string; version: RegExp }[];
   /** How the site spells one guess: the slug it would live at. */
@@ -132,6 +134,7 @@ export const PROBE_SITES: readonly Site[] = [
   {
     id: "discovery:docs-openai",
     vendor: "OpenAI",
+    method: "GET",
     // OpenAI names a model and versions it: `gpt-5.6-cyber` beside `gpt-6-astra`. Only the numbers
     // can be guessed, so a few codenames are asked for by name as well.
     shapes: [{ family: "gpt", version: /^gpt-(\d+)(?:\.(\d+))?(?:-[a-z]+)?$/ }],
@@ -149,6 +152,7 @@ export const PROBE_SITES: readonly Site[] = [
   {
     id: "discovery:docs-anthropic",
     vendor: "Anthropic",
+    method: "GET",
     /**
      * Four lines, not three. `claude-fable-5-1` is in Anthropic's own comparison table and
      * "Introducing Claude Fable 5.1 and Claude Mythos 5.1" is a post this tracker has read, so a
@@ -170,6 +174,7 @@ export const PROBE_SITES: readonly Site[] = [
   {
     id: "discovery:docs-google",
     vendor: "Google",
+    method: "HEAD",
     // Google's slug carries the tier: `gemini-3.8-flash`, `gemini-3.1-pro-preview`.
     shapes: [
       { family: "gemini-#-pro", version: /^gemini-(\d+)\.(\d+)-pro$/ },
@@ -184,6 +189,7 @@ export const PROBE_SITES: readonly Site[] = [
   {
     id: "discovery:blog-zai",
     vendor: "Z.ai",
+    method: "GET",
     /**
      * Z.ai writes one post per release and nothing links it. The blog has no index at all --
      * `z.ai/blog` answers 404, `z.ai/sitemap.xml` is 26 addresses of billing console, there is no
@@ -411,16 +417,14 @@ export function heardNames(
 /**
  * Ask an address what it answers, without reading what it answers with.
  *
- * `HEAD` would be the request for this and cannot be used: on 2026-10-02
- * `platform.claude.com/docs/en/models/opus-99/overview` answered HEAD with 200 for a slug it does
- * not have, which would have turned every guess into a sighting. So the request stays a GET and the
- * body is thrown away unread -- three sites at two guesses each were downloading about a megabyte
- * per poll to read one number off the status line.
+ * Google preserved all 26 GET statuses with HEAD on 2026-10-04, including both controls, and sent
+ * no body. Anthropic instead answered HEAD with 200 for a missing slug on 2026-10-02, so it still
+ * needs GET. The method is declared by the site; any body is thrown away unread.
  */
-async function askStatus(url: string, request: Fetch): Promise<number> {
+async function askStatus(url: string, method: Site["method"], request: Fetch): Promise<number> {
   const response = await fetchResponse(
     url,
-    { headers: { accept: "text/markdown,text/html" }, signal: AbortSignal.timeout(20_000) },
+    { method, headers: { accept: "text/markdown,text/html" }, signal: AbortSignal.timeout(20_000) },
     request,
     // No retries. A guess is a question about an address a vendor may not have, and this source is
     // deliberately a handful of requests per poll rather than a crawl; a 5xx asked three times is
@@ -480,11 +484,9 @@ export async function collectDocsProbe(
   /**
    * The guesses swallow a transport failure, because an address that could not be asked is not an
    * address that answered 404. The control cannot swallow it -- a probe that cannot reach the site
-   * has nothing to report -- but it has to say so by its type: `askStatus` calls `request` directly,
-   * so what comes out of it is a bare `Error` and would be filed as "unexpected error" with the one
-   * line explaining the outage replaced by the fact that there was one.
+   * has nothing to report. Its failure has to say so by type, rather than becoming an empty poll.
    */
-  const answered = await askStatus(ask(control), request).catch(() => {
+  const answered = await askStatus(ask(control), site.method, request).catch(() => {
     throw new SourceError("network", `${site.id}: the control address did not answer`);
   });
   if (answered !== 200) throw controlFailure(site, control, answered);
@@ -512,7 +514,7 @@ export async function collectDocsProbe(
   const impossible = site.slug(furthest.family, IMPOSSIBLE_VERSION);
   // Swallowed like a guess: an address that could not be asked has not answered 200 either, and the
   // control above has already established that the site is reachable.
-  const refused = await askStatus(ask(impossible), request).catch(() => null);
+  const refused = await askStatus(ask(impossible), site.method, request).catch(() => null);
   if (refused === 200)
     throw new SourceError(
       "indiscriminate",
@@ -547,14 +549,24 @@ export async function collectDocsProbe(
   candidates.delete(control);
   const records: RecordData[] = [];
   const tried: Asked = { ...asked };
-  for (const slug of [...candidates].sort()) {
-    const status = await askStatus(ask(slug), request).catch(() => null);
-    // A rate limit or a server error is the site failing to answer, not an answer. Recorded, it would
-    // put a heard name out of reach for `COOLOFF_HOURS` on the strength of a moment's trouble.
-    if (status === null || status === 429 || status >= 500) continue;
-    tried[slug] = { status, at: stamp };
-    if (status !== 200) continue;
-    records.push({ id: slug, name: slug, url: site.url(slug), maker: site.vendor, source: "documentation" });
+  const slugs = [...candidates].sort();
+  // Both controls have completed. Four guesses at a time cut Google's poll from 11.6 to 4.2 seconds
+  // without changing its addresses or their answers; process each batch in the original order.
+  for (let offset = 0; offset < slugs.length; offset += 4) {
+    const answers = await Promise.all(
+      slugs.slice(offset, offset + 4).map(async (slug) => ({
+        slug,
+        status: await askStatus(ask(slug), site.method, request).catch(() => null),
+      })),
+    );
+    for (const { slug, status } of answers) {
+      // A rate limit or a server error is the site failing to answer, not an answer. Recorded, it
+      // would put a heard name out of reach for COOLOFF_HOURS on the strength of a moment's trouble.
+      if (status === null || status === 429 || status >= 500) continue;
+      tried[slug] = { status, at: stamp };
+      if (status !== 200) continue;
+      records.push({ id: slug, name: slug, url: site.url(slug), maker: site.vendor, source: "documentation" });
+    }
   }
   tried[control] = { status: answered, at: stamp };
   // Both controls are kept beside the guesses, so a later reader can date the day a site changed

@@ -26,7 +26,7 @@ const hfModels = z
       likes: z.number().int().nonnegative().nullish(),
       downloads: z.number().int().nonnegative().nullish(),
       private: z.boolean().default(false),
-      gated: z.union([z.boolean(), z.string()]).nullish(),
+      gated: z.union([z.boolean(), z.enum(["auto", "manual"])]),
     }),
   )
   .min(1);
@@ -122,7 +122,23 @@ export async function collectHuggingFace(
   request: Fetch = fetch,
   cache?: HttpCache,
 ): Promise<Collection> {
-  const url = `https://huggingface.co/api/models?author=${encodeURIComponent(author)}&sort=createdAt&direction=-1&limit=50`;
+  // The default listing omits gated and lastModified, even with a token. On 2026-10-04 all fifty
+  // Meta Llama models consequently read as public; requesting the fields says every one is gated.
+  const expand = [
+    "author",
+    "createdAt",
+    "pipeline_tag",
+    "library_name",
+    "tags",
+    "lastModified",
+    "likes",
+    "downloads",
+    "private",
+    "gated",
+  ]
+    .map((field) => `expand[]=${field}`)
+    .join("&");
+  const url = `https://huggingface.co/api/models?author=${encodeURIComponent(author)}&sort=createdAt&direction=-1&limit=50&${expand}`;
   const headers = { accept: "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) };
   return parseHuggingFace(await fetchText(url, headers, request, undefined, cache), author);
 }

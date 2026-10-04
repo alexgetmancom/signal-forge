@@ -186,7 +186,7 @@ function discoverySources({ db, config, cache }: SourceContext): SourceEntry[] {
       GITHUB_DISCOVERY_QUERIES.map((query) => ({
         id: `discovery:github-${query.id}`,
         requiredCapabilities: ["GITHUB_TOKEN"],
-        collector: () => collectGithubDiscovery(config, query, fetch, new Date(), cache),
+        collector: () => collectGithubDiscovery(config, query, fetch, new Date()),
       })),
     ),
   );

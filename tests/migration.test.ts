@@ -9,7 +9,7 @@ import {
   splitStatements,
   validateMigrationSequence,
 } from "../src/storage/migrations.js";
-import { anEvent } from "./fixtures/build.js";
+import { anEvent, aRecord, aSnapshot } from "./fixtures/build.js";
 
 test("compressing the cache discards old cache entries and preserves event evidence", () => {
   const db = new Database(":memory:", { strict: true });
@@ -35,6 +35,75 @@ test("compressing the cache discards old cache entries and preserves event evide
   cache.put("https://example.test/page", entry);
   expect(cache.get("https://example.test/page")).toEqual(entry);
   expect(db.query("SELECT typeof(body) kind FROM http_cache").get()).toEqual({ kind: "blob" });
+  db.close();
+});
+
+test("unverified Hugging Face access is forgotten without erasing repositories or their upstream evidence", () => {
+  const db = new Database(":memory:", { strict: true });
+  applyMigrations(
+    db,
+    readMigrations().filter((migration) => migration.version < 80),
+  );
+  const before = { id: "meta-llama/old-model", name: "Old Model", access: "public", created: "2026-09-20T00:00:00Z" };
+  const after = { ...before, likes: 10 };
+  const snapshotId = aSnapshot(db, { source: "huggingface:meta-llama", body: JSON.stringify([{ id: before.id }]) });
+  const event = anEvent(db, {
+    source: "huggingface:meta-llama",
+    stream: "weights",
+    kind: "changed",
+    entityId: before.id,
+    beforeJson: JSON.stringify(before),
+    afterJson: JSON.stringify(after),
+    snapshotId,
+  });
+  const otherEvent = anEvent(db, { source: "other-source", afterJson: JSON.stringify(after) });
+  const gatedEvent = anEvent(db, {
+    source: "huggingface:meta-llama",
+    afterJson: JSON.stringify({ ...after, access: "gated" }),
+  });
+  const untouchedEvents = db.query("SELECT * FROM events WHERE id IN (?,?) ORDER BY id").all(otherEvent, gatedEvent);
+  const snapshot = db.query("SELECT * FROM snapshots WHERE id=?").get(snapshotId);
+  aRecord(db, { source: "huggingface:meta-llama", id: before.id, body: after, stream: "weights" });
+  aRecord(db, {
+    source: "huggingface:meta-llama",
+    id: "verified-gated",
+    body: { id: "verified-gated", access: "gated" },
+    stream: "weights",
+  });
+  aRecord(db, { source: "other-source", id: before.id, body: after, stream: "weights" });
+  db.query(
+    "INSERT INTO model_facts(canonical_id,first_seen_at,updated_at) VALUES(?,'2026-09-20T00:00:00.000Z','2026-09-20T00:00:00.000Z')",
+  ).run(before.id);
+  const insertFact = db.query(
+    "INSERT INTO model_fact_fields(canonical_id,field,value_json,confidence,evidence_type,source,event_id,observed_at) VALUES(?,?,'\"public\"','supported','open_weights',?,?, '2026-09-20T00:00:00.000Z')",
+  );
+  insertFact.run(before.id, "access:huggingface:meta-llama", "huggingface:meta-llama", event);
+  insertFact.run(before.id, "access:other-source", "other-source", otherEvent);
+
+  runMigrations(db);
+
+  const held = db.query<{ body: string }, [string, string]>("SELECT body FROM records WHERE source=? AND id=?");
+  const expected = { id: before.id, name: before.name, created: before.created, likes: 10 };
+  expect(JSON.parse(held.get("huggingface:meta-llama", before.id)?.body ?? "null")).toEqual(expected);
+  expect(JSON.parse(held.get("huggingface:meta-llama", "verified-gated")?.body ?? "null").access).toBe("gated");
+  expect(JSON.parse(held.get("other-source", before.id)?.body ?? "null")).toEqual(after);
+  const repaired = db
+    .query<{ before_json: string; after_json: string; snapshot_id: number }, [number]>(
+      "SELECT before_json,after_json,snapshot_id FROM events WHERE id=?",
+    )
+    .get(event);
+  if (!repaired) throw new Error("The migrated event disappeared");
+  expect(JSON.parse(repaired.before_json)).toEqual({ id: before.id, name: before.name, created: before.created });
+  expect(JSON.parse(repaired.after_json)).toEqual(expected);
+  expect(repaired.snapshot_id).toBe(snapshotId);
+  expect(db.query("SELECT * FROM events WHERE id IN (?,?) ORDER BY id").all(otherEvent, gatedEvent)).toEqual(
+    untouchedEvents,
+  );
+  expect(db.query("SELECT * FROM snapshots WHERE id=?").get(snapshotId)).toEqual(snapshot);
+  expect(db.query("SELECT source,value_json FROM model_fact_fields").all()).toEqual([
+    { source: "other-source", value_json: '"public"' },
+  ]);
+  expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
   db.close();
 });
 
