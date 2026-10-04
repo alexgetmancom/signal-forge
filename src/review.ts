@@ -3,6 +3,9 @@ import type { AppConfig } from "./config.js";
 import { featureEnabled } from "./features.js";
 import type { Fetch } from "./http-client.js";
 import { log } from "./logger.js";
+import { judgeCalibration } from "./reports/judgeCalibration.js";
+import { judgeGap } from "./reports/judgeGap.js";
+import { unknownMakers } from "./reports/unknownMakers.js";
 import { DEEPSEEK_SUMMARY_ENDPOINT, DEEPSEEK_SUMMARY_MODEL } from "./runtime/deepseekLedger.js";
 import { readState, writeState } from "./storage/appState.js";
 
@@ -15,6 +18,13 @@ import { readState, writeState } from "./storage/appState.js";
  * A written paragraph once opened the weekly recap too. It was removed on 2026-09-21: asked to
  * name the week's most important developments it produced the register of a press release, and
  * every fact in it was already a line below it. Nothing a model writes goes to a reader now.
+ *
+ * What it is asked about widened on 2026-10-04 and where it goes did not. It used to see a month of
+ * messages and the items an independent classifier rated highly that no message named, so the only
+ * recommendation it could make was about an item. The three standing measurements go in with them
+ * now -- see `measurements` -- because what is wrong for a whole month is wrong structurally and a
+ * list of cards does not show a rule. It still only proposes, to one reader, in a channel nobody
+ * else is in: the boundary is the one `jev-verdicts` keeps, where a model votes and never vetoes.
  */
 const AUDIT_PREFIX = "audit:";
 const AUDIT_DAYS = 30;
@@ -199,6 +209,57 @@ export async function publishMonthlyAudit(
   return true;
 }
 
+/**
+ * The three standing measurements, for the Recommendations heading.
+ *
+ * Until now the audit saw a month of messages and the items a classifier rated highly that no
+ * message named, so the only recommendation it could make was about an item. Everything in this
+ * repository that is wrong for a month is wrong structurally -- a rule that holds back a whole
+ * stream, a vendor the table cannot place, a classifier nothing downstream listens to -- and none of
+ * that is visible in a list of cards. These are the three reports that already answer those
+ * questions, trimmed to what fits in a prompt and handed over as numbers rather than as prose.
+ *
+ * They are counts of our own rows, not upstream values, and the audit goes to the owner's status
+ * channel and to no reader. Nothing read here is acted on by the service: the model names a
+ * candidate and a person writes the patch, which is the same boundary `jev-verdicts` keeps -- a
+ * model votes and never vetoes.
+ */
+function measurements(db: Database, now: number): string {
+  const gap = judgeGap(db, AUDIT_DAYS, 15, new Date(now));
+  const calibration = judgeCalibration(db, AUDIT_DAYS, now);
+  const makers = unknownMakers(db, AUDIT_DAYS, 12, now);
+  const streams = gap.streams
+    .map((row) => `${row.stream}: judged ${row.judged}, held back ${row.heldBack}, spoke below cutoff ${row.spoke}`)
+    .join("\n");
+  const reasons = gap.reasons.map((row) => `${row.stream} / ${row.reason}: ${row.heldBack}`).join("\n");
+  const bands = calibration.bands
+    .map(
+      (row) =>
+        `worth ${row.from}-${row.to}: ${row.delivered} cards, ${row.voted} voted, ${row.favour} up, ${row.against} down`,
+    )
+    .join("\n");
+  const unplaced = makers.makers
+    .map(
+      (row) =>
+        `${row.handle}: ${row.independentSourceCount} independent sources, ${row.eventCount} events, e.g. ${row.names.slice(0, 2).join(", ")}`,
+    )
+    .join("\n");
+  return [
+    `=== CLASSIFIER AGAINST THE RULES (story cutoff ${gap.cutoffs.story}, commit ${gap.cutoffs.commit}) ===`,
+    "A stream where many events reached a reader below the cutoff is a candidate for a rule that is",
+    "too generous; a rule holding back many highly rated events is a candidate for one too blunt.",
+    streams || "(none)",
+    reasons || "(no held-back events)",
+    `=== CLASSIFIER AGAINST THE READERS (${calibration.unjudgedCards} delivered cards carry no judgement) ===`,
+    "A band whose cards were voted down is noise the classifier rated highly, and the reverse.",
+    bands,
+    "=== MAKERS THE VENDOR TABLE CANNOT PLACE, ranked by independent sources ===",
+    "Their models carry no maker on their cards and join no vendor's story. A handle several",
+    "independent catalogues named is a laboratory; one catalogue naming it is somebody's checkpoint.",
+    unplaced || "(none)",
+  ].join("\n");
+}
+
 async function audit(db: Database, config: AppConfig, request: Fetch, now: number): Promise<string | null> {
   const from = new Date(now - AUDIT_DAYS * 24 * 3_600_000).toISOString();
   const to = new Date(now).toISOString();
@@ -227,10 +288,10 @@ async function audit(db: Database, config: AppConfig, request: Fetch, now: numbe
   const channels = config.destinations
     .map((destination) => `${destination.id}: ${destination.signals.join(", ")}`)
     .join("\n");
-  const data = `CHANNELS AND WHAT THEY CARRY:\n${channels}\n\n=== DELIVERED MESSAGES ===\n${delivered.join("\n").slice(0, 90_000)}\n\n=== NEVER CARRIED, though an independent classifier rated them worth knowing and no message names them ===\n${missed.join("\n").slice(0, 20_000) || "(none)"}`;
+  const data = `MEASUREMENTS OF THE LAST ${AUDIT_DAYS} DAYS:\n${measurements(db, now)}\n\nCHANNELS AND WHAT THEY CARRY:\n${channels}\n\n=== DELIVERED MESSAGES ===\n${delivered.join("\n").slice(0, 90_000)}\n\n=== NEVER CARRIED, though an independent classifier rated them worth knowing and no message names them ===\n${missed.join("\n").slice(0, 20_000) || "(none)"}`;
   return ask(
     config,
-    "You audit an AI-news tracker whose principle is fewer messages, higher quality, no spam. The same model or story is often told by several sources; one message about it is enough, and it is not a miss when another message covered it. Report in English as short bullet lists under these headings: **Missed**, **Noise**, **Duplicates**, **Recommendations** (at most five, concrete). Cite dates and titles from the data; do not invent. If a heading has nothing, write 'nothing found'.",
+    "You audit an AI-news tracker whose principle is fewer messages, higher quality, no spam. The same model or story is often told by several sources; one message about it is enough, and it is not a miss when another message covered it. Report in English as short bullet lists under these headings: **Missed**, **Noise**, **Duplicates**, **Recommendations** (at most five, concrete). A recommendation may name a routing rule, a stream or a maker handle from the MEASUREMENTS block as well as a message, and the best ones say which number would move. Cite dates, titles and counts from the data; do not invent. If a heading has nothing, write 'nothing found'.",
     data,
     3_000,
     request,

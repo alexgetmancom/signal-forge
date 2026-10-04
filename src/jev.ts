@@ -154,6 +154,31 @@ export function worthCutoff(db: Database, share: number, fallback: number, now =
   return worths[Math.min(worths.length - 1, Math.floor((1 - share) * worths.length))] ?? fallback;
 }
 
+/**
+ * The shares those numbers admitted when they were chosen, and the numbers themselves for a database
+ * too young to have a distribution. Over the 1046 judgements they were calibrated against, 1.6 let
+ * through the top 22% of commits and 2 the top 4.5% of stories.
+ */
+export const COMMIT_WORTH = 1.6;
+export const STORY_WORTH = 2;
+const COMMIT_SHARE = 0.22;
+const STORY_SHARE = 0.045;
+
+/**
+ * Today's cutoffs, read once per pass rather than per candidate.
+ *
+ * Beside `worthCutoff` rather than in `insights.ts`, where it was until 2026-10-04: a threshold on
+ * this scale is a property of the scale, and the reports that measure the scale -- `judge-gap`,
+ * `judge-calibration` -- have to read it without reaching through the recap that acts on it. Taking
+ * the long way round made the monthly audit's new evidence a circular import.
+ */
+export function worthCutoffs(db: Database, now = new Date()): { commit: number; story: number } {
+  return {
+    commit: worthCutoff(db, COMMIT_SHARE, COMMIT_WORTH, now),
+    story: worthCutoff(db, STORY_SHARE, STORY_WORTH, now),
+  };
+}
+
 /** One call. Null on any failure: a judgement is an addition, and its absence changes nothing. */
 async function askJev(
   db: Database,

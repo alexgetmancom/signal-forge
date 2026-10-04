@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
-import { worthCutoffs } from "../insights.js";
-import { PROMPT_VERSION } from "../jev.js";
+
+import { PROMPT_VERSION, worthCutoffs } from "../jev.js";
 
 /**
  * Whether a reader agrees with Jev, by the only ground truth there is: the thumbs.

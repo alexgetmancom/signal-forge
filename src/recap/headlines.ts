@@ -1,7 +1,7 @@
 import type { Event } from "../events/types.js";
 import { vendorOf } from "../events/vendors.js";
-import { isNewsworthyStory, worthCutoffs } from "../insights.js";
-import { judgementOf } from "../jev.js";
+import { isNewsworthyStory } from "../insights.js";
+import { judgementOf, worthCutoffs } from "../jev.js";
 import { nameOf, type PeriodReading, recordOf } from "./reading.js";
 import type { RecapContext } from "./schema.js";
 

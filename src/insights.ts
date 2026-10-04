@@ -3,7 +3,15 @@ import type { AppConfig } from "./config.js";
 import { signalOf } from "./events/classify.js";
 import type { Event } from "./events/types.js";
 import type { Fetch } from "./http-client.js";
-import { type Judgement, judgeEvents, judgementOf, worthCutoff } from "./jev.js";
+import {
+  COMMIT_WORTH,
+  type Judgement,
+  judgeEvents,
+  judgementOf,
+  STORY_WORTH,
+  worthCutoff,
+  worthCutoffs,
+} from "./jev.js";
 import { votedDeliveries } from "./reports/readerVotes.js";
 import { publishMonthlyAudit, publishWeeklyVotes } from "./review.js";
 import { olderThanKnown } from "./sources/mentionStage.js";
@@ -38,24 +46,6 @@ export function isNewsworthyStory(judgement: Judgement | null, cutoff = STORY_WO
   return (
     ["new_model", "model_update", "feature", "safety", "research"].includes(judgement.kind) && judgement.worth >= cutoff
   );
-}
-
-/**
- * The shares those numbers admitted when they were chosen, and the numbers themselves for a database
- * too young to have a distribution. Over the 1046 judgements they were calibrated against, 1.6 let
- * through the top 22% of commits and 2 the top 4.5% of stories.
- */
-const COMMIT_WORTH = 1.6;
-const STORY_WORTH = 2;
-const COMMIT_SHARE = 0.22;
-const STORY_SHARE = 0.045;
-
-/** Today's cutoffs, read once per pass rather than per candidate. */
-export function worthCutoffs(db: Database, now = new Date()): { commit: number; story: number } {
-  return {
-    commit: worthCutoff(db, COMMIT_SHARE, COMMIT_WORTH, now),
-    story: worthCutoff(db, STORY_SHARE, STORY_WORTH, now),
-  };
 }
 
 const COMMIT_GUIDANCE =

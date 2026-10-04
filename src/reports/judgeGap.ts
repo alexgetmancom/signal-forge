@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
-import { worthCutoffs } from "../insights.js";
-import { PROMPT_VERSION } from "../jev.js";
+
+import { PROMPT_VERSION, worthCutoffs } from "../jev.js";
 
 /**
  * Where Jev and the routing rules disagree, with the rule that decided each case.
