@@ -20,6 +20,17 @@ import type { Vendor } from "./vendors.js";
 
 const summary = z.object({
   status: z.object({ description: z.string().min(1), indicator: z.string().min(1) }),
+  components: z
+    .array(
+      z.object({
+        id: z.string().min(1),
+        name: z.string().min(1),
+        status: z.string().min(1),
+        group: z.boolean().default(false),
+        group_id: z.string().nullish(),
+      }),
+    )
+    .default([]),
   incidents: z
     .array(
       z.object({
@@ -45,13 +56,34 @@ const summary = z.object({
  * the registry only allows the spellings in src/sources/vendors.ts. It is also printed into an
  * incident's title, which is why one field serves both.
  */
-export const PLATFORMS: { id: string; name: Vendor; url: string; page: string; interval: number }[] = [
+/**
+ * The components a reader of this board is actually on a plan for, by Statuspage's stable id rather
+ * than by name, because a page renames a component without telling anybody and a name match would
+ * then silently watch nothing. A vendor-wide headline says nothing about which of these is down:
+ * OpenAI's "Partial System Degradation" has meant Images alone, and `Claude Code` was operational
+ * through an incident on `claude.ai`.
+ */
+export const PLATFORMS: {
+  id: string;
+  name: Vendor;
+  url: string;
+  page: string;
+  interval: number;
+  watch: string[];
+}[] = [
   {
     id: "openai",
     name: "OpenAI",
     url: "https://status.openai.com/api/v2/summary.json",
     page: "https://status.openai.com",
     interval: 300,
+    // Codex Web, Codex API and the CLI have their own components, but only in
+    // `/api/v2/components.json`: the summary omits them. This is the part of Codex the summary has.
+    watch: [
+      "01KMKFAMWKQ81YWSE1Z18R6VHR", // Codex in ChatGPT Desktop
+      "01JP8CD9JR3HR6Y7G4Q75N4DVW", // Responses
+      "01JMXBRMFE6N2NNT7DG6XZQ6PW", // Chat Completions
+    ],
   },
   // `status.claude.com` answers every client with a CloudFront 405 challenge since 2026-09-17 01:30
   // UTC, from production and from elsewhere alike. The Statuspage origin behind it serves the same
@@ -62,6 +94,11 @@ export const PLATFORMS: { id: string; name: Vendor; url: string; page: string; i
     url: "https://anthropic.statuspage.io/api/v2/summary.json",
     page: "https://status.claude.com",
     interval: 900,
+    watch: [
+      "yyzkbfz2thpt", // Claude Code
+      "k8w3r06qmzrp", // Claude API (api.anthropic.com)
+      "rwppv331jlwc", // claude.ai
+    ],
   },
   // DeepSeek's public page is custom-hosted, but its machine-readable Statuspage summary remains
   // available on the original host. The payload links back to the official public page.
@@ -71,6 +108,7 @@ export const PLATFORMS: { id: string; name: Vendor; url: string; page: string; i
     url: "https://deepseek.statuspage.io/api/v2/summary.json",
     page: "https://status.deepseek.com",
     interval: 900,
+    watch: ["j4n367d9mh3x"], // API Service
   },
   {
     id: "moonshot",
@@ -78,16 +116,43 @@ export const PLATFORMS: { id: string; name: Vendor; url: string; page: string; i
     url: "https://status.moonshot.cn/api/v2/summary.json",
     page: "https://status.moonshot.cn",
     interval: 900,
+    // Moonshot publishes no component named for Kimi's coding plan; these are the API behind it.
+    watch: [
+      "rf64wcbxt3r2", // API Service
+      "8psr5dfdld0s", // Open API
+      "x0zsqgy57b75", // Model
+    ],
   },
 ];
 
 export function parsePlatformStatus(payload: string, platform: (typeof PLATFORMS)[number]): Collection {
   const data = summary.parse(JSON.parse(payload));
+  const groups = new Map(data.components.filter((c) => c.group).map((c) => [c.id, c.name]));
+  // Ordered by the registry rather than by the page, so a component moving in their document does
+  // not reorder the board, and so a watched id the page has dropped is absent instead of unknown.
+  const watched = platform.watch.flatMap((id) => {
+    const component = data.components.find((candidate) => candidate.id === id);
+    return component
+      ? [
+          {
+            id: component.id,
+            name: component.name,
+            status: component.status,
+            group: component.group_id ? (groups.get(component.group_id) ?? null) : null,
+          },
+        ]
+      : [];
+  });
   return {
     source: `status:${platform.id}`,
     stream: "incidents",
     url: platform.page,
-    raw: { headline: data.status.description, indicator: data.status.indicator, incidents: data.incidents },
+    raw: {
+      headline: data.status.description,
+      indicator: data.status.indicator,
+      components: watched,
+      incidents: data.incidents,
+    },
     // A resolved incident can leave the summary. Two successful omissions turn it into an explicit
     // resolved change, keeping the incident evidence without treating recovery as deletion.
     trackChanges: true,

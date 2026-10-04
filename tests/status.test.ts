@@ -461,8 +461,15 @@ test("an interrupted alert advances the durable state before a changed next cycl
   db.close();
 });
 
+/** A platform read a moment ago, which is what makes its stored observation speak for the present. */
+function observed(db: ReturnType<typeof openDatabase>, id: string, payload: unknown, at = now): void {
+  storeSnapshot(db, id, new Date(at).toISOString(), JSON.stringify(payload));
+  aSource(db, id, { lastSuccess: new Date(at).toISOString(), checkedAt: new Date(at).toISOString() });
+}
+
 test("the platform board reads the stored observation and names the open incidents", () => {
   const db = openDatabase(":memory:");
+  aSource(db, "status:openai", { lastSuccess: "2026-09-08T12:00:00.000Z" });
   storeSnapshot(
     db,
     "status:openai",
@@ -488,13 +495,7 @@ test("the platform board uses the highest indicator severity", () => {
     ["status:openai", "minor"],
     ["status:anthropic", "critical"],
   ];
-  for (const [source, indicator] of statuses)
-    storeSnapshot(
-      db,
-      source,
-      "2026-09-08T12:00:00.000Z",
-      JSON.stringify({ headline: indicator, indicator, incidents: [] }),
-    );
+  for (const [source, indicator] of statuses) observed(db, source, { headline: indicator, indicator, incidents: [] });
   expect((platformEmbed(db, now) as { color: number }).color).toBe(0xe74c3c);
   db.close();
 });
@@ -529,17 +530,94 @@ test("the platform registry includes the readable DeepSeek and Moonshot status f
 test("the platform board renders DeepSeek and Moonshot observations", () => {
   const db = openDatabase(":memory:");
   for (const source of ["status:deepseek", "status:moonshot"])
-    storeSnapshot(
-      db,
-      source,
-      "2026-09-08T12:00:00.000Z",
-      JSON.stringify({ headline: "All Systems Operational", indicator: "none", incidents: [] }),
-    );
+    observed(db, source, { headline: "All Systems Operational", indicator: "none", incidents: [] });
   const embed = platformEmbed(db, now) as { description: string };
   expect(embed.description).toContain("🟢 **DeepSeek** — All Systems Operational");
   expect(embed.description).toContain("🟢 **Moonshot** — All Systems Operational");
   db.close();
 });
+test("a stored platform observation stops speaking for the present once the page stops being read", () => {
+  const db = openDatabase(":memory:");
+  const platform = PLATFORMS[0] as (typeof PLATFORMS)[number];
+  const green = { headline: "All Systems Operational", indicator: "none", incidents: [] };
+  // The snapshot never changes, because identical successful polls reuse one. Only the source row
+  // moves, and it is the source row that decides whether the observation is still current.
+  observed(db, "status:openai", green, now - platform.interval * 1000);
+  expect((platformEmbed(db, now) as { description: string }).description).toContain(
+    "🟢 **OpenAI** — All Systems Operational",
+  );
+  aSource(db, "status:openai", {
+    lastSuccess: new Date(now - platform.interval * 4000).toISOString(),
+    checkedAt: new Date(now).toISOString(),
+    lastError: "Source returned HTTP 503",
+  });
+  const stale = platformEmbed(db, now) as { description: string; color: number };
+  // Not green, and it says when the page was last read rather than repeating what it then said.
+  expect(stale.description).toContain("⚪ **OpenAI** — unknown, page not read since 20m ago");
+  expect(stale.description).not.toContain("All Systems Operational");
+  expect(stale.color).not.toBe(0x2ecc71);
+  db.close();
+});
+
+test("the platform board names the watched components, and an unfamiliar component state stays unknown", () => {
+  const db = openDatabase(":memory:");
+  observed(db, "status:anthropic", {
+    headline: "Partial System Degradation",
+    indicator: "minor",
+    components: [
+      { name: "Claude Code", status: "major_outage", group: null },
+      { name: "Claude API (api.anthropic.com)", status: "operational", group: null },
+      { name: "API Service", status: "chartreuse", group: "Kimi" },
+    ],
+    incidents: [],
+  });
+  const embed = platformEmbed(db, now) as { description: string };
+  expect(embed.description).toContain("🔴 Claude Code");
+  expect(embed.description).toContain("🟢 Claude API (api.anthropic.com)");
+  // A state this board does not know is not a healthy one: it is shown as itself, uncoloured.
+  expect(embed.description).toContain("⚪ Kimi / API Service — chartreuse");
+  db.close();
+});
+
+test("the watched components are kept in the snapshot, by id and in the registry's order", () => {
+  const platform = PLATFORMS[1] as (typeof PLATFORMS)[number];
+  const parsed = parsePlatformStatus(
+    JSON.stringify({
+      status: { description: "All Systems Operational", indicator: "none" },
+      components: [
+        { id: "k8w3r06qmzrp", name: "Claude API (api.anthropic.com)", status: "operational" },
+        { id: "yyzkbfz2thpt", name: "Claude Code", status: "degraded_performance" },
+        { id: "0scnb50nvy53", name: "Claude for Government", status: "operational" },
+      ],
+      incidents: [],
+    }),
+    platform,
+  );
+  const raw = parsed.raw as { components: { id: string; name: string; status: string; group: string | null }[] };
+  // Watched ones only, in the registry's order rather than the page's, and nothing else.
+  expect(raw.components).toEqual([
+    { id: "yyzkbfz2thpt", name: "Claude Code", status: "degraded_performance", group: null },
+    { id: "k8w3r06qmzrp", name: "Claude API (api.anthropic.com)", status: "operational", group: null },
+  ]);
+  // A watched component the page has dropped is absent, not an unknown-state row.
+  expect(raw.components.some((component) => component.id === "rwppv331jlwc")).toBe(false);
+});
+
+test("a watched component keeps the name of the group it is in", () => {
+  const parsed = parsePlatformStatus(
+    JSON.stringify({
+      status: { description: "All Systems Operational", indicator: "none" },
+      components: [
+        { id: "01l1n50g13g6", name: "Kimi", status: "operational", group: true },
+        { id: "rf64wcbxt3r2", name: "API Service", status: "operational", group_id: "01l1n50g13g6" },
+      ],
+      incidents: [],
+    }),
+    PLATFORMS[3] as (typeof PLATFORMS)[number],
+  );
+  expect((parsed.raw as { components: { group: string | null }[] }).components[0]?.group).toBe("Kimi");
+});
+
 test("an incident becomes an event, and its resolution is a change rather than a deletion", () => {
   const open = {
     status: { description: "Partial System Degradation", indicator: "major" },
