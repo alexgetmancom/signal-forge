@@ -126,6 +126,7 @@ test("a model answering in a repository under a name we can resolve is not a sig
       { id: "anthropic/claude-haiku-4.5", name: "Anthropic: Claude Haiku 4.5" },
       { id: "openai/gpt-6-sol", name: "OpenAI: GPT-6 Sol" },
       { id: "openai/gpt-6-astra", name: "OpenAI: GPT-6 Astra" },
+      { id: "anthropic/claude-opus-5.5", name: "Anthropic: Claude Opus 5.5" },
     ],
   };
   saveCollection(db, catalogue, [wire], "2026-09-25T00:00:00.000Z");
@@ -158,6 +159,11 @@ test("a model answering in a repository under a name we can resolve is not a sig
     served("claude-gpt-6-astra"),
     // A name that resolves to nothing we carry is still the earliest word there is.
     served("minimax-m3.1"),
+    // The cloud a released model is hosted on, not a model: a litellm bug report named
+    // `claude-opus-5-5-vertex` on 2026-10-04 and the radar carded it as a model no catalogue
+    // listed, thirteen days after Claude Opus 5.5 shipped.
+    served("claude-opus-5-5-vertex"),
+    served("claude-opus-5-5-bedrock"),
   );
   saveCollection(db, talk, [wire], "2026-09-25T02:00:00.000Z");
   prepareDeliveries(db, Date.parse("2026-09-25T03:00:00.000Z"));
@@ -167,6 +173,8 @@ test("a model answering in a repository under a name we can resolve is not a sig
   expect(reasons["gpt-6-sol-medium-fast:served"]).toBe("another_serving_of_a_known_model");
   expect(reasons["claude-gpt-6-astra:served"]).toBe("another_serving_of_a_known_model");
   expect(reasons["gpt-6.0-sol:served"]).toBe("another_serving_of_a_known_model");
+  expect(reasons["claude-opus-5-5-vertex:served"]).toBe("another_serving_of_a_known_model");
+  expect(reasons["claude-opus-5-5-bedrock:served"]).toBe("another_serving_of_a_known_model");
   expect(reasons["minimax-m3.1:served"]).toBeUndefined();
   db.close();
 });

@@ -54,6 +54,15 @@ const SERVING_WORDS = new Set([
   // model the channel had already been told about four days earlier.
   "agent",
   "webdev",
+  // Where a model is hosted, not which model it is. `claude-opus-5-5-vertex` reached the radar on
+  // 2026-10-04 as a model no catalogue listed, thirteen days after Claude Opus 5.5 was released:
+  // `gateway`, `proxy` and `direct` were read as wiring and the clouds that actually serve these
+  // models were not, so every one of them named a stranger.
+  "vertex",
+  "bedrock",
+  "azure",
+  "sagemaker",
+  "foundry",
 ]);
 
 /** A number straight after the model's name is its version: `grok 4` + `6` is Grok 4.6, not a wiring of Grok 4. */

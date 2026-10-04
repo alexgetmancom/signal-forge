@@ -53,6 +53,37 @@ function setup() {
   return { db, add, board, gateway };
 }
 
+test("OpenRouter's catalogue and its usage board are one organisation, not two", () => {
+  const db = openDatabase(":memory:");
+  db.exec("INSERT INTO snapshots(id,source,collected_at) VALUES(1,'x','2026-10-01T00:00:00.000Z')");
+  db.exec(
+    `INSERT INTO stories(id,stable_key,title,normalized_subject,vendor,first_seen_at,updated_at)
+     VALUES(1,'unbiased:pareto-26.10-preview','unbiased/pareto-26.10-preview-20260929',
+            'unbiased pareto 26 10 preview 20260929','Unknown',
+            '2026-10-01T14:11:59.972Z','2026-10-04T04:20:31.266Z')`,
+  );
+  const add = (source: string, stream: string, at: string) => {
+    const id =
+      db
+        .query<{ id: number }, [string, string, string]>(
+          `INSERT INTO events(source,stream,entity_id,kind,after_json,detected_at,snapshot_id,authority)
+           VALUES(?,?,'unbiased/pareto-26.10-preview-20260929','new','{"name":"unbiased/pareto-26.10-preview-20260929"}',?,1,'third_party')
+           RETURNING id`,
+        )
+        .get(source, stream, at)?.id ?? 0;
+    db.query("INSERT INTO story_events(story_id,event_id) VALUES(1,?)").run(id);
+  };
+  add("openrouter", "openrouter", "2026-10-01T14:11:59.972Z");
+  add("models-dev", "api-models", "2026-10-01T14:38:27.626Z");
+  add("openrouter-usage", "leaderboards", "2026-10-04T04:20:31.266Z");
+
+  // Three source ids, two organisations. The board arriving three days later is OpenRouter
+  // repeating itself, and it carded this model and apodex/apodex-1.1-mini on 2026-10-04.
+  expect(detectCorroborated(db, [scouts], Date.parse("2026-10-04T04:24:51.449Z"))).toEqual([]);
+  expect(corroborationOf(db, 1)).toBeNull();
+  db.close();
+});
+
 test("two unrelated sources are not enough: the threshold is three", () => {
   const { db } = setup();
   expect(detectCorroborated(db, [scouts], now)).toEqual([]);

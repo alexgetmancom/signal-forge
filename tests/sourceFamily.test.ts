@@ -17,6 +17,9 @@ test("source families collapse discovery queries but preserve independent surfac
   expect(sourceFamily("anthropic-news", "news")).toBe("official-news:anthropic-news");
   expect(sourceFamily("anthropic-deprecations", "deprecations")).toBe("deprecations:anthropic-deprecations");
   expect(sourceFamily("status:openai", "incidents")).toBe("status:openai");
+  // One company's catalogue and its usage board, collapsed like arena's two surfaces above.
+  expect(sourceFamily("openrouter", "openrouter")).toBe("openrouter");
+  expect(sourceFamily("openrouter-usage", "leaderboards")).toBe("openrouter");
   expect(sourceFamily("new-surface")).toBe("new-surface");
 });
 

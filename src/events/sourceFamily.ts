@@ -16,7 +16,10 @@ export function sourceFamily(source: string, stream = ""): string {
   if (source.startsWith("npm:")) return "npm";
   if (source.startsWith("pypi:")) return "pypi";
   if (source === "arena" || source === "arena-leaderboards") return "arena";
-  if (source === "openrouter") return "openrouter";
+  // The catalogue and the usage board are two surfaces of one company, exactly as arena's two are
+  // above. Counted apart they made `unbiased/pareto-26.10-preview` and `apodex/apodex-1.1-mini`
+  // cross the corroboration threshold on 2026-10-04 with one organisation behind all three voices.
+  if (source === "openrouter" || source === "openrouter-usage") return "openrouter";
   if (stream === "api-models") return `provider-api:${source}`;
   if (stream === "news") return `official-news:${source}`;
   if (stream === "deprecations") return `deprecations:${source}`;
