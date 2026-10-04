@@ -108,3 +108,29 @@ export function freshUntil(cacheControl: string | null, now = Date.now()): numbe
   const maxAge = Number(cacheControl.match(/\bmax-age=(\d+)/i)?.[1] ?? 0);
   return maxAge > 0 ? now + Math.min(maxAge, 30 * 24 * 3600) * 1000 : 0;
 }
+
+/**
+ * URLs that more than one source reads, and how long one body may stand in for the next ask.
+ *
+ * `anthropic.com/news` is the whole list. `anthropic-news` reads the posts out of it and
+ * `anthropic-routes` reads the route list out of the same 425 KB document -- one URL declared as two
+ * sources, because the two answers go to different streams and different readers. The page sends no
+ * ETag, no Last-Modified and `no-store`, so nothing above can save the second download: there is no
+ * validator to ask with and no freshness to trust. What makes the reuse safe is not the server's
+ * word but ours -- the two sources are asked on the same interval, and this window is shorter than
+ * it, so exactly one of the pair fetches per round and neither is reading a body older than one of
+ * their own cycles.
+ *
+ * Measured 2026-10-04: 288 fetches a day for routes and 96 for news, 425 KB each, 163 MB of the
+ * same document. This leaves the 288.
+ */
+const SHARED_BODIES_MS: Record<string, number> = { "https://www.anthropic.com/news": 240_000 };
+
+/**
+ * How long this response may be reused: whichever is longer of what the server allows and what a
+ * shared URL is deliberately given above.
+ */
+export function reusableUntil(url: string, cacheControl: string | null, now = Date.now()): number {
+  const shared = SHARED_BODIES_MS[url];
+  return Math.max(freshUntil(cacheControl, now), shared ? now + shared : 0);
+}

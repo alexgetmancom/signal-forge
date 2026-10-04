@@ -31,6 +31,7 @@ import {
 import { parseCohereChangelog } from "../src/sources/modelDocs.js";
 import {
   collectAnthropicNews,
+  collectAnthropicRoutes,
   collectClaudeBlog,
   parseAnthropicNews,
   parseClaudeBlog,
@@ -57,7 +58,7 @@ import {
   parseXaiReleaseNotes,
 } from "../src/sources/releaseNotes.js";
 import { openDatabase } from "../src/storage/database.js";
-import { freshUntil, HttpCache } from "../src/storage/httpCache.js";
+import { freshUntil, HttpCache, reusableUntil } from "../src/storage/httpCache.js";
 import { aRecord, aSource } from "./fixtures/build.js";
 
 test("Arena accepts models without internal name but requires valid public fields", () => {
@@ -1212,21 +1213,54 @@ test("Hugging Face listing is append-only and keeps access and origin", async ()
   expect(() => parseHuggingFace("{}", "openai")).toThrow();
 });
 
-test("Hugging Face uses its account allowance when a token is configured", async () => {
+test("Hugging Face explicitly asks for access and modification metadata with its account allowance", async () => {
   const authorizations: (string | null)[] = [];
-  const request = async (_url: string | URL | Request, init?: RequestInit) => {
+  const request = async (url: string, init?: RequestInit) => {
+    const query = new URL(url).searchParams;
+    expect(query.get("author")).toBe("meta-llama");
+    expect(query.get("sort")).toBe("createdAt");
+    expect(query.get("direction")).toBe("-1");
+    expect(query.get("limit")).toBe("50");
+    expect(query.getAll("expand[]").sort()).toEqual(
+      [
+        "author",
+        "createdAt",
+        "pipeline_tag",
+        "library_name",
+        "tags",
+        "lastModified",
+        "likes",
+        "downloads",
+        "private",
+        "gated",
+      ].sort(),
+    );
     authorizations.push(new Headers(init?.headers).get("authorization"));
     return Response.json([
       {
-        id: "openai/test-model",
-        author: "openai",
+        id: "meta-llama/Llama-Prompt-Guard-2-86M",
+        author: "meta-llama",
         createdAt: "2026-09-10T00:00:00.000Z",
+        lastModified: "2026-09-11T00:00:00.000Z",
         private: false,
+        gated: "manual",
       },
     ]);
   };
-  await collectHuggingFace("openai", "test-token", request);
+  const collection = await collectHuggingFace("meta-llama", "test-token", request);
+  expect(collection.records[0]).toMatchObject({
+    access: "gated",
+    modified: "2026-09-11T00:00:00.000Z",
+    maker: "meta-llama",
+  });
   expect(authorizations).toEqual(["Bearer test-token"]);
+});
+
+test("Hugging Face cannot label a model public when its listing omitted access metadata", () => {
+  const model = { id: "meta-llama/Llama-Guard-4-12B", createdAt: "2026-09-10T00:00:00.000Z", private: false };
+  for (const gated of [undefined, null, "false"]) {
+    expect(() => parseHuggingFace(JSON.stringify([{ ...model, gated }]), "meta-llama")).toThrow();
+  }
 });
 
 test("npm is tracked per channel, so a nightly does not become an event per version", async () => {
@@ -1934,6 +1968,7 @@ test("a private Hugging Face repository is not recorded, let alone as public", (
     createdAt: "2026-04-24T00:00:00.000Z",
     tags: [],
     private: isPrivate,
+    gated: false,
   });
   const parsed = parseHuggingFace(
     JSON.stringify([model("deepseek-ai/Open", false), model("deepseek-ai/Hidden", true)]),
@@ -1961,4 +1996,32 @@ test("preview tells as a stage and not as a verb", () => {
   expect(tellingWebString("Opus 5 is in research preview")).toBe(true);
   expect(tellingWebString("Cowork (preview)")).toBe(true);
   expect(tellingWebString("Claude Opus 6")).toBe(true);
+});
+
+test("Anthropic's news page is downloaded once for the two sources that read it", async () => {
+  const db = openDatabase(":memory:");
+  const cache = new HttpCache(db);
+  const html = `<ul><li><a href="/news/one" class="item"><div><time class="date">Sep 16, 2026</time><span class="subject">Product</span></div><span class="title">One</span></a></li></ul>\\"slug\\",\\"news\\"\\"/claude-opus-5-5\\"`;
+  let downloads = 0;
+  const request = (async () => {
+    downloads += 1;
+    // The page as it actually answers: no validator to ask with and no freshness to trust.
+    return new Response(html, { headers: { "cache-control": "private, no-cache, no-store, max-age=0" } });
+  }) as unknown as typeof fetch;
+  const news = await collectAnthropicNews(request, new Date("2026-09-17T00:00:00Z"), cache);
+  const routes = await collectAnthropicRoutes(request, cache);
+  expect(downloads).toBe(1);
+  expect(news.records).toHaveLength(1);
+  expect(routes.records.map((record) => record.id)).toEqual(["claude-opus-5-5"]);
+});
+
+test("a shared body is reused for less than the interval of the sources that share it", () => {
+  const now = Date.parse("2026-10-04T00:00:00Z");
+  const window = reusableUntil("https://www.anthropic.com/news", "private, no-store", now) - now;
+  expect(window).toBeGreaterThan(0);
+  // Shorter than the five minutes both sources are asked on, or a round would reuse instead of ask.
+  expect(window).toBeLessThan(300_000);
+  // Every other URL keeps the server's word, which for a page being watched means revalidate.
+  expect(reusableUntil("https://example.test/page", "public, max-age=600", now)).toBe(0);
+  expect(reusableUntil("https://example.test/asset", "max-age=600, immutable", now)).toBe(now + 600_000);
 });

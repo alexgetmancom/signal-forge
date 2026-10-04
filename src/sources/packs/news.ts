@@ -131,7 +131,15 @@ function newsroomSources({ cache }: SourceContext): SourceEntry[] {
     // +45 MB of permanent high-water on the first read of its 1,230 items; see `heavy` in
     // src/poller.ts. Measured 2026-09-27.
     { id: "openai-news", vendor: "OpenAI", heavy: true, collector: () => collectOpenAINews() },
-    { id: "anthropic-news", vendor: "Anthropic", collector: () => collectAnthropicNews() },
+    // Five minutes rather than the newsroom's quarter hour, and it costs nothing: this page is the
+    // one `anthropic-routes` reads below, on the same five minutes, and `SHARED_BODIES_MS` lets the
+    // second of the pair read the body the first fetched. One document per round for both answers.
+    {
+      id: "anthropic-news",
+      vendor: "Anthropic",
+      intervalSeconds: 300,
+      collector: () => collectAnthropicNews(fetch, new Date(), cache),
+    },
     { id: "claude-blog", vendor: "Anthropic", collector: () => collectClaudeBlog(fetch, new Date(), cache) },
     // Not a newsroom and nobody's first party: other people writing about the labs, which is worth
     // the group it sits in and worth asking half as often.
@@ -333,9 +341,9 @@ function labPageSources({ cache }: SourceContext): SourceEntry[] {
     {
       id: "anthropic-routes",
       vendor: "Anthropic",
-      // The Opus 5.5 slug was listed for hours, not days; the newsroom's quarter hour could miss it.
+      // The Opus 5.5 slug was listed for hours, not days; a quarter hour could miss it.
       intervalSeconds: 300,
-      collector: () => collectAnthropicRoutes(),
+      collector: () => collectAnthropicRoutes(fetch, cache),
     },
     {
       id: "qwen-blog",

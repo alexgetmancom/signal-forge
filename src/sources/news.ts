@@ -129,8 +129,15 @@ function freshNewsroom(collection: Collection, now: Date): Collection {
   return collection;
 }
 
-export async function collectAnthropicNews(request: Fetch = fetch, now = new Date()): Promise<Collection> {
-  return freshNewsroom(parseAnthropicNews(await fetchText("https://www.anthropic.com/news", {}, request)), now);
+export async function collectAnthropicNews(
+  request: Fetch = fetch,
+  now = new Date(),
+  cache?: HttpCache,
+): Promise<Collection> {
+  return freshNewsroom(
+    parseAnthropicNews(await fetchText("https://www.anthropic.com/news", {}, request, undefined, cache)),
+    now,
+  );
 }
 
 /**
@@ -156,8 +163,8 @@ export function parseAnthropicRoutes(html: string): Collection {
   };
 }
 
-export async function collectAnthropicRoutes(request: Fetch = fetch): Promise<Collection> {
-  return parseAnthropicRoutes(await fetchText("https://www.anthropic.com/news", {}, request));
+export async function collectAnthropicRoutes(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
+  return parseAnthropicRoutes(await fetchText("https://www.anthropic.com/news", {}, request, undefined, cache));
 }
 
 const claudeBlogLink = /<a\b([^>]*\bdata-cta="Blog page"[^>]*)>/g;

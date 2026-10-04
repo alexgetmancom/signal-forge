@@ -3,7 +3,7 @@ import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { safeErrorType } from "../runtime/deepseekLedger.js";
 import { countBody, countNotModified, countRequest } from "../runtime/traffic.js";
-import { type CacheEntry, freshUntil, type HttpCache } from "../storage/httpCache.js";
+import { type CacheEntry, type HttpCache, reusableUntil } from "../storage/httpCache.js";
 
 /**
  * Not exported any more, which is the point of it. Three collectors imported it to put on a request
@@ -262,21 +262,21 @@ export async function fetchText(
   if (response.status === 304 && cached) {
     countNotModified();
     await response.body?.cancel();
-    cache?.touch(url, freshUntil(response.headers.get("cache-control")));
+    cache?.touch(url, reusableUntil(url, response.headers.get("cache-control")));
     return cached.body;
   }
   await requireOk(response);
   const text = (await readResponseBytes(response)).toString("utf8");
   const etag = response.headers.get("etag");
   const lastModified = response.headers.get("last-modified");
-  const reusableUntil = freshUntil(response.headers.get("cache-control"));
+  const reuseUntil = reusableUntil(url, response.headers.get("cache-control"));
   // A body worth storing is one we can ask about later. Without a validator the next observation
   // downloads it again regardless, so keeping a copy would be weight with no saving.
   //
   // `learn.chatgpt.com` is the case in point: it returns no validator on GET, and its ETag on HEAD
   // comes and goes with the edge cache. A HEAD probe was implemented, measured (298 requests
   // instead of 149, no 304s) and removed.
-  if (cache && !send && (etag || lastModified || reusableUntil > 0))
-    cache.put(url, { etag, lastModified, freshUntil: reusableUntil, body: text });
+  if (cache && !send && (etag || lastModified || reuseUntil > 0))
+    cache.put(url, { etag, lastModified, freshUntil: reuseUntil, body: text });
   return text;
 }
