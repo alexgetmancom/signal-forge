@@ -8,6 +8,7 @@ import { evidenceOperations } from "./operations/evidence.js";
 import { featureOperations } from "./operations/features.js";
 import { healthOperations } from "./operations/health.js";
 import { hostOperations } from "./operations/host.js";
+import { judgeCalibrationOperations } from "./operations/judgeCalibration.js";
 import { pointerOperations } from "./operations/pointers.js";
 import { sourceProfileOperations } from "./operations/sourceProfile.js";
 import { sourceSettlementOperations } from "./operations/sourceSettlement.js";
@@ -36,6 +37,7 @@ export function operations(db: Database, config: AppConfig): OperationMap {
     ...webEvidenceOperations(db, config),
     ...sourceSettlementOperations(db, config),
     ...sourcesOperations(db, config, all),
+    ...judgeCalibrationOperations(db, config),
     ...vendorTableOperations(db, config),
     ...calibrationOperations(db, config, all),
     ...databaseOperations(db, config, all),
