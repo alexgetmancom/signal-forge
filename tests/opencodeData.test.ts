@@ -60,21 +60,22 @@ test("dates keep their precision and never spill into the next model", async () 
   expect(collection.records[3]?.url).toBe("https://opencode.ai/data/deepseek/deepseek-v4-flash-0731");
 });
 
-test("a named stealth model is found in the catalogue without probing usage pages", async () => {
+test("a lab this repository does not follow is left out, and the catalogue is the only thing asked", async () => {
   const seen: string[] = [];
   const collection = await collectOpenCodeData(async (url) => {
     seen.push(String(url));
     return Response.json({
       ...models,
+      // An undisclosed lab and a real one nobody here follows are the same case: neither is probed
+      // separately, and a name nobody has listed reaches us from a source that publishes one.
       "unknown/space-bunny": { id: "unknown/space-bunny", name: "Space Bunny" },
+      "vispark/muse-spark-2": { id: "vispark/muse-spark-2", name: "Muse Spark 2" },
     });
   });
   expect(seen).toEqual([catalogueUrl]);
-  expect(collection.records.find((model) => model.id === "unknown/space-bunny")).toMatchObject({
-    name: "Space Bunny",
-    maker: null,
-  });
-  expect(collection.records.some((model) => model.id.endsWith("sonoma-sky"))).toBe(false);
+  expect(collection.records.some((model) => model.id.startsWith("unknown/"))).toBe(false);
+  expect(collection.records.some((model) => model.id.startsWith("vispark/"))).toBe(false);
+  expect(collection.records.length).toBeGreaterThan(0);
 });
 
 test("a refused, empty or malformed catalogue fails the entire observation", async () => {

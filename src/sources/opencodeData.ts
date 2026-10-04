@@ -5,6 +5,14 @@
  * with the same ids, names and page slugs. The pages' model entries come from this catalogue too,
  * so probing them separately cannot find another entry. Full metadata stays in the snapshot.
  * Reading dates from objects also stops an undated model borrowing the next model's release date.
+ *
+ * This reads what OpenCode lists, and a model nobody has listed is not its question. The three
+ * stealth slugs this used to probe by hand -- `/data/unknown/space-bunny` and two that now answer
+ * 404 -- are gone with that, because the catalogue has never carried a single entry under the
+ * `unknown` lab, and the page that still answers 200 answers `entry:null`, which the probe read as
+ * a miss too. An unannounced name reaches us from the sources that publish one rather than from a
+ * guess at an address: `openrouter` had `stealth/space-bunny-alpha` the same day, and so did
+ * `models-dev`, `opencode-zen`, `opencode-go`, `voxelbench` and `openrouter-usage`.
  */
 import type { Database } from "bun:sqlite";
 import { z } from "zod";
@@ -16,7 +24,6 @@ import type { HttpCache } from "../storage/httpCache.js";
 import { fetchResponse, fetchText, requireOk } from "./http.js";
 
 const OPENCODE_MODELS_URL = "https://models.opencode.ai/models.json";
-const STEALTH_NAMES = new Set(["space-bunny", "sonoma-sky", "stealth-model"]);
 const catalogueSchema = z
   .record(
     z.string(),
@@ -70,7 +77,8 @@ export async function collectOpenCodeData(request: Fetch = fetch, cache?: HttpCa
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "");
-    if (vendorOfName(lab) === "Unknown" && !STEALTH_NAMES.has(slug)) continue;
+    // A lab this repository does not follow: OpenCode names 44 of them, most of a single model.
+    if (vendorOfName(lab) === "Unknown") continue;
     records.push({
       id: model.id,
       name: model.name,
