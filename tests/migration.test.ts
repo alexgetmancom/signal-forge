@@ -103,6 +103,10 @@ test("unverified Hugging Face access is forgotten without erasing repositories o
   expect(db.query("SELECT source,value_json FROM model_fact_fields").all()).toEqual([
     { source: "other-source", value_json: '"public"' },
   ]);
+  // Exactly the records whose claim was removed are owed a silence, and no others.
+  expect(db.query("SELECT source,id,reason FROM amended_records ORDER BY source,id").all()).toEqual([
+    { source: "huggingface:meta-llama", id: before.id, reason: "080_forget_unverified_huggingface_access" },
+  ]);
   expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
   db.close();
 });

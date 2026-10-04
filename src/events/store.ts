@@ -175,6 +175,28 @@ function countMiss(db: Database, c: Collection, id: string): void {
 }
 
 /**
+ * The records this service rewrote itself, owed one silent observation each.
+ *
+ * A migration that takes a field out of a stored body makes the next honest reading of that body a
+ * change nobody upstream made. The row is spent the next time the record is seen -- not on a clock,
+ * because a source read once a day and a source read once a month owe the same single silence -- so
+ * a genuine move after it is news as usual. Empty for every source on almost every collection: one
+ * keyed read of a table that is normally empty, against sending a card about our own edit.
+ */
+function pendingAmendments(db: Database, source: string): Set<string> {
+  return new Set(
+    db
+      .query<{ id: string }, [string]>("SELECT id FROM amended_records WHERE source=?")
+      .all(source)
+      .map((row) => row.id),
+  );
+}
+
+function spendAmendments(db: Database, source: string, ids: readonly string[]): void {
+  for (const id of ids) db.query("DELETE FROM amended_records WHERE source=? AND id=?").run(source, id);
+}
+
+/**
  * Compares every answered record with what was stored, emits what moved, and writes each record that
  * stands. A record is taken out of `previous` as it is met, so what is left in it afterwards is
  * exactly what the answer no longer contains.
@@ -188,11 +210,14 @@ function writeRecords(
   emit: Emit,
 ): void {
   const silent = new Set(c.silentIds);
+  const amended = pendingAmendments(db, c.source);
+  const spent: string[] = [];
   for (const record of c.records) {
     const body = canonical(record);
     const before = previous.get(record.id);
     previous.delete(record.id);
-    if (established && !silent.has(record.id)) {
+    if (amended.has(record.id)) spent.push(record.id);
+    if (established && !silent.has(record.id) && !amended.has(record.id)) {
       if (!before) emit(record.id, "new", null, body);
       else if (hasMoved(c, before.body, body)) {
         // A source that flickers must show the same new body twice before it is believed. The
@@ -219,6 +244,7 @@ function writeRecords(
       "INSERT INTO records(source,id,body,stream,observed_at) VALUES(?,?,?,?,?) ON CONFLICT(source,id) DO UPDATE SET body=excluded.body,stream=excluded.stream,observed_at=excluded.observed_at,missing_count=0,candidate_body=NULL",
     ).run(c.source, record.id, body, c.stream, now);
   }
+  spendAmendments(db, c.source, spent);
 }
 
 /** What happens to the records an answer no longer contains: kept, resolved, counted as missing, or removed. */

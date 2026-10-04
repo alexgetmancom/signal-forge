@@ -16,7 +16,7 @@ import { openDatabase } from "../src/storage/database.js";
 const db = openDatabase(":memory:");
 afterEach(() =>
   db.exec(
-    "DELETE FROM deliveries; DELETE FROM lifecycle_reminders; DELETE FROM hypothesis_events; DELETE FROM model_fact_conflicts; DELETE FROM model_fact_fields; DELETE FROM model_facts; DELETE FROM hypotheses; DELETE FROM lifecycle_deadlines; DELETE FROM batch_targets; DELETE FROM batch_events; DELETE FROM batches; DELETE FROM summaries; DELETE FROM events; DELETE FROM records; DELETE FROM snapshots; DELETE FROM sources;",
+    "DELETE FROM deliveries; DELETE FROM lifecycle_reminders; DELETE FROM hypothesis_events; DELETE FROM model_fact_conflicts; DELETE FROM model_fact_fields; DELETE FROM model_facts; DELETE FROM hypotheses; DELETE FROM lifecycle_deadlines; DELETE FROM batch_targets; DELETE FROM batch_events; DELETE FROM batches; DELETE FROM summaries; DELETE FROM events; DELETE FROM amended_records; DELETE FROM records; DELETE FROM snapshots; DELETE FROM sources;",
   ),
 );
 const targets: Destination[] = [
@@ -197,6 +197,27 @@ test("confirmed changes suppress one-observation catalog jitter", () => {
   c.records[0] = { id: "a", name: "A", pricing: { prompt: 2 } };
   expect(saveCollection(db, c, []).events).toBe(0);
   expect(saveCollection(db, c, []).events).toBe(1);
+});
+test("a record this service amended regains its field in silence, once", () => {
+  const c = collection(["a"]);
+  c.records[0] = { id: "a", name: "A", access: "public" };
+  saveCollection(db, c, []);
+  // What migration 080 does: the claim leaves the body, and the record is owed one silence.
+  db.query("UPDATE records SET body=json_remove(body,'$.access') WHERE id='a'").run();
+  db.query("INSERT INTO amended_records(source,id,reason) VALUES(?,?,?)").run(c.source, "a", "test");
+  expect(saveCollection(db, c, []).events).toBe(0);
+  expect(db.query("SELECT COUNT(*) n FROM amended_records").get()).toEqual({ n: 0 });
+  // Spent: a real move between gated and public is news again.
+  c.records[0] = { id: "a", name: "A", access: "gated" };
+  expect(saveCollection(db, c, []).events).toBe(1);
+});
+test("an amendment is spent by observing the record, not by the clock", () => {
+  const c = collection(["a"]);
+  saveCollection(db, c, []);
+  db.query("INSERT INTO amended_records(source,id,reason) VALUES(?,?,?)").run(c.source, "b", "test");
+  // A collection that never mentions b leaves b's silence unspent.
+  expect(saveCollection(db, c, []).events).toBe(0);
+  expect(db.query("SELECT COUNT(*) n FROM amended_records").get()).toEqual({ n: 1 });
 });
 test("append-only feeds do not remove older entries or reannounce edited entries", () => {
   saveCollection(db, { ...collection(["a"]), appendOnly: true }, []);
