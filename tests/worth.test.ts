@@ -355,7 +355,7 @@ test("trending weights a followed lab already published are not a second sightin
   db.close();
 });
 
-test("weights with nothing to run and a router serving old weights stay quiet", () => {
+test("weights with nothing to run and weights published long ago stay quiet", () => {
   const db = openDatabase(":memory:");
   const lab: Collection = {
     source: "huggingface:tencent",
@@ -370,6 +370,20 @@ test("weights with nothing to run and a router serving old weights stay quiet", 
   lab.records.push(
     { id: "tencent/WeVisDoc-2B", name: "tencent/WeVisDoc-2B", pipeline: null, category: null },
     { id: "tencent/Hunyuan-9", name: "tencent/Hunyuan-9", pipeline: "text-generation" },
+    // The listing sorted by lastModified sees these two for the first time on the same poll, and
+    // only one of them is this week's news: the organisation's own window widened, not its output.
+    {
+      id: "tencent/HunyuanOCR",
+      name: "tencent/HunyuanOCR",
+      pipeline: "image-text-to-text",
+      created: "2025-11-18T00:00:00.000Z",
+    },
+    {
+      id: "tencent/Hunyuan-Fresh",
+      name: "tencent/Hunyuan-Fresh",
+      pipeline: "text-generation",
+      created: "2026-09-16T00:00:00.000Z",
+    },
   );
   saveCollection(db, lab, [wire], "2026-09-17T15:45:54.037Z");
   const router: Collection = {
@@ -390,6 +404,8 @@ test("weights with nothing to run and a router serving old weights stay quiet", 
   const reasons = suppressed(db);
   expect(reasons["tencent/WeVisDoc-2B"]).toBe("weights_with_nothing_to_run");
   expect(reasons["tencent/Hunyuan-9"]).toBeUndefined();
+  expect(reasons["tencent/HunyuanOCR"]).toBe("weights_published_long_ago");
+  expect(reasons["tencent/Hunyuan-Fresh"]).toBeUndefined();
   expect(reasons["zai-org/GLM-4.7-FP8"]).toBe("weights_published_long_ago");
   expect(reasons["zai-org/GLM-5.4"]).toBeUndefined();
   db.close();

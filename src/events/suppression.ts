@@ -82,7 +82,7 @@ const SUPPRESSION_DETAIL: Record<SuppressionReason, string> = {
   another_tier_of_a_listed_model: "A dated snapshot or billing tier of a model this catalogue already lists",
   already_listed_by_its_lab: "Trending weights the lab's own account already lists here, which is where they were read",
   weights_with_nothing_to_run: "Weights a followed lab published that declare no pipeline to run",
-  weights_published_long_ago: "A router serving weights published more than thirty days earlier",
+  weights_published_long_ago: "Weights read here for the first time, published more than thirty days earlier",
   another_page_about_the_same_model: "A vendor page naming a model this destination was told about in the last day",
   past_the_digest_limit: "The hourly digest showed its first five stories and this one came after them",
   left_to_the_daily_recap: "An OpenRouter price, which the daily recap reports as the day's net move",
