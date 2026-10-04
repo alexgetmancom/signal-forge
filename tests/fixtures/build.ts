@@ -246,23 +246,3 @@ export function aDelivery(
   if (!row) throw new Error("Delivery could not be stored");
   return row.id;
 }
-
-/**
- * A row in the catalogue table, for the rules that ask whether anything here has listed a model.
- *
- * `observed_at` carries a CHECK on its shape, which is the one way a hand-written INSERT of this
- * table fails; `body` is a record and not a free string, so the default is the smallest one that
- * parses.
- */
-export function aRecord(
-  db: Database,
-  fields: { source?: string; id: string; body?: Record<string, unknown>; stream?: string; observedAt?: string },
-): void {
-  db.query("INSERT INTO records(source,id,body,stream,observed_at) VALUES(?,?,?,?,?)").run(
-    fields.source ?? "openrouter",
-    fields.id,
-    JSON.stringify(fields.body ?? { id: fields.id, name: fields.id }),
-    fields.stream ?? "openrouter",
-    fields.observedAt ?? anInstant(),
-  );
-}
