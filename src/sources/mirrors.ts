@@ -132,7 +132,12 @@ export async function collectModelsDev(request: Fetch = fetch, cache?: HttpCache
         knowledge: entry.knowledge ?? null,
         status: entry.status ?? null,
         context: entry.limit?.context ?? null,
-        output: entry.limit?.output ?? null,
+        /**
+         * Named for what it is. `output` was this number under a key every other catalogue uses for
+         * a list of modalities: OpenRouter and Bedrock both write `output: ["text","image"]`, and a
+         * filter that read models.dev the same way called 128000 a modality. See migration 082.
+         */
+        maxOutputTokens: entry.limit?.output ?? null,
         input: [...(entry.modalities?.input ?? [])].sort(),
         openWeights: entry.open_weights ?? null,
         reasoning: entry.reasoning ?? null,

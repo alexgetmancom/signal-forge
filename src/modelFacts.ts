@@ -121,8 +121,14 @@ function extractCandidates(event: EventRow, canonicalId: string, eventId: number
     add("provider", providerFor(event, record));
     add("releaseDate", text(record.created));
     add("contextWindow", finite(record.context) ?? finite(record.inputTokenLimit));
-    const output = Array.isArray(record.output) ? null : finite(record.output);
-    add("maxOutputTokens", output ?? finite(record.outputTokenLimit));
+    /**
+     * Two facts and no guess between them. `output` meant a list of modalities at one catalogue and
+     * a token ceiling at another, and this line told them apart by the type of the value it found --
+     * which worked, and left every other reader of the field to work it out again. Migration 082
+     * renamed the ceiling at both collectors that wrote one, in the stored bodies as well as in the
+     * collectors, so a field is a fact about one thing here as it is everywhere else.
+     */
+    add("maxOutputTokens", finite(record.maxOutputTokens) ?? finite(record.outputTokenLimit));
     add("inputModalities", array(record.input));
     add("outputModalities", array(record.output));
     add("pricing", record.pricing);

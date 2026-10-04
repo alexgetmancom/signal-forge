@@ -135,7 +135,7 @@ test("a later value from the same source is history, not a conflict", () => {
   db.close();
 });
 
-test("OpenRouter array output becomes modalities and numeric output becomes max tokens", () => {
+test("a list of modalities and a token ceiling are two fields, not one field read two ways", () => {
   const db = openDatabase(":memory:");
   introduce(
     db,
@@ -144,10 +144,17 @@ test("OpenRouter array output becomes modalities and numeric output becomes max 
     [model({ input: ["text"], output: ["image", "text"] })],
     "2026-09-10T00:00:00.000Z",
   );
-  introduce(db, "vercel-gateway", "api-models", [model({ output: 4096 })], "2026-09-10T01:00:00.000Z");
+  introduce(db, "vercel-gateway", "api-models", [model({ maxOutputTokens: 4096 })], "2026-09-10T01:00:00.000Z");
   const facts = getModelFacts(db, "openai/gpt-6")?.facts;
   expect(facts?.outputModalities).toMatchObject({ value: ["image", "text"], source: "openrouter" });
   expect(facts?.maxOutputTokens).toMatchObject({ value: 4096, source: "vercel-gateway" });
+  // And a ceiling under the old name is no longer a ceiling: nothing reads the shape of a value to
+  // decide what the field meant, so a catalogue that writes `output: 128000` claims no modalities
+  // and no ceiling. Migration 082 renamed the two collectors that ever wrote one.
+  introduce(db, "models-dev", "api-models", [model({ output: 128_000 })], "2026-09-10T02:00:00.000Z");
+  const after = getModelFacts(db, "openai/gpt-6")?.facts;
+  expect(after?.maxOutputTokens).toMatchObject({ value: 4096, source: "vercel-gateway" });
+  expect(after?.outputModalities).toMatchObject({ value: ["image", "text"], source: "openrouter" });
   expect(facts?.availableInProviderApi).toBeUndefined();
   db.close();
 });

@@ -72,7 +72,7 @@ export function isAResellerFillingInAPrice(event: Event): boolean {
  * OpenRouter had them a quarter of an hour later. Waiting for the richer venue spent the lead this
  * tracker exists to have; reading what is already stored spends nothing.
  */
-const BORROWED_FIELDS = ["context", "input", "output", "reasoning", "pricing"];
+const BORROWED_FIELDS = ["context", "input", "output", "maxOutputTokens", "reasoning", "pricing"];
 /**
  * A price is borrowed only from the catalogues whose unit is known, both of which write dollars per
  * token. Every other one writes its rates in its own unit, and a sheet read in the wrong one is off

@@ -41,6 +41,7 @@ export function isRoutine(event: Event): boolean {
     "context",
     "input",
     "output",
+    "maxOutputTokens",
     "parameters",
     "capabilities",
     "selectable",

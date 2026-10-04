@@ -89,6 +89,7 @@ const fieldLabels: Record<string, string> = {
   resetType: "Reset type",
   expected: "Expected",
   methods: "Methods",
+  maxOutputTokens: "Output token limit",
   inputTokenLimit: "Input token limit",
   outputTokenLimit: "Output token limit",
   announced: "Announced",

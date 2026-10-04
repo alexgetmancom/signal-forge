@@ -406,7 +406,8 @@ export function parseVercelGateway(payload: string): Collection {
       name: model.name ?? model.id,
       maker: model.owned_by ?? null,
       context: model.context_window ?? null,
-      output: model.max_tokens ?? null,
+      // A ceiling, under the name of a ceiling; see models.dev's own field and migration 082.
+      maxOutputTokens: model.max_tokens ?? null,
       pricing: model.pricing ?? null,
     })),
   };

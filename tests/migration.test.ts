@@ -296,3 +296,64 @@ DROP TABLE old_rows;`;
   expect(db.query("SELECT name FROM sqlite_master WHERE name='new_rows'").all()).toEqual([]);
   db.close();
 });
+
+test("the output ceiling is renamed in what is stored, values intact and modality lists untouched", () => {
+  const db = new Database(":memory:", { strict: true });
+  applyMigrations(
+    db,
+    readMigrations().filter((migration) => migration.version < 82),
+  );
+  const ceiling = { id: "openai/gpt-6", name: "GPT-6", context: 400_000, output: 128_000 };
+  const absent = { id: "openai/gpt-6-mini", name: "GPT-6 Mini", output: null };
+  const modalities = { id: "openai/gpt-6", name: "GPT-6", output: ["text", "image"] };
+  aRecord(db, { source: "models-dev", id: ceiling.id, body: ceiling, stream: "api-models" });
+  aRecord(db, { source: "models-dev", id: absent.id, body: absent, stream: "api-models" });
+  aRecord(db, { source: "vercel-gateway", id: ceiling.id, body: ceiling, stream: "api-models" });
+  // A catalogue whose `output` is a list of modalities says something else entirely, and is not ours
+  // to rename: this migration is about the two sources that wrote a number.
+  aRecord(db, { source: "openrouter", id: modalities.id, body: modalities, stream: "openrouter" });
+  const moved = anEvent(db, {
+    source: "models-dev",
+    stream: "api-models",
+    kind: "changed",
+    beforeJson: JSON.stringify({ ...ceiling, output: 64_000 }),
+    afterJson: JSON.stringify(ceiling),
+  });
+  const kept = anEvent(db, { source: "openrouter", stream: "openrouter", afterJson: JSON.stringify(modalities) });
+
+  applyMigrations(
+    db,
+    readMigrations().filter((migration) => migration.version === 82),
+  );
+
+  const body = (source: string, id: string) =>
+    JSON.parse(
+      db.query<{ body: string }, [string, string]>("SELECT body FROM records WHERE source=? AND id=?").get(source, id)
+        ?.body ?? "{}",
+    ) as Record<string, unknown>;
+  // The number survives under the name of a number, and nothing else about the record moves.
+  expect(body("models-dev", ceiling.id)).toEqual({
+    id: ceiling.id,
+    name: "GPT-6",
+    context: 400_000,
+    maxOutputTokens: 128_000,
+  });
+  expect(body("vercel-gateway", ceiling.id)).toMatchObject({ maxOutputTokens: 128_000 });
+  // A null is the source saying it publishes no ceiling, which is still what it says afterwards.
+  expect(body("models-dev", absent.id)).toEqual({ id: absent.id, name: "GPT-6 Mini", maxOutputTokens: null });
+  // And a list of modalities under the same key is left exactly as it was.
+  expect(body("openrouter", modalities.id)).toEqual(modalities as unknown as Record<string, unknown>);
+
+  const event = (id: number) =>
+    db
+      .query<{ before_json: string; after_json: string }, [number]>(
+        "SELECT before_json,after_json FROM events WHERE id=?",
+      )
+      .get(id);
+  expect(JSON.parse(event(moved)?.after_json ?? "{}")).toMatchObject({ maxOutputTokens: 128_000 });
+  // Both sides of a change, or the card drawn from it compares a ceiling with nothing.
+  expect(JSON.parse(event(moved)?.before_json ?? "{}")).toMatchObject({ maxOutputTokens: 64_000 });
+  expect(JSON.parse(event(kept)?.after_json ?? "{}")).toEqual(modalities as unknown as Record<string, unknown>);
+  expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
+  db.close();
+});

@@ -1383,10 +1383,10 @@ test("Gateway evidence is the whole upstream answer, and records use the fields 
       name: "vendor/model",
       maker: "vendor",
       context: 128_000,
-      output: 4096,
+      maxOutputTokens: 4096,
       pricing: { input: "0.01", future_cost: "0.1" },
     },
-    { id: "minimal", name: "minimal", maker: null, context: null, output: null, pricing: null },
+    { id: "minimal", name: "minimal", maker: null, context: null, maxOutputTokens: null, pricing: null },
   ]);
 });
 

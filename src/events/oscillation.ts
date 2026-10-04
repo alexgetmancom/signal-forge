@@ -105,7 +105,19 @@ const FLICKERING_STREAMS = ["leaderboards", "arena", "openrouter", "api-models",
  * catalogue that drops a model and lists it again an hour later has said nothing new; one that
  * lists it again at half the price, a quarter of the context or a different set of providers has.
  */
-export const SUBSTANTIVE_FIELDS = ["pricing", "context", "input", "output", "providers", "parameters", "selectable"];
+export const SUBSTANTIVE_FIELDS = [
+  "pricing",
+  "context",
+  "input",
+  "output",
+  // The ceiling models.dev and Vercel's gateway publish, which was `output` at both until migration
+  // 082 gave it its own name. A model's output ceiling halving is the same kind of news as its
+  // context window halving, and both were already here under one key.
+  "maxOutputTokens",
+  "providers",
+  "parameters",
+  "selectable",
+];
 
 /**
  * A row that comes and goes.
