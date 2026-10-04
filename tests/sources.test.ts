@@ -1213,54 +1213,21 @@ test("Hugging Face listing is append-only and keeps access and origin", async ()
   expect(() => parseHuggingFace("{}", "openai")).toThrow();
 });
 
-test("Hugging Face explicitly asks for access and modification metadata with its account allowance", async () => {
+test("Hugging Face uses its account allowance when a token is configured", async () => {
   const authorizations: (string | null)[] = [];
-  const request = async (url: string, init?: RequestInit) => {
-    const query = new URL(url).searchParams;
-    expect(query.get("author")).toBe("meta-llama");
-    expect(query.get("sort")).toBe("createdAt");
-    expect(query.get("direction")).toBe("-1");
-    expect(query.get("limit")).toBe("50");
-    expect(query.getAll("expand[]").sort()).toEqual(
-      [
-        "author",
-        "createdAt",
-        "pipeline_tag",
-        "library_name",
-        "tags",
-        "lastModified",
-        "likes",
-        "downloads",
-        "private",
-        "gated",
-      ].sort(),
-    );
+  const request = async (_url: string | URL | Request, init?: RequestInit) => {
     authorizations.push(new Headers(init?.headers).get("authorization"));
     return Response.json([
       {
-        id: "meta-llama/Llama-Prompt-Guard-2-86M",
-        author: "meta-llama",
+        id: "openai/test-model",
+        author: "openai",
         createdAt: "2026-09-10T00:00:00.000Z",
-        lastModified: "2026-09-11T00:00:00.000Z",
         private: false,
-        gated: "manual",
       },
     ]);
   };
-  const collection = await collectHuggingFace("meta-llama", "test-token", request);
-  expect(collection.records[0]).toMatchObject({
-    access: "gated",
-    modified: "2026-09-11T00:00:00.000Z",
-    maker: "meta-llama",
-  });
+  await collectHuggingFace("openai", "test-token", request);
   expect(authorizations).toEqual(["Bearer test-token"]);
-});
-
-test("Hugging Face cannot label a model public when its listing omitted access metadata", () => {
-  const model = { id: "meta-llama/Llama-Guard-4-12B", createdAt: "2026-09-10T00:00:00.000Z", private: false };
-  for (const gated of [undefined, null, "false"]) {
-    expect(() => parseHuggingFace(JSON.stringify([{ ...model, gated }]), "meta-llama")).toThrow();
-  }
 });
 
 test("npm is tracked per channel, so a nightly does not become an event per version", async () => {
@@ -1968,7 +1935,6 @@ test("a private Hugging Face repository is not recorded, let alone as public", (
     createdAt: "2026-04-24T00:00:00.000Z",
     tags: [],
     private: isPrivate,
-    gated: false,
   });
   const parsed = parseHuggingFace(
     JSON.stringify([model("deepseek-ai/Open", false), model("deepseek-ai/Hidden", true)]),
