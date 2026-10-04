@@ -54,6 +54,10 @@ function rateValue(value: unknown): string {
 
 const fieldLabels: Record<string, string> = {
   name: "Name",
+  // "Alias target: openai/gpt-6-astra → openai/gpt-6.1-sol" is our field name read out. What the
+  // line is about is that a caller who asked for no version now gets something else.
+  aliasTarget: "Now points at",
+  expirationDate: "Listing expires",
   context: "Context",
   input: "Accepts",
   output: "Returns",

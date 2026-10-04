@@ -216,3 +216,36 @@ test("an entry with nothing but its own maker in it says its title and stops", (
   // line above it and on the logo beside it, and it was never a fact about what shipped.
   expect(eventEmbed(event, "u").fields).toBeUndefined();
 });
+
+/**
+ * The pointer moving, in the words the line is about.
+ *
+ * `~openai/gpt-sol-latest` is what a caller gets when they ask for no version, and the card for it
+ * moving read "Alias target: a → b" -- our field name, read out. The reader's question is which
+ * model they are now being served.
+ */
+test("a moved alias says what it now points at", () => {
+  const moved = {
+    id: 7,
+    source: "openrouter",
+    stream: "openrouter",
+    entity_id: "~openai/gpt-sol-latest",
+    kind: "changed",
+    before_json: JSON.stringify({
+      id: "~openai/gpt-sol-latest",
+      name: "OpenAI: GPT Sol Latest",
+      aliasTarget: "openai/gpt-6-astra",
+    }),
+    after_json: JSON.stringify({
+      id: "~openai/gpt-sol-latest",
+      name: "OpenAI: GPT Sol Latest",
+      aliasTarget: "openai/gpt-6.1-sol",
+    }),
+    detected_at: "2026-10-04T07:52:13.233Z",
+  } as unknown as Event;
+  const embed = eventEmbed(moved, "https://openrouter.ai/~openai/gpt-sol-latest");
+  const text = JSON.stringify(embed);
+  expect(text).toContain("Now points at");
+  expect(text).toContain("openai/gpt-6-astra → openai/gpt-6.1-sol");
+  expect(text).not.toContain("Alias target");
+});
