@@ -10,7 +10,7 @@
 import type { Database } from "bun:sqlite";
 import { normalizeIdentity } from "./identity.js";
 import { recordFor } from "./record.js";
-import { createdBefore } from "./releaseDate.js";
+import { createdBefore, LONG_AGO_MS } from "./releaseDate.js";
 import { CATALOGUE_MAKER } from "./resellers.js";
 import type { Event } from "./types.js";
 import { releasedModelSubject } from "./variants.js";
@@ -130,7 +130,6 @@ export function isAlreadyOutAtItsMaker(event: Event, elsewhere: readonly string[
 }
 
 /** Past this, a catalogue adding a model is catching up with a release, not carrying one. */
-const ALREADY_OUT_MS = 30 * 24 * 3_600_000;
 
 /**
  * A model that was already out when this catalogue listed it, on a row that names no maker.
@@ -146,8 +145,10 @@ const ALREADY_OUT_MS = 30 * 24 * 3_600_000;
  */
 export function wasReleasedLongBefore(db: Database, event: Event): boolean {
   if (event.kind !== "new" || (event.stream !== "api-models" && event.stream !== "openrouter")) return false;
-  const cutoff = Date.parse(event.detected_at) - ALREADY_OUT_MS;
-  if (createdBefore(recordFor(event), cutoff)) return true;
+  const cutoff = Date.parse(event.detected_at) - LONG_AGO_MS;
+  // The record's own date is not read here: `published_long_before_we_read_it` asks that of every
+  // listing stream and is asked first. What is left is the half only this rule has -- the record
+  // carries no date, and another record of a catalogue we already hold does.
   const id = (recordFor(event)?.id ?? event.entity_id) as string;
   const name = String(id).split("/").at(-1)?.toLowerCase() ?? "";
   // A name without a digit and a separator is a word, and a word matches half the catalogue.

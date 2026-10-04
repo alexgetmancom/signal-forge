@@ -19,6 +19,8 @@ import { isAliasRow, isAnotherServing, isAnotherTierOfAListedModel, knownModelNa
 import { isScheduledPricingRotation } from "./oscillation.js";
 import { deeperPagesOfOneTree, isPageWithoutAProduct } from "./pageWorth.js";
 import { isAResellerFillingInAPrice, isLeftToTheDailyRecap, isTheModalityOfAPricedModel } from "./priceWorth.js";
+import { recordFor } from "./record.js";
+import { wasPublishedLongBeforeWeReadIt } from "./releaseDate.js";
 import { renamedEvents } from "./rename.js";
 import { listsAnotherMakersModel } from "./resellers.js";
 import {
@@ -31,7 +33,7 @@ import { isModelSighting } from "./signals.js";
 import type { SuppressionReason } from "./suppression.js";
 import type { Event, RecordData } from "./types.js";
 import { displayName } from "./variants.js";
-import { isLongPublishedWeights, isTrendingFromAnUnfollowedLab, isWeightsBesideTheRelease } from "./weightsWorth.js";
+import { isTrendingFromAnUnfollowedLab, isWeightsBesideTheRelease } from "./weightsWorth.js";
 import { firstSightingBySubject, listingsBySubject, releasedSubjects, subjectKey } from "./witness.js";
 import {
   addedFieldSignature,
@@ -115,67 +117,145 @@ export type BatchView = {
 };
 
 /**
+ * One question the standing judgement asks, and the reason it gives when the answer is yes.
+ *
+ * A list rather than a chain of `if`s because the order is the policy -- the first reason that
+ * applies is the one a reader sees and the one that is stored -- and a chain can only be read by
+ * running it. `why` replays this same list to say what each question answered about one event,
+ * which is the half that used to require a full rehearsal against a copy of production.
+ *
+ * A check answers with a reason or with null, so the three questions a newsroom post is asked stay
+ * one entry: they share a vote that costs a read, and splitting them would ask for it three times
+ * on the delivery path.
+ *
+ * `fromTheBatch` marks a check whose answer is not a function of the event alone. Those read sets
+ * that `batchViewOf` built from the event's siblings, so replaying one event by itself answers no
+ * where the batch answered yes -- `why` says so rather than implying the event would speak.
+ */
+type StandingCheck = {
+  name: string;
+  fromTheBatch?: true;
+  ask: (db: Database, event: Event, view: BatchView) => SuppressionReason | null;
+};
+
+/**
+ * A check whose name is its reason, which is all but two of them: the question is asked, and if the
+ * answer is yes that reason is the one recorded. Written as a helper so an entry is one line and
+ * the list can be read as the policy it is.
+ */
+function held(
+  reason: SuppressionReason,
+  when: (db: Database, event: Event, view: BatchView) => boolean,
+  fromTheBatch?: true,
+): StandingCheck {
+  return {
+    name: reason,
+    ...(fromTheBatch ? { fromTheBatch } : {}),
+    ask: (db, e, v) => (when(db, e, v) ? reason : null),
+  };
+}
+
+const STANDING_CHECKS: readonly StandingCheck[] = [
+  held("renamed_by_the_source", (_db, e, v) => v.renamed.has(e.id), true),
+  held("below_the_top_of_the_board", (_db, e) => isMinorBoardMove(e)),
+  /**
+   * A probe that has just learned a shape finds the whole line at once; see isTheFirstReadOfAShape.
+   * Asked only of a page a probe found, because only a probe dates the shapes it asks about, and
+   * the question costs a snapshot read.
+   */
+  held(
+    "the_first_read_of_a_new_shape",
+    (db, e) =>
+      e.stream === "pages" &&
+      e.source.startsWith("discovery:") &&
+      e.kind === "new" &&
+      isTheFirstReadOfAShape(db, e.source, e.entity_id, e.detected_at),
+  ),
+  // A board placing is the second half of a launch, and stops being one; see followsAnOldLaunch.
+  held("the_launch_it_follows_is_old_news", (db, e) => followsAnOldLaunch(db, e)),
+  // One model measured at five reasoning efforts is one debut; see anotherEffortLeadsThisDebut.
+  held("another_effort_of_the_same_debut", (db, e) => anotherEffortLeadsThisDebut(db, e)),
+  held("another_serving_of_a_known_model", (_db, e, v) => isAnotherServing(e, v.known)),
+  {
+    // Three reasons from one read: the vote costs a query, and splitting them would ask for it
+    // three times on the delivery path.
+    name: "what_a_newsroom_post_is_asked",
+    ask: (db, e, v) => {
+      if (e.signal !== "article" && e.signal !== "business") return null;
+      // Jev reads the post the word rule can only pattern-match; see newsroomVote.
+      const vote = e.stream === "news" ? newsroomVote(db, e.id) : null;
+      if (vote === "recap") return "left_to_the_daily_recap";
+      if (vote !== "speaks" && isAboutTheCompanyNotAModel(e, v.known)) return "a_post_about_the_company_not_a_model";
+      // The readers' own verdict on the source, which Jev can overrule and a release never reaches;
+      // see readersVote.
+      if (vote !== "speaks" && e.stream === "news" && readersVote(db, e.source))
+        return "the_readers_voted_this_source_down";
+      return null;
+    },
+  },
+  held("display_label_only", (_db, e) => isLabelOnlyChange(e)),
+  held("a_field_the_source_started_sending", (_db, e, v) => v.schema.has(e.id), true),
+  held("one_change_across_the_whole_list", (_db, e, v) => v.herd.has(e.id), true),
+  held("known_here_for_weeks", (_db, e, v) => v.longKnown.has(e.id), true),
+  held("alias_of_another_row", (_db, e) => isAliasRow(e)),
+  held("another_tier_of_a_listed_model", (db, e) => isAnotherTierOfAListedModel(db, e)),
+  held("the_modality_a_price_list_bills_for", (db, e) => isTheModalityOfAPricedModel(db, e)),
+  held("already_listed_by_its_lab", (db, e) => isAlreadyListedByItsLab(db, e)),
+  held("weights_with_nothing_to_run", (_db, e) => isWeightsBesideTheRelease(e)),
+  held("published_long_before_we_read_it", (_db, e) =>
+    wasPublishedLongBeforeWeReadIt(recordFor(e), e.stream, e.kind, e.detected_at, e.signal ?? null),
+  ),
+  held("scheduled_pricing_rotation", (_db, e) => isScheduledPricingRotation(e)),
+  held("left_to_the_daily_recap", (_db, e) => isLeftToTheDailyRecap(e)),
+  held("a_venues_own_hosting_window", (_db, e) => isAVenuesHostingWindow(e)),
+  held("a_reseller_filled_in_a_price", (_db, e) => isAResellerFillingInAPrice(e)),
+  held("a_page_about_no_product", (_db, e) => isPageWithoutAProduct(e)),
+  held("a_deeper_page_of_one_tree", (_db, e, v) => v.deeperPages.has(e.id), true),
+  held("trending_from_an_unfollowed_lab", (_db, e) => isTrendingFromAnUnfollowedLab(e)),
+  // Two ways to the same reason, kept apart so `why` says which one answered.
+  {
+    name: "already_out_at_its_maker_elsewhere",
+    ask: (_db, e, v) =>
+      e.signal === "codename" && v.listings && v.sighted(e) && isAlreadyOutAtItsMaker(e, v.elsewhereOf(e))
+        ? "already_out_at_its_maker"
+        : null,
+  },
+  {
+    name: "already_out_at_its_maker_by_route",
+    ask: (_db, e, v) =>
+      e.signal === "codename" && isARouteToAReleasedModel(e, v.released) ? "already_out_at_its_maker" : null,
+  },
+  held("released_long_before_this_listing", (db, e) => e.signal === "codename" && wasReleasedLongBefore(db, e)),
+  held("names_only_known_models", (_db, e, v) => e.signal === "codename" && namesOnlyKnownModels(e, v.known)),
+  held("fixes_only_release", (_db, e) => e.signal === "release" && isFixesOnlyRelease(e)),
+];
+
+/** What every standing question answered about one event, in the order they are asked. */
+export type StandingAnswer = { check: string; reason: SuppressionReason | null; fromTheBatch: boolean };
+
+/**
+ * Every question, asked. Stops at nothing, so a reader sees what the rules after the deciding one
+ * would have said; the deciding one is the first with a reason.
+ */
+export function standingAnswers(db: Database, event: Event, view: BatchView): StandingAnswer[] {
+  return STANDING_CHECKS.map((check) => ({
+    check: check.name,
+    reason: check.ask(db, event, view),
+    fromTheBatch: check.fromTheBatch === true,
+  }));
+}
+
+/**
  * Why an event is not worth a card to anyone, whichever destination is asking, or null when nothing
  * about the event itself holds it back. Checks that depend on what a destination has already been
  * told stay with the destination. The order is the order reasons are recorded in: the first that
  * applies is the one a reader sees.
  */
 export function standingReason(db: Database, event: Event, view: BatchView): SuppressionReason | null {
-  if (view.renamed.has(event.id)) return "renamed_by_the_source";
-  if (isMinorBoardMove(event)) return "below_the_top_of_the_board";
-  /**
-   * A probe that has just learned a shape finds the whole line at once; see isTheFirstReadOfAShape.
-   * Asked only of a page a probe found, because only a probe dates the shapes it asks about, and
-   * the question costs a snapshot read.
-   */
-  if (event.stream === "pages" && event.source.startsWith("discovery:") && event.kind === "new") {
-    if (isTheFirstReadOfAShape(db, event.source, event.entity_id, event.detected_at))
-      return "the_first_read_of_a_new_shape";
+  for (const check of STANDING_CHECKS) {
+    const reason = check.ask(db, event, view);
+    if (reason) return reason;
   }
-  // A board placing is the second half of a launch, and stops being one; see followsAnOldLaunch.
-  if (followsAnOldLaunch(db, event)) return "the_launch_it_follows_is_old_news";
-  // One model measured at five reasoning efforts is one debut; see anotherEffortLeadsThisDebut.
-  if (anotherEffortLeadsThisDebut(db, event)) return "another_effort_of_the_same_debut";
-  if (isAnotherServing(event, view.known)) return "another_serving_of_a_known_model";
-  if (event.signal === "article" || event.signal === "business") {
-    // Jev reads the post the word rule can only pattern-match; see newsroomVote.
-    const vote = event.stream === "news" ? newsroomVote(db, event.id) : null;
-    if (vote === "recap") return "left_to_the_daily_recap";
-    if (vote !== "speaks" && isAboutTheCompanyNotAModel(event, view.known))
-      return "a_post_about_the_company_not_a_model";
-    // The readers' own verdict on the source, which Jev can overrule and a release never reaches;
-    // see readersVote.
-    if (vote !== "speaks" && event.stream === "news" && readersVote(db, event.source))
-      return "the_readers_voted_this_source_down";
-  }
-  if (isLabelOnlyChange(event)) return "display_label_only";
-  if (view.schema.has(event.id)) return "a_field_the_source_started_sending";
-  if (view.herd.has(event.id)) return "one_change_across_the_whole_list";
-  if (view.longKnown.has(event.id)) return "known_here_for_weeks";
-  if (isAliasRow(event)) return "alias_of_another_row";
-  if (isAnotherTierOfAListedModel(db, event)) return "another_tier_of_a_listed_model";
-  if (isTheModalityOfAPricedModel(db, event)) return "the_modality_a_price_list_bills_for";
-  if (isAlreadyListedByItsLab(db, event)) return "already_listed_by_its_lab";
-  if (isWeightsBesideTheRelease(event)) return "weights_with_nothing_to_run";
-  if (isLongPublishedWeights(event)) return "weights_published_long_ago";
-  if (isScheduledPricingRotation(event)) return "scheduled_pricing_rotation";
-  if (isLeftToTheDailyRecap(event)) return "left_to_the_daily_recap";
-  if (isAVenuesHostingWindow(event)) return "a_venues_own_hosting_window";
-  if (isAResellerFillingInAPrice(event)) return "a_reseller_filled_in_a_price";
-  if (isPageWithoutAProduct(event)) return "a_page_about_no_product";
-  if (view.deeperPages.has(event.id)) return "a_deeper_page_of_one_tree";
-  if (isTrendingFromAnUnfollowedLab(event)) return "trending_from_an_unfollowed_lab";
-  if (
-    event.signal === "codename" &&
-    view.listings &&
-    view.sighted(event) &&
-    isAlreadyOutAtItsMaker(event, view.elsewhereOf(event))
-  )
-    return "already_out_at_its_maker";
-  if (event.signal === "codename" && isARouteToAReleasedModel(event, view.released)) return "already_out_at_its_maker";
-  if (event.signal === "codename" && wasReleasedLongBefore(db, event)) return "released_long_before_this_listing";
-  if (event.signal === "codename" && namesOnlyKnownModels(event, view.known)) return "names_only_known_models";
-  if (event.signal === "release" && isFixesOnlyRelease(event)) return "fixes_only_release";
   return null;
 }
 

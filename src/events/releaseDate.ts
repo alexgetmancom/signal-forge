@@ -13,7 +13,7 @@
  */
 
 /** The field names catalogues write a model's own date under. */
-const CREATED_FIELDS = ["created", "createdAt", "created_at", "releaseDate", "release_date"] as const;
+export const CREATED_FIELDS = ["created", "createdAt", "created_at", "releaseDate", "release_date"] as const;
 
 /** Before this, a date is a placeholder rather than a release: catalogues write `created: 1`. */
 const EARLIEST_RELEASE = Date.parse("2015-01-01T00:00:00.000Z");
@@ -58,4 +58,57 @@ export function recordReleaseDate(fields: Record<string, unknown> | null | undef
 export function createdBefore(fields: Record<string, unknown> | null | undefined, cutoff: number): boolean {
   const at = recordReleaseDate(fields);
   return at !== null && at < cutoff;
+}
+
+/**
+ * How late a reading has to be before it is history rather than news.
+ *
+ * One month, and one constant, because this was three: `LONG_PUBLISHED_MS` in weightsWorth.ts for a
+ * router, `ALREADY_OUT_MS` in retoldWorth.ts for a catalogue, both thirty days and both answering
+ * the same question of different sources.
+ */
+export const LONG_AGO_MS = 30 * 24 * 3_600_000;
+
+/**
+ * The streams where a record is a model being listed, which is the only place this question means
+ * what it says.
+ *
+ * Deliberately not every stream. A deprecation notice carries the model's own creation date too,
+ * and a two-year-old model being retired is exactly the news a reader wants; a rule that read
+ * `created` wherever it found it would hold the retirements and call it tidiness.
+ */
+const LISTING_STREAMS = new Set(["api-models", "openrouter", "weights"]);
+
+/**
+ * A model arriving here that its own publisher dated more than a month ago.
+ *
+ * Asked of every source that lists models, which is the half that was missing. The question was
+ * written twice -- once for Hugging Face's router, once for a catalogue importing a back
+ * catalogue -- and each copy was scoped to the surfaces that had embarrassed us so far, so the
+ * gap between them was where the next surface landed. `huggingface:microsoft` fell in it on
+ * 2026-10-04: a listing sorted by `lastModified` was added, fifty repositories per organisation
+ * were read for the first time, and 25 of them became cards. `microsoft/phi-4` was published on
+ * 2024-12-11 and announced here as new.
+ *
+ * The date is the publisher's own, so neither the surface that found the model nor the day this
+ * deployment started asking enters the answer -- which is what makes one rule enough for sources
+ * that do not exist yet. A sighting is the earliest word on a model; a month after publication
+ * nothing here is the earliest word on anything.
+ *
+ * Never asked of a launch, which is the one case where the publisher's own date argues against the
+ * publisher. A provider's API writes `created` when the model was built, not when it became
+ * callable: `glm-5.3-flashx` appeared in zai's own catalogue on 2026-09-18 dated 2026-08-13, and
+ * that gap is the model becoming available, which is the news itself. A sighting is somebody else
+ * noticing a model; a launch is its maker saying it is out, and nothing in the record outranks that.
+ */
+export function wasPublishedLongBeforeWeReadIt(
+  fields: Record<string, unknown> | null | undefined,
+  stream: string,
+  kind: string,
+  detectedAt: string,
+  signal: string | null,
+): boolean {
+  if (kind !== "new" || signal === "launch" || !LISTING_STREAMS.has(stream)) return false;
+  const detected = Date.parse(detectedAt);
+  return Number.isFinite(detected) && createdBefore(fields, detected - LONG_AGO_MS);
 }

@@ -404,9 +404,9 @@ test("weights with nothing to run and weights published long ago stay quiet", ()
   const reasons = suppressed(db);
   expect(reasons["tencent/WeVisDoc-2B"]).toBe("weights_with_nothing_to_run");
   expect(reasons["tencent/Hunyuan-9"]).toBeUndefined();
-  expect(reasons["tencent/HunyuanOCR"]).toBe("weights_published_long_ago");
+  expect(reasons["tencent/HunyuanOCR"]).toBe("published_long_before_we_read_it");
   expect(reasons["tencent/Hunyuan-Fresh"]).toBeUndefined();
-  expect(reasons["zai-org/GLM-4.7-FP8"]).toBe("weights_published_long_ago");
+  expect(reasons["zai-org/GLM-4.7-FP8"]).toBe("published_long_before_we_read_it");
   expect(reasons["zai-org/GLM-5.4"]).toBeUndefined();
   db.close();
 });
@@ -1134,7 +1134,37 @@ test("a catalogue listing a model released four months ago is not a sighting", (
   saveCollection(db, catalogue, [wire], "2026-09-21T18:21:28.890Z");
   prepareDeliveries(db, Date.parse("2026-09-21T18:30:00.000Z"));
 
-  expect(suppressed(db)["mistralai/mistral-medium-3.2"]).toBe("released_long_before_this_listing");
+  // One rule for one question, whatever the surface: the catalogue, the router and the lab's own
+  // organisation all reach `published_long_before_we_read_it` by the record's own date.
+  expect(suppressed(db)["mistralai/mistral-medium-3.2"]).toBe("published_long_before_we_read_it");
+  db.close();
+});
+
+test("a listing that carries no date is still held by a dated record of the same model", () => {
+  const db = openDatabase(":memory:");
+  // The half only `wasReleasedLongBefore` has: this row dates nothing, so the rule above cannot
+  // speak, and what settles it is a record of the same model another catalogue dated in May.
+  const dated: Collection = {
+    source: "openrouter",
+    stream: "openrouter",
+    url: "https://openrouter.ai/api/v1/models",
+    raw: [],
+    records: [{ id: "mistralai/mistral-medium-3.2", name: "Mistral: Medium 3.2", created: "2026-05-01T00:00:00.000Z" }],
+  };
+  saveCollection(db, dated, [wire], "2026-09-19T00:00:00.000Z");
+  const undatedListing: Collection = {
+    source: "litellm",
+    stream: "api-models",
+    url: "https://example.invalid/models",
+    raw: [],
+    records: [{ id: "anchor-0", name: "anchor-0" }],
+  };
+  saveCollection(db, undatedListing, [wire], "2026-09-19T00:10:00.000Z");
+  undatedListing.records.push({ id: "mistral-medium-3.2", name: "mistral-medium-3.2" });
+  saveCollection(db, undatedListing, [wire], "2026-09-21T18:21:28.890Z");
+  prepareDeliveries(db, Date.parse("2026-09-21T18:30:00.000Z"));
+
+  expect(suppressed(db)["mistral-medium-3.2"]).toBe("released_long_before_this_listing");
   db.close();
 });
 
