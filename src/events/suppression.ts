@@ -45,6 +45,7 @@ const SUPPRESSION_REASONS = [
   "the_modality_a_price_list_bills_for",
   "the_launch_it_follows_is_old_news",
   "another_effort_of_the_same_debut",
+  "a_venues_own_hosting_window",
 ] as const;
 
 export type SuppressionReason = (typeof SUPPRESSION_REASONS)[number];
@@ -103,6 +104,8 @@ function suppressionDetail(event: Event, reason: SuppressionReason): string {
       return "The hourly digest showed its first five stories and this one came after them";
     case "left_to_the_daily_recap":
       return "An OpenRouter price, which the daily recap reports as the day's net move";
+    case "a_venues_own_hosting_window":
+      return "The day one venue stops serving a listing, which `lifecycle-deadlines` holds and no card claims as the model's end";
     case "already_out_at_its_maker":
       return "A sighting of a model its maker's own catalogue already lists";
     case "released_long_before_this_listing":

@@ -13,6 +13,16 @@ import { writeTransaction } from "./storage/transaction.js";
 import { text } from "./text.js";
 
 const REMINDER_OFFSETS = [30, 7, 1] as const;
+/**
+ * The streams a deadline can be read out of.
+ *
+ * `deprecations` is the stream the pages exist for. `openrouter` is here because a router's
+ * catalogue carries an expiry date on the listing itself, and on 2026-10-04 it held thirty-three of
+ * them -- Qwen's block five days out, Gemini 2.5 Pro sixteen -- against thirty-four deadlines known
+ * from every deprecation page together, with no overlap at all. The one place that says when a
+ * model stops being reachable is the place that serves it.
+ */
+const LIFECYCLE_STREAMS: readonly string[] = ["deprecations", "openrouter"];
 const DAY_MS = 24 * 3_600_000;
 const LIFECYCLE_URLS: Record<string, string> = {
   "openai-deprecations": "https://platform.openai.com/docs/deprecations",
@@ -34,6 +44,18 @@ type DeadlineCandidate = LifecycleReminderContext & {
   active: boolean;
   canonicalId: string | null;
   updatedAt: string;
+  /**
+   * Whether this deadline is one a reader is counted down to, or one that is only accumulated.
+   *
+   * A deprecation page is the vendor saying a model ends, and thirty days out a reader needs to
+   * hear it. A router's catalogue saying it stops serving a listing is a different sentence with
+   * the same shape: `google/gemini-2.5-pro` leaving OpenRouter on 2026-10-20 is not Gemini 2.5 Pro
+   * dying, and a card that cannot tell those apart says the second and means the first. Thirty-three
+   * of these arrived with the field and none of them is on any deprecation page here, so they are
+   * worth holding and not yet worth sending; `lifecycle-deadlines` shows them with no reminders,
+   * which reads as what it is -- known, and nobody told.
+   */
+  remind: boolean;
 };
 
 function normalizeDate(value: unknown): string | null {
@@ -74,7 +96,7 @@ function isoDates(value: string): string[] {
 }
 
 function candidateFor(event: LifecycleEvent, now: number): DeadlineCandidate[] {
-  if (event.stream !== "deprecations") return [];
+  if (!LIFECYCLE_STREAMS.includes(event.stream)) return [];
   const record = recordFor(event);
   const url = text(record?.url) ?? LIFECYCLE_URLS[event.source] ?? "https://platform.openai.com/docs/deprecations";
   const common = {
@@ -87,12 +109,16 @@ function candidateFor(event: LifecycleEvent, now: number): DeadlineCandidate[] {
     active: event.kind !== "removed" && !isRetraction(record),
     canonicalId: canonicalId(event, record),
     updatedAt: event.detected_at,
+    remind: event.stream === "deprecations",
   };
   const result: DeadlineCandidate[] = [];
   for (const [field, deadlineType] of [
     ["retirement", "retirement"],
     ["deprecated", "deprecation"],
     ["shutdown", "shutdown"],
+    // A catalogue's own word for the day it stops serving a listing. Same deadline, a venue's
+    // rather than a maker's, which is why the candidate it makes does not remind anybody.
+    ["expirationDate", "shutdown"],
   ] as const) {
     const deadline = normalizeDate(record?.[field]);
     if (!deadline) continue;
@@ -126,7 +152,7 @@ function latestEvents(db: Database): LifecycleEvent[] {
   const rows = db
     .query<LifecycleEvent, []>(
       `SELECT id,source,stream,entity_id,kind,before_json,after_json,detected_at,confidence,evidence_type,authority
-       FROM events WHERE stream='deprecations' ORDER BY detected_at,id`,
+       FROM events WHERE stream IN ('deprecations','openrouter') ORDER BY detected_at,id`,
     )
     .all();
   const latest = new Map<string, LifecycleEvent>();
@@ -191,7 +217,7 @@ export function rebuildLifecycleDeadlines(db: Database, now = Date.now()): void 
         candidate.updatedAt,
       );
     if (!row) throw storageFailure(`lifecycle deadline ${candidate.stableKey}`);
-    if (candidate.active) ensureReminders(db, row.id, candidate.deadlineAt);
+    if (candidate.active && candidate.remind) ensureReminders(db, row.id, candidate.deadlineAt);
   }
 
   const latest = latestEvents(db);

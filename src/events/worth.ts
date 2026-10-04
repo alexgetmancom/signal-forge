@@ -54,6 +54,29 @@ export function isMinorBoardMove(event: Event): boolean {
   return !(place === 1 || (was === 1 && place !== 1));
 }
 
+/**
+ * A change that only says when one venue stops serving a listing.
+ *
+ * OpenRouter writes an `expiration_date` on a listing, and on 2026-10-04 thirty-three of its four
+ * hundred and sixty-six carried one -- Qwen's block five days out, Gemini 2.5 Pro sixteen -- none of
+ * them on any deprecation page this service reads. They are worth holding and they are not this
+ * card: `google/gemini-2.5-pro` leaving one router is not Gemini 2.5 Pro ending, and the sentence a
+ * reader would read has no room for the difference. `rebuildLifecycleDeadlines` files it as a
+ * deadline with no reminders, so it accumulates where it can be asked for and interrupts nobody.
+ *
+ * Only when that is the whole of the change. A listing that expires and moves its pointer in one
+ * read is the pointer moving, which speaks.
+ */
+export function isAVenuesHostingWindow(event: Event): boolean {
+  if (event.kind !== "changed" || !event.before_json || !event.after_json) return false;
+  const before = JSON.parse(event.before_json) as Record<string, unknown>;
+  const after = JSON.parse(event.after_json) as Record<string, unknown>;
+  const changed = [...new Set([...Object.keys(before), ...Object.keys(after)])].filter(
+    (key) => canonical(before[key]) !== canonical(after[key]),
+  );
+  return changed.length > 0 && changed.every((key) => key === "expirationDate");
+}
+
 /** Fields that say how a record is addressed and displayed, not what it is. */
 const LABELS = new Set(["name", "model", "modelKey", "slug", "title"]);
 

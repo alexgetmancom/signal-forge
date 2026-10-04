@@ -5,6 +5,7 @@ import { displayTitle } from "../src/events/naming.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import { borrowedFacts } from "../src/events/priceWorth.js";
 import type { Collection, Event, RecordData } from "../src/events/types.js";
+import { isAVenuesHostingWindow } from "../src/events/worth.js";
 import { openDatabase } from "../src/storage/database.js";
 
 const wire: Destination = {
@@ -1285,4 +1286,55 @@ test("a build named for the command line is not news for a reader who runs the d
     "v2.2.0": "release",
   });
   db.close();
+});
+
+/**
+ * A router's expiry date accumulates; its pointer moving speaks.
+ *
+ * Two fields arrived together and only one of them is a card. `expirationDate` is a venue's
+ * hosting window and `lifecycle-deadlines` holds it with no reminders; `aliasTarget` moving is the
+ * maker changing what a caller who asked for no version gets, which until now left no trace at all
+ * -- the alias mirrors its target's numbers, so its only shadow was a price change, and those have
+ * been silenced since 2026-09-22.
+ */
+test("an expiry date alone is held, and a pointer moving is not", () => {
+  const change = (entityId: string, before: unknown, after: unknown) =>
+    ({
+      id: 1,
+      source: "openrouter",
+      stream: "openrouter",
+      entity_id: entityId,
+      kind: "changed",
+      before_json: JSON.stringify(before),
+      after_json: JSON.stringify(after),
+      detected_at: "2026-10-04T07:52:13.233Z",
+    }) as unknown as Event;
+  expect(
+    isAVenuesHostingWindow(
+      change(
+        "google/gemini-2.5-pro",
+        { id: "google/gemini-2.5-pro", context: 1 },
+        { id: "google/gemini-2.5-pro", context: 1, expirationDate: "2026-10-20" },
+      ),
+    ),
+  ).toBe(true);
+  expect(
+    isAVenuesHostingWindow(
+      change(
+        "~openai/gpt-sol-latest",
+        { id: "~openai/gpt-sol-latest", aliasTarget: "openai/gpt-6-astra" },
+        { id: "~openai/gpt-sol-latest", aliasTarget: "openai/gpt-6.1-sol" },
+      ),
+    ),
+  ).toBe(false);
+  // Both in one read is the pointer moving, which is the half a reader is waiting for.
+  expect(
+    isAVenuesHostingWindow(
+      change(
+        "~openai/gpt-sol-latest",
+        { id: "~openai/gpt-sol-latest", aliasTarget: "openai/gpt-6-astra" },
+        { id: "~openai/gpt-sol-latest", aliasTarget: "openai/gpt-6.1-sol", expirationDate: "2026-10-20" },
+      ),
+    ),
+  ).toBe(false);
 });

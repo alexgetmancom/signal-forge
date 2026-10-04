@@ -17,6 +17,19 @@ const openRouterSchema = z.object({
         pricing: z.record(z.string(), z.unknown()),
         architecture: z.object({ input_modalities: z.array(z.string()), output_modalities: z.array(z.string()) }),
         supported_parameters: z.array(z.string()).optional(),
+        /**
+         * Where a moving pointer aims, and when a listing stops being served.
+         *
+         * These two are read where the rest of the model's fields are only evidence, because they
+         * are the only fields here that are about a date rather than a capability. `alias_target`
+         * is the slug `~openai/gpt-sol-latest` currently resolves to -- eighteen of the four
+         * hundred and sixty-six listings on 2026-10-04 -- and the pointer moving is the maker
+         * changing what a caller who asked for no version gets. `expiration_date` is the day the
+         * router stops serving one, thirty-three of them, every one in the future and not one of
+         * them known to any deprecation page this service reads.
+         */
+        alias_target: z.object({ slug: z.string().min(1) }).nullish(),
+        expiration_date: z.string().min(1).nullish(),
       }),
     )
     .min(1),
@@ -43,6 +56,11 @@ export async function collectOpenRouter(request: Fetch = fetch): Promise<Collect
       input: [...m.architecture.input_modalities].sort(),
       output: [...m.architecture.output_modalities].sort(),
       parameters: [...(m.supported_parameters ?? [])].sort(),
+      // Only on the listings that have one, so the field appears on eighteen records and
+      // thirty-three rather than on all of them: a key added to every record at once is a change to
+      // every record, and `addedFieldSignature` would have to recognise four hundred of them.
+      ...(m.alias_target ? { aliasTarget: m.alias_target.slug } : {}),
+      ...(m.expiration_date ? { expirationDate: m.expiration_date } : {}),
     })),
   };
 }

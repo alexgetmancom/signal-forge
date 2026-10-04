@@ -185,6 +185,12 @@ export function evidenceOperations(db: Database, config: AppConfig, _all: () => 
       section: "evidence",
       summary: "Upcoming lifecycle deadlines and their reminder state.",
       startHere: "what is being retired, and has the channel been told",
+      note:
+        "Two kinds of deadline, told apart by `reminders`. A deprecation page is a vendor saying a " +
+        "model ends, and it carries reminder rows at 30, 7 and 1 day. A router's catalogue carrying " +
+        "an expiry date on a listing is a venue saying it stops serving one, which is a different " +
+        "sentence with the same shape, so it accumulates with `reminders: []` and reaches no reader. " +
+        "An empty list is therefore the answer and not a gap: known here, and nobody told.",
       mutates: false,
       agent: true,
       schema: z.object({ days: count(365, 30) }),

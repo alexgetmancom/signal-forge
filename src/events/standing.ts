@@ -37,6 +37,7 @@ import {
   changeSignature,
   isAboutTheCompanyNotAModel,
   isAlreadyListedByItsLab,
+  isAVenuesHostingWindow,
   isLabelOnlyChange,
   isMinorBoardMove,
 } from "./worth.js";
@@ -147,6 +148,7 @@ export function standingReason(db: Database, event: Event, view: BatchView): Sup
   if (isLongPublishedWeights(event)) return "weights_published_long_ago";
   if (isScheduledPricingRotation(event)) return "scheduled_pricing_rotation";
   if (isLeftToTheDailyRecap(event)) return "left_to_the_daily_recap";
+  if (isAVenuesHostingWindow(event)) return "a_venues_own_hosting_window";
   if (isAResellerFillingInAPrice(event)) return "a_reseller_filled_in_a_price";
   if (isPageWithoutAProduct(event)) return "a_page_about_no_product";
   if (isTrendingFromAnUnfollowedLab(event)) return "trending_from_an_unfollowed_lab";

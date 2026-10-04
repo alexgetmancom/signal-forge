@@ -799,6 +799,45 @@ test("OpenRouter evidence is the whole upstream answer, and records use the fiel
   });
 });
 
+/**
+ * The two fields a listing carries about a date rather than a capability.
+ *
+ * `alias_target` is where `~openai/gpt-sol-latest` currently points, and the pointer moving is the
+ * maker changing what a caller who asked for no version gets. Dropped, the move was invisible: the
+ * alias mirrors its target's numbers, so its only shadow was a price change, and `isLeftToTheDailyRecap`
+ * has silenced those since 2026-09-22 -- the last alias event to reach a batch was that day, and
+ * eleven of the ones before it were a colon being added to a name. `expiration_date` is the day the
+ * router stops serving a listing.
+ *
+ * Both appear only on the listings that have one. Eighteen records and thirty-three out of four
+ * hundred and sixty-six on 2026-10-04, against a key added to all of them -- which is a change to
+ * all of them, and leaves `addedFieldSignature` four hundred changes to recognise as one.
+ */
+test("OpenRouter keeps where a pointer aims and when a listing expires, only where upstream has them", async () => {
+  const listing = {
+    id: "vendor/model",
+    name: "Model",
+    created: 1,
+    context_length: 1,
+    pricing: {},
+    architecture: { input_modalities: ["text"], output_modalities: ["text"] },
+  };
+  const collection = await collectOpenRouter(async () =>
+    Response.json({
+      data: [
+        { ...listing, id: "~vendor/model-latest", alias_target: { slug: "vendor/model-2", name: "Model 2" } },
+        { ...listing, id: "vendor/model-2", expiration_date: "2026-12-31" },
+        listing,
+      ],
+    }),
+  );
+  expect(collection.records[0]).toMatchObject({ aliasTarget: "vendor/model-2" });
+  expect(collection.records[1]).toMatchObject({ expirationDate: "2026-12-31" });
+  expect(collection.records[0]).not.toHaveProperty("expirationDate");
+  expect(collection.records[2]).not.toHaveProperty("aliasTarget");
+  expect(collection.records[2]).not.toHaveProperty("expirationDate");
+});
+
 test("Anthropic collects all pages, never treating first page as entire catalog", async () => {
   let n = 0;
   const c = await collectAnthropic(

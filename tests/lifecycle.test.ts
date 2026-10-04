@@ -257,3 +257,45 @@ test("rows of a lifecycle page that share an id stand as one, the last, and the 
     spy.mockRestore();
   }
 });
+
+/**
+ * A router's expiry date is a deadline that accumulates and tells nobody.
+ *
+ * On 2026-10-04 OpenRouter carried thirty-three of these -- Qwen's block five days out, Gemini 2.5
+ * Pro sixteen -- against thirty-four deadlines known from every deprecation page this service reads
+ * together, and the two sets did not overlap anywhere. They are worth holding for that reason
+ * alone. They do not remind, because `google/gemini-2.5-pro` leaving one router is not Gemini 2.5
+ * Pro dying, and the reminder card has one sentence for both.
+ */
+test("a router's expiry date is a deadline with no reminders", () => {
+  const db = openDatabase(":memory:");
+  const listing = (fields: Record<string, unknown> = {}) => ({
+    id: "google/gemini-2.5-pro",
+    name: "Google: Gemini 2.5 Pro",
+    url: "https://openrouter.ai/google/gemini-2.5-pro",
+    context: 1_048_576,
+    ...fields,
+  });
+  const router = (records: Collection["records"]): Collection => ({
+    source: "openrouter",
+    stream: "openrouter",
+    url: "https://openrouter.ai/models",
+    raw: records,
+    records,
+  });
+  saveCollection(db, router([listing()]), [], "2026-09-09T00:00:00.000Z");
+  saveCollection(db, router([listing({ expirationDate: "2026-10-20" })]), [], "2026-09-10T00:01:00.000Z");
+  rebuildLifecycleDeadlines(db, now);
+  const deadline = listLifecycleDeadlines(db, 365, now)[0];
+  expect(deadline).toMatchObject({
+    title: "Google: Gemini 2.5 Pro",
+    source: "openrouter",
+    deadlineType: "shutdown",
+    deadlineAt: "2026-10-20T00:00:00.000Z",
+    active: true,
+  });
+  // Known, and nobody told: the reminder rows are what a card is built from, so an empty list is
+  // the whole of the promise this test makes.
+  expect(deadline?.reminders).toEqual([]);
+  db.close();
+});
