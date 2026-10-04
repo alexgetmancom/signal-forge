@@ -16,7 +16,7 @@ import { isFixesOnlyRelease } from "./buildWorth.js";
 import { anotherEffortLeadsThisDebut, followsAnOldLaunch } from "./debutAge.js";
 import { isAliasRow, isAnotherServing, isAnotherTierOfAListedModel, knownModelNames } from "./nameWorth.js";
 import { isScheduledPricingRotation } from "./oscillation.js";
-import { isPageWithoutAProduct } from "./pageWorth.js";
+import { deeperPagesOfOneTree, isPageWithoutAProduct } from "./pageWorth.js";
 import { isAResellerFillingInAPrice, isLeftToTheDailyRecap, isTheModalityOfAPricedModel } from "./priceWorth.js";
 import { renamedEvents } from "./rename.js";
 import { listsAnotherMakersModel } from "./resellers.js";
@@ -104,6 +104,8 @@ export type BatchView = {
   schema: Set<number>;
   herd: Set<number>;
   longKnown: Set<number>;
+  /** Pages of a tree published in one read that the shallowest address of it already told. */
+  deeperPages: Set<number>;
   known: ReturnType<typeof knownModelNames>;
   listings: ReturnType<typeof listingsBySubject> | null;
   released: ReadonlySet<string>;
@@ -151,6 +153,7 @@ export function standingReason(db: Database, event: Event, view: BatchView): Sup
   if (isAVenuesHostingWindow(event)) return "a_venues_own_hosting_window";
   if (isAResellerFillingInAPrice(event)) return "a_reseller_filled_in_a_price";
   if (isPageWithoutAProduct(event)) return "a_page_about_no_product";
+  if (view.deeperPages.has(event.id)) return "a_deeper_page_of_one_tree";
   if (isTrendingFromAnUnfollowedLab(event)) return "trending_from_an_unfollowed_lab";
   if (
     event.signal === "codename" &&
@@ -214,6 +217,9 @@ export function batchViewOf(db: Database, events: readonly Event[]): BatchView {
     }
   }
 
+  // A sitemap publishes a branch rather than a page, and the root of it is the one card; the same
+  // reading of a batch as `herd`, applied to an address. See deeperPagesOfOneTree.
+  const deeperPages = deeperPagesOfOneTree(events);
   // A sighting from a platform or a registry says where else the model already is; read once
   // per batch, and only when a card will need it.
   const sighted = (event: Event) =>
@@ -246,5 +252,5 @@ export function batchViewOf(db: Database, events: readonly Event[]): BatchView {
   const released = events.some((event) => event.signal === "codename" && event.kind === "new")
     ? releasedSubjects(db)
     : new Set<string>();
-  return { renamed, schema, herd, longKnown, known, listings, released, sighted, elsewhereOf };
+  return { renamed, schema, herd, longKnown, deeperPages, known, listings, released, sighted, elsewhereOf };
 }

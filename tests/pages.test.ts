@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { deeperPagesOfOneTree } from "../src/events/pageWorth.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import { signalClass } from "../src/events/signals.js";
 import type { Event } from "../src/events/types.js";
@@ -293,4 +294,27 @@ test("a location is read through its escapes and its CDATA", () => {
 test("a sitemap index is followed, and its own entries are not pages", () => {
   const index = `<sitemapindex><sitemap><loc>https://www.anthropic.com/sitemap-1.xml</loc></sitemap></sitemapindex>`;
   expect(() => parseSitemap([index], site)).toThrow("listed no usable pages");
+});
+
+const page = (id: number, source: string, entityId: string): Event =>
+  ({ id, source, stream: "pages", kind: "new", entity_id: entityId }) as Event;
+
+test("a tree of documentation published in one read is one card, and a product page deep in it is not", () => {
+  // The 2026-09-30 read of platform.claude.com: the analytics endpoints and every address under
+  // them, which reached a reader as twenty-odd cards and Jev scored as plumbing.
+  const docs = [
+    "/docs/en/api/beta/organization/analytics",
+    "/docs/en/api/beta/organization/analytics/apps",
+    "/docs/en/api/beta/organization/analytics/apps/chat",
+    "/docs/en/api/beta/organization/analytics/apps/chat/projects/list",
+  ].map((path, index) => page(index + 1, "pages:claude-docs", path));
+  const deeper = deeperPagesOfOneTree([
+    ...docs,
+    // The index page and the release under it arrive together, and the release is the news.
+    page(10, "pages:deepmind", "/models"),
+    page(11, "pages:deepmind", "/models/model-cards/gemini-3-8-audio"),
+    // Another vendor's sitemap sharing a prefix shares nothing with this one.
+    page(12, "pages:xai-docs", "/docs/en/api/beta/organization/analytics/usage"),
+  ]);
+  expect([...deeper].sort((one, other) => one - other)).toEqual([2, 3, 4]);
 });

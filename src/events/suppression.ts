@@ -39,6 +39,7 @@ const SUPPRESSION_REASONS = [
   "fixes_only_release",
   "a_reseller_filled_in_a_price",
   "a_page_about_no_product",
+  "a_deeper_page_of_one_tree",
   "trending_from_an_unfollowed_lab",
   "same_release_on_another_page",
   "announced_before_it_was_sighted",
@@ -56,6 +57,8 @@ function suppressionDetail(event: Event, reason: SuppressionReason): string {
       return notificationBlock(event) ?? "Nothing a reader would act on";
     case "scheduled_pricing_rotation":
       return "Base rates rotated onto a tier this record already publishes";
+    case "a_deeper_page_of_one_tree":
+      return "The page this sits under was published in the same read and carries the card";
     case "same_release_on_another_page":
       return "The same GitHub release already reached this destination from another page";
     case "oscillating":
