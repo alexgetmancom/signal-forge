@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { readLatestSnapshot } from "../../storage/snapshots.js";
+import { collectAntigravityModels } from "../antigravity.js";
 import { APP_STORE_APPS, collectAppStore } from "../apps.js";
 import { collectClaude } from "../claude.js";
 import { collectCodexDocs } from "../codex.js";
@@ -133,6 +134,20 @@ function installableSources({ cache }: Pick<SourceContext, "cache">): SourceEntr
 export function webSources({ db, cache }: SourceContext): SourceEntry[] {
   return [
     ...sourcesOfKind(MAKER_WEB_PAGE, [
+      /**
+       * Which model each Antigravity plan may select, as the docs' own Markdown.
+       *
+       * Not a catalogue: it lists Claude and GPT-OSS beside Gemini, because what it answers is what
+       * the IDE lets a tier choose. The withdrawal is the signal -- on 2026-10-04 it carried "Will
+       * be removed on November 2, 2026" against two Claude rows -- so it is read as a page, where a
+       * row leaving is a change, rather than as a catalogue, where it would read as a delisting by
+       * the maker.
+       */
+      {
+        id: "antigravity-models",
+        vendor: "Google",
+        collector: () => collectAntigravityModels(fetch, cache),
+      },
       {
         id: "codex-docs",
         vendor: "OpenAI",

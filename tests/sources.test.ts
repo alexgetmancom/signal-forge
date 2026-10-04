@@ -1215,10 +1215,11 @@ test("Hugging Face listing is append-only and keeps access and origin", async ()
 
 test("Hugging Face explicitly asks for access and modification metadata with its account allowance", async () => {
   const authorizations: (string | null)[] = [];
+  const sorts: (string | null)[] = [];
   const request = async (url: string, init?: RequestInit) => {
     const query = new URL(url).searchParams;
     expect(query.get("author")).toBe("meta-llama");
-    expect(query.get("sort")).toBe("createdAt");
+    sorts.push(query.get("sort"));
     expect(query.get("direction")).toBe("-1");
     expect(query.get("limit")).toBe("50");
     expect(query.getAll("expand[]").sort()).toEqual(
@@ -1253,7 +1254,13 @@ test("Hugging Face explicitly asks for access and modification metadata with its
     modified: "2026-09-11T00:00:00.000Z",
     maker: "meta-llama",
   });
-  expect(authorizations).toEqual(["Bearer test-token"]);
+  expect(authorizations).toEqual(["Bearer test-token", "Bearer test-token"]);
+  // Newest-first answers which repositories appeared and nothing about the ones below the fiftieth;
+  // `google` alone has 1,135, so a card rewritten or a licence changed on an old Gemma is only ever
+  // visible in the second listing.
+  expect(sorts).toEqual(["createdAt", "lastModified"]);
+  // The same repository in both listings is one record, not two.
+  expect(collection.records).toHaveLength(1);
 });
 
 test("Hugging Face cannot label a model public when its listing omitted access metadata", () => {

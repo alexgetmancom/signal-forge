@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import type { HttpCache } from "../../storage/httpCache.js";
+import { collectAntigravityBuild } from "../antigravity.js";
 import { collectBedrock } from "../bedrock.js";
 import {
   collectAnthropic,
@@ -13,6 +14,7 @@ import { collectDeepSeekModels, collectDeepSeekPricing } from "../deepseek.js";
 import type { SourceContext, SourceEntry } from "../definition.js";
 import { collectGoogleSkus } from "../googleSkus.js";
 import { acceptedEtagUnchanged } from "../http.js";
+import { collectKaggleModels } from "../kaggle.js";
 import { type SourceKind, sourcesOfKind } from "../kinds.js";
 import { collectModelsDev, collectTrueFoundryAzure, MODELS_DEV_URL } from "../mirrors.js";
 import { collectClaudeModelCatalog } from "../modelCatalog.js";
@@ -194,6 +196,45 @@ const PACKAGE_REGISTRY: SourceKind = {
   intervalSeconds: 900,
 };
 
+/**
+ * The hubs a maker uploads weights to, which is a different question from what its API will serve.
+ *
+ * Its own function because `cataloguesSources` is at its size budget and this is the part of it
+ * that is about hubs rather than catalogues.
+ */
+function openWeightsSources({ config, cache }: SourceContext): SourceEntry[] {
+  return [
+    ...sourcesOfKind(OPEN_WEIGHTS_ACCOUNT, [
+      /**
+       * Google's Kaggle cards, through the API its published SDK dispatches to.
+       *
+       * Hourly rather than every half hour because nothing here is ever new: on 2026-10-04 the
+       * owner's most recent card was a month old and its two proprietary entries, `gemini-3-pro-api`
+       * and `gemini-3-flash-api`, were ten months behind the API catalogue. Read for coverage of
+       * the open side, never as an early sighting; ../kaggle.ts carries the measurement.
+       */
+      {
+        id: "kaggle:google",
+        vendor: "Google",
+        intervalSeconds: 3600,
+        // 4.2 MB of card descriptions and 1,460 framework variants, measured 2026-10-04.
+        heavy: true,
+        pace: { group: "api.kaggle.com", seconds: 10 },
+        collector: () => collectKaggleModels("google", fetch, cache),
+      },
+    ]),
+    ...sourcesOfKind(
+      OPEN_WEIGHTS_ACCOUNT,
+      HF_AUTHORS.map((author, index) => ({
+        id: `huggingface:${author}`,
+        // A lab's weights often land before its API lists them; the rest are read at the old pace.
+        intervalSeconds: HF_LABS.has(author) ? 300 + index * 5 : 1800 + index * 90,
+        collector: () => collectHuggingFace(author, config.HF_TOKEN, fetch, cache),
+      })),
+    ),
+  ];
+}
+
 /** Model catalogues: vendor APIs, routers, resellers, package registries and open-weight hubs. */
 export function cataloguesSources({ db, config, cache }: SourceContext): SourceEntry[] {
   /**
@@ -357,15 +398,13 @@ export function cataloguesSources({ db, config, cache }: SourceContext): SourceE
         intervalSeconds: 900 + index * 45,
         collector: () => collectPypi(name, fetch, cache),
       })),
+      /**
+       * What the Antigravity CLI's own updater offers, which is the build before the changelog
+       * says so: 1.2.16 in both manifests on 2026-10-04 against 1.2.14 in the published changelog.
+       * Two reads of 303 bytes, so it is paced with the registries rather than given a budget.
+       */
+      { id: "antigravity-cli-build", vendor: "Google", collector: () => collectAntigravityBuild(fetch, cache) },
     ]),
-    ...sourcesOfKind(
-      OPEN_WEIGHTS_ACCOUNT,
-      HF_AUTHORS.map((author, index) => ({
-        id: `huggingface:${author}`,
-        // A lab's weights often land before its API lists them; the rest are read at the old pace.
-        intervalSeconds: HF_LABS.has(author) ? 300 + index * 5 : 1800 + index * 90,
-        collector: () => collectHuggingFace(author, config.HF_TOKEN, fetch, cache),
-      })),
-    ),
+    ...openWeightsSources({ db, config, cache }),
   ];
 }

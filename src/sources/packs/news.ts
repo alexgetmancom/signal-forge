@@ -1,3 +1,4 @@
+import { collectAntigravityChangelog } from "../antigravity.js";
 import { collectCursorChangelog } from "../community.js";
 import { collectDeepSeekUpdates } from "../deepseek.js";
 import type { SourceContext, SourceEntry } from "../definition.js";
@@ -8,6 +9,8 @@ import {
   collectGeminiAppBlog,
   collectGeminiModelsBlog,
   collectGoogleAiBlog,
+  collectGoogleBlogIndia,
+  collectGoogleBlogTaiwan,
   collectHuggingFaceBlogFeed,
   collectNvidiaDeveloperBlog,
   collectOpenAIAlignment,
@@ -16,6 +19,7 @@ import {
   OPENAI_CODEX_CHANGELOG_FEED_URL,
 } from "../feeds.js";
 import { acceptedEtagUnchanged } from "../http.js";
+import { collectJulesChangelog } from "../jules.js";
 import { type SourceKind, sourcesOfKind } from "../kinds.js";
 import { collectLabPages, LAB_PAGE_SOURCES } from "../labPages.js";
 import {
@@ -177,6 +181,15 @@ function labBlogSources({ cache }: SourceContext): SourceEntry[] {
       collector: () => collectGeminiAppBlog(fetch, cache),
     },
     { id: "deepmind-blog", vendor: "Google", collector: () => collectDeepMindBlog(fetch, cache) },
+    /**
+     * Two regional blogs, kept only until they have answered whether a region publishes first.
+     * See the note in ../feeds.ts: the Indian Argon article claims a `datePublished` twelve hours
+     * before the announcement and a `dateModified` a day after it, and no read of ours was early
+     * enough to say which of those was the page actually appearing. These two record our own
+     * sighting against the publisher's, and `lead-time` settles it over the next announcements.
+     */
+    { id: "google-blog-in", vendor: "Google", collector: () => collectGoogleBlogIndia(fetch, cache) },
+    { id: "google-blog-tw", vendor: "Google", collector: () => collectGoogleBlogTaiwan(fetch, cache) },
     {
       id: "openai-alignment",
       vendor: "OpenAI",
@@ -211,6 +224,27 @@ function releaseNoteSources({ db, config, cache }: SourceContext): SourceEntry[]
       collector: () => collectOpenAIChatGPTReleaseNotes(fetch, cache, { db, config }),
     },
     { id: "gemini-api-changelog", vendor: "Google", collector: () => collectGeminiApiChangelog(fetch, cache) },
+    /**
+     * Every Antigravity surface at once -- app, CLI, SDK and IDE -- as the Markdown the docs serve,
+     * so no HTML is parsed for it. The CLI half is the coding client Google is moving to; the
+     * manifest in the catalogues pack is faster, and this is what the release says.
+     */
+    {
+      id: "antigravity-changelog",
+      vendor: "Google",
+      collector: () => collectAntigravityChangelog(fetch, cache),
+    },
+    /**
+     * Jules, read as a lagging signal and documented as one in ../jules.ts: it says a model has
+     * reached the coding product, months after the catalogue first named it. Hourly, because in
+     * nine months it has moved model twice.
+     */
+    {
+      id: "jules-changelog",
+      vendor: "Google",
+      intervalSeconds: 3600,
+      collector: () => collectJulesChangelog(fetch, cache),
+    },
     { id: "xai-release-notes", vendor: "xAI", collector: () => collectXaiReleaseNotes(fetch, cache) },
     {
       id: "mistral-release-notes",

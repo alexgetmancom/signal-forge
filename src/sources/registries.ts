@@ -88,14 +88,28 @@ export const HF_LABS = new Set([
   "stepfun-ai",
 ]);
 
-export function parseHuggingFace(payload: string, author: string): Collection {
-  const models = hfModels.parse(JSON.parse(payload)).filter((model) => !model.private);
+/**
+ * One owner's repositories, from however many listings were asked for.
+ *
+ * Two are: newest-first and recently-changed-first. `createdAt` alone answers which repositories
+ * appeared, and nothing at all about the 1,085 below the fiftieth -- a card rewritten, a licence
+ * changed or a repository gated on an old Gemma is invisible to it, and `google` alone has 1,135.
+ * The second listing is the same request sorted by `lastModified`, which is exactly the window the
+ * first one cannot see. They overlap, so a repository in both is kept once.
+ */
+export function parseHuggingFace(payloads: string | readonly string[], author: string): Collection {
+  const pages = typeof payloads === "string" ? [payloads] : payloads;
+  const seen = new Map<string, z.infer<typeof hfModels>[number]>();
+  for (const page of pages)
+    for (const model of hfModels.parse(JSON.parse(page)).filter((model) => !model.private))
+      if (!seen.has(model.id)) seen.set(model.id, model);
+  const models = [...seen.values()];
   if (!models.length) throw new SourceError("empty", `Hugging Face catalogue for ${author} has no public models`);
   return {
     source: `huggingface:${author}`,
     stream: "weights",
     url: `https://huggingface.co/${author}`,
-    raw: payload,
+    raw: pages.join("\n"),
     // Repositories are only ever added here; a listing that omits one is a paging artefact, not a
     // deletion, and treating it as a removal would invent news.
     records: models.map((model) => ({
@@ -138,9 +152,13 @@ export async function collectHuggingFace(
   ]
     .map((field) => `expand[]=${field}`)
     .join("&");
-  const url = `https://huggingface.co/api/models?author=${encodeURIComponent(author)}&sort=createdAt&direction=-1&limit=50&${expand}`;
   const headers = { accept: "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) };
-  return parseHuggingFace(await fetchText(url, headers, request, undefined, cache), author);
+  const listing = (sort: "createdAt" | "lastModified") =>
+    `https://huggingface.co/api/models?author=${encodeURIComponent(author)}&sort=${sort}&direction=-1&limit=50&${expand}`;
+  const pages: string[] = [];
+  for (const sort of ["createdAt", "lastModified"] as const)
+    pages.push(await fetchText(listing(sort), headers, request, undefined, cache));
+  return parseHuggingFace(pages, author);
 }
 
 const routerSchema = z.object({

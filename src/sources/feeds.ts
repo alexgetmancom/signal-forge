@@ -119,7 +119,7 @@ export function calendarDate(value: string): Date | null {
   return /\d{1,2}:\d{2}/.test(normalized) ? date : written;
 }
 
-function publishedDate(value: string): string {
+export function publishedDate(value: string): string {
   const date = calendarDate(value);
   if (!date) throw new SourceError("schema", "Official feed item has invalid publication date");
   return date.toISOString();
@@ -207,7 +207,7 @@ function feedRecord(unknownItem: unknown, options: FeedOptions): RecordData & { 
   } satisfies RecordData;
 }
 
-function markdownText(value: string): string {
+export function markdownText(value: string): string {
   return value
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/!\[[^\]]*\]\([^)]*\)/g, " ")
@@ -324,6 +324,44 @@ export async function collectGeminiAppBlog(request: Fetch = fetch, cache?: HttpC
     source: "gemini-app-blog",
     maker: "Google",
     url: GEMINI_APP_BLOG_URL,
+  });
+}
+
+/**
+ * Two of Google's regional blogs, read as a measurement rather than as coverage.
+ *
+ * Nine regional Argon articles disagreed with the announcement and with each other about when they
+ * were published: the Indian one states `datePublished=2026-09-30T08:00:00Z`, twelve hours before
+ * the main post, while its own `dateModified` is 2026-10-01T06:48Z -- later than both -- and the
+ * MENA and Taiwan ones carry a `dateModified` *earlier* than the `datePublished` they announce. A
+ * publisher's date is a field in a CMS, not the moment a page began answering, and no read of ours
+ * was early enough to settle it: our first sight of Argon was 2026-09-30T20:05Z, after every one of
+ * those timestamps.
+ *
+ * So these two exist to answer that question with our own observations, over the next few
+ * announcements, and are expected to be removed once they have. Nothing here corrects a publisher's
+ * date towards our own or the other way: `published` is what the feed says, and when we saw it is
+ * ours, and `lead-time` compares them. The pair is one region claiming to be early and one claiming
+ * to be late, because a single region that happened to be first proves nothing.
+ */
+const GOOGLE_BLOG_INDIA_FEED_URL = "https://blog.google/intl/en-in/rss/";
+const GOOGLE_BLOG_INDIA_URL = "https://blog.google/intl/en-in/";
+const GOOGLE_BLOG_TAIWAN_FEED_URL = "https://blog.google/intl/zh-tw/rss/";
+const GOOGLE_BLOG_TAIWAN_URL = "https://blog.google/intl/zh-tw/";
+
+export async function collectGoogleBlogIndia(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
+  return parseOfficialFeed(await fetchText(GOOGLE_BLOG_INDIA_FEED_URL, {}, request, undefined, cache), {
+    source: "google-blog-in",
+    maker: "Google",
+    url: GOOGLE_BLOG_INDIA_URL,
+  });
+}
+
+export async function collectGoogleBlogTaiwan(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
+  return parseOfficialFeed(await fetchText(GOOGLE_BLOG_TAIWAN_FEED_URL, {}, request, undefined, cache), {
+    source: "google-blog-tw",
+    maker: "Google",
+    url: GOOGLE_BLOG_TAIWAN_URL,
   });
 }
 
