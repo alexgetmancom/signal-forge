@@ -1156,39 +1156,44 @@ test("Codex documentation uses official Markdown and ignores index boilerplate",
 test("Codex PR monitor suppresses outsiders and distinguishes merges from releases", async () => {
   const { collectGithubPulls } = await import("../src/sources/github.js");
   const db = openDatabase(":memory:");
-  const config = loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname });
+  const config = loadConfig({
+    CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname,
+    GITHUB_TOKEN: "test-token",
+  });
   const watch = config.github[0];
   if (!watch) throw new Error("Missing fixture watch");
   const pr = {
     number: 9,
     title: "New tool",
-    html_url: "https://github.com/openai/codex/pull/9",
+    url: "https://github.com/openai/codex/pull/9",
     body: "proposal",
-    state: "open",
-    draft: false,
-    merged_at: null as string | null,
-    updated_at: "2026-09-08T01:00:00.000Z",
-    author_association: "MEMBER",
-    user: { login: "maintainer" },
-    head: { sha: "a".repeat(40) },
+    state: "OPEN",
+    isDraft: false,
+    mergedAt: null as string | null,
+    updatedAt: "2026-09-08T01:00:00.000Z",
+    authorAssociation: "MEMBER",
+    author: { __typename: "User", login: "maintainer" },
+    headRefOid: "a".repeat(40),
   };
   const request = async (url: string) =>
     Response.json(
       url.includes("/files")
         ? [{ filename: "docs/new.md", status: "added", additions: 1, deletions: 0, patch: "+new feature" }]
-        : [pr],
+        : {
+            data: { repository: { pullRequests: { nodes: [pr], pageInfo: { hasNextPage: false, endCursor: null } } } },
+          },
     );
   saveCollection(db, await collectGithubPulls(db, config, watch, request), []);
-  pr.updated_at = "2026-09-08T02:00:00.000Z";
-  pr.state = "closed";
-  pr.merged_at = pr.updated_at;
+  pr.updatedAt = "2026-09-08T02:00:00.000Z";
+  pr.state = "MERGED";
+  pr.mergedAt = pr.updatedAt;
   const merged = await collectGithubPulls(db, config, watch, request);
   expect(merged.records[0]?.stage).toContain("not a release yet");
   expect(merged.silentIds).toEqual([]);
   saveCollection(db, merged, []);
   pr.number = 10;
-  pr.author_association = "NONE";
-  pr.updated_at = "2026-09-08T03:00:00.000Z";
+  pr.authorAssociation = "NONE";
+  pr.updatedAt = "2026-09-08T03:00:00.000Z";
   expect((await collectGithubPulls(db, config, watch, request)).silentIds).toContain("10");
   db.close();
 });

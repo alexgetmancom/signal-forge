@@ -7,13 +7,14 @@ import { classifyFailure, type Diagnosis } from "./failureDiagnosis.js";
 import { log } from "./logger.js";
 import { lockHolder, withActionLock } from "./runtime/actionLock.js";
 import { measure } from "./runtime/metricRecording.js";
-import { emptyTraffic, mergeTraffic, type Traffic, withTraffic } from "./runtime/traffic.js";
+import { emptyTraffic, withTraffic } from "./runtime/traffic.js";
 import { SourceHttpError } from "./sources/http.js";
 import { type SourceDefinition, sourceJobs } from "./sources/registry.js";
 import { collectInSubprocess } from "./sources/subprocess.js";
-import { addCollectionToDay, addPeakToDay, addTrafficToDay } from "./storage/collectionDays.js";
+import { addCollectionToDay, addPeakToDay } from "./storage/collectionDays.js";
 import { recordFailureEvidence } from "./storage/failureEvidence.js";
 import { recordSourceShape } from "./storage/sourceShapes.js";
+import { recordTraffic } from "./storage/sourceTraffic.js";
 import { writeTransaction } from "./storage/transaction.js";
 import { rememberStoryProjection } from "./stories.js";
 
@@ -233,52 +234,18 @@ async function collectSource(
   job: SourceDefinition,
   paced: (at: number) => void = () => {},
 ): Promise<SourceOutcome> {
-  // Declared out here because a failed attempt's traffic is worth as much as a successful one's:
-  // a source that downloads eight megabytes and then throws is paying the whole cost and
-  // producing nothing, and the failure path below records it against the row it just wrote.
-  let traffic: Traffic = emptyTraffic();
+  const traffic = emptyTraffic();
   try {
-    // A heavy source is collected in a child process: what parsing a large body costs is
-    // never given back to the operating system, so it is spent somewhere that ends. See
-    // src/sources/subprocess.ts.
-    //
-    // Not wrapped in `measure` here, however tempting: the registry already wraps every
-    // definition's collector under `source.collect:<id>`, and the child builds that same
-    // registry against the same database file, so a heavy collection is timed by the child and
-    // a light one in this process. Timing it here as well recorded each collection twice under
-    // one name, which inflates the call count and the total of the very report that is supposed
-    // to catch a collector getting slower.
-    // Upstream has not moved, so there is nothing to download and nothing to store. Timed under
-    // its own name: this is the read that now happens every few minutes, and `timings` should be
-    // able to say what asking that often costs.
-    // The cheap probe is counted as well, and separately from the collection it skipped. It is the
-    // read that happens every few minutes, so it is most of some sources' request count and almost
-    // none of their bytes, and a report that left it out would say a bundle source asks upstream
-    // once an hour when it asks twenty times.
-    const probe = await withTraffic(() => markedUnchanged(db, job));
-    traffic = probe.traffic;
-    const unchangedAt = probe.value;
+    const unchangedAt = await withTraffic(traffic, () => markedUnchanged(db, job));
     if (unchangedAt) {
+      recordTraffic(db, job.id, unchangedAt, traffic);
       paced(Date.parse(unchangedAt));
-      // Nothing was stored, so there is no attempt row to stamp; `markedUnchanged` marks the
-      // source checked and the probe's own cost is carried by the day's other attempts. Said
-      // plainly here rather than left as an omission someone has to rediscover.
       return { source: job.id, status: "unchanged", at: unchangedAt };
     }
-    // Everything the collector asks of the network is counted inside this, whichever lane it ran
-    // in: a light source counts in this process, and a heavy one counts in its child and sends the
-    // tally back beside its peak. Outside it, `countRequest` finds no tally and adds to nothing,
-    // which is what keeps a delivery's own requests out of a source's total.
-    const { value: lane, traffic: parentTraffic } = await withTraffic(async () => {
-      const child = job.heavy ? await collectInSubprocess(db, config, job.id) : null;
-      return { child, collected: child ? child.collection : await job.collector() };
-    });
-    const { child, collected } = lane;
-    // A heavy collector made its requests in the child, so the parent's own tally holds only what
-    // this process asked for; the two are added rather than one replacing the other, because a
-    // `nothingNew` probe and a redirect walked here are this process's traffic and still the
-    // source's.
-    traffic = mergeTraffic(traffic, mergeTraffic(parentTraffic, child?.traffic ?? emptyTraffic()));
+    // The registry times collection in the process that actually runs it. The held tally keeps
+    // the watch and collection together, including the child's counts before a failure is raised.
+    const child = job.heavy ? await collectInSubprocess(db, config, job.id, traffic) : null;
+    const collected = child ? child.collection : await withTraffic(traffic, () => job.collector());
     const collection = underContract(job, collected);
     const checkedAt = new Date().toISOString();
     const destinations = job.mode === "shadow" ? [] : config.destinations;
@@ -318,7 +285,7 @@ async function collectSource(
     );
     // Past the commit, so the cached projection describes stories that are actually stored.
     if (saved.projection) rememberStoryProjection(db, saved.projection);
-    addTrafficToDay(db, job.id, checkedAt, "success", traffic);
+    recordTraffic(db, job.id, checkedAt, traffic, collection.records.length, saved.events);
     const events = saved.events;
     paced(Date.parse(checkedAt));
     log("info", "Source collected", { source: job.id, records: collection.records.length, events });
@@ -332,7 +299,7 @@ async function collectSource(
     const checkedAt = new Date().toISOString();
     const retryAt = error instanceof SourceHttpError ? error.retryAt : null;
     recordFailedAttempt(db, job, diagnosis, checkedAt, retryAt);
-    addTrafficToDay(db, job.id, checkedAt, diagnosis.kind, traffic);
+    recordTraffic(db, job.id, checkedAt, traffic);
     // A refused credential is not a link that dropped: the backoff would keep asking, and the
     // answer would keep being no. Stop every source carrying that credential until it is
     // replaced, and say which credential it was rather than which collector noticed.

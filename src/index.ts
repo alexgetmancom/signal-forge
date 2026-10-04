@@ -36,6 +36,7 @@ import {
   pruneSnapshots,
   pruneSourceCollectionMetrics,
   pruneSourceShapes,
+  pruneSourceTraffic,
 } from "./storage/retention.js";
 import { writeTransaction } from "./storage/transaction.js";
 import { rebuildStories, rememberStoryProjection } from "./stories.js";
@@ -135,6 +136,7 @@ supervisor.register(
     // recorded, so a cycle that folds first is a cycle that can also shrink the raw table.
     measure(db, "status.fold:collection-days", () => foldCollectionDays(db));
     measure(db, "status.prune:collection-metrics", () => pruneSourceCollectionMetrics(db));
+    measure(db, "status.prune:traffic", () => pruneSourceTraffic(db));
     measure(db, "status.prune:journal", () => pruneOperatorJournal(db));
     measure(db, "status.prune:failure-evidence", () => pruneFailureEvidence(db));
     measure(db, "status.prune:source-shapes", () => pruneSourceShapes(db));

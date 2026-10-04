@@ -60,6 +60,11 @@ const INTAKE_QUERIES: readonly HotQuery[] = [
     params: ["2026-01-01"],
   },
   {
+    name: "source traffic in a window",
+    sql: "SELECT source, SUM(requests), SUM(bytes_decoded) FROM source_traffic_days WHERE day >= ? GROUP BY source",
+    params: ["2026-01-01"],
+  },
+  {
     // The read that proved a plan is not a cost. This is `timings`' own totals, correlated subquery
     // and all, and it is here as the whole statement rather than as a representative fragment
     // because the fragment is what was here before and it is the fragment that was fast. Written

@@ -6,7 +6,7 @@ import type { AppConfig } from "../config.js";
 import type { Collection } from "../events/types.js";
 import { type FailureKind, SourceError } from "../failure.js";
 import { measure } from "../runtime/metricRecording.js";
-import { emptyTraffic, readTraffic, type Traffic } from "../runtime/traffic.js";
+import { mergeTraffic, readTraffic, type Traffic } from "../runtime/traffic.js";
 import { SourceHttpError } from "./http.js";
 
 /**
@@ -43,14 +43,14 @@ type WireFailure =
  * The child's high-water mark is written beside the answer after the answer itself is serialized.
  * Including it in this JSON would measure the peak before the largest write of the attempt.
  *
- * A failed attempt's cost is left to the child's own log line rather than smuggled out through the
+ * A failed attempt's peak is left to the child's own log line rather than smuggled out through the
  * error: the failure is raised as the class the poller catches, and hanging a number off that class
  * would make every `catch` in the chain a place where a number can be lost.
  */
 type WireAnswer = { ok: true; collection: Collection } | { ok: false; failure: WireFailure };
 
 /** One collection by a child: what it found, and what the process that found it cost. */
-export type ChildCollection = { collection: Collection; peakRssMb: number | null; traffic: Traffic };
+export type ChildCollection = { collection: Collection; peakRssMb: number | null };
 
 /** What the child writes down about a failure, in the child. */
 export function toWire(error: unknown): WireFailure {
@@ -110,7 +110,9 @@ export type ChildRun = {
 };
 
 /** The result of one collection, read from a child's answer and raised as the child raised it. */
-export function readAnswer(id: string, run: ChildRun): ChildCollection {
+export function readAnswer(id: string, run: ChildRun, traffic: Traffic): ChildCollection {
+  const childTraffic = run.traffic !== null ? readTraffic(run.traffic) : null;
+  if (childTraffic) Object.assign(traffic, mergeTraffic(traffic, childTraffic));
   if (run.timedOut)
     throw new SourceError("network", `${id} did not finish within ${Math.round(TIMEOUT_MS / 1000)}s and was stopped`);
   if (run.answer === null) {
@@ -128,14 +130,16 @@ export function readAnswer(id: string, run: ChildRun): ChildCollection {
   return {
     collection: parsed.collection,
     peakRssMb: run.peakRssMb !== null && Number.isFinite(run.peakRssMb) && run.peakRssMb > 0 ? run.peakRssMb : null,
-    // An unreadable or missing tally is no traffic rather than a thrown collection: a number for
-    // a report must never be the reason an observation is lost.
-    traffic: (run.traffic !== null ? readTraffic(run.traffic) : null) ?? emptyTraffic(),
   };
 }
 
 /** Spawns the child, then reads and decodes its answer synchronously in the parent. */
-export async function collectInSubprocess(db: Database, config: AppConfig, id: string): Promise<ChildCollection> {
+export async function collectInSubprocess(
+  db: Database,
+  config: AppConfig,
+  id: string,
+  traffic: Traffic,
+): Promise<ChildCollection> {
   const path = join(tmpdir(), `signal-forge-${id.replaceAll(/[^a-z0-9]+/gi, "-")}-${Bun.nanoseconds()}.json`);
   // The child's own logging goes to stdout, so the answer cannot: it travels through a file the
   // parent names, which keeps the two channels from being spliced together by a stray log line.
@@ -156,13 +160,17 @@ export async function collectInSubprocess(db: Database, config: AppConfig, id: s
     // raise that process's peak even though the collector ran elsewhere. Both are synchronous so
     // no other JavaScript operation can be charged for the same growth inside this section.
     return measure(db, `source.decode:${id}`, () =>
-      readAnswer(id, {
-        answer: !timedOut && existsSync(path) ? readFileSync(path, "utf8") : null,
-        peakRssMb: !timedOut && existsSync(`${path}.peak`) ? Number(readFileSync(`${path}.peak`, "utf8")) : null,
-        traffic: !timedOut && existsSync(`${path}.traffic`) ? readFileSync(`${path}.traffic`, "utf8") : null,
-        code,
-        timedOut,
-      }),
+      readAnswer(
+        id,
+        {
+          answer: !timedOut && existsSync(path) ? readFileSync(path, "utf8") : null,
+          peakRssMb: !timedOut && existsSync(`${path}.peak`) ? Number(readFileSync(`${path}.peak`, "utf8")) : null,
+          traffic: existsSync(`${path}.traffic`) ? readFileSync(`${path}.traffic`, "utf8") : null,
+          code,
+          timedOut,
+        },
+        traffic,
+      ),
     );
   } finally {
     clearTimeout(timer);

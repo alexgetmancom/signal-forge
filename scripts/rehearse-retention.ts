@@ -30,6 +30,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { foldCodeMetricDays } from "../src/runtime/metricFold.js";
 import { foldCollectionDays } from "../src/storage/collectionDays.js";
+import { runMigrations } from "../src/storage/migrationRunner.js";
 import { repackStoredPayloads } from "../src/storage/repack.js";
 import {
   expireSnapshotBodies,
@@ -39,6 +40,7 @@ import {
   pruneSnapshots,
   pruneSourceCollectionMetrics,
   pruneSourceShapes,
+  pruneSourceTraffic,
 } from "../src/storage/retention.js";
 
 const source = Bun.argv[2];
@@ -66,6 +68,7 @@ const SWEEPS: readonly { name: string; run: (db: Database) => number }[] = [
   { name: "prune snapshots", run: (db) => pruneSnapshots(db) },
   { name: "fold collection days", run: (db) => foldCollectionDays(db) },
   { name: "prune raw collection attempts", run: (db) => pruneSourceCollectionMetrics(db) },
+  { name: "prune traffic days", run: (db) => pruneSourceTraffic(db) },
   { name: "prune failure evidence", run: (db) => pruneFailureEvidence(db) },
   { name: "prune operator journal", run: (db) => pruneOperatorJournal(db) },
   { name: "prune source shapes", run: (db) => pruneSourceShapes(db) },
@@ -97,6 +100,7 @@ try {
   // in WAL mode, and two live connections to one deadlock. One connection does all of it.
   const db = new Database(copy, { create: false, strict: true });
   db.exec("PRAGMA foreign_keys=ON;");
+  runMigrations(db);
 
   const opening = pages(db);
   const swept: { sweep: string; rows: number; freedBytes: number; ms: number }[] = [];

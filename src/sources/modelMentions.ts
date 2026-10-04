@@ -5,7 +5,7 @@ import type { Collection, RecordData, SourceAuthority } from "../events/types.js
 import { httpFailure, SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { log } from "../logger.js";
-import { fetchResponse, fetchText, SourceHttpError } from "./http.js";
+import { fetchResponse, fetchText, readResponseStream, SourceHttpError } from "./http.js";
 import { judgeMentions, type MentionStage, olderThanKnown, stageKnown, stageRecordId } from "./mentionStage.js";
 import type { Vendor } from "./vendors.js";
 
@@ -414,7 +414,7 @@ async function firstReadNames(
   // cursor stays unset. It used to end as an empty read, and a name in the code that day was lost.
   const response = await fetchResponse(`https://api.github.com/repos/${repo}/tarball/${sha}`, { headers }, request);
   if (!response.ok) throw httpFailure(`HTTP ${response.status}`, response.status);
-  const body = await response.arrayBuffer();
+  const body = await new Response(readResponseStream(response)).arrayBuffer();
   if (body.byteLength > ARCHIVE_LIMIT) {
     log("warn", "Repository too large to read whole; watched from its commits", { repo });
     return { records: [], scanned: 0 };

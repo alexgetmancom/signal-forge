@@ -83,6 +83,11 @@ test("quotas are read for the key's project and folded into one record per base 
   );
   expect(seen[1]).toEndWith("Bearer token-1");
   expect(seen[2]).toContain("pageToken=p2");
+  for (const line of seen.slice(1)) {
+    const params = new URL(line.split(" ")[1] ?? "").searchParams;
+    expect(params.get("prettyPrint")).toBe("false");
+    expect(params.get("fields")).toBe("quotaInfos(quotaId,dimensionsInfos(dimensions,details(value))),nextPageToken");
+  }
   expect(seen.join("\n")).not.toContain("PRIVATE KEY");
   expect(collection.records).toEqual([
     { id: "grok-4.6", name: "grok-4.6", maker: "Vertex AI", limits: { RequestsPerMinute: 60 } },
@@ -123,8 +128,16 @@ test("Model Garden is read for every publisher and ids carry the publisher", asy
     });
   };
   const collection = await collectVertexModelGarden(config, request);
+  for (const url of seen.filter((url) => url !== account.token_uri)) {
+    expect(new URL(url).searchParams.get("prettyPrint")).toBe("false");
+    expect(new URL(url).searchParams.get("fields")).toBe("publisherModels(name,versionId,launchStage),nextPageToken");
+  }
   expect(collection.records).toHaveLength(MODEL_GARDEN_PUBLISHERS.length + 1);
-  expect(seen.some((url) => url.includes("publishers/google/models?pageSize=200&pageToken=g2"))).toBe(true);
+  expect(
+    seen.some(
+      (url) => url.includes("publishers/google/models?") && new URL(url).searchParams.get("pageToken") === "g2",
+    ),
+  ).toBe(true);
   expect(collection.records).toContainEqual({
     id: "xai/xai-model",
     name: "xai-model",
@@ -135,7 +148,7 @@ test("Model Garden is read for every publisher and ids carry the publisher", asy
   });
 });
 
-test("four publishers run together, and full evidence stays in publisher order when replies arrive backwards", async () => {
+test("four publishers run together, and requested evidence stays in publisher order when replies arrive backwards", async () => {
   const first = MODEL_GARDEN_PUBLISHERS.slice(0, 4);
   const gates = new Map(first.map((publisher) => [publisher, Promise.withResolvers<Response>()]));
   const finished = new Map(first.map((publisher) => [publisher, Promise.withResolvers<void>()]));

@@ -1,7 +1,7 @@
 import type { Collection, RecordData } from "../events/types.js";
 import { httpFailure, SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
-import { fetchResponse } from "./http.js";
+import { fetchResponse, readResponseBytes } from "./http.js";
 import type { Vendor } from "./vendors.js";
 
 /**
@@ -90,7 +90,7 @@ export async function collectAptRepository(repository: AptRepository, request: F
   const url = `${repository.base}/dists/stable/main/binary-amd64/Packages`;
   const response = await fetchResponse(url, {}, request);
   if (!response.ok) throw httpFailure(`${repository.source}: HTTP ${response.status}`, response.status);
-  const index = await response.text();
+  const index = (await readResponseBytes(response)).toString("utf8");
   const published = stanzas(index).filter((fields) => fields.Package === repository.package);
   if (!published.length)
     throw new SourceError("missing-content", `${repository.source}: the index names no ${repository.package}`);
@@ -149,7 +149,7 @@ export async function collectClaudeDownloads(request: Fetch = fetch): Promise<Co
       await response.body?.cancel();
       continue;
     }
-    const version = manifestVersion.exec(await response.text())?.[1];
+    const version = manifestVersion.exec((await readResponseBytes(response)).toString("utf8"))?.[1];
     if (!version) continue;
     records.push({ id: product, name: product, maker: "Anthropic", version, url: "https://claude.com/download" });
   }

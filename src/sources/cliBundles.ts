@@ -3,7 +3,7 @@ import { httpFailure, SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { type BundleMemory, forgetful } from "./bundleMemory.js";
 import { scanGzipStream } from "./gzipScan.js";
-import { fetchResponse } from "./http.js";
+import { fetchResponse, readResponseStream } from "./http.js";
 import { publishedVersion } from "./npmVersion.js";
 import type { Vendor } from "./vendors.js";
 
@@ -108,7 +108,7 @@ export async function collectCliBundle(
   );
   if (!response.ok) throw httpFailure(`${bundle.package}: HTTP ${response.status}`, response.status);
   if (!response.body) throw new SourceError("protocol", `${bundle.package}: no body`);
-  const ids = await bundleIdsFromStream(response.body, bundle.pattern);
+  const ids = await bundleIdsFromStream(readResponseStream(response), bundle.pattern);
   if (ids.length < bundle.floor)
     throw new SourceError("missing-content", `${bundle.package} names ${ids.length} models`);
   memory.remember(version);

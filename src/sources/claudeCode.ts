@@ -3,7 +3,7 @@ import { httpFailure, SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { type BundleMemory, forgetful } from "./bundleMemory.js";
 import { scanGzipStream } from "./gzipScan.js";
-import { fetchResponse } from "./http.js";
+import { fetchResponse, readResponseStream } from "./http.js";
 import { crossesMakers, notAModelFamily, splitJoinedModels } from "./modelMentions.js";
 import { publishedVersion } from "./npmVersion.js";
 
@@ -67,7 +67,7 @@ export async function collectClaudeCodeModels(
   if (!response.ok) throw httpFailure(`Claude Code binary: HTTP ${response.status}`, response.status);
   if (!response.body) throw new SourceError("protocol", `Claude Code binary: no body`);
   const found = new Set<string>();
-  await scanGzipStream(response.body, (text) => collectIds(found, text));
+  await scanGzipStream(readResponseStream(response), (text) => collectIds(found, text));
   const ids = [...found].sort();
   if (!ids.length) throw new SourceError("missing-content", `Claude Code names no model`);
   memory.remember(version);

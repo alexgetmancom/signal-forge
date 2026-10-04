@@ -1,5 +1,3 @@
-import type { Database } from "bun:sqlite";
-import { readLatestSnapshot } from "../../storage/snapshots.js";
 import { collectAntigravityModels } from "../antigravity.js";
 import { APP_STORE_APPS, collectAppStore } from "../apps.js";
 import { collectClaude } from "../claude.js";
@@ -8,14 +6,7 @@ import type { SourceContext, SourceEntry } from "../definition.js";
 import { APT_REPOSITORIES, collectAptRepository, collectClaudeDownloads } from "../desktop.js";
 import { type SourceKind, sourcesOfKind } from "../kinds.js";
 import { collectCohereChangelog } from "../modelDocs.js";
-import { collectSitePages, WATCHED_SITES } from "../pages.js";
-
-/** The child sitemaps the last stored read of a site followed, or null when it recorded none. */
-function childSitemapsRead(db: Database, source: string): string[] | null {
-  const payload = readLatestSnapshot(db, source);
-  const children = payload ? (JSON.parse(payload) as { children?: unknown }).children : undefined;
-  return Array.isArray(children) ? children.filter((child): child is string => typeof child === "string") : null;
-}
+import { collectSitePages, googleSitemapUnchanged, WATCHED_SITES } from "../pages.js";
 
 /**
  * A Debian package repository a vendor publishes its desktop client through.
@@ -196,7 +187,16 @@ export function webSources({ db, cache }: SourceContext): SourceEntry[] {
         vendor: site.vendor,
         ...(site.heavy ? { heavy: true } : {}),
         intervalSeconds: 3600 + index * 300,
-        collector: () => collectSitePages(site, fetch, cache, childSitemapsRead(db, `pages:${site.id}`)),
+        ...(site.id === "google" ? { nothingNew: () => googleSitemapUnchanged(db) } : {}),
+        collector: () =>
+          collectSitePages(
+            site,
+            fetch,
+            cache,
+            Boolean(
+              db.query("SELECT 1 FROM live_sources WHERE id=? AND last_success IS NOT NULL").get(`pages:${site.id}`),
+            ),
+          ),
       })),
     ),
     ...installableSources({ cache }),

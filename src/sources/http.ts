@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { safeErrorType } from "../runtime/deepseekLedger.js";
-import { countBody, countNotModified, countRequest } from "../runtime/traffic.js";
+import { countBody, countCacheHit, countNotModified, countRequest } from "../runtime/traffic.js";
 import { type CacheEntry, type HttpCache, reusableUntil } from "../storage/httpCache.js";
 
 /**
@@ -55,6 +55,7 @@ async function attempt(url: string, request: Fetch, init: RequestInit, delays: r
   let last: unknown;
   for (let index = 0; ; index++) {
     try {
+      countRequest();
       // The timeout is a default rather than a rule: a judge given sixty seconds and a status
       // asked for in twenty both go through `fetchResponse`, and their own signal wins by spreading
       // last. `fetchText` never sets one, so it keeps the thirty.
@@ -99,10 +100,6 @@ export async function fetchResponse(
 ): Promise<Response> {
   const headers = new Headers({ "user-agent": USER_AGENT });
   for (const [name, value] of new Headers(init.headers)) headers.set(name, value);
-  // Counted before the answer, and once per call rather than once per retry: what this says is how
-  // often this service decided to ask upstream something, which is the number a pace is read
-  // against. `attempt`'s retries are the transport working, not a second question.
-  countRequest();
   try {
     return await attempt(url, request, { ...init, headers }, retryDelaysMs);
   } catch (error) {
@@ -163,15 +160,52 @@ export async function acceptedEtagUnchanged(
   return true;
 }
 
-/** Read a bounded body as bytes; text callers decode it after the same size and cancellation rules. */
-export async function readResponseBytes(response: Response): Promise<Buffer> {
+/** Counts buffered and streaming readers, including cancellation and broken transfers. */
+export function readResponseStream(response: Response): ReadableStream<Uint8Array> {
   const reader = response.body?.getReader();
   if (!reader) throw new SourceError("protocol", "Source returned no body");
-  // What upstream said it was sending, against what we end up holding. `fetch` decompresses
-  // transparently, so these differ by the compression ratio on every source that uses it, and the
-  // pair is what tells a network cost from a memory cost. Zero when no length was given.
-  const declared = Number(response.headers.get("content-length"));
-  const wire = Number.isSafeInteger(declared) && declared >= 0 ? declared : 0;
+  const length = response.headers.get("content-length");
+  const declared = length !== null && /^\d+$/.test(length) ? Number(length) : NaN;
+  const wire = Number.isSafeInteger(declared) ? declared : null;
+  let size = 0;
+  let counted = false;
+  const finish = () => {
+    if (!counted) {
+      counted = true;
+      countBody(size, wire);
+    }
+  };
+  return new ReadableStream({
+    async pull(controller) {
+      try {
+        const { done, value } = await reader.read();
+        if (done) {
+          finish();
+          controller.close();
+        } else {
+          size += value.length;
+          controller.enqueue(value);
+        }
+      } catch (error) {
+        finish();
+        controller.error(
+          new SourceError("network", `Source body could not be read (${safeErrorType(error)})`, { cause: error }),
+        );
+      }
+    },
+    async cancel(reason) {
+      try {
+        await reader.cancel(reason);
+      } finally {
+        finish();
+      }
+    },
+  });
+}
+
+/** Read a bounded body as bytes; binary streams use the same counting without buffering. */
+export async function readResponseBytes(response: Response): Promise<Buffer> {
+  const reader = readResponseStream(response).getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
   try {
@@ -183,10 +217,6 @@ export async function readResponseBytes(response: Response): Promise<Buffer> {
       chunks.push(value);
     }
   } finally {
-    // In `finally` so that a body abandoned part-way -- the 20 MB refusal above, a link that died
-    // mid-answer -- is still counted for what it cost before it was abandoned. A source that is
-    // expensive only on the attempts that fail is exactly the one worth seeing.
-    countBody(size, wire);
     await reader.cancel();
   }
   return Buffer.concat(chunks);
@@ -221,7 +251,7 @@ export async function fetchText(
       // Nothing was asked and nothing came back: the body below was never fetched. Counted here so
       // that a source whose traffic is low because its cache is working can be told apart from one
       // whose traffic is low because it has stopped asking.
-      countNotModified();
+      countCacheHit();
       return cached.body;
     }
     const conditional: Record<string, string> = {};

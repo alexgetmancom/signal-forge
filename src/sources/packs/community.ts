@@ -254,7 +254,9 @@ function repositorySources({ db, config, cache }: SourceContext): SourceEntry[] 
       {
         id: `github:${watch.repo}:pulls`,
         appendOnly: true,
-        collector: () => collectGithubPulls(db, config, watch, fetch, cache),
+        requiredCapabilities: ["GITHUB_TOKEN"],
+        capabilityId: "github",
+        collector: () => collectGithubPulls(db, config, watch, fetch),
       },
       {
         id: `github:${watch.repo}:commits`,
@@ -308,6 +310,15 @@ function repositorySources({ db, config, cache }: SourceContext): SourceEntry[] 
     });
   }
 
+  return [
+    ...sourcesOfKind(WATCHED_REPOSITORY, watched),
+    ...sourcesOfKind(VENDOR_REPOSITORY, owned),
+    ...shippedBinarySources(db),
+  ];
+}
+
+/** Installed clients share neither the repository requests nor their credential. */
+function shippedBinarySources(db: SourceContext["db"]): SourceEntry[] {
   const binaries: KindMember[] = [
     {
       id: "claude-code-models",
@@ -328,11 +339,7 @@ function repositorySources({ db, config, cache }: SourceContext): SourceEntry[] 
       collector: () => collectCliBundle(bundle, fetch, bundleMemory(db, bundle.source)),
     });
 
-  return [
-    ...sourcesOfKind(WATCHED_REPOSITORY, watched),
-    ...sourcesOfKind(VENDOR_REPOSITORY, owned),
-    ...sourcesOfKind(SHIPPED_BINARY, binaries),
-  ];
+  return sourcesOfKind(SHIPPED_BINARY, binaries);
 }
 
 export function communitySources({ db, config, cache }: SourceContext): SourceEntry[] {

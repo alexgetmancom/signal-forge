@@ -148,7 +148,7 @@ const quotaInfosSchema = z.object({
  */
 export async function collectVertexQuotas(config: AppConfig, request: Fetch = fetch): Promise<Collection> {
   const { project, headers } = await authorized(config, request);
-  const apiUrl = `https://cloudquotas.googleapis.com/v1/projects/${project}/locations/global/services/aiplatform.googleapis.com/quotaInfos?pageSize=500`;
+  const apiUrl = `https://cloudquotas.googleapis.com/v1/projects/${project}/locations/global/services/aiplatform.googleapis.com/quotaInfos?pageSize=500&prettyPrint=false&fields=quotaInfos(quotaId,dimensionsInfos(dimensions,details(value))),nextPageToken`;
   const raw: unknown[] = [];
   const models = new Map<string, Record<string, number>>();
   let quotaCount = 0;
@@ -229,7 +229,7 @@ export const MODEL_GARDEN_PUBLISHERS = [
   "xai",
 ] as const;
 
-/** Each publisher paginates independently; preserve every full response and the order of its pages. */
+/** Each publisher paginates independently; keep the identity and stage evidence in page order. */
 async function readModelGardenPublisher(
   publisher: (typeof MODEL_GARDEN_PUBLISHERS)[number],
   headers: Record<string, string>,
@@ -237,7 +237,7 @@ async function readModelGardenPublisher(
 ): Promise<{ publisher: string; raw: unknown[]; records: RecordData[] }> {
   const raw: unknown[] = [];
   const records = new Map<string, RecordData>();
-  const apiUrl = `https://us-central1-aiplatform.googleapis.com/v1beta1/publishers/${publisher}/models?pageSize=200`;
+  const apiUrl = `https://us-central1-aiplatform.googleapis.com/v1beta1/publishers/${publisher}/models?pageSize=200&prettyPrint=false&fields=publisherModels(name,versionId,launchStage),nextPageToken`;
   let cursor = "";
   for (let page = 0; ; page++) {
     if (page >= 100) throw new SourceError("protocol", `Model Garden pagination exceeded limit for ${publisher}`);

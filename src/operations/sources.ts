@@ -171,24 +171,17 @@ function trafficOperation(db: Database, config: AppConfig): OperationMap[string]
     summary: "What each source asks of the network and what it returns for it, ranked by bytes downloaded per event.",
     startHere: "which collector is downloading the most for the least, and should be narrowed next",
     note:
-      "Ranked by `bytesPerEvent`, never by bytes: bytes alone name the largest catalogue, which " +
-      "is usually doing its job, while bytes against what the collection produced name the " +
-      "download that is mostly discarded. A null ratio is a window that produced no events, not " +
-      "a free source, and those sort last rather than first. `bytesWire` is what crossed the " +
-      "link and `bytesDecoded` is what had to be held in memory; far apart means compression is " +
-      "working and the remaining cost is parsing, close together on a large body means nothing " +
-      "is compressed at all. `requests` includes the cheap `nothingNew` probe, which is most of " +
-      "some sources' request count and almost none of their bytes, and excludes transport " +
-      "retries. `notModifiedShare` is the part that cost no body, so a low-traffic source with a " +
-      "high share is a cache working rather than a collector that stopped. What a top row means " +
-      "is to open that collector and compare the fields it reads against the answer it asks for " +
-      "-- `bun run probe` against the live endpoint -- which is the half no counter can do. " +
-      "`unmeasured` lists sources that collected in the window before anything was counted for " +
-      "them; it empties as the window moves past the deploy.",
+      "Bytes and events come from the same measured attempts, including failures and watches " +
+      "that skip collection. Per-day rates use actual elapsed time since measuredSince. " +
+      "Requests include transport retries; notModifiedShare counts upstream 304s and cacheHits " +
+      "made no request. Average bodies use actual reads. bytesWire is the sum of declared body " +
+      "lengths, null if any read body had no Content-Length; it cannot prove transport compression " +
+      "on its own. unmeasured lists active sources checked in the window without a tally. " +
+      "Open a high bytesPerEvent collector with bun run probe to compare used fields with its response.",
     mutates: false,
     agent: true,
     // Capped at the collection fold's horizon for the same reason `collection-cost` is: the
-    // numbers come from `source_collection_days`, and a window reaching past the rows would be
+    // numbers come from `source_traffic_days`, and a window reaching past the rows would be
     // answered from the days that happen to be left rather than refused.
     schema: z.object({ days: count(METRIC_DAYS, 7) }),
     cli: { args: [{ name: "days", optional: true }] },

@@ -4,8 +4,10 @@ import { loadConfig } from "../src/config.js";
 import { unexplainedFailure } from "../src/failureDiagnosis.js";
 import { byLongestWait, collectNamedSource } from "../src/poller.js";
 import { sourceJobs } from "../src/sources/registry.js";
+import { foldCollectionDays } from "../src/storage/collectionDays.js";
 import { openDatabase } from "../src/storage/database.js";
 import { HttpCache } from "../src/storage/httpCache.js";
+import { storeSnapshot } from "../src/storage/snapshots.js";
 import { aRecord, aSource } from "./fixtures/build.js";
 
 const pollerConfig = () => loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname });
@@ -33,6 +35,10 @@ test("models.dev's unchanged check runs before its heavy child and continues to 
     expect(await collectNamedSource(db, config, "models-dev")).toMatchObject({ status: "unchanged" });
     expect(await collectNamedSource(db, config, "models-dev")).toMatchObject({ status: "unchanged" });
     expect(requests).toBe(2);
+    foldCollectionDays(db);
+    expect(
+      db.query("SELECT attempts,requests,not_modified FROM source_traffic_days WHERE source='models-dev'").get(),
+    ).toEqual({ attempts: 2, requests: 2, not_modified: 2 });
     expect(db.query("SELECT count(*) AS n FROM snapshots").get()).toEqual({ n: 0 });
     expect(
       db
@@ -164,4 +170,49 @@ test("collecting one named source refuses a name the registry does not have, and
   // Even an operator's forced collection honours the wait the server set for itself.
   expect(await collectNamedSource(db, config, source)).toMatchObject({ source, status: "deferred" });
   db.close();
+});
+
+test("a malformed response still records the network spent before collection failed", async () => {
+  const db = openDatabase(":memory:");
+  const original = globalThis.fetch;
+  globalThis.fetch = (async () => new Response("not json!")) as unknown as typeof fetch;
+  try {
+    expect(await collectNamedSource(db, pollerConfig(), "vercel-gateway")).toMatchObject({ status: "failed" });
+    expect(
+      db
+        .query("SELECT attempts,requests,body_reads,bytes_decoded,bytes_wire,events_created FROM source_traffic_days")
+        .get(),
+    ).toEqual({ attempts: 1, requests: 1, body_reads: 1, bytes_decoded: 9, bytes_wire: null, events_created: 0 });
+  } finally {
+    globalThis.fetch = original;
+    db.close();
+  }
+});
+
+test("an unchanged Google child index skips the heavy sitemap process and counts its small probe", async () => {
+  const db = openDatabase(":memory:");
+  const original = globalThis.fetch;
+  const at = "2026-10-03T05:05:57.000Z";
+  const url = "https://ai.google.dev/sitemap_0_of_1.xml";
+  aSource(db, "pages:google", { lastSuccess: at });
+  storeSnapshot(db, "pages:google", at, JSON.stringify({ pages: 637, sitemaps: [{ url, modified: at }] }));
+  const body = `<sitemapindex><sitemap><loc>${url}</loc><lastmod>${at}</lastmod></sitemap></sitemapindex>`;
+  globalThis.fetch = (async (asked) => {
+    expect(String(asked)).toBe("https://ai.google.dev/sitemap.xml");
+    return new Response(body);
+  }) as typeof fetch;
+  const child = spyOn(Bun, "spawn").mockImplementation(() => {
+    throw new Error("unexpected child");
+  });
+  try {
+    expect(await collectNamedSource(db, pollerConfig(), "pages:google")).toMatchObject({ status: "unchanged" });
+    expect(child).not.toHaveBeenCalled();
+    expect(
+      db.query("SELECT requests,bytes_decoded FROM source_traffic_days WHERE source='pages:google'").get(),
+    ).toEqual({ requests: 1, bytes_decoded: Buffer.byteLength(body) });
+  } finally {
+    child.mockRestore();
+    globalThis.fetch = original;
+    db.close();
+  }
 });

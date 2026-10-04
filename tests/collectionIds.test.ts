@@ -206,26 +206,88 @@ test("a pull request that moves down a page between two requests is read once", 
   const pull = (number: number) => ({
     number,
     title: `PR ${number}`,
-    html_url: `https://github.com/openai/codex/pull/${number}`,
+    url: `https://github.com/openai/codex/pull/${number}`,
     body: null,
-    state: "open",
-    draft: false,
-    merged_at: null,
-    updated_at: "2026-09-01T00:00:00Z",
-    author_association: "NONE",
-    user: { login: "someone" },
-    head: { sha: `${number}`.padStart(40, "0") },
+    state: "OPEN",
+    isDraft: false,
+    mergedAt: null,
+    updatedAt: "2026-09-01T00:00:00Z",
+    authorAssociation: "NONE",
+    author: { __typename: "User", login: "someone" },
+    headRefOid: `${number}`.padStart(40, "0"),
   });
   const db = readBefore("github:openai/codex:pulls", "1");
   // A catch-up that is just over one page keeps the oldest five of what it found, which is where
   // the pull that moved down a page and the one it moved past both are.
   const first = Array.from({ length: 100 }, (_, i) => pull(300 - i));
   const second = [pull(201), pull(200), pull(199)];
-  const request = (async (url: string) => Response.json(pageOf(url) === 1 ? first : second)) as unknown as typeof fetch;
-  const collection = await collectGithubPulls(db, config, watch, request);
+  const request = (async (_url: string, init?: RequestInit) => {
+    const after = JSON.parse(String(init?.body)).variables.after;
+    return Response.json({
+      data: {
+        repository: {
+          pullRequests: {
+            nodes: after ? second : first,
+            pageInfo: { hasNextPage: !after, endCursor: after ? null : "next" },
+          },
+        },
+      },
+    });
+  }) as unknown as typeof fetch;
+  const collection = await collectGithubPulls(db, { ...config, GITHUB_TOKEN: "test-token" }, watch, request);
   const ids = collection.records.map((record) => record.id);
   expect(new Set(ids).size).toBe(ids.length);
   expect(ids).toHaveLength(5);
   saveCollection(db, collection, []);
   db.close();
+});
+
+test("native PR metadata preserves bot names and handles a deleted author", async () => {
+  const db = openDatabase(":memory:");
+  const nodes = [
+    { number: 10, author: { __typename: "Bot", login: "dependabot" } },
+    { number: 9, author: null },
+  ].map((pr) => ({
+    ...pr,
+    title: "Tool",
+    url: `https://github.com/openai/codex/pull/${pr.number}`,
+    body: "proposal",
+    state: "OPEN",
+    isDraft: true,
+    mergedAt: null,
+    updatedAt: "2026-10-04T12:00:00Z",
+    authorAssociation: "NONE",
+    headRefOid: "a".repeat(40),
+  }));
+  const request = async (url: string, init?: RequestInit) => {
+    expect(url).toBe("https://api.github.com/graphql");
+    expect(init?.method).toBe("POST");
+    expect(JSON.parse(String(init?.body)).query).toContain("UPDATED_AT,direction:DESC");
+    return Response.json({
+      data: { repository: { pullRequests: { nodes, pageInfo: { hasNextPage: false, endCursor: null } } } },
+    });
+  };
+  try {
+    const collection = await collectGithubPulls(db, { ...config, GITHUB_TOKEN: "test-token" }, watch, request);
+    expect(collection.records.map((record) => record.author)).toEqual(["ghost", "dependabot[bot]"]);
+    expect(collection.silentIds).toEqual(["9", "10"]);
+    saveCollection(db, collection, []);
+  } finally {
+    db.close();
+  }
+});
+
+test("a partial GraphQL answer fails without publishing upstream error text", async () => {
+  const db = openDatabase(":memory:");
+  const request = async () => Response.json({ errors: [{ message: "private upstream detail" }], data: null });
+  try {
+    const error = await collectGithubPulls(db, { ...config, GITHUB_TOKEN: "test-token" }, watch, request).catch(
+      (error) => error,
+    );
+    expect(error).toBeInstanceOf(SourceError);
+    expect(error.message).toBe("GitHub pull query returned incomplete results");
+    expect(error.message).not.toContain("private upstream");
+  } finally {
+    db.close();
+  }
 });

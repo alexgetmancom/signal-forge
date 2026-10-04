@@ -4,7 +4,7 @@ import type { Collection } from "../events/types.js";
 import { vendorOfName } from "../events/vendors.js";
 import { httpFailure, SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
-import { fetchResponse } from "./http.js";
+import { fetchResponse, readResponseBytes } from "./http.js";
 import { googleCloudHeaders } from "./vertex.js";
 
 /** Vertex AI and the Gemini API, the two billing services a Google model is priced under. */
@@ -46,7 +46,7 @@ export async function collectGoogleSkus(config: AppConfig, request: Fetch = fetc
       const url = `https://cloudbilling.googleapis.com/v1/services/${service}/skus?pageSize=5000${cursor ? `&pageToken=${encodeURIComponent(cursor)}` : ""}`;
       const response = await fetchResponse(url, { headers }, request);
       if (!response.ok) throw httpFailure(`Google Cloud SKUs for ${label}: HTTP ${response.status}`, response.status);
-      const data = skusSchema.parse(await response.json());
+      const data = skusSchema.parse(JSON.parse((await readResponseBytes(response)).toString("utf8")));
       descriptions.push(...(data.skus ?? []).map((sku) => sku.description));
       if (!data.nextPageToken || data.nextPageToken === cursor) break;
       cursor = data.nextPageToken;

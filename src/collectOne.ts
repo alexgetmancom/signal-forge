@@ -11,7 +11,7 @@
 import type { AppConfig } from "./config.js";
 import { log } from "./logger.js";
 import { peakMb } from "./runtime/peak.js";
-import { withTraffic } from "./runtime/traffic.js";
+import { emptyTraffic, withTraffic } from "./runtime/traffic.js";
 import { buildSourceRegistry } from "./sources/registry.js";
 import { toWire } from "./sources/subprocess.js";
 import { openWithoutMigrating } from "./storage/database.js";
@@ -39,15 +39,15 @@ async function answer(): Promise<Record<string, unknown>> {
 
 // The tally is taken around the whole answer, failures included: what a collector asked of the
 // network before it threw is still what it cost, and the parent stamps it onto the failed attempt.
-const { value: outcome, traffic } = await withTraffic(answer);
+const traffic = emptyTraffic();
+const outcome = await withTraffic(traffic, answer);
+// Save the finished network tally before serialising a large answer can exhaust the child.
+await Bun.write(`${answerPath}.traffic`, JSON.stringify(traffic));
 // Serialising the collection can cost more memory than fetching it. The peak is taken after the
 // answer is written, then sent in a small companion file so the measurement includes that work.
 await Bun.write(answerPath, JSON.stringify(outcome));
 const peakRssMb = peakMb();
 await Bun.write(`${answerPath}.peak`, String(peakRssMb));
-// A companion file rather than a field of the answer, so that a failed collection carries its
-// network cost home too; the parent deletes all three.
-await Bun.write(`${answerPath}.traffic`, JSON.stringify(traffic));
 log("info", "Heavy source collected in a child", { source: id, peakRssMb });
 db.close();
 // Explicitly: a collector may leave a socket or a timer behind, and a child that lingers holds the

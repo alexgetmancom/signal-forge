@@ -3,8 +3,10 @@ import { deeperPagesOfOneTree } from "../src/events/pageWorth.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import { signalClass } from "../src/events/signals.js";
 import type { Event } from "../src/events/types.js";
-import { collectSitePages, parseSitemap, WATCHED_SITES } from "../src/sources/pages.js";
+import { collectSitePages, googleSitemapUnchanged, parseSitemap, WATCHED_SITES } from "../src/sources/pages.js";
 import { openDatabase } from "../src/storage/database.js";
+import { storeSnapshot } from "../src/storage/snapshots.js";
+import { aSource } from "./fixtures/build.js";
 
 const site = WATCHED_SITES[1] as (typeof WATCHED_SITES)[number];
 
@@ -169,13 +171,16 @@ test("every child sitemap is read, and a page in a new shard of a site already r
     if (!body) throw new Error(`unexpected request: ${String(url)}`);
     return new Response(body, { status: 200 });
   };
-  const collection = await collectSitePages(site, request, undefined, children.slice(0, 12));
+  const collection = await collectSitePages(site, request, undefined, true);
   expect(collection.records).toHaveLength(13);
   // A site shards by month or by size; the pages in its newest shard are its newest pages.
   expect(collection.silentIds).toBeUndefined();
-  expect(collection.raw).toEqual({ pages: 13, children });
+  expect(collection.raw).toEqual({
+    pages: 13,
+    sitemaps: children.map((url) => ({ url, modified: null })).sort((a, b) => a.url.localeCompare(b.url)),
+  });
   // A site with no record of what was read before is a baseline, whole.
-  const first = await collectSitePages(site, request, undefined, null);
+  const first = await collectSitePages(site, request, undefined, false);
   expect(first.silentIds).toHaveLength(13);
 });
 
@@ -317,4 +322,37 @@ test("a tree of documentation published in one read is one card, and a product p
     page(12, "pages:xai-docs", "/docs/en/api/beta/organization/analytics/usage"),
   ]);
   expect([...deeper].sort((one, other) => one - other)).toEqual([2, 3, 4]);
+});
+
+test("Google skips a child only when its accepted index has complete unchanged modification times", async () => {
+  const db = openDatabase(":memory:");
+  const at = "2026-10-03T05:05:57.000Z";
+  const url = "https://ai.google.dev/sitemap_0_of_1.xml";
+  try {
+    aSource(db, "pages:google", { lastSuccess: at });
+    storeSnapshot(db, "pages:google", at, JSON.stringify({ sitemaps: [{ url, modified: at }] }));
+    const entry = (location: string, modified: string | null) =>
+      `<sitemap><loc>${location}</loc>${modified ? `<lastmod>${modified}</lastmod>` : ""}</sitemap>`;
+    for (const [contents, unchanged] of [
+      [entry(url, "2026-10-03T05:05:57+00:00"), true],
+      [entry(url, "2026-10-04T05:05:57Z"), false],
+      [entry(url, at) + entry("https://ai.google.dev/sitemap_1.xml", at), false],
+      [entry(url, null), false],
+      [entry(url, "invalid"), false],
+    ] as const) {
+      const request = async () => new Response(`<sitemapindex>${contents}</sitemapindex>`);
+      expect(await googleSitemapUnchanged(db, request)).toBe(unchanged);
+    }
+    aSource(db, "pages:google", { lastSuccess: at, failures: 1 });
+    let requests = 0;
+    expect(
+      await googleSitemapUnchanged(db, async () => {
+        requests++;
+        return new Response("");
+      }),
+    ).toBe(false);
+    expect(requests).toBe(0);
+  } finally {
+    db.close();
+  }
 });

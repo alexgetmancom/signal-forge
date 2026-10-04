@@ -29,11 +29,12 @@
  */
 import { Database } from "bun:sqlite";
 import { createHash } from "node:crypto";
-import { existsSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { DEFAULT_DATABASE_URL } from "../src/config.js";
 import { refuseTheMissingDefault } from "../src/storage/database.js";
+import { runMigrations } from "../src/storage/migrationRunner.js";
 
 type Definition = {
   mutates: boolean;
@@ -174,7 +175,18 @@ const workspace = mkdtempSync(join(tmpdir(), "signal-forge-reports-"));
 try {
   const db = new Database(dbPath, { readonly: true });
   const before = await answers(await treeAt(base, workspace), db);
-  const after = await answers(await load(root), db);
+  db.close();
+  // The new report reads the schema its release will run on. Asking it against the old schema
+  // compared a missing-table exception with a real answer whenever a migration added a table.
+  const currentPath = join(workspace, "current.db");
+  copyFileSync(dbPath, currentPath);
+  const migrating = new Database(currentPath, { strict: true });
+  migrating.exec("PRAGMA foreign_keys=ON");
+  runMigrations(migrating);
+  migrating.close();
+  const current = new Database(currentPath, { readonly: true });
+  const after = await answers(await load(root), current);
+  current.close();
 
   const said = (all: Map<string, Answer>, name: string): string | null => {
     const answer = all.get(name);

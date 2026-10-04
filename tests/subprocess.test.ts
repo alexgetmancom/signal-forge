@@ -36,7 +36,7 @@ test("a heavy child uses its parent's database even when the environment names a
       CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname,
       DATABASE_URL: decoy.filename,
     });
-    const answer = await collectInSubprocess(db, config, "codex-docs");
+    const answer = await collectInSubprocess(db, config, "codex-docs", emptyTraffic());
     expect(answer.collection.records).toEqual([record]);
     expect(answer.collection.raw).toEqual({ index });
     expect(answer.peakRssMb).toBeGreaterThan(0);
@@ -94,36 +94,46 @@ test("a runtime failure keeps the name and the code its diagnosis is read off", 
 
 test("a child that answers hands back the collection it collected and what it cost", () => {
   const collection = { source: "npm:x", stream: "github", url: "https://x.test", raw: "a", records: [] };
-  const got = readAnswer("npm:x", ran({ answer: JSON.stringify({ ok: true, collection }), peakRssMb: 417 }));
-  expect(got).toEqual({ collection, peakRssMb: 417, traffic: emptyTraffic() });
-  // A child stopped after writing its answer but before writing the measurement has no peak.
-  const stopped = readAnswer("npm:x", ran({ answer: JSON.stringify({ ok: true, collection }) }));
-  expect(stopped).toEqual({ collection, peakRssMb: null, traffic: emptyTraffic() });
-  const unmeasured = readAnswer("npm:x", ran({ answer: JSON.stringify({ ok: true, collection }), peakRssMb: 0 }));
-  expect(unmeasured).toEqual({ collection, peakRssMb: null, traffic: emptyTraffic() });
-  // A child that counted its network sends the tally home beside the peak, failures included.
-  const counted = readAnswer(
+  const got = readAnswer(
     "npm:x",
-    ran({
-      answer: JSON.stringify({ ok: true, collection }),
-      traffic: JSON.stringify({ requests: 3, bytesDecoded: 900, bytesWire: 300, notModified: 1 }),
-    }),
+    ran({ answer: JSON.stringify({ ok: true, collection }), peakRssMb: 417 }),
+    emptyTraffic(),
   );
-  expect(counted.traffic).toEqual({ requests: 3, bytesDecoded: 900, bytesWire: 300, notModified: 1 });
-  // A tally that will not parse is no traffic, never a lost collection.
-  const babbled = readAnswer("npm:x", ran({ answer: JSON.stringify({ ok: true, collection }), traffic: "{" }));
-  expect(babbled.traffic).toEqual(emptyTraffic());
+  expect(got).toEqual({ collection, peakRssMb: 417 });
+  // A child stopped after writing its answer but before writing the measurement has no peak.
+  const stopped = readAnswer("npm:x", ran({ answer: JSON.stringify({ ok: true, collection }) }), emptyTraffic());
+  expect(stopped).toEqual({ collection, peakRssMb: null });
+  const unmeasured = readAnswer(
+    "npm:x",
+    ran({ answer: JSON.stringify({ ok: true, collection }), peakRssMb: 0 }),
+    emptyTraffic(),
+  );
+  expect(unmeasured).toEqual({ collection, peakRssMb: null });
+  const traffic = emptyTraffic();
+  const childTraffic = { requests: 3, bodyReads: 2, bytesDecoded: 900, bytesWire: 300, notModified: 1, cacheHits: 0 };
+  readAnswer(
+    "npm:x",
+    ran({ answer: JSON.stringify({ ok: true, collection }), traffic: JSON.stringify(childTraffic) }),
+    traffic,
+  );
+  expect(traffic).toEqual(childTraffic);
+  readAnswer("npm:x", ran({ answer: JSON.stringify({ ok: true, collection }), traffic: "{" }), traffic);
+  expect(traffic).toEqual(childTraffic);
 });
 
 test("a child that dies, times out or babbles is a failure with a kind rather than a silent nothing", () => {
   // Each of these used to be indistinguishable from a source that answered with an empty list,
   // which is the one outcome that must never be read as "the upstream dropped everything".
-  expect(() => readAnswer("polymarket", ran({ timedOut: true, code: null }))).toThrow(/did not finish within 300s/);
-  expect(() => readAnswer("polymarket", ran({ code: 137 }))).toThrow(/exited with code 137 without answering/);
-  expect(() => readAnswer("polymarket", ran({ code: null }))).toThrow(/was killed without answering/);
-  expect(() => readAnswer("polymarket", ran({ answer: "not json" }))).toThrow(/not JSON/);
+  expect(() => readAnswer("polymarket", ran({ timedOut: true, code: null }), emptyTraffic())).toThrow(
+    /did not finish within 300s/,
+  );
+  expect(() => readAnswer("polymarket", ran({ code: 137 }), emptyTraffic())).toThrow(
+    /exited with code 137 without answering/,
+  );
+  expect(() => readAnswer("polymarket", ran({ code: null }), emptyTraffic())).toThrow(/was killed without answering/);
+  expect(() => readAnswer("polymarket", ran({ answer: "not json" }), emptyTraffic())).toThrow(/not JSON/);
   for (const run of [ran({ timedOut: true, code: null }), ran({ code: 137 }), ran({ answer: "not json" })])
-    expect(() => readAnswer("polymarket", run)).toThrow(SourceError);
+    expect(() => readAnswer("polymarket", run, emptyTraffic())).toThrow(SourceError);
 });
 
 test("a failure the child reports is raised in the parent, not swallowed", () => {
@@ -131,5 +141,10 @@ test("a failure the child reports is raised in the parent, not swallowed", () =>
     ok: false,
     failure: toWire(new SourceError("empty", "models-dev served no models")),
   });
-  expect(() => readAnswer("models-dev", ran({ answer }))).toThrow("models-dev served no models");
+  const traffic = emptyTraffic();
+  const childTraffic = { ...emptyTraffic(), requests: 2, bodyReads: 1, bytesDecoded: 5000, bytesWire: null };
+  expect(() => readAnswer("models-dev", ran({ answer, traffic: JSON.stringify(childTraffic) }), traffic)).toThrow(
+    "models-dev served no models",
+  );
+  expect(traffic).toEqual(childTraffic);
 });

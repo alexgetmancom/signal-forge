@@ -2,7 +2,7 @@ import { z } from "zod";
 import type { Collection } from "../events/types.js";
 import { httpFailure, SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
-import { fetchResponse } from "./http.js";
+import { fetchResponse, fetchText, readResponseBytes } from "./http.js";
 import { crossesMakers, notAModelFamily, splitJoinedModels } from "./modelMentions.js";
 
 /**
@@ -39,7 +39,11 @@ async function openCodeList(
 ): Promise<Collection> {
   const response = await fetchResponse(url, {}, request);
   if (!response.ok) throw httpFailure(`${source}: HTTP ${response.status}`, response.status);
-  const ids = [...new Set(listSchema.parse(await response.json()).data.map((model) => model.id))]
+  const ids = [
+    ...new Set(
+      listSchema.parse(JSON.parse((await readResponseBytes(response)).toString("utf8"))).data.map((model) => model.id),
+    ),
+  ]
     // "test" and "test-novita-dsf4.1" are the operator's own plumbing.
     .filter((id) => !/^test\b/.test(id))
     .sort();
@@ -95,7 +99,7 @@ const TAGS = "https://registry.npmjs.org/-/package/command-code/dist-tags";
 let read: { version: string; collection: Collection } | null = null;
 
 export async function collectCommandCodeModels(request: Fetch = fetch): Promise<Collection> {
-  const version = ((await (await fetchResponse(TAGS, {}, request)).json()) as Record<string, string>).latest;
+  const version = (JSON.parse(await fetchText(TAGS, {}, request)) as Record<string, string>).latest;
   if (!version) throw new SourceError("empty", "Command Code has no published version");
   if (read?.version === version) return read.collection;
   const response = await fetchResponse(
@@ -104,7 +108,7 @@ export async function collectCommandCodeModels(request: Fetch = fetch): Promise<
     request,
   );
   if (!response.ok) throw httpFailure(`Command Code: HTTP ${response.status}`, response.status);
-  const text = Buffer.from(Bun.gunzipSync(new Uint8Array(await response.arrayBuffer()))).toString("latin1");
+  const text = Buffer.from(Bun.gunzipSync(new Uint8Array(await readResponseBytes(response)))).toString("latin1");
   const ids = commandCodeModelIds(text);
   if (ids.length < 10) throw new SourceError("missing-content", `Command Code names ${ids.length} models`);
   const collection: Collection = {

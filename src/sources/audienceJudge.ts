@@ -11,7 +11,7 @@ import {
   safeErrorType,
   unusableJudgeRun,
 } from "../runtime/deepseekLedger.js";
-import { fetchResponse } from "./http.js";
+import { fetchResponse, readResponseBytes } from "./http.js";
 
 export type Audience = "builders" | "consumers";
 
@@ -130,7 +130,7 @@ async function readAnswer(
 ): Promise<Map<string, Audience>> {
   let usage: DeepSeekAttemptResult["usage"] = null;
   try {
-    const answer = answerSchema.parse(await response.json());
+    const answer = answerSchema.parse(JSON.parse((await readResponseBytes(response)).toString("utf8")));
     const u = answer.usage;
     usage = u
       ? {

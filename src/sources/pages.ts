@@ -1,7 +1,9 @@
+import type { Database } from "bun:sqlite";
 import type { Collection, RecordData } from "../events/types.js";
 import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import type { HttpCache } from "../storage/httpCache.js";
+import { readLatestSnapshot } from "../storage/snapshots.js";
 import { fetchText } from "./http.js";
 import type { Vendor } from "./vendors.js";
 
@@ -32,6 +34,7 @@ export type WatchedSite = {
 
 /** The languages Anthropic translates its documentation into, besides English. */
 const CLAUDE_TRANSLATIONS = ["de", "es", "fr", "id", "it", "ja", "ko", "pt-BR", "ru", "zh-CN", "zh-TW"];
+const GOOGLE_SITEMAP = "https://ai.google.dev/sitemap.xml";
 
 export const WATCHED_SITES: readonly WatchedSite[] = [
   {
@@ -97,7 +100,7 @@ export const WATCHED_SITES: readonly WatchedSite[] = [
     id: "google",
     name: "Google AI for Developers",
     vendor: "Google",
-    sitemap: "https://ai.google.dev/sitemap.xml",
+    sitemap: GOOGLE_SITEMAP,
     // One child sitemap of 14.7 MB, the largest XML read here. Measured 2026-09-27: reading it the
     // first time in a process raises that process's high-water mark by 192 MB -- a third of what the
     // whole light lane ever claims -- and RSS is never given back, so in a long-lived process that
@@ -209,7 +212,9 @@ function decodeEntities(text: string): string {
   });
 }
 
-function parseXml(payload: string): { urls: string[]; children: string[] } {
+type Sitemap = { url: string; modified: string | null };
+
+function parseXml(payload: string): { urls: string[]; sitemaps: Sitemap[] } {
   const root = /<(urlset|sitemapindex)\b/i.exec(payload);
   if (!root) throw new SourceError("schema", "Sitemap contained neither a urlset nor a sitemap index");
   const kind = (root[1] ?? "").toLowerCase();
@@ -225,8 +230,36 @@ function parseXml(payload: string): { urls: string[]; children: string[] } {
     const location = decodeEntities((match[1] ?? "").replace(CDATA, "$1")).trim();
     if (location) locations.push(location);
   }
-  // An empty <urlset/> is a sitemap that listed nothing, which the caller reports as a failed read.
-  return kind === "sitemapindex" ? { urls: [], children: locations } : { urls: locations, children: [] };
+  if (kind === "urlset") return { urls: locations, sitemaps: [] };
+  const sitemaps = [...payload.matchAll(/<sitemap\b[^>]*>([\s\S]*?)<\/sitemap\s*>/gi)].map((match) => {
+    const block = match[1] ?? "";
+    const location = /<loc\b[^>]*>([\s\S]*?)<\/loc\s*>/i.exec(block)?.[1] ?? "";
+    const modified = /<lastmod\b[^>]*>([^<]+)<\/lastmod\s*>/i.exec(block)?.[1]?.trim();
+    return {
+      url: decodeEntities(location.replace(CDATA, "$1")).trim(),
+      modified:
+        modified && /^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(modified) && Number.isFinite(Date.parse(modified))
+          ? new Date(modified).toISOString()
+          : null,
+    };
+  });
+  if (sitemaps.length !== locations.length || sitemaps.some((sitemap) => !sitemap.url))
+    throw new SourceError("schema", "Sitemap index contains incomplete entries");
+  return { urls: [], sitemaps: sitemaps.sort((a, b) => a.url.localeCompare(b.url)) };
+}
+
+/** Google publishes the child file's modification time in its 253-byte index. */
+export async function googleSitemapUnchanged(db: Database, request: Fetch = fetch): Promise<boolean> {
+  if (!db.query("SELECT 1 FROM live_sources WHERE id='pages:google' AND failures=0 AND last_success IS NOT NULL").get())
+    return false;
+  const before = readLatestSnapshot(db, "pages:google");
+  if (!before) return false;
+  const previous = (JSON.parse(before) as { sitemaps?: Sitemap[] }).sitemaps;
+  if (!previous?.length) return false;
+  const { sitemaps } = parseXml(await fetchText(GOOGLE_SITEMAP, { accept: "application/xml" }, request));
+  if (!sitemaps.length || sitemaps.length > MAX_CHILD_SITEMAPS || sitemaps.some((sitemap) => !sitemap.modified))
+    return false;
+  return JSON.stringify(sitemaps) === JSON.stringify(previous);
 }
 
 /** A slug is a filename; a reader wants the name of the page. */
@@ -297,28 +330,26 @@ export function parseSitemap(payloads: string[], site: WatchedSite, baseline: re
 }
 
 /**
- * `readBefore` is the child sitemaps the previous successful read followed, or null when none is
- * recorded. A child not among them is a baseline: its pages were published before this service
- * read them, and announcing them would be a flood of old pages, not news.
+ * Only the first successful read is a baseline; a later shard can carry newly published pages.
  */
 export async function collectSitePages(
   site: WatchedSite,
   request: Fetch = fetch,
   cache?: HttpCache,
-  readBefore: readonly string[] | null = null,
+  initialized = false,
 ): Promise<Collection> {
   const headers = { accept: "application/xml" };
   const root = await fetchText(site.sitemap, headers, request, undefined, cache);
-  const { children } = parseXml(root);
-  if (!children.length) return parseSitemap([root], site);
-  if (children.length > MAX_CHILD_SITEMAPS)
+  const { sitemaps } = parseXml(root);
+  if (!sitemaps.length) return parseSitemap([root], site);
+  if (sitemaps.length > MAX_CHILD_SITEMAPS)
     throw new SourceError("protocol", `Sitemap for ${site.name} lists more than ${MAX_CHILD_SITEMAPS} child sitemaps`);
   const payloads: string[] = [];
-  for (const child of children) payloads.push(await fetchText(child, headers, request, undefined, cache));
+  for (const sitemap of sitemaps) payloads.push(await fetchText(sitemap.url, headers, request, undefined, cache));
   // Only a site read for the first time is a baseline. A child sitemap that appears later is how
   // many sites shard by month or by size, and the pages in a new shard are the new pages; a page
   // that merely moved between shards keeps its id and is not announced again.
-  const baseline = readBefore ? [] : children.map((_, index) => index);
+  const baseline = initialized ? [] : sitemaps.map((_, index) => index);
   const collection = parseSitemap(payloads, site, baseline);
-  return { ...collection, raw: { pages: collection.records.length, children } };
+  return { ...collection, raw: { pages: collection.records.length, sitemaps } };
 }

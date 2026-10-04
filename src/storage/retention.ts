@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { statSync } from "node:fs";
 import { log } from "../logger.js";
 import { FAILURE_KIND } from "../reports/failureKind.js";
+import { METRIC_DAYS } from "../runtime/metricRecording.js";
 import { LATEST_COLLECTIONS, REFOLD_DAYS } from "./collectionDays.js";
 
 /**
@@ -193,6 +194,18 @@ function expireByAge(db: Database, now: number): number {
  * so a question that reaches past the rows is refused rather than answered short.
  */
 export const RAW_COLLECTION_DAYS = 14;
+
+export function pruneSourceTraffic(db: Database, now = Date.now()): number {
+  const cutoff = new Date(now - METRIC_DAYS * 86_400_000).toISOString().slice(0, 10);
+  try {
+    return db
+      .query<{ removed: number }, [string]>("DELETE FROM source_traffic_days WHERE day < ? RETURNING 1 AS removed")
+      .all(cutoff).length;
+  } catch {
+    log("warn", "Source traffic retention cleanup failed");
+    return 0;
+  }
+}
 
 export function pruneSourceCollectionMetrics(db: Database, now = Date.now()): number {
   const failureCutoff = new Date(now - RAW_COLLECTION_DAYS * 24 * 3_600_000).toISOString();

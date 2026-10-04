@@ -227,80 +227,126 @@ export async function collectGithubReleases(
 const pullSchema = z.object({
   number: z.number().int(),
   title: z.string(),
-  html_url: z.url(),
+  url: z.url(),
   body: z.string().nullable(),
-  state: z.enum(["open", "closed"]),
-  draft: z.boolean(),
-  merged_at: z.string().nullable(),
-  updated_at: z.string(),
-  author_association: z.string(),
-  user: z.object({ login: z.string() }),
-  head: z.object({ sha: z.string() }),
+  state: z.enum(["OPEN", "CLOSED", "MERGED"]),
+  isDraft: z.boolean(),
+  mergedAt: z.string().nullable(),
+  updatedAt: z.string(),
+  authorAssociation: z.string(),
+  author: z.object({ __typename: z.string(), login: z.string() }).nullable(),
+  headRefOid: z.string(),
 });
+
+const pullResponse = z.object({
+  errors: z.array(z.unknown()).optional(),
+  data: z
+    .object({
+      repository: z
+        .object({
+          pullRequests: z.object({
+            nodes: z.array(pullSchema).max(100),
+            pageInfo: z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullable() }),
+          }),
+        })
+        .nullable(),
+    })
+    .nullish(),
+});
+
+const PULL_QUERY = `query($owner:String!,$name:String!,$after:String) {
+  repository(owner:$owner,name:$name) {
+    pullRequests(first:100,after:$after,orderBy:{field:UPDATED_AT,direction:DESC}) {
+      nodes { number title url body state isDraft mergedAt updatedAt authorAssociation
+        author { __typename login } headRefOid }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+}`;
+
+/** Native metadata only; file patches are still read from REST for the few changed, trusted PRs. */
+async function readUpdatedPulls(
+  db: Database,
+  config: AppConfig,
+  repo: string,
+  initialized: boolean,
+  request: Fetch,
+): Promise<{ pulls: z.infer<typeof pullSchema>[]; raw: unknown[] }> {
+  if (!config.GITHUB_TOKEN) throw new SourceError("credential", "GITHUB_TOKEN is required for GitHub pull requests");
+  const [owner, name] = repo.split("/");
+  const source = `github:${repo}:pulls`;
+  const pulls: z.infer<typeof pullSchema>[] = [];
+  const raw: unknown[] = [];
+  const met = new Set<number>();
+  let after: string | null = null;
+  for (let page = 0; page < 5; page++) {
+    const body: unknown = JSON.parse(
+      await fetchText(
+        "https://api.github.com/graphql",
+        {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${config.GITHUB_TOKEN}`,
+        },
+        request,
+        { method: "POST", body: JSON.stringify({ query: PULL_QUERY, variables: { owner, name, after } }) },
+      ),
+    );
+    const response = pullResponse.parse(body);
+    if (response.errors?.length || !response.data?.repository)
+      throw new SourceError("protocol", "GitHub pull query returned incomplete results");
+    raw.push(body);
+    const data = response.data.repository.pullRequests;
+    let reachedKnown = false;
+    for (const pr of data.nodes) {
+      const old = db
+        .query<{ body: string }, [string, string]>("SELECT body FROM records WHERE source=? AND id=?")
+        .get(source, String(pr.number));
+      if (old && JSON.parse(old.body).updated === pr.updatedAt) {
+        reachedKnown = true;
+        break;
+      }
+      if (!met.has(pr.number)) pulls.push(pr);
+      met.add(pr.number);
+    }
+    if (reachedKnown || !initialized || !data.pageInfo.hasNextPage) return { pulls, raw };
+    if (!data.nodes.length || !data.pageInfo.endCursor || data.pageInfo.endCursor === after)
+      throw new SourceError("protocol", "GitHub pull pagination did not advance");
+    after = data.pageInfo.endCursor;
+  }
+  throw new SourceError("protocol", "GitHub PR catch-up exceeds 500 entries; cursor preserved");
+}
+
 export async function collectGithubPulls(
   db: Database,
   config: AppConfig,
   watch: AppConfig["github"][number],
   request: Fetch = fetch,
-  cache?: HttpCache,
 ): Promise<Collection> {
   const source = `github:${watch.repo}:pulls`;
   const base = `https://api.github.com/repos/${watch.repo}/pulls`;
   const headers: Record<string, string> = { Accept: "application/vnd.github+json" };
   if (config.GITHUB_TOKEN) headers.Authorization = `Bearer ${config.GITHUB_TOKEN}`;
   const initialized = Boolean(db.query("SELECT 1 FROM sources WHERE id=? AND last_success IS NOT NULL").get(source));
-  const pending: z.infer<typeof pullSchema>[] = [];
-  const met = new Set<number>();
-  const raw: unknown[] = [],
-    records: RecordData[] = [],
+  const { pulls: pending, raw } = await readUpdatedPulls(db, config, watch.repo, initialized, request);
+  const records: RecordData[] = [],
     silentIds: string[] = [];
-  let reachedKnown = false;
-  for (let page = 1; page <= 5; page++) {
-    const pulls = z
-      .array(pullSchema)
-      .parse(
-        JSON.parse(
-          await fetchText(
-            `${base}?state=all&sort=updated&direction=desc&per_page=100&page=${page}`,
-            headers,
-            request,
-            undefined,
-            cache,
-          ),
-        ),
-      );
-    raw.push(pulls);
-    for (const pr of pulls) {
-      const old = db
-        .query<{ body: string }, [string, string]>("SELECT body FROM records WHERE source=? AND id=?")
-        .get(source, String(pr.number));
-      if (old && JSON.parse(old.body).updated === pr.updated_at) {
-        reachedKnown = true;
-        break;
-      }
-      // Sorted by update, so a pull that is updated between the requests moves the whole list down.
-      if (!met.has(pr.number)) pending.push(pr);
-      met.add(pr.number);
-    }
-    if (reachedKnown || !initialized || pulls.length < 100) break;
-    if (page === 5) throw new SourceError("protocol", "GitHub PR catch-up exceeds 500 entries; cursor preserved");
-  }
   for (const pr of pending.reverse().slice(0, initialized ? 5 : pending.length)) {
     const id = String(pr.number);
     const old = db
       .query<{ body: string }, [string, string]>("SELECT body FROM records WHERE source=? AND id=?")
       .get(source, id);
     const before = old ? (JSON.parse(old.body) as RecordData) : null;
-    const stage = pr.merged_at
-      ? "Merged; not a release yet"
-      : pr.state === "closed"
-        ? "Closed without merging"
-        : pr.draft
-          ? "Draft; not shipped"
-          : "Open PR; a proposal, not shipped";
-    const trusted = ["OWNER", "MEMBER", "COLLABORATOR"].includes(pr.author_association);
+    const stage =
+      pr.mergedAt || pr.state === "MERGED"
+        ? "Merged; not a release yet"
+        : pr.state === "CLOSED"
+          ? "Closed without merging"
+          : pr.isDraft
+            ? "Draft; not shipped"
+            : "Open PR; a proposal, not shipped";
+    const trusted = ["OWNER", "MEMBER", "COLLABORATOR"].includes(pr.authorAssociation);
     const changed =
-      !before || before.head !== pr.head.sha || before.stage !== stage || before.name !== `#${pr.number} ${pr.title}`;
+      !before || before.head !== pr.headRefOid || before.stage !== stage || before.name !== `#${pr.number} ${pr.title}`;
     let summary = typeof before?.summary === "string" ? before.summary : "";
     if (initialized && trusted && changed) {
       const files: z.infer<typeof fileSchema>[] = [];
@@ -318,12 +364,12 @@ export async function collectGithubPulls(
     records.push({
       id,
       name: `#${pr.number} ${pr.title}`,
-      url: pr.html_url,
+      url: pr.url,
       stage,
-      author: pr.user.login,
-      association: pr.author_association,
-      head: pr.head.sha,
-      updated: pr.updated_at,
+      author: pr.author?.__typename === "Bot" ? `${pr.author.login}[bot]` : (pr.author?.login ?? "ghost"),
+      association: pr.authorAssociation,
+      head: pr.headRefOid,
+      updated: pr.updatedAt,
       summary,
     });
   }

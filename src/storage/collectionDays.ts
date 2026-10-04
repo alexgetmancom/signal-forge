@@ -1,7 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { log } from "../logger.js";
 import { FAILURE_KIND } from "../reports/failureKind.js";
-import type { Traffic } from "../runtime/traffic.js";
 import { writeTransaction } from "./transaction.js";
 
 /**
@@ -71,14 +70,14 @@ export function addCollectionToDay(db: Database, source: string, collectedAt: st
       `INSERT INTO source_collection_days(
          source, day, outcome, attempts, records_processed, events_created, new_events,
          changed_events, removed_events, peak_rss_max, peak_rss_total, peak_rss_samples,
-         requests, bytes_decoded, bytes_wire, not_modified, first_at, last_at
+         first_at, last_at
        )
        SELECT source,
               substr(collected_at, 1, 10),
               CASE WHEN success = 1 THEN 'success' ELSE ${FAILURE_KIND} END,
               1, records_processed, events_created, new_events, changed_events, removed_events,
               peak_rss_mb, peak_rss_mb, (peak_rss_mb IS NOT NULL),
-              requests, bytes_decoded, bytes_wire, not_modified, collected_at, collected_at
+              collected_at, collected_at
        FROM source_collection_metrics WHERE source = ? AND collected_at = ?
        ON CONFLICT(day, source, outcome) DO UPDATE SET
          attempts = attempts + 1,
@@ -98,12 +97,6 @@ export function addCollectionToDay(db: Database, source: string, collectedAt: st
            ELSE COALESCE(peak_rss_total, 0) + COALESCE(excluded.peak_rss_total, 0)
          END,
          peak_rss_samples = peak_rss_samples + excluded.peak_rss_samples,
-         -- COALESCE on the stored side only: the incoming row always has a number, and a day that
-         -- predates these columns is null until the first collection of it adds to it.
-         requests = COALESCE(requests, 0) + excluded.requests,
-         bytes_decoded = COALESCE(bytes_decoded, 0) + excluded.bytes_decoded,
-         bytes_wire = COALESCE(bytes_wire, 0) + excluded.bytes_wire,
-         not_modified = COALESCE(not_modified, 0) + excluded.not_modified,
          first_at = MIN(first_at, excluded.first_at),
          last_at = MAX(last_at, excluded.last_at)`,
     ).run(source, collectedAt);
@@ -161,7 +154,7 @@ export function foldCollectionDays(db: Database, now = Date.now(), days = REFOLD
           `INSERT INTO source_collection_days(
              source, day, outcome, attempts, records_processed, events_created, new_events,
              changed_events, removed_events, peak_rss_max, peak_rss_total, peak_rss_samples,
-             requests, bytes_decoded, bytes_wire, not_modified, first_at, last_at
+             first_at, last_at
            )
            SELECT source,
                   substr(collected_at, 1, 10) AS day,
@@ -175,10 +168,6 @@ export function foldCollectionDays(db: Database, now = Date.now(), days = REFOLD
                   MAX(peak_rss_mb),
                   SUM(peak_rss_mb),
                   SUM(peak_rss_mb IS NOT NULL),
-                  SUM(requests),
-                  SUM(bytes_decoded),
-                  SUM(bytes_wire),
-                  SUM(not_modified),
                   MIN(collected_at),
                   MAX(collected_at)
            FROM source_collection_metrics
@@ -194,59 +183,5 @@ export function foldCollectionDays(db: Database, now = Date.now(), days = REFOLD
     // fold that silently stopped shows up as a raw table that stops shrinking.
     log("warn", "Collection day fold failed", { errorType: error instanceof Error ? error.message : "unknown" });
     return 0;
-  }
-}
-
-/**
- * Carries what a collection asked of the network onto the attempt and the day it belongs to.
- *
- * The same shape as `addPeakToDay` above, and for the same reason: the tally is complete only once
- * the collector has returned, which is past the transaction that stored what it found. Stamped by
- * the instant that transaction wrote, so it can match no other attempt of the same source.
- *
- * The outcome is not known here, so the day row is found by the pair the caller already knows. A
- * failed attempt and a successful one are separate rows of the same day, and each is stamped on
- * the path that wrote it.
- */
-export function addTrafficToDay(
-  db: Database,
-  source: string,
-  collectedAt: string,
-  outcome: string,
-  traffic: Traffic,
-): void {
-  if (!traffic.requests && !traffic.notModified) return;
-  try {
-    writeTransaction(db, () => {
-      db.query<null, [number, number, number, number, string, string]>(
-        `UPDATE source_collection_metrics
-         SET requests=?, bytes_decoded=?, bytes_wire=?, not_modified=?
-         WHERE source=? AND collected_at=?`,
-      ).run(traffic.requests, traffic.bytesDecoded, traffic.bytesWire, traffic.notModified, source, collectedAt);
-      db.query<null, [number, number, number, number, string, string, string]>(
-        `UPDATE source_collection_days
-         SET requests = COALESCE(requests, 0) + ?,
-             bytes_decoded = COALESCE(bytes_decoded, 0) + ?,
-             bytes_wire = COALESCE(bytes_wire, 0) + ?,
-             not_modified = COALESCE(not_modified, 0) + ?
-         WHERE day = substr(?, 1, 10) AND source = ? AND outcome = ?`,
-      ).run(
-        traffic.requests,
-        traffic.bytesDecoded,
-        traffic.bytesWire,
-        traffic.notModified,
-        collectedAt,
-        source,
-        outcome,
-      );
-    });
-  } catch (error) {
-    // As with the peak: the cycle's fold recomputes the last two days from the raw attempts, so a
-    // failure here costs a report that is at most one cycle stale rather than a total that is
-    // wrong forever. It must still be loud.
-    log("warn", "Collection traffic increment failed", {
-      source,
-      errorType: error instanceof Error ? error.message : "unknown",
-    });
   }
 }
