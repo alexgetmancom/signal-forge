@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { isMirror } from "./mirrors.js";
 import { modelSubject, releasedModelSubject } from "./variants.js";
 
 /**
@@ -56,12 +57,6 @@ export function witnessedSubjects(db: Database): Set<string> {
   return witnessed;
 }
 
-/**
- * Aggregators of other catalogues. A model they carry is already somewhere else, and naming them on
- * a card would say "a list of lists has it" instead of where it can be called.
- */
-const MIRRORS = new Set(["models-dev", "truefoundry-azure"]);
-
 /** Which catalogues and registries carry each model, keyed like `subjectKey`. */
 export function listingsBySubject(db: Database): Map<string, Set<string>> {
   const listings = new Map<string, Set<string>>();
@@ -71,7 +66,7 @@ export function listingsBySubject(db: Database): Map<string, Set<string>> {
     )
     .all();
   for (const row of rows) {
-    if (MIRRORS.has(row.source)) continue;
+    if (isMirror(row.source)) continue;
     const name = parseRecord(row.body)?.name;
     for (const value of new Set([row.id, typeof name === "string" ? name : row.id])) {
       const key = subjectKey(value);

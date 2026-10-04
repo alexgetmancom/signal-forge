@@ -43,18 +43,20 @@ const CONVENTIONS = [
 export type OperationsGuide = {
   service: string;
   route: string;
-  conventions: string[];
-  sections: { section: OperationSection; summary: string; commands: string[] }[];
-  symptoms: { symptom: string; command: string; usage: string }[];
+  /** The index, and only when nothing was named: see `buildOperationsGuide`. */
+  conventions?: string[];
+  sections?: { section: OperationSection; summary: string; commands: string[] }[];
+  symptoms?: { symptom: string; command: string; usage: string }[];
   commands?: OperationCatalogEntry[];
   noSuchCommand?: string;
   whenTheDatabaseIsUnusable: string[];
 };
 
 /**
- * Read-only, and the first thing to run. It answers with section names and the symptom index; the
- * full entries come back only when asked for, because a caller reading the whole catalog to answer
- * one question pays for all of it.
+ * Read-only, and the first thing to run. Asked nothing it answers with section names and the
+ * symptom index; asked for a section or a command it answers with those entries and drops the
+ * index, because a caller reading the whole catalog to answer one question pays for all of it --
+ * in bytes, and in the far more expensive currency of the answer being below the fold.
  */
 export function buildOperationsGuide(
   catalog: readonly OperationCatalogEntry[],
@@ -69,18 +71,29 @@ export function buildOperationsGuide(
     : named
       ? catalog.filter((entry) => entry.section === named || entry.name === named)
       : [];
+  // Asked about one command, answer about one command. The index was printed above the answer
+  // whatever was asked, so `guide news` put its four lines under a hundred lines of catalog the
+  // caller already had; read through `head` -- which is how a terminal reads JSON -- the answer was
+  // simply absent, and this agent concluded twice in one session that `guide <command>` did not
+  // exist. The index is what you get when you do not know what to ask for, which is exactly the
+  // case where nothing was named.
+  const answeringOne = Boolean(named) && selected.length > 0 && !options.all;
   return {
     service: "signal-forge",
     route: "bun src/cli.ts <command> [arguments]",
-    conventions: CONVENTIONS,
-    sections: OPERATION_SECTIONS.map((section) => ({
-      section,
-      summary: SECTION_SUMMARIES[section],
-      commands: catalog.filter((entry) => entry.section === section).map((entry) => entry.name),
-    })),
-    symptoms: catalog
-      .filter((entry) => entry.startHere)
-      .map((entry) => ({ symptom: entry.startHere as string, command: entry.name, usage: entry.usage })),
+    ...(answeringOne ? {} : { conventions: CONVENTIONS }),
+    ...(answeringOne
+      ? {}
+      : {
+          sections: OPERATION_SECTIONS.map((section) => ({
+            section,
+            summary: SECTION_SUMMARIES[section],
+            commands: catalog.filter((entry) => entry.section === section).map((entry) => entry.name),
+          })),
+          symptoms: catalog
+            .filter((entry) => entry.startHere)
+            .map((entry) => ({ symptom: entry.startHere as string, command: entry.name, usage: entry.usage })),
+        }),
     ...(selected.length ? { commands: selected } : {}),
     ...(named && selected.length === 0 ? { noSuchCommand: named } : {}),
     whenTheDatabaseIsUnusable: [

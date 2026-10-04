@@ -67,15 +67,21 @@ test("three new repositories count, unless the name was already in use", () => {
 });
 
 test("a mirror catalogue does not count, and a model already carded is not carded again", () => {
-  const { db, add } = setup();
-  add(
-    "models-dev",
-    "api-models",
-    "acme-labs/zorblax-1",
-    { id: "acme-labs/zorblax-1", name: "Zorblax 1" },
-    "2026-09-17T10:00:00.000Z",
-  );
-  expect(detectBreakouts(db, [scouts], now)).toEqual([]);
+  for (const mirror of ["models-dev", "truefoundry-azure"]) {
+    const { db, add } = setup();
+    add(
+      mirror,
+      "api-models",
+      "acme-labs/zorblax-1",
+      { id: "acme-labs/zorblax-1", name: "Zorblax 1" },
+      "2026-09-17T10:00:00.000Z",
+    );
+    // Both republish a list somebody else published. `witness` had held both and this rule held
+    // only models.dev, so TrueFoundry's Azure catalogue was a mirror in one reading of the word
+    // and a host in the other; over the 30 days to 2026-10-04 it duplicated harder than models.dev.
+    expect(detectBreakouts(db, [scouts], now)).toEqual([]);
+    db.close();
+  }
 });
 
 test("a Hacker News story counts", () => {

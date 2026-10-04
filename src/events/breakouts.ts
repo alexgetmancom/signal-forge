@@ -3,6 +3,7 @@ import type { Destination } from "../config.js";
 import { storageFailure } from "../failure.js";
 import { readState, writeState } from "../storage/appState.js";
 import { writeTransaction } from "../storage/transaction.js";
+import { isMirror } from "./mirrors.js";
 import { isUnfollowedMakerAtAReseller, resellerMaker } from "./resellers.js";
 import { wasReleasedLongBefore } from "./retoldWorth.js";
 import type { Event } from "./types.js";
@@ -29,12 +30,6 @@ const WATCH_MS = 48 * 3_600_000;
 const NOVELTY_MS = 30 * 24 * 3_600_000;
 /** Repositories named after a model in the days after it appears: three is a pattern, one a hobby. */
 const REPOSITORIES = 3;
-/**
- * Catalogues that copy other catalogues. models.dev lists what Vercel and OpenRouter list within
- * hours, so on 2026-09-19 it made Mixedbread's Toast, Quiver's Arrow and Unbiased's Pareto look like
- * breakouts; a second listing only counts when somebody chose to host the model.
- */
-const MIRRORS = new Set(["models-dev"]);
 /** Words too common to identify a model by. */
 const GENERIC = new Set([
   "model",
@@ -103,7 +98,7 @@ function measure(db: Database, event: Event, token: string, now: number): Breako
       )
       .all(event.source, event.detected_at)
       .filter((row) => {
-        if (MIRRORS.has(row.source)) return false;
+        if (isMirror(row.source)) return false;
         const record = JSON.parse(row.after_json ?? "{}") as { name?: unknown };
         return mentions(token, `${row.entity_id} ${String(record.name ?? "")}`);
       })

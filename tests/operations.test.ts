@@ -37,12 +37,25 @@ test("the guide answers with sections and a symptom index before it answers with
   const defs = operations(db, testConfig());
   const guide = buildOperationsGuide(operationCatalog(defs));
   expect(guide.commands).toBeUndefined();
-  expect(guide.sections.map((section) => section.section)).toEqual([...OPERATION_SECTIONS]);
-  expect(guide.symptoms.length).toBeGreaterThan(4);
-  expect(guide.symptoms.every((entry) => entry.usage.startsWith(entry.command))).toBe(true);
+  expect(guide.sections?.map((section) => section.section)).toEqual([...OPERATION_SECTIONS]);
+  expect(guide.symptoms?.length).toBeGreaterThan(4);
+  expect(guide.symptoms?.every((entry) => entry.usage.startsWith(entry.command))).toBe(true);
   const delivery = buildOperationsGuide(operationCatalog(defs), { section: "delivery" });
   expect(delivery.commands?.every((entry) => entry.section === "delivery")).toBe(true);
-  expect(guide.conventions.length).toBeGreaterThan(2);
+  expect(guide.conventions?.length).toBeGreaterThan(2);
+
+  // Asked about one command the index is dropped: it was printed above the answer whatever was
+  // asked, and `guide news` read through `head` showed a hundred lines of catalog and none of news.
+  const one = buildOperationsGuide(operationCatalog(defs), { section: "news" });
+  expect(one.commands?.map((entry) => entry.name)).toEqual(["news"]);
+  expect(one.sections).toBeUndefined();
+  expect(one.symptoms).toBeUndefined();
+  expect(one.conventions).toBeUndefined();
+  // A section is the same case, and `--all` is not: nobody asking for everything is asking narrowly.
+  expect(delivery.sections).toBeUndefined();
+  expect(buildOperationsGuide(operationCatalog(defs), { all: true }).sections).toBeDefined();
+  // A word that names nothing still gets the index, because that caller needs it most.
+  expect(buildOperationsGuide(operationCatalog(defs), { section: "nope" }).sections).toBeDefined();
   db.close();
 });
 

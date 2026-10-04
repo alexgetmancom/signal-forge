@@ -7,7 +7,9 @@ import { getHypothesis, listHypotheses } from "../hypotheses.js";
 import { listLifecycleDeadlines } from "../lifecycle.js";
 import { getModelFacts, listModelFacts } from "../modelFactsView.js";
 import { listPublications } from "../publications.js";
+import { eventEvidence } from "../reports/eventEvidence.js";
 import { isSignalClass, news } from "../reports/news.js";
+import { trace } from "../reports/trace.js";
 import { listStories } from "../storiesView.js";
 import { count, identifier, type OperationMap } from "./definition.js";
 
@@ -75,7 +77,8 @@ export function evidenceOperations(db: Database, config: AppConfig, _all: () => 
     },
     event: {
       section: "evidence",
-      summary: "Full before/after evidence for one event.",
+      summary:
+        "Full before/after evidence for one event, and what became of it: the standing verdict with every rule that vetoed it, the batches it was folded into, the deliveries those became, and whether a reader has it.",
       startHere: "what does this claim actually rest on",
       mutates: false,
       agent: true,
@@ -83,7 +86,20 @@ export function evidenceOperations(db: Database, config: AppConfig, _all: () => 
       cli: { args: [{ name: "id" }] },
       http: { method: "get", path: "/api/events/:id" },
       notFoundWhenEmpty: true,
-      handler: (input: { id: number }) => db.query("SELECT * FROM events WHERE id=?").get(input.id),
+      handler: (input: { id: number }) => eventEvidence(db, input.id),
+    },
+    trace: {
+      section: "evidence",
+      summary:
+        "Every sighting of one name across every source, in order, with what each one did: batched, delivered, or held back and by which rule.",
+      startHere: "what do we know about this name, and was anybody ever told",
+      note: "The match is loose on purpose -- the name as typed, its normalized form, and that form with separators as wildcards, against both the event's entity id and its story's title -- because the caller has a string off a card rather than a key. `model` is the strict version and answers only for a subject that was identified, which is never the one being investigated. Read `batched` and `delivered` rather than `speaks`: the first says a message was built naming the event, the second that one was accepted, and `speaks` says only that no rule vetoed it.",
+      mutates: false,
+      agent: true,
+      schema: z.object({ name: z.string().min(2), limit: count(500, 100) }),
+      cli: { args: [{ name: "name" }, { name: "limit", optional: true }] },
+      http: { method: "get", path: "/api/trace" },
+      handler: (input: { name: string; limit: number }) => trace(db, input.name, input.limit),
     },
     stories: {
       section: "evidence",
