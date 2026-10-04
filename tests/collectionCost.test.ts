@@ -13,12 +13,12 @@ test("collection cost separates child, overlapping collection, and exact parent 
   const at = new Date(now - 3_600_000).toISOString();
   // A heavy source: the child reports the whole size it reached, twice, and both are kept -- the
   // worst is what the container has to survive, the average is what a normal run looks like.
-  anAttempt(db, "polymarket", null, at, { peakRssMb: 417 });
-  anAttempt(db, "polymarket", null, new Date(now - 7_200_000).toISOString(), { peakRssMb: 317 });
+  anAttempt(db, "qwen-blog", null, at, { peakRssMb: 417 });
+  anAttempt(db, "qwen-blog", null, new Date(now - 7_200_000).toISOString(), { peakRssMb: 317 });
   // The child collector's metric lives in the same table but is not parent-process growth.
-  recordCodeMetric(db, "source.collect:polymarket", 120, false, now, null, 200 * 1024);
-  recordCodeMetric(db, "source.decode:polymarket", 120, false, now, null, 12 * 1024);
-  recordCodeMetric(db, "source.persist:polymarket", 120, false, now, null, 89 * 1024);
+  recordCodeMetric(db, "source.collect:qwen-blog", 120, false, now, null, 200 * 1024);
+  recordCodeMetric(db, "source.decode:qwen-blog", 120, false, now, null, 12 * 1024);
+  recordCodeMetric(db, "source.persist:qwen-blog", 120, false, now, null, 89 * 1024);
   // Concurrent light collectors can each observe the same 40 MB rise. No verdict may name either
   // as the cause; their synchronous persistence has a separate, attributable measurement.
   anAttempt(db, "arena", null, at);
@@ -28,7 +28,7 @@ test("collection cost separates child, overlapping collection, and exact parent 
   recordCodeMetric(db, "source.persist:arena", 120, false, now, null, 2 * 1024);
 
   const report = collectionCost(db, config, 7, now);
-  const child = report.sources.find((source) => source.id === "polymarket");
+  const child = report.sources.find((source) => source.id === "qwen-blog");
   const arena = report.sources.find((source) => source.id === "arena");
   expect(child).toMatchObject({
     lane: "child",

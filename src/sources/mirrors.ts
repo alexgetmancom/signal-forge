@@ -1,10 +1,9 @@
-import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { Collection, RecordData } from "../events/types.js";
 import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import type { HttpCache } from "../storage/httpCache.js";
-import { fetchResponse, fetchText, requireOk } from "./http.js";
+import { fetchText } from "./http.js";
 
 /**
  * Which directory a vendor publishes its own catalogue in. The entry exists to answer one
@@ -96,30 +95,7 @@ const modelsDevSchema = z
 
 type ModelsDevEntry = z.infer<typeof modelsDevModel>;
 
-const MODELS_DEV_URL = "https://models.dev/api.json";
-
-/**
- * Ask only about the version last accepted by the pipeline, without decoding its cached body.
- * A child can write the cache and die before saving its collection: a later cache timestamp must
- * force a real collection, or a 304 would hide a catalogue we never observed successfully.
- */
-export async function modelsDevUnchanged(db: Database, cache: HttpCache, request: Fetch = fetch): Promise<boolean> {
-  const etag = db
-    .query<{ etag: string }, [string]>(
-      `SELECT etag FROM http_cache WHERE url=? AND etag IS NOT NULL AND used_at <=
-     (SELECT last_success FROM live_sources WHERE id='models-dev' AND failures=0)`,
-    )
-    .get(MODELS_DEV_URL)?.etag;
-  if (!etag) return false;
-  const response = await fetchResponse(MODELS_DEV_URL, { method: "HEAD", headers: { "if-none-match": etag } }, request);
-  await response.body?.cancel();
-  if (response.status !== 304) {
-    await requireOk(response);
-    return false;
-  }
-  cache.touch(MODELS_DEV_URL, 0);
-  return true;
-}
+export const MODELS_DEV_URL = "https://models.dev/api.json";
 
 /**
  * Every published catalogue at once, keyed by the model rather than by where it is sold. A launch

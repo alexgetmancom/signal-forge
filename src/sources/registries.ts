@@ -1,3 +1,4 @@
+import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { Collection } from "../events/types.js";
 import { SourceError } from "../failure.js";
@@ -267,49 +268,38 @@ export function parseNpm(payload: string): Collection {
   );
 }
 
-/** What the last collection said each channel pointed at, and when that version was published. */
-export type NpmChannels = Map<string, { version: string; published: string }>;
-
 const distTags = z.record(z.string(), z.string());
 
-/**
- * The full package document is the only place npm states when a version was published, and it
- * carries every version ever released: 14 MB for @openai/codex, 4,623 versions, about 85 MB of
- * memory each time it is read, every fifteen minutes. The channels alone are a 600-byte document.
- * They are read first, and the full document only when a channel points somewhere new, which is
- * the only time a publication date is not already known.
- */
-export async function collectNpm(
-  name: string,
-  request: Fetch = fetch,
-  cache?: HttpCache,
-  known?: NpmChannels,
-): Promise<Collection> {
-  const encoded = name.replace("/", "%2F");
-  if (known?.size) {
-    const raw = await fetchText(
-      `https://registry.npmjs.org/-/package/${encoded}/dist-tags`,
-      { accept: "application/json" },
-      request,
-    );
-    const tags = distTags.parse(JSON.parse(raw));
-    const channels = Object.entries(tags).filter(([tag]) => !PLATFORM_TAG.test(tag));
-    const unchanged = channels.every(([tag, version]) => known.get(tag)?.version === version);
-    if (unchanged) {
-      const published = (version: string): string => {
-        const channel = [...known.values()].find((entry) => entry.version === version);
-        if (!channel)
-          throw new SourceError("schema", `npm package ${name} has no publication time for a version it tags`);
-        return channel.published;
-      };
-      // The same document the full read keeps, assembled from what is already known: one source
-      // answering with two shapes on alternate polls is a finding `source-shapes` would report, and
-      // this source would have produced it for no reason other than which branch was taken.
-      const time = Object.fromEntries(channels.map(([, version]) => [version, published(version)]));
-      return npmCollection(name, tags, published, JSON.stringify({ name, "dist-tags": tags, time }));
-    }
-  }
-  const url = `https://registry.npmjs.org/${encoded}`;
+/** Ask before starting a child. A removed channel still needs a complete observation. */
+export async function npmUnchanged(db: Database, name: string, request: Fetch = fetch): Promise<boolean> {
+  const source = `npm:${name}`;
+  if (
+    !db
+      .query<{ last_success: string | null }, [string]>(
+        "SELECT last_success FROM live_sources WHERE id=? AND failures=0",
+      )
+      .get(source)?.last_success
+  )
+    return false;
+  const known = new Map(
+    db
+      .query<{ id: string; body: string }, [string]>("SELECT id,body FROM records WHERE source=?")
+      .all(source)
+      .map((row) => [row.id, (JSON.parse(row.body) as { version?: unknown }).version]),
+  );
+  if (!known.size) return false;
+  const text = await fetchText(
+    `https://registry.npmjs.org/-/package/${name.replace("/", "%2F")}/dist-tags`,
+    { accept: "application/json" },
+    request,
+  );
+  const channels = Object.entries(distTags.parse(JSON.parse(text))).filter(([tag]) => !PLATFORM_TAG.test(tag));
+  return channels.length === known.size && channels.every(([tag, version]) => known.get(tag) === version);
+}
+
+/** The full document is read only after a channel moves; it supplies publication dates. */
+export async function collectNpm(name: string, request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
+  const url = `https://registry.npmjs.org/${name.replace("/", "%2F")}`;
   const collection = parseNpm(await fetchText(url, { accept: "application/json" }, request, undefined, cache));
   if (collection.source !== `npm:${name}`)
     throw new SourceError("schema", `npm returned a different package than ${name}`);

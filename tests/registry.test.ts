@@ -22,6 +22,14 @@ test("source registry has unique IDs, valid streams, labels and consistent pacin
   expect(definitions.find((definition) => definition.id === "openai")?.authority).toBe("first_party");
   expect(definitions.find((definition) => definition.id === "openrouter")?.authority).toBe("third_party");
   expect(definitions.find((definition) => definition.id === "codex-docs")?.heavy).toBe(true);
+  expect(definitions.find((definition) => definition.id === "polymarket")?.heavy).not.toBe(true);
+  expect(definitions.find((definition) => definition.id === "qwen-blog")?.heavy).toBe(true);
+  for (const definition of definitions.filter(
+    (source) => source.id.startsWith("npm:") || source.id === "openai-codex-changelog",
+  )) {
+    expect(definition.heavy).toBe(true);
+    expect(definition.nothingNew).toBeFunction();
+  }
   expect(definitions.find((definition) => definition.id === "mimo")).toMatchObject({
     authority: "first_party",
     stream: "api-models",

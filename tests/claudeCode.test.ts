@@ -4,8 +4,9 @@ import type { Event } from "../src/events/types.js";
 import { claudeModelIds } from "../src/sources/claudeCode.js";
 import { commandCodeModelIds, isFreeModel, isSmallModel, servedModel } from "../src/sources/codingPlans.js";
 import { skuModels } from "../src/sources/googleSkus.js";
-import { kimiQuickstarts, minimaxReleases, qwenPosts, xiaomiNews, zaiReleases } from "../src/sources/labPages.js";
+import { kimiQuickstarts, minimaxReleases, xiaomiNews, zaiReleases } from "../src/sources/labPages.js";
 import { parseAnthropicRoutes } from "../src/sources/news.js";
+import { qwenPosts } from "../src/sources/qwen.js";
 import { modelPages } from "../src/sources/sitemaps.js";
 
 test("the Claude Code binary's model ids, aliases read as their model, tools named like models dropped", () => {
@@ -201,7 +202,9 @@ test("a free serving is of the model it serves, so the two join one story", () =
 
 test("Qwen's posts, MiniMax's release cards and Kimi's quickstarts are read from the pages behind their sites", () => {
   expect(
-    qwenPosts(JSON.stringify({ data: { articles: [{ id: "a1", title: "Qwen3.6-Plus" }, { title: "no id" }] } })),
+    qwenPosts(
+      Buffer.from(JSON.stringify({ data: { articles: [{ id: "a1", title: "Qwen3.6-Plus" }, { title: "no id" }] } })),
+    ),
   ).toEqual([{ id: "a1", name: "Qwen3.6-Plus", maker: "Qwen", url: "https://qwen.ai/blog?id=a1" }]);
   expect(
     minimaxReleases(

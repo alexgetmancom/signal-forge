@@ -1,3 +1,4 @@
+import type { Database } from "bun:sqlite";
 import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import { safeErrorType } from "../runtime/deepseekLedger.js";
@@ -127,6 +128,55 @@ export async function requireOk(response: Response): Promise<void> {
   }
 }
 
+/**
+ * HEAD checks the ETag the pipeline last accepted, without decoding the cached body.
+ * A child may have cached a new response and died before saving its observation; that version
+ * must still be collected, as must any source recovering from a failed attempt.
+ */
+export async function acceptedEtagUnchanged(
+  db: Database,
+  cache: HttpCache,
+  source: string,
+  url: string,
+  request: Fetch = fetch,
+): Promise<boolean> {
+  const etag = db
+    .query<{ etag: string }, [string, string]>(
+      `SELECT etag FROM http_cache WHERE url=? AND etag IS NOT NULL AND used_at <=
+       (SELECT last_success FROM live_sources WHERE id=? AND failures=0)`,
+    )
+    .get(url, source)?.etag;
+  if (!etag) return false;
+  const response = await fetchResponse(url, { method: "HEAD", headers: { "if-none-match": etag } }, request);
+  await response.body?.cancel();
+  if (response.status !== 304) {
+    await requireOk(response);
+    return false;
+  }
+  cache.touch(url, 0);
+  return true;
+}
+
+/** Read a bounded body as bytes; text callers decode it after the same size and cancellation rules. */
+export async function readResponseBytes(response: Response): Promise<Buffer> {
+  const reader = response.body?.getReader();
+  if (!reader) throw new SourceError("protocol", "Source returned no body");
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      size += value.length;
+      if (size > 20_000_000) throw new SourceError("protocol", "Source exceeds 20 MB limit");
+      chunks.push(value);
+    }
+  } finally {
+    await reader.cancel();
+  }
+  return Buffer.concat(chunks);
+}
+
 export async function fetchText(
   url: string,
   headers: Record<string, string> = {},
@@ -196,22 +246,7 @@ export async function fetchText(
     return cached.body;
   }
   await requireOk(response);
-  const reader = response.body?.getReader();
-  if (!reader) throw new SourceError("protocol", "Source returned no body");
-  const chunks: Uint8Array[] = [];
-  let size = 0;
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      size += value.length;
-      if (size > 20_000_000) throw new SourceError("protocol", "Source exceeds 20 MB limit");
-      chunks.push(value);
-    }
-  } finally {
-    await reader.cancel();
-  }
-  const text = Buffer.concat(chunks).toString("utf8");
+  const text = (await readResponseBytes(response)).toString("utf8");
   const etag = response.headers.get("etag");
   const lastModified = response.headers.get("last-modified");
   const reusableUntil = freshUntil(response.headers.get("cache-control"));

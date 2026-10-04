@@ -7,10 +7,11 @@ import { collectCommandCodeModels, collectOpenCodeGo, collectOpenCodeZen } from 
 import type { SourceContext, SourceEntry } from "../definition.js";
 import { collectGithubDiscovery, collectHuggingFaceTrending, GITHUB_DISCOVERY_QUERIES } from "../discovery.js";
 import { collectGithubCommits, collectGithubPulls, collectGithubReleases, githubCommitsUnchanged } from "../github.js";
+import { acceptedEtagUnchanged } from "../http.js";
 import { type KindMember, type SourceKind, sourcesOfKind } from "../kinds.js";
 import { collectPolymarket } from "../markets.js";
 import { collectModelMentions, MODEL_MENTION_REPOS, mentionSource } from "../modelMentions.js";
-import { collectOpenCodeData, openCodeDataUnchanged } from "../opencodeData.js";
+import { collectOpenCodeData, OPENCODE_MODELS_URL } from "../opencodeData.js";
 import { collectDocsProbe, PROBE_SITES } from "../probes.js";
 import { collectRepoTalk, talkSource } from "../repoTalk.js";
 import { collectMimoTraining } from "../training.js";
@@ -213,7 +214,7 @@ function discoverySources({ db, config, cache }: SourceContext): SourceEntry[] {
     stream: "api-models",
     intervalSeconds: 900,
     pace: { group: "models.opencode.ai", seconds: 5 },
-    nothingNew: () => openCodeDataUnchanged(db, cache),
+    nothingNew: () => acceptedEtagUnchanged(db, cache, "discovery:opencode-data", OPENCODE_MODELS_URL),
     collector: () => collectOpenCodeData(fetch, cache),
   });
   definitions.push({
@@ -357,9 +358,8 @@ export function communitySources({ db, config, cache }: SourceContext): SourceEn
       // quietly promote a bet into evidence.
       evidence: "unknown",
       confidence: "observed",
-      // Three pages and 2.2 MB of JSON after asking for liquid markets directly on 2026-09-28.
-      // The source stays in a child process until its measured peak shows it fits the light lane.
-      heavy: true,
+      // The AI-release tag reduced the response to 212 KB. Measured 2026-10-04: the
+      // collector claims 24 MB on its first read, below the 32 MB child-process threshold.
       group: "Discovery",
       stream: "markets",
       // Prices move all day and the record only keeps five-point buckets, so a slower poll would

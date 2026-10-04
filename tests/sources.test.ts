@@ -36,7 +36,14 @@ import {
   parseClaudeBlog,
   parseOpenAINews,
 } from "../src/sources/news.js";
-import { collectHuggingFace, collectNpm, collectPypi, parseHuggingFace, parseNpm } from "../src/sources/registries.js";
+import {
+  collectHuggingFace,
+  collectNpm,
+  collectPypi,
+  npmUnchanged,
+  parseHuggingFace,
+  parseNpm,
+} from "../src/sources/registries.js";
 import {
   collectOpenAIApiChangelog,
   collectOpenAIChatGPTReleaseNotes,
@@ -51,6 +58,7 @@ import {
 } from "../src/sources/releaseNotes.js";
 import { openDatabase } from "../src/storage/database.js";
 import { freshUntil, HttpCache } from "../src/storage/httpCache.js";
+import { aRecord, aSource } from "./fixtures/build.js";
 
 test("Arena accepts models without internal name but requires valid public fields", () => {
   const model = {
@@ -176,12 +184,25 @@ test("a deeper text table does not announce previously unobserved old rows", () 
   expect(parsed.records.some((record) => record.id === "text:overall:model-200")).toBe(false);
 });
 
-test("all leaderboard requests read RSC directly and still validate their category", async () => {
+test("leaderboards request only their page segment, at most four at once, and preserve board order", async () => {
   const seen: string[] = [];
+  let active = 0;
+  let peak = 0;
   const collection = await collectLeaderboards(async (url, init) => {
-    expect(new Headers(init?.headers).get("rsc")).toBe("1");
+    const headers = new Headers(init?.headers);
+    expect(headers.get("rsc")).toBe("1");
     const path = String(url).split("/leaderboard/")[1] ?? "";
     seen.push(path);
+    let tree = JSON.parse(decodeURIComponent(headers.get("next-router-state-tree") ?? ""));
+    while (tree[1].children) {
+      if (Array.isArray(tree[0]) && tree[0][0] === "slugs") expect(tree[0][1]).toBe(path);
+      tree = tree[1].children;
+    }
+    expect(tree).toEqual(["__PAGE__", {}, null, "refetch"]);
+    active++;
+    peak = Math.max(peak, active);
+    await Bun.sleep(1);
+    active--;
     const arenaSlug =
       path === "code/webdev"
         ? "code"
@@ -201,7 +222,21 @@ test("all leaderboard requests read RSC directly and still validate their catego
     );
   });
   expect(seen).toHaveLength(11);
+  expect(peak).toBe(4);
   expect(collection.records).toHaveLength(11);
+  expect(collection.records.map((record) => record.category)).toEqual([
+    "text/overall",
+    "code/overall",
+    "image-to-code/overall",
+    "document/overall",
+    "image-edit/overall",
+    "image-to-video/overall",
+    "search/overall",
+    "text-to-image/overall",
+    "text-to-video/overall",
+    "video-to-video/overall",
+    "vision/overall",
+  ]);
   expect(collection.raw).toEqual(collection.records);
   await expect(collectLeaderboards(async () => new Response("<!doctype html><html>no data</html>"))).rejects.toThrow(
     "no longer exposes leaderboard",
@@ -1236,38 +1271,42 @@ test("package collectors reject a registry response for a different package", as
   expect(answered).not.toContain("@other/tool");
 });
 
-test("an npm package whose channels have not moved is read from its dist-tags alone", async () => {
+test("npm asks tags before a child, and moving, adding or removing a channel requires the full document", async () => {
   const full = {
     name: "@openai/codex",
     "dist-tags": { latest: "1.2.3", alpha: "1.3.0-alpha.1", "linux-x64": "1.2.3-linux-x64" },
     time: { "1.2.3": "2026-09-01T00:00:00.000Z", "1.3.0-alpha.1": "2026-09-02T00:00:00.000Z" },
   };
   const expected = parseNpm(JSON.stringify(full)).records;
-  const known = new Map(expected.map((r) => [r.id, { version: String(r.version), published: String(r.published) }]));
+  const db = openDatabase(":memory:");
+  aSource(db, "npm:@openai/codex", { lastSuccess: "2026-10-04T08:00:00.000Z" });
+  for (const record of expected) aRecord(db, { source: "npm:@openai/codex", id: record.id, body: record });
   const urls: string[] = [];
   const request = async (url: string | URL | Request) => {
     urls.push(String(url));
-    return String(url).endsWith("/dist-tags") ? Response.json(full["dist-tags"]) : Response.json(full);
+    return Response.json(full["dist-tags"]);
   };
-
-  const light = await collectNpm("@openai/codex", request, undefined, known);
+  expect(await npmUnchanged(db, "@openai/codex", request)).toBe(true);
   expect(urls).toEqual(["https://registry.npmjs.org/-/package/@openai%2Fcodex/dist-tags"]);
-  expect(light.records).toEqual(expected);
-
-  // A channel that moved needs its publication date, which only the full document has.
+  for (const tags of [
+    { latest: "1.2.4", alpha: "1.3.0-alpha.1" },
+    { latest: "1.2.3" },
+    { latest: "1.2.3", alpha: "1.3.0-alpha.1", next: "1.4.0" },
+    {},
+  ])
+    expect(await npmUnchanged(db, "@openai/codex", async () => Response.json(tags))).toBe(false);
+  aSource(db, "npm:@openai/codex", { lastSuccess: "2026-10-04T08:00:00.000Z", failures: 1 });
   urls.length = 0;
-  known.set("latest", { version: "1.2.2", published: "2026-08-01T00:00:00.000Z" });
-  const moved = await collectNpm("@openai/codex", request, undefined, known);
-  expect(urls).toEqual([
-    "https://registry.npmjs.org/-/package/@openai%2Fcodex/dist-tags",
-    "https://registry.npmjs.org/@openai%2Fcodex",
-  ]);
+  expect(await npmUnchanged(db, "@openai/codex", request)).toBe(false);
+  expect(await npmUnchanged(db, "@other/unread", request)).toBe(false);
+  expect(urls).toEqual([]);
+  // The child's only request is the complete document, including publication dates.
+  const moved = await collectNpm("@openai/codex", async (url) => {
+    expect(String(url)).toBe("https://registry.npmjs.org/@openai%2Fcodex");
+    return Response.json(full);
+  });
   expect(moved.records).toEqual(expected);
-
-  // Nothing known yet: straight to the full document.
-  urls.length = 0;
-  await collectNpm("@openai/codex", request, undefined, new Map());
-  expect(urls).toEqual(["https://registry.npmjs.org/@openai%2Fcodex"]);
+  db.close();
 });
 
 test("Vercel gateway models carry maker, context and pricing", async () => {

@@ -14,16 +14,15 @@
  * guess at an address: `openrouter` had `stealth/space-bunny-alpha` the same day, and so did
  * `models-dev`, `opencode-zen`, `opencode-go`, `voxelbench` and `openrouter-usage`.
  */
-import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { Collection, RecordData } from "../events/types.js";
 import { vendorOfName } from "../events/vendors.js";
 import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import type { HttpCache } from "../storage/httpCache.js";
-import { fetchResponse, fetchText, requireOk } from "./http.js";
+import { fetchText } from "./http.js";
 
-const OPENCODE_MODELS_URL = "https://models.opencode.ai/models.json";
+export const OPENCODE_MODELS_URL = "https://models.opencode.ai/models.json";
 const catalogueSchema = z
   .record(
     z.string(),
@@ -35,29 +34,6 @@ const catalogueSchema = z
   )
   .refine((models) => Object.keys(models).length > 0, "OpenCode catalogue has no models")
   .refine((models) => Object.entries(models).every(([id, model]) => id === model.id), "OpenCode model ids disagree");
-
-/** A cached version can skip collection only after the pipeline accepted it. No body is decoded. */
-export async function openCodeDataUnchanged(db: Database, cache: HttpCache, request: Fetch = fetch): Promise<boolean> {
-  const etag = db
-    .query<{ etag: string }, [string]>(
-      `SELECT etag FROM http_cache WHERE url=? AND etag IS NOT NULL AND used_at <=
-       (SELECT last_success FROM live_sources WHERE id='discovery:opencode-data' AND failures=0)`,
-    )
-    .get(OPENCODE_MODELS_URL)?.etag;
-  if (!etag) return false;
-  const response = await fetchResponse(
-    OPENCODE_MODELS_URL,
-    { method: "HEAD", headers: { "if-none-match": etag } },
-    request,
-  );
-  await response.body?.cancel();
-  if (response.status !== 304) {
-    await requireOk(response);
-    return false;
-  }
-  cache.touch(OPENCODE_MODELS_URL, 0);
-  return true;
-}
 
 export async function collectOpenCodeData(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
   const text = await fetchText(OPENCODE_MODELS_URL, { accept: "application/json" }, request, undefined, cache);

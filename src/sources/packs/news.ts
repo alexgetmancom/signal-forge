@@ -13,7 +13,9 @@ import {
   collectOpenAIAlignment,
   collectOpenAICodexChangelog,
   collectOpenAIDeploymentSafety,
+  OPENAI_CODEX_CHANGELOG_FEED_URL,
 } from "../feeds.js";
+import { acceptedEtagUnchanged } from "../http.js";
 import { type SourceKind, sourcesOfKind } from "../kinds.js";
 import { collectLabPages, LAB_PAGE_SOURCES } from "../labPages.js";
 import {
@@ -24,6 +26,7 @@ import {
   collectOpenAINews,
 } from "../news.js";
 import { collectOpenAIDocsIndex, collectOpenAILearnIndex, collectOpenAIShowcaseIndex } from "../openaiDocs.js";
+import { collectQwenBlog } from "../qwen.js";
 import {
   collectGeminiApiChangelog,
   collectGroqChangelog,
@@ -222,7 +225,7 @@ function releaseNoteSources({ db, config, cache }: SourceContext): SourceEntry[]
   ]);
 }
 
-function developerFeedSources({ cache }: SourceContext): SourceEntry[] {
+function developerFeedSources({ db, cache }: SourceContext): SourceEntry[] {
   return sourcesOfKind(DEVELOPER_FEED, [
     // A 1.07 MB feed that claims +48 MB of permanent high-water the first time it is parsed: XML
     // becomes a tree an order of magnitude larger than its text. Measured 2026-09-27.
@@ -238,6 +241,7 @@ function developerFeedSources({ cache }: SourceContext): SourceEntry[] {
       vendor: "OpenAI",
       heavy: true,
       intervalSeconds: 120,
+      nothingNew: () => acceptedEtagUnchanged(db, cache, "openai-codex-changelog", OPENAI_CODEX_CHANGELOG_FEED_URL),
       collector: () => collectOpenAICodexChangelog(fetch, cache),
     },
     /**
@@ -291,13 +295,6 @@ function sitemapSources(_context: SourceContext): SourceEntry[] {
   ]);
 }
 
-/**
- * Lab pages whose first read claims enough memory to be worth a process that ends. Measured
- * 2026-09-27: `qwen-blog` returns its whole article index as one JSON body, +35 MB of high-water
- * that a long-lived process never gives back. The rest of the family costs nothing measurable.
- */
-const HEAVY_LAB_PAGES = new Set(["qwen-blog"]);
-
 function labPageSources({ cache }: SourceContext): SourceEntry[] {
   return sourcesOfKind(LAB_PAGE, [
     /**
@@ -340,12 +337,19 @@ function labPageSources({ cache }: SourceContext): SourceEntry[] {
       intervalSeconds: 300,
       collector: () => collectAnthropicRoutes(),
     },
+    {
+      id: "qwen-blog",
+      vendor: "Qwen",
+      // 4.78 MB of articles, read as bytes without allocating their texts. The child still
+      // bounds its first-read claim, measured above 32 MB on 2026-10-04.
+      heavy: true,
+      collector: () => collectQwenBlog(),
+    },
     ...Object.entries(LAB_PAGE_SOURCES).map(([id, vendor], index) => ({
       id,
       vendor,
       // Spread across the minute so the whole family does not land on one tick.
-      intervalSeconds: LAB_PAGE.intervalSeconds + index * 20,
-      ...(HEAVY_LAB_PAGES.has(id) ? { heavy: true as const } : {}),
+      intervalSeconds: LAB_PAGE.intervalSeconds + (index + 1) * 20,
       collector: () => collectLabPages(id as keyof typeof LAB_PAGE_SOURCES),
     })),
   ]);

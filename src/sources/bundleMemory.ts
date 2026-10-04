@@ -14,7 +14,7 @@ import { readState, writeState } from "../storage/appState.js";
  *
  * So the memory is the database, which is the same database whichever process is asking. The version
  * is a scalar in `app_state`; the ids are read back from the records that reading produced, the way
- * `npmChannels` reads the channels a package was last accepted at.
+ * `npmUnchanged` compares the channels with the versions in their accepted records.
  */
 export type BundleMemory = {
   /** The version whose bundle was last read through, or null when none was. */

@@ -12,8 +12,9 @@ import {
 import { collectDeepSeekModels, collectDeepSeekPricing } from "../deepseek.js";
 import type { SourceContext, SourceEntry } from "../definition.js";
 import { collectGoogleSkus } from "../googleSkus.js";
+import { acceptedEtagUnchanged } from "../http.js";
 import { type SourceKind, sourcesOfKind } from "../kinds.js";
-import { collectModelsDev, collectTrueFoundryAzure, modelsDevUnchanged } from "../mirrors.js";
+import { collectModelsDev, collectTrueFoundryAzure, MODELS_DEV_URL } from "../mirrors.js";
 import { collectClaudeModelCatalog } from "../modelCatalog.js";
 import { collectAnthropicModelIndex, collectOpenAIModelIndex } from "../modelIndex.js";
 import { collectOpenAIPricing } from "../openaiDocs.js";
@@ -26,24 +27,11 @@ import {
   HF_AUTHORS,
   HF_LABS,
   NPM_PACKAGES,
-  type NpmChannels,
+  npmUnchanged,
   PYPI_PACKAGES,
 } from "../registries.js";
 import { collectOpenRouterUsage } from "../usage.js";
 import { collectVertexModelGarden, collectVertexQuotas } from "../vertex.js";
-
-/** The channels a package's accepted records point at, so an unchanged package is read cheaply. */
-function npmChannels(db: Database, source: string): NpmChannels {
-  const channels: NpmChannels = new Map();
-  for (const row of db
-    .query<{ id: string; body: string }, [string]>("SELECT id,body FROM records WHERE source=?")
-    .all(source)) {
-    const body = JSON.parse(row.body) as { version?: unknown; published?: unknown };
-    if (typeof body.version === "string" && typeof body.published === "string")
-      channels.set(row.id, { version: body.version, published: body.published });
-  }
-  return channels;
-}
 
 /**
  * A maker's own catalogue for its own clients, which is not its API's answer and is not a
@@ -306,7 +294,7 @@ export function cataloguesSources({ db, config, cache }: SourceContext): SourceE
         id: "models-dev",
         heavy: true,
         intervalSeconds: config.pollSeconds,
-        nothingNew: () => modelsDevUnchanged(db, cache),
+        nothingNew: () => acceptedEtagUnchanged(db, cache, "models-dev", MODELS_DEV_URL),
         collector: () => collectModelsDev(fetch, cache),
       },
       {
@@ -361,7 +349,8 @@ export function cataloguesSources({ db, config, cache }: SourceContext): SourceE
         intervalSeconds: 900 + index * 45,
         // Usually 600 bytes; the full document, up to 15 MB, whenever a channel moves.
         heavy: true,
-        collector: () => collectNpm(name, fetch, cache, npmChannels(db, `npm:${name}`)),
+        nothingNew: () => npmUnchanged(db, name),
+        collector: () => collectNpm(name, fetch, cache),
       })),
       ...PYPI_PACKAGES.map((name, index) => ({
         id: `pypi:${name}`,

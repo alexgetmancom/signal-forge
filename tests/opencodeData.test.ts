@@ -1,6 +1,7 @@
 import { expect, spyOn, test } from "bun:test";
 import { loadConfig } from "../src/config.js";
-import { collectOpenCodeData, openCodeDataUnchanged } from "../src/sources/opencodeData.js";
+import { acceptedEtagUnchanged } from "../src/sources/http.js";
+import { collectOpenCodeData } from "../src/sources/opencodeData.js";
 import { buildSourceRegistry } from "../src/sources/registry.js";
 import { openDatabase } from "../src/storage/database.js";
 import { HttpCache } from "../src/storage/httpCache.js";
@@ -145,14 +146,14 @@ test("a cache write newer than the last accepted collection, or a failed source,
     { body: "unaccepted", etag: '"new"', lastModified: null, freshUntil: 0 },
     Date.parse(acceptedAt) + 1000,
   );
-  expect(await openCodeDataUnchanged(db, cache, request)).toBe(false);
+  expect(await acceptedEtagUnchanged(db, cache, "discovery:opencode-data", catalogueUrl, request)).toBe(false);
   cache.put(
     catalogueUrl,
     { body: "accepted", etag: '"old"', lastModified: null, freshUntil: 0 },
     Date.parse(acceptedAt) - 1000,
   );
   aSource(db, "discovery:opencode-data", { lastSuccess: acceptedAt, failures: 1 });
-  expect(await openCodeDataUnchanged(db, cache, request)).toBe(false);
+  expect(await acceptedEtagUnchanged(db, cache, "discovery:opencode-data", catalogueUrl, request)).toBe(false);
   expect(asked).toBe(0);
   db.close();
 });
@@ -165,16 +166,26 @@ test("a changed ETag fetches the complete replacement, and a refusal preserves r
       ? new Response(null, { status: 200 })
       : Response.json(models, { headers: { etag: '"new"' } });
   };
-  expect(await openCodeDataUnchanged(db, cache, request)).toBe(false);
+  expect(await acceptedEtagUnchanged(db, cache, "discovery:opencode-data", catalogueUrl, request)).toBe(false);
   expect((await collectOpenCodeData(request, cache)).raw).toEqual(models);
   expect(cache.get(catalogueUrl)?.etag).toBe('"new"');
   // The cache has moved but no successful pipeline save has followed it yet.
-  expect(await openCodeDataUnchanged(db, cache, async () => new Response(null, { status: 304 }))).toBe(false);
+  expect(
+    await acceptedEtagUnchanged(
+      db,
+      cache,
+      "discovery:opencode-data",
+      catalogueUrl,
+      async () => new Response(null, { status: 304 }),
+    ),
+  ).toBe(false);
   const accepted = acceptedCache();
   await expect(
-    openCodeDataUnchanged(
+    acceptedEtagUnchanged(
       accepted.db,
       accepted.cache,
+      "discovery:opencode-data",
+      catalogueUrl,
       async () => new Response(null, { status: 429, headers: { "retry-after": "120" } }),
     ),
   ).rejects.toMatchObject({ status: 429, rateLimited: true, retryAt: expect.any(String) });

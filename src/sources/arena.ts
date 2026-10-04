@@ -214,9 +214,33 @@ export function parseLeaderboards(pages: readonly { path: string; flight: string
 }
 export async function collectLeaderboards(request: Fetch = fetch): Promise<Collection> {
   const pages: { path: string; flight: string }[] = [];
-  // The same 870 records across eleven boards: 1.69 MB of RSC instead of 8.82 MB of HTML
-  // on 2026-10-04. Only the transport changes; the records and stored evidence stay the same.
-  for (const [path] of BOARD_PAGES)
-    pages.push({ path, flight: await fetchText(`https://arena.ai/leaderboard/${path}`, { RSC: "1" }, request) });
+  // Ask Next.js to refresh the page segment only, leaving its shared layouts out of the answer.
+  // Measured 2026-10-04: 792,575 bytes instead of 1,685,031 across eleven boards, with all 870
+  // records identical. Four concurrent reads took 2.1 seconds instead of seven sequentially.
+  for (let offset = 0; offset < BOARD_PAGES.length; offset += 4) {
+    pages.push(
+      ...(await Promise.all(
+        BOARD_PAGES.slice(offset, offset + 4).map(async ([path]) => {
+          let tree: unknown[] = ["__PAGE__", {}, null, "refetch"];
+          for (const segment of [
+            ["slugs", path, "c", null],
+            "leaderboard",
+            "(with-sidebar)",
+            "(chat-shell)",
+            "(app)",
+            ["locale", "en", "d", null],
+            "",
+          ])
+            tree = [segment, { children: tree }];
+          const flight = await fetchText(
+            `https://arena.ai/leaderboard/${path}`,
+            { RSC: "1", "Next-Router-State-Tree": encodeURIComponent(JSON.stringify(tree)) },
+            request,
+          );
+          return { path, flight };
+        }),
+      )),
+    );
+  }
   return parseLeaderboards(pages);
 }

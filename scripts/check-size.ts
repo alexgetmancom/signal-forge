@@ -73,7 +73,7 @@ const BUDGET: Readonly<Record<string, number>> = {
   "src/reports/news.ts:news": 100,
   "src/sources/deepseek.ts:parseDeepSeekPricing": 100,
   "src/sources/github.ts:collectGithubPulls": 100,
-  "src/sources/http.ts:fetchText": 100,
+  "src/sources/http.ts:fetchText": 75,
   "src/sources/lifecycle.ts:parseTableRecords": 100,
   "src/sources/modelMentions.ts:collectModelMentions": 100,
   "src/status.ts:sendBoard": 100,

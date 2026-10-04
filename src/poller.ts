@@ -127,9 +127,20 @@ export function byLongestWait(
  */
 async function markedUnchanged(db: Database, job: SourceDefinition): Promise<string | null> {
   const nothingNew = job.nothingNew;
+  // A second observation settles a disappearance or a flickering change even when upstream
+  // has not moved again. Skipping it would leave that confirmation pending indefinitely.
+  if (
+    !nothingNew ||
+    db
+      .query<{ pending: number }, [string]>(
+        "SELECT 1 AS pending FROM records WHERE source=? AND (missing_count>0 OR candidate_body IS NOT NULL) LIMIT 1",
+      )
+      .get(job.id)
+  )
+    return null;
   // Timed under its own name: this is the read that now happens every few minutes, and `timings`
   // should be able to say what asking that often costs.
-  if (!nothingNew || !(await measure(db, `source.watch:${job.id}`, () => nothingNew()))) return null;
+  if (!(await measure(db, `source.watch:${job.id}`, () => nothingNew()))) return null;
   const checkedAt = new Date().toISOString();
   db.query(
     "UPDATE sources SET last_success=?,checked_at=?,failures=0,retry_at=NULL,failure_started_at=NULL,last_error=NULL,last_error_kind=NULL WHERE id=?",

@@ -11,7 +11,7 @@ import { fetchText } from "./http.js";
 const CLAUDE_CODE_CHANGELOG_URL = "https://code.claude.com/docs/en/changelog.md";
 const ANTHROPIC_SDK_RELEASES_URL = "https://platform.claude.com/docs/en/release-notes/overview.md";
 const OPENAI_CODEX_CHANGELOG_URL = "https://developers.openai.com/codex/changelog";
-const OPENAI_CODEX_CHANGELOG_FEED_URL = "https://learn.chatgpt.com/docs/changelog/rss.xml";
+export const OPENAI_CODEX_CHANGELOG_FEED_URL = "https://learn.chatgpt.com/docs/changelog/rss.xml";
 const HUGGINGFACE_BLOG_FEED_URL = "https://huggingface.co/blog/feed.xml";
 const GOOGLE_AI_BLOG_FEED_URL = "https://blog.google/innovation-and-ai/technology/ai/rss/";
 const GOOGLE_AI_BLOG_URL = "https://blog.google/technology/ai/";

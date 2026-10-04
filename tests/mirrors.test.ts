@@ -1,9 +1,9 @@
 import { expect, spyOn, test } from "bun:test";
+import { acceptedEtagUnchanged } from "../src/sources/http.js";
 import {
   bareModelSlug,
   collectModelsDev,
   collectTrueFoundryAzure,
-  modelsDevUnchanged,
   providerVersionBase,
 } from "../src/sources/mirrors.js";
 import { openDatabase } from "../src/storage/database.js";
@@ -30,7 +30,7 @@ test("an accepted ETag's 304 skips decoding the cached catalogue", async () => {
   const get = spyOn(cache, "get");
   const requests: RequestInit[] = [];
   expect(
-    await modelsDevUnchanged(db, cache, async (url, init) => {
+    await acceptedEtagUnchanged(db, cache, "models-dev", modelsUrl, async (url, init) => {
       expect(String(url)).toBe(modelsUrl);
       requests.push(init ?? {});
       return new Response(null, { status: 304 });
@@ -46,11 +46,15 @@ test("an accepted ETag's 304 skips decoding the cached catalogue", async () => {
 
 test("a changed ETag falls through to a full collection; a refusal keeps its retry time", async () => {
   const { db, cache } = acceptedCache();
-  expect(await modelsDevUnchanged(db, cache, async () => new Response(null, { status: 200 }))).toBe(false);
+  expect(
+    await acceptedEtagUnchanged(db, cache, "models-dev", modelsUrl, async () => new Response(null, { status: 200 })),
+  ).toBe(false);
   await expect(
-    modelsDevUnchanged(
+    acceptedEtagUnchanged(
       db,
       cache,
+      "models-dev",
+      modelsUrl,
       async () =>
         new Response(null, {
           status: 429,
@@ -73,16 +77,16 @@ test("a cache version not yet saved by the pipeline cannot skip the collector", 
     { body: "unaccepted", etag: '"new"', lastModified: null, freshUntil: 0 },
     Date.parse(acceptedAt) + 1000,
   );
-  expect(await modelsDevUnchanged(db, cache, request)).toBe(false);
+  expect(await acceptedEtagUnchanged(db, cache, "models-dev", modelsUrl, request)).toBe(false);
   cache.put(
     modelsUrl,
     { body: "accepted", etag: '"old"', lastModified: null, freshUntil: 0 },
     Date.parse(acceptedAt) - 1000,
   );
   aSource(db, "models-dev", { lastSuccess: acceptedAt, failures: 1 });
-  expect(await modelsDevUnchanged(db, cache, request)).toBe(false);
+  expect(await acceptedEtagUnchanged(db, cache, "models-dev", modelsUrl, request)).toBe(false);
   aSource(db, "models-dev");
-  expect(await modelsDevUnchanged(db, cache, request)).toBe(false);
+  expect(await acceptedEtagUnchanged(db, cache, "models-dev", modelsUrl, request)).toBe(false);
   expect(asked).toBe(0);
   db.close();
 });

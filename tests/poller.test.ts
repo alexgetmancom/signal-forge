@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { expect, spyOn, test } from "bun:test";
 import { z } from "zod";
 import { loadConfig } from "../src/config.js";
 import { unexplainedFailure } from "../src/failureDiagnosis.js";
@@ -6,7 +6,7 @@ import { byLongestWait, collectNamedSource } from "../src/poller.js";
 import { sourceJobs } from "../src/sources/registry.js";
 import { openDatabase } from "../src/storage/database.js";
 import { HttpCache } from "../src/storage/httpCache.js";
-import { aSource } from "./fixtures/build.js";
+import { aRecord, aSource } from "./fixtures/build.js";
 
 const pollerConfig = () => loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname });
 
@@ -42,6 +42,72 @@ test("models.dev's unchanged check runs before its heavy child and continues to 
   } finally {
     globalThis.fetch = original;
     db.close();
+  }
+});
+
+test("Codex RSS and npm finish an unchanged check without starting their heavy child", async () => {
+  for (const source of ["openai-codex-changelog", "npm:@openai/codex"]) {
+    const db = openDatabase(":memory:");
+    const at = Date.now() - 1000;
+    aSource(db, source, { lastSuccess: new Date(at).toISOString() });
+    if (source.startsWith("npm:"))
+      aRecord(db, { source, id: "latest", body: { id: "latest", name: "Codex", version: "1.2.3" } });
+    else
+      new HttpCache(db).put(
+        "https://learn.chatgpt.com/docs/changelog/rss.xml",
+        { body: "not XML", etag: '"same"', lastModified: null, freshUntil: 0 },
+        at - 1000,
+      );
+    const original = globalThis.fetch;
+    let requests = 0;
+    globalThis.fetch = (async (_url, init) => {
+      requests++;
+      if (source.startsWith("npm:")) return Response.json({ latest: "1.2.3" });
+      expect(init?.method).toBe("HEAD");
+      return new Response(null, { status: 304 });
+    }) as typeof fetch;
+    const child = spyOn(Bun, "spawn").mockImplementation(() => {
+      throw new Error("unexpected child");
+    });
+    try {
+      expect(await collectNamedSource(db, pollerConfig(), source)).toMatchObject({ status: "unchanged" });
+      expect(requests).toBe(1);
+      expect(child).not.toHaveBeenCalled();
+      expect(db.query("SELECT count(*) AS n FROM snapshots").get()).toEqual({ n: 0 });
+      expect(db.query("SELECT last_success=checked_at AS healthy FROM sources WHERE id=?").get(source)).toEqual({
+        healthy: 1,
+      });
+    } finally {
+      child.mockRestore();
+      globalThis.fetch = original;
+      db.close();
+    }
+  }
+});
+
+test("an unchanged source still collects to settle a pending disappearance or change", async () => {
+  for (const field of ["missing_count", "candidate_body"]) {
+    const db = openDatabase(":memory:");
+    const at = Date.now() - 1000;
+    aSource(db, "models-dev", { lastSuccess: new Date(at).toISOString() });
+    aRecord(db, { source: "models-dev", id: "pending" });
+    if (field === "missing_count") db.query("UPDATE records SET missing_count=1 WHERE source='models-dev'").run();
+    else db.query("UPDATE records SET candidate_body='{}' WHERE source='models-dev'").run();
+    new HttpCache(db).put(
+      "https://models.dev/api.json",
+      { body: "unused", etag: '"same"', lastModified: null, freshUntil: 0 },
+      at - 1000,
+    );
+    const child = spyOn(Bun, "spawn").mockImplementation(() => {
+      throw new Error("child was reached");
+    });
+    try {
+      expect(await collectNamedSource(db, pollerConfig(), "models-dev")).toMatchObject({ status: "failed" });
+      expect(child).toHaveBeenCalledTimes(1);
+    } finally {
+      child.mockRestore();
+      db.close();
+    }
   }
 });
 
