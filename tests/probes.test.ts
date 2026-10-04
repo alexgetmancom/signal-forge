@@ -154,7 +154,7 @@ test("Google asks HEAD controls first, then at most four guesses, and retains so
   expect(new Set(guesses).size).toBe(guesses.length);
   const sorted = [...guesses].sort();
   expect(collection.records.map((record) => record.id)).toEqual(sorted);
-  const answers = collection.raw as Record<string, { status: number }>;
+  const answers = (collection.raw as { asked: Record<string, { status: number }> }).asked;
   expect(Object.keys(answers)).toEqual([...sorted, "gemini-3.8-flash", "gemini-99.99-flash"]);
   expect(answers["gemini-99.99-flash"]).toMatchObject({ status: 404 });
   db.close();
@@ -427,5 +427,7 @@ test("the negative control is asked in the shape of a guess, and a 404 from it l
   // Asked second, before any guess, through the same slug and address the guesses use.
   expect(asked[1]).toBe("https://platform.claude.com/docs/en/models/opus-99-99/overview");
   // And kept beside them, so the day a site turns indiscriminate is answerable afterwards.
-  expect((collection.raw as Record<string, { status: number }>)["opus-99-99"]).toMatchObject({ status: 404 });
+  expect((collection.raw as { asked: Record<string, { status: number }> }).asked["opus-99-99"]).toMatchObject({
+    status: 404,
+  });
 });

@@ -12,6 +12,7 @@
 import type { Database } from "bun:sqlite";
 import { newsroomVote, readersVote } from "../insights.js";
 import { judgementOf } from "../jev.js";
+import { isTheFirstReadOfAShape } from "../sources/probeMemory.js";
 import { isFixesOnlyRelease } from "./buildWorth.js";
 import { anotherEffortLeadsThisDebut, followsAnOldLaunch } from "./debutAge.js";
 import { isAliasRow, isAnotherServing, isAnotherTierOfAListedModel, knownModelNames } from "./nameWorth.js";
@@ -122,6 +123,15 @@ export type BatchView = {
 export function standingReason(db: Database, event: Event, view: BatchView): SuppressionReason | null {
   if (view.renamed.has(event.id)) return "renamed_by_the_source";
   if (isMinorBoardMove(event)) return "below_the_top_of_the_board";
+  /**
+   * A probe that has just learned a shape finds the whole line at once; see isTheFirstReadOfAShape.
+   * Asked only of a page a probe found, because only a probe dates the shapes it asks about, and
+   * the question costs a snapshot read.
+   */
+  if (event.stream === "pages" && event.source.startsWith("discovery:") && event.kind === "new") {
+    if (isTheFirstReadOfAShape(db, event.source, event.entity_id, event.detected_at))
+      return "the_first_read_of_a_new_shape";
+  }
   // A board placing is the second half of a launch, and stops being one; see followsAnOldLaunch.
   if (followsAnOldLaunch(db, event)) return "the_launch_it_follows_is_old_news";
   // One model measured at five reasoning efforts is one debut; see anotherEffortLeadsThisDebut.

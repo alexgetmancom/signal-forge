@@ -2,8 +2,8 @@ import type { Database } from "bun:sqlite";
 import type { Collection, RecordData } from "../events/types.js";
 import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
-import { readLatestSnapshot } from "../storage/snapshots.js";
 import { fetchResponse } from "./http.js";
+import { type Asked, type ProbeMemory, probeMemory } from "./probeMemory.js";
 import type { Vendor } from "./vendors.js";
 
 /**
@@ -436,18 +436,73 @@ async function askStatus(url: string, method: Site["method"], request: Fetch): P
   return response.status;
 }
 
-/** What a previous poll asked and what it was told, carried in the stored snapshot. */
-type Asked = Record<string, { status: number; at: string }>;
-
-function previouslyAsked(db: Database, source: string): Asked {
-  const stored = readLatestSnapshot(db, source);
-  if (!stored) return {};
-  try {
-    const body: unknown = JSON.parse(stored);
-    return body && typeof body === "object" ? (body as Asked) : {};
-  } catch {
-    return {};
+/**
+ * Every address this poll will ask about, the shape each guess came out of, and the dates the
+ * shapes were first asked about.
+ *
+ * Its own declaration because the asking is a page of arithmetic over the catalogue and the poll
+ * around it is a page of controls and batching; the two were one function that outgrew the size a
+ * declaration is allowed.
+ */
+function probeQuestions(
+  db: Database,
+  site: Site,
+  state: {
+    catalogue: readonly string[];
+    families: { family: string; version: Version }[];
+    highest: Version;
+    memory: ProbeMemory;
+    now: number;
+    stamp: string;
+  },
+): { candidates: Set<string>; familyOf: Map<string, string>; asking: Record<string, string> } {
+  const { catalogue, families, highest, memory, now, stamp } = state;
+  const { asked, shapes } = memory;
+  const candidates = new Set<string>();
+  /**
+   * Which shape each guess came out of, so the snapshot can say it and the first read of a new
+   * shape can be told from an ordinary sighting afterwards. Only the version guesses have one: a
+   * heard name and a crossed codename are names somebody already wrote down, so neither of them is
+   * a line the probe has just started asking about.
+   */
+  const familyOf = new Map<string, string>();
+  const guess = (family: string, version: Version): void => {
+    const slug = site.slug(family, version);
+    candidates.add(slug);
+    familyOf.set(slug, family);
+  };
+  for (const { family, version } of families) {
+    for (const next of nextVersions(version)) guess(family, next);
+    /**
+     * A tier does not have to catch up before the maker moves the whole line. Google was at
+     * `gemini-3.8-flash` while its pro tier was still `gemini-3.1-pro`, and the next pro is far
+     * likelier to be `gemini-4-pro` than `gemini-3.2-pro`. So every tier is also asked the
+     * questions the maker's furthest tier earns.
+     */
+    for (const next of nextVersions(highest)) guess(family, next);
   }
+  /**
+   * The shapes this probe had never asked about before now, dated to this poll. Written before the
+   * questions are asked, so the records this poll produces are already covered by it.
+   */
+  const asking: Record<string, string> = { ...shapes };
+  for (const slug of candidates) {
+    const family = familyOf.get(slug);
+    if (family && !asking[family]) asking[family] = stamp;
+  }
+  const heard = heardNames(db, site, now, catalogue);
+  for (const name of heard) {
+    const last = asked[name];
+    if (last && Date.parse(last.at) > now - COOLOFF_HOURS * 3_600_000) continue;
+    candidates.add(name);
+  }
+  /**
+   * Not rate-limited by `COOLOFF_HOURS`, for the same reason the version guesses are not: these are
+   * addresses nobody has written down anywhere, so the only way to learn the minute one starts
+   * answering is to keep asking.
+   */
+  for (const slug of versionedCodenames(site, catalogue, heard)) candidates.add(slug);
+  return { candidates, familyOf, asking };
 }
 
 /**
@@ -522,30 +577,16 @@ export async function collectDocsProbe(
       { evidence: { status: refused } },
     );
 
-  const asked = previouslyAsked(db, site.id);
-  const candidates = new Set<string>();
-  for (const { family, version } of families) {
-    for (const next of nextVersions(version)) candidates.add(site.slug(family, next));
-    /**
-     * A tier does not have to catch up before the maker moves the whole line. Google was at
-     * `gemini-3.8-flash` while its pro tier was still `gemini-3.1-pro`, and the next pro is far
-     * likelier to be `gemini-4-pro` than `gemini-3.2-pro`. So every tier is also asked the
-     * questions the maker's furthest tier earns.
-     */
-    for (const next of nextVersions(highest)) candidates.add(site.slug(family, next));
-  }
-  const heard = heardNames(db, site, now, catalogue);
-  for (const name of heard) {
-    const last = asked[name];
-    if (last && Date.parse(last.at) > now - COOLOFF_HOURS * 3_600_000) continue;
-    candidates.add(name);
-  }
-  /**
-   * Not rate-limited by `COOLOFF_HOURS`, for the same reason the version guesses are not: these are
-   * addresses nobody has written down anywhere, so the only way to learn the minute one starts
-   * answering is to keep asking.
-   */
-  for (const slug of versionedCodenames(site, catalogue, heard)) candidates.add(slug);
+  const memory = probeMemory(db, site.id);
+  const { asked } = memory;
+  const { candidates, familyOf, asking } = probeQuestions(db, site, {
+    catalogue,
+    families,
+    highest,
+    memory,
+    now,
+    stamp,
+  });
   candidates.delete(control);
   const records: RecordData[] = [];
   const tried: Asked = { ...asked };
@@ -563,10 +604,15 @@ export async function collectDocsProbe(
       // A rate limit or a server error is the site failing to answer, not an answer. Recorded, it
       // would put a heard name out of reach for COOLOFF_HOURS on the strength of a moment's trouble.
       if (status === null || status === 429 || status >= 500) continue;
-      tried[slug] = { status, at: stamp };
+      tried[slug] = { status, at: stamp, ...familyFor(slug) };
       if (status !== 200) continue;
       records.push({ id: slug, name: slug, url: site.url(slug), maker: site.vendor, source: "documentation" });
     }
+  }
+  /** The shape a slug was asked under, kept across polls so a forgotten guess does not lose it. */
+  function familyFor(slug: string): { family?: string } {
+    const family = familyOf.get(slug) ?? asked[slug]?.family;
+    return family ? { family } : {};
   }
   tried[control] = { status: answered, at: stamp };
   // Both controls are kept beside the guesses, so a later reader can date the day a site changed
@@ -580,7 +626,7 @@ export async function collectDocsProbe(
     source: site.id,
     stream: "pages",
     url: site.url("*"),
-    raw: kept,
+    raw: { asked: kept, shapes: asking },
     records,
   };
 }
