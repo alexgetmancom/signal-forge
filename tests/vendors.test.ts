@@ -32,3 +32,15 @@ test("a maker named only in the record's own fields is still placed", () => {
   expect(vendorOfEvidence({ name: "Toast 1", maker: "mixedbread" })).toBe("Mixedbread");
   expect(vendorOfEvidence({ name: "Nothing Recognisable" })).toBe("Unknown");
 });
+
+test("a lab is placed by the spelling it uses for itself and by the namespace it publishes under", () => {
+  // Both found by check-vendors and by reading a catalogue: the dot in the lab's own name, and a
+  // handle whose only clue is the namespace before the slash.
+  expect(vendorOfName("Z.ai")).toBe("Z.ai");
+  expect(vendorOfName("zai-org")).toBe("Z.ai");
+  expect(vendorOfName("liquid/d1")).toBe("Liquid AI");
+  expect(vendorOfName("Liquid AI")).toBe("Liquid AI");
+  expect(vendorOfName("lfm2-vl-3b")).toBe("Liquid AI");
+  // "liquid" on its own is an ordinary word, which is why the namespace and not the word is matched.
+  expect(vendorOfName("liquidity-pool-bench")).toBe("Unknown");
+});

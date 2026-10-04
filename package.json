@@ -28,6 +28,7 @@
     "check-scripts": "bun scripts/check-scripts.ts",
     "check-size": "bun scripts/check-size.ts",
     "check-failures": "bun scripts/check-failures.ts",
+    "check-vendors": "bun scripts/check-vendors.ts",
     "check": "bun scripts/check.ts",
     "check-fast": "bun scripts/check.ts --fast",
     "poll": "bun src/cli.ts poll",

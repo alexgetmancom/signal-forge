@@ -28,7 +28,9 @@ const VENDORS: [RegExp, string][] = [
   [/groq/i, "Groq"],
   [/moonshot|kimi/i, "Moonshot"],
   [/minimax/i, "MiniMax"],
-  [/z-ai|\bzai\b|zhipu|glm/i, "Z.ai"],
+  // `z.ai` with the dot is how the lab writes its own name, and the pattern that had only `z-ai`
+  // did not place the spelling the registry uses for it: check-vendors found that on 2026-10-04.
+  [/z\.?-?ai|\bzai\b|zhipu|glm/i, "Z.ai"],
   // Command A+ reaches us from catalogues that leave `maker` empty, and the word "cohere" is
   // nowhere in the name. Only the lettered families count: `command-code-models` is a source id.
   [/cohere|\bcommand[\s-]?(?:a\+|[ar])\b/i, "Cohere"],
@@ -60,7 +62,9 @@ const VENDORS: [RegExp, string][] = [
   [/meituan|\blongcat\b/i, "Meituan"],
   [/kwaipilot|\bkat-coder/i, "Kwaipilot"],
   [/ibm-granite|\bibm\b|\bgranite[\s-]?\d/i, "IBM"],
-  [/liquid-?ai|\blfm\d/i, "Liquid AI"],
+  // The namespace as well as the name, because `liquid/d1` is how the catalogues publish it and
+  // "liquid" on its own is an ordinary word in a handle.
+  [/liquid[\s-]?ai|\bliquid\/|\blfm\d/i, "Liquid AI"],
   [/swiss-ai|\bapertus\b/i, "Swiss AI"],
   [/inference\.net|\bschematron\b/i, "Inference.net"],
   [/perceptron/i, "Perceptron"],

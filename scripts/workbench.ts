@@ -120,6 +120,11 @@ export const BENCH: Bench[] = [
   },
   {
     group: "prove",
+    command: "check-vendors",
+    when: "Part of the gate. Every laboratory this repository reads for by name -- a Model Garden publisher, a source's `vendor` -- can be placed by vendorOfName, or has a line in the script saying why it cannot. Unknown is not cosmetic: the model carries no maker on its card and OpenCode's reader now drops it outright. `unknown-makers` is the other half, and needs the service and a month of events.",
+  },
+  {
+    group: "prove",
     command: "test",
     when: "`bun test <word>` narrows to matching files. Reach for tests/fixtures/build.ts before writing an INSERT: anEvent, aSnapshot, anAttempt and aCall produce rows that satisfy the CHECK constraints.",
   },

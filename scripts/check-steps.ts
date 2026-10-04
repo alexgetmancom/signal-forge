@@ -43,6 +43,7 @@ export const CHECK_GROUPS: CheckStep[][] = [
     { name: "sql", args: ["check-sql"] },
     { name: "indexes", args: ["check-indexes"] },
     { name: "deploy scripts", args: ["check-scripts"] },
+    { name: "vendors", args: ["check-vendors"] },
     { name: "size", args: ["check-size"] },
     { name: "failures", args: ["check-failures"] },
     { name: "dead code", args: ["check-dead-code"], slow: true },
