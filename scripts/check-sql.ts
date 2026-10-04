@@ -133,6 +133,7 @@ const MAY_READ_BODIES: Readonly<Record<string, string>> = {
   "src/storage/webEvidence.ts":
     "it rewrites the bodies, chunked and largest first, and cannot narrow what it has not read",
   "src/reports/storage.ts": "it sums the length of every body in SQLite and one number leaves, never a body",
+  "src/reports/trace.ts": "the arrival rules are asked of the record each event carried, bounded by the caller's limit",
   "src/reports/releaseRender.ts": "the fingerprint is the rendered cards, in a child that ends",
 };
 

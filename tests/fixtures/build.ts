@@ -59,6 +59,12 @@ export type EventFields = {
    * which is a third state every reader of it has to answer for.
    */
   speaks?: boolean | null;
+  /**
+   * The class the store routed the event by. Null by default, which is the row a reader has to cope
+   * with anyway: every reader of it falls back to classifying the event, so a fixture that leaves it
+   * out is still a valid row. Set it where the test is about a rule that reads the class.
+   */
+  signal?: string | null;
 };
 
 export function anEvent(db: Database, fields: EventFields = {}): number {
@@ -68,8 +74,8 @@ export function anEvent(db: Database, fields: EventFields = {}): number {
   const row = db
     .query<{ id: number }, (string | number | null)[]>(
       `INSERT INTO events(source,stream,entity_id,kind,before_json,after_json,detected_at,snapshot_id,
-         confidence,evidence_type,authority,speaks)
-       VALUES(?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id`,
+         confidence,evidence_type,authority,speaks,signal)
+       VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) RETURNING id`,
     )
     .get(
       source,
@@ -84,6 +90,7 @@ export function anEvent(db: Database, fields: EventFields = {}): number {
       fields.evidenceType ?? "arena_roster",
       fields.authority ?? "third_party",
       fields.speaks === null ? null : (fields.speaks ?? true) ? 1 : 0,
+      fields.signal ?? null,
     );
   if (!row) throw new Error("Event could not be stored");
   return row.id;

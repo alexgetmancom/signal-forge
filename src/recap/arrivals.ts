@@ -1,3 +1,4 @@
+import { signalOf } from "../events/classify.js";
 import { readableName } from "../events/naming.js";
 import { ANNOUNCEMENT_STREAMS, CODING_TOOL_SOURCES } from "../events/signals.js";
 import type { Event } from "../events/types.js";
@@ -47,29 +48,39 @@ function namesModel(announced: string, readable: string): boolean {
 const CATALOGUE_STREAMS = new Set(["api-models", "openrouter", "weights"]);
 
 /**
- * Is this arrival a model, or another way of listing one?
+ * Which rule says this arrival is not a model, or null when none of them does.
+ *
+ * The name of the rule and not a boolean, because the question an operator arrives with is never
+ * "is this an arrival" but "why was this not in the week". `trace` prints what this returns, which
+ * is why the reasons are named rather than counted: before this, answering why one model was absent
+ * meant reading this file and comparing its rules against a record by eye, and there are more of
+ * them every month -- modality, evaluation, precision, the coding-tool lift.
  *
  * A batch tier, a free tier, a `latest` alias, a dated snapshot and somebody else's quantisation
  * are all real records and none of them is a release. Counting them is how the first recap reported
  * thirty-seven models in a week that had nine, and led with a batch tier of a model from July.
  */
-function isRealArrival(event: Event, renamed: Set<number>): boolean {
+export function arrivalRejection(event: Event, renamed: Set<number>): string | null {
   const record = recordOf(event);
   const name = String(record?.name ?? event.entity_id);
-  if (renamed.has(event.id)) return false;
+  if (renamed.has(event.id)) return "renamed_by_the_source";
+  /**
+   * A week is read for what arrived, which is a wider question than what was worth interrupting a
+   * reader for. A reseller listing a model is a sighting rather than a launch and never reaches the
+   * public channel on its own, but it is still the week's first word that the model exists, and the
+   * weighting downstream already prefers the maker's own word over a reseller's.
+   */
+  const signal = signalOf(event);
+  if (signal !== "launch" && signal !== "codename") return "neither_a_launch_nor_a_sighting";
+  // A catalogue rewriting a row it already had is the catalogue repeating itself.
+  if (event.kind !== "new") return "not_a_record_arriving";
   // Only a stream that lists models can say a model arrived. `launch` is a class about what a
   // reader wants to hear now, and a severe outage, a changelog headline and a credit notice all
   // earn it: "Elevated errors affecting ChatGPT Work mode" and "Codex banked reset credit
   // announced" were both counted among the week's 53 models.
-  if (!CATALOGUE_STREAMS.has(event.stream)) return false;
+  if (!CATALOGUE_STREAMS.has(event.stream)) return "not_a_stream_that_lists_models";
   // Only a registry says what an artefact is; a catalogue row is a model by construction.
-  if (event.stream === "weights" && isBesideTheRelease(record)) return false;
-  // A reseller's catalogue gains rows faster than the field gains models, and most of them are
-  // narrow developer tools: Inference.net's Schematron is a 3B model that turns HTML into JSON,
-  // which is a useful thing and not a week's news for anyone who is not parsing websites. Nothing
-  // else we collect has ever heard of it -- no benchmark, no arena, no maker's API -- so the only
-  // judgement available is whether the maker is one this tracker follows. Adding a maker to that
-  // table is how a new name gets in, and it is one line.
+  if (event.stream === "weights" && isBesideTheRelease(record)) return "published_beside_the_release";
   // A reseller's catalogue gains rows faster than the field gains models, and a registry gains
   // them faster still: `well9472/Nanosaur2-670M`, `paradigma-inc/Limite-1b-Violetto` and
   // `Kijai/Ming-Image-ComfyUI` were three of the twelve the 20-27 September recap called "smaller
@@ -79,15 +90,20 @@ function isRealArrival(event: Event, renamed: Set<number>): boolean {
   // table is how a new name gets in, and it is one line.
   // -- unless a coding tool has already put it in front of the reader, which answers the same
   // question the maker's name was standing in for: can this be used, and for this.
-  if (vendorOf(event, record) === "Unknown" && !CODING_TOOL_SOURCES.has(event.source)) return false;
+  if (vendorOf(event, record) === "Unknown" && !CODING_TOOL_SOURCES.has(event.source))
+    return "a_maker_this_tracker_does_not_follow";
   // What this feed is read for. A model that returns a picture, a clip or a vector is a different
   // craft, and the reader cannot code against it however large the maker is: Grok Imagine Video
   // 1.5 Lite was one of the five models on the 27 September card and was nobody's news here.
-  if (servesAnotherModality(name, record)) return false;
+  if (servesAnotherModality(name, record)) return "serves_another_modality";
   // A grader is not a release. `internlm/AdvancedMathBench-AutoVerifier` took a line on that same
   // card, with the authority of a watched lab publishing to its own organisation.
-  if (isAnEvaluation(name)) return false;
-  return !isModelVariant(name) && !isTrainingArtefact(name) && !isNotAModel(name) && !isRepublished(event, record);
+  if (isAnEvaluation(name)) return "an_evaluation_rather_than_a_model";
+  if (isModelVariant(name)) return "a_variant_of_a_model";
+  if (isTrainingArtefact(name)) return "a_training_artefact";
+  if (isNotAModel(name)) return "not_a_model_at_all";
+  if (isRepublished(event, record)) return "republished_from_elsewhere";
+  return null;
 }
 
 /**
@@ -140,13 +156,8 @@ export function periodArrivals(reading: PeriodReading): {
     : "";
   // One model however many collectors saw it, and the maker's own word ahead of a reseller's.
   const bySubject = new Map<string, { name: string; vendor: string; weight: number }>();
-  for (const { event, signal } of classified) {
-    // A week is read for what arrived, which is a wider question than what was worth interrupting
-    // a reader for. A reseller listing a model is a sighting rather than a launch and never
-    // reaches the public channel on its own, but it is still the week's first word that the model
-    // exists, and the weighting below already prefers the maker's own word over a reseller's.
-    const arrived = signal === "launch" || signal === "codename";
-    if (!arrived || event.kind !== "new" || !isRealArrival(event, renamed)) continue;
+  for (const { event } of classified) {
+    if (arrivalRejection(event, renamed)) continue;
     const record = recordOf(event);
     // A catalogue adding a row is not a model being born. Groq listed Compound Mini and OpenRouter
     // re-listed gpt-oss inside one week, and the week read as though GPT-OSS had just come out. The

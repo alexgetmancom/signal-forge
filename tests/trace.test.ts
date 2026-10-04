@@ -87,3 +87,59 @@ test("a name nothing was ever recorded under answers empty rather than failing",
   expect(answer.stories).toEqual([]);
   db.close();
 });
+
+test("a raw record is held even where no event exists, and says whether anything still asks", () => {
+  const db = openDatabase(":memory:");
+  db.exec(
+    `INSERT INTO sources(id,failures,retired_at) VALUES
+       ('openrouter',0,NULL),('a-gateway-we-dropped',0,'2026-09-30T00:00:00.000Z')`,
+  );
+  const body = JSON.stringify({ id: "holo-4", name: "Holo 4", maker: "Holo", output: ["text"] });
+  db.exec(
+    `INSERT INTO records(source,id,body,stream,observed_at) VALUES
+       ('openrouter','holo-4','${body}','openrouter','2026-10-02T09:00:00.000Z'),
+       ('a-gateway-we-dropped','holo-4','${body}','api-models','2026-09-28T09:00:00.000Z')`,
+  );
+  const answer = trace(db, "holo-4", 100);
+  // Nothing was ever an event, and the question "have we seen this" is still answered.
+  expect(answer.events).toEqual([]);
+  expect(answer.records.map((record) => record.source)).toEqual(["a-gateway-we-dropped", "openrouter"]);
+  // The shape of what is held, and not a byte of what it holds.
+  expect(answer.records[1]).toMatchObject({
+    id: "holo-4",
+    stream: "openrouter",
+    fields: ["id", "name", "maker", "output"],
+    stillRegistered: true,
+  });
+  expect(answer.records[1]?.bytes).toBe(body.length);
+  // And the row from the source the registry dropped says so, which is why it is silent.
+  expect(answer.records[0]?.stillRegistered).toBe(false);
+  db.close();
+});
+
+test("each sighting carries the arrival rule that keeps it out of a week, or nothing", () => {
+  const db = openDatabase(":memory:");
+  const sighting = (fields: { source: string; stream: string; signal: string; name: string }) =>
+    anEvent(db, {
+      source: fields.source,
+      stream: fields.stream,
+      entityId: fields.name,
+      signal: fields.signal,
+      afterJson: JSON.stringify({ id: fields.name, name: fields.name, maker: "OpenAI" }),
+    });
+  const board = sighting({ source: "arena-leaderboards", stream: "leaderboards", signal: "rank", name: "gpt-6-holo" });
+  const post = sighting({ source: "news:openai", stream: "news", signal: "launch", name: "gpt-6-holo" });
+  const listed = sighting({ source: "openrouter", stream: "openrouter", signal: "launch", name: "gpt-6-holo" });
+  const video = sighting({ source: "openrouter", stream: "openrouter", signal: "launch", name: "gpt-6-holo-video" });
+  const verdicts = new Map(trace(db, "gpt-6-holo", 100).events.map((event) => [event.id, event.notAnArrival]));
+  // A placing on a board is neither of the two classes a week's arrivals are drawn from.
+  expect(verdicts.get(board)).toBe("neither_a_launch_nor_a_sighting");
+  // And a post that earns `launch` is still not a stream that lists models: "Elevated errors
+  // affecting ChatGPT Work mode" was counted among a week's fifty-three models this way.
+  expect(verdicts.get(post)).toBe("not_a_stream_that_lists_models");
+  // A model that returns a clip is a different craft and never a line in this week.
+  expect(verdicts.get(video)).toBe("serves_another_modality");
+  // And the catalogue row that would count says nothing, which is the absence of a rule.
+  expect(verdicts.get(listed)).toBeNull();
+  db.close();
+});

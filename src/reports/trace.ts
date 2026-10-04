@@ -1,6 +1,8 @@
 import type { Database } from "bun:sqlite";
 import { normalizeIdentity } from "../events/identity.js";
 import { sourceFamily } from "../events/sourceFamily.js";
+import type { Event } from "../events/types.js";
+import { arrivalRejection } from "../recap/arrivals.js";
 
 /**
  * Every sighting of one name, in order, with what each one did.
@@ -26,6 +28,16 @@ export type Trace = {
   query: string;
   normalized: string;
   stories: TraceStory[];
+  /**
+   * The raw rows a collector holds under this name, which is where the sequence starts.
+   *
+   * An event is a difference, so a name with no event is not a name nothing was collected about:
+   * the record can be sitting in `records` from the collection that first held it, or from a source
+   * that has since been retired and answers nothing now. Field names and sizes rather than bodies,
+   * because what the question needs is whether anything is held and what shape it is; the values
+   * are in the events, where they are already evidence.
+   */
+  records: TraceRecord[];
   events: TraceEvent[];
   /** What the sequence adds up to, so the common question needs no second pass over the table. */
   summary: {
@@ -38,6 +50,23 @@ export type Trace = {
     delivered: number;
     suppressed: number;
   };
+};
+
+type TraceRecord = {
+  source: string;
+  /**
+   * Whether the registry still names this source, so a silence has an explanation beside it.
+   *
+   * `live_sources` and not `retired_at`: a row is only stamped once a boot has found it missing, and
+   * what the question needs is whether anything is still asking, which the view answers.
+   */
+  stillRegistered: boolean;
+  id: string;
+  stream: string;
+  observedAt: string;
+  /** The record's own top-level field names, in the order the body carries them. */
+  fields: string[];
+  bytes: number;
 };
 
 type TraceStory = {
@@ -67,14 +96,73 @@ type TraceEvent = {
   delivered: boolean;
   /** Every rule that held it back, deduplicated across destinations. */
   suppressedBy: string[];
+  /**
+   * The recap rule that keeps this sighting out of a week's arrivals, or null when none does.
+   *
+   * A different question from `suppressedBy`, and the one that is otherwise unanswerable without
+   * reading `src/recap/arrivals.ts` beside the record: a card is about this event, and an arrival is
+   * about what the week is told. Null on an event that would count does not promise a line in the
+   * recap -- the period rules above it ask whether anything dated the model to that week, and a
+   * period is not what this report is about.
+   */
+  notAnArrival: string | null;
 };
 
-type Row = Omit<TraceEvent, "family" | "batched" | "delivered" | "suppressedBy" | "storyId"> & {
+/**
+ * The event row as the table holds it, beside what became of it.
+ *
+ * The whole row and not the columns this report prints, because the arrival rules are asked of it:
+ * they read a record body, a stream and a classification, and a projection that happened to carry
+ * the printed columns would answer those questions about an event that does not exist.
+ */
+type Row = Event & {
   story_id: number | null;
   batched: number;
   delivered: number;
   reasons: string | null;
 };
+
+/**
+ * The raw rows held under this name, whatever any event says.
+ *
+ * Matched on the record's key and the name inside its body, because a collector's key is not always
+ * a name: an arena roster is keyed by UUID. The field names come from SQLite's own `json_each` and
+ * the size from `length`, so no body crosses into this process: what the question needs is whether
+ * anything is held and what shape it is. `live_sources` answers whether the source still runs, which
+ * is the difference between "nothing has come in" and "nothing is being asked".
+ */
+function tracedRecords(db: Database, needles: readonly string[], limit: number): TraceRecord[] {
+  const where = needles.map(() => "lower(r.id) LIKE ? OR lower(json_extract(r.body,'$.name')) LIKE ?").join(" OR ");
+  return db
+    .query<
+      {
+        source: string;
+        id: string;
+        stream: string;
+        observed_at: string;
+        fields: string | null;
+        bytes: number;
+        live: number;
+      },
+      string[]
+    >(
+      `SELECT r.source,r.id,r.stream,r.observed_at,
+              (SELECT group_concat(key) FROM json_each(r.body)) AS fields,
+              length(r.body) AS bytes,
+              EXISTS(SELECT 1 FROM live_sources l WHERE l.id=r.source) AS live
+         FROM records r WHERE ${where} ORDER BY r.observed_at, r.source, r.id LIMIT ${limit}`,
+    )
+    .all(...needles.flatMap((needle) => [needle, needle]))
+    .map((row) => ({
+      source: row.source,
+      stillRegistered: Boolean(row.live),
+      id: row.id,
+      stream: row.stream,
+      observedAt: row.observed_at,
+      fields: row.fields ? row.fields.split(",") : [],
+      bytes: row.bytes,
+    }));
+}
 
 export function trace(db: Database, query: string, limit: number): Trace {
   const normalized = normalizeIdentity(query);
@@ -84,7 +172,7 @@ export function trace(db: Database, query: string, limit: number): Trace {
   const where = needles.map(() => "lower(e.entity_id) LIKE ? OR lower(s.title) LIKE ?").join(" OR ");
   const rows = db
     .query<Row, string[]>(
-      `SELECT e.id,e.source,e.stream,e.entity_id,e.kind,e.signal,e.authority,e.detected_at,
+      `SELECT e.id,e.source,e.stream,e.entity_id,e.kind,e.signal,e.authority,e.detected_at,e.after_json,
               se.story_id,
               EXISTS(SELECT 1 FROM batch_events be WHERE be.event_id=e.id) AS batched,
               EXISTS(SELECT 1 FROM batch_events be JOIN deliveries d ON d.batch_id=be.batch_id
@@ -107,12 +195,17 @@ export function trace(db: Database, query: string, limit: number): Trace {
     entity_id: row.entity_id,
     kind: row.kind,
     signal: row.signal,
-    authority: row.authority,
+    authority: row.authority ?? null,
     detected_at: row.detected_at,
     storyId: row.story_id,
     batched: Boolean(row.batched),
     delivered: Boolean(row.delivered),
     suppressedBy: row.reasons ? row.reasons.split(",") : [],
+    /**
+     * Asked of the event as it stands, with nothing renamed: `renamed` is a verdict a recap reaches
+     * over a whole period, and this report is about one name rather than one week.
+     */
+    notAnArrival: arrivalRejection(row, new Set()),
   }));
   const storyIds = [...new Set(events.map((event) => event.storyId).filter((id): id is number => id !== null))];
   const stories = storyIds.length
@@ -127,6 +220,11 @@ export function trace(db: Database, query: string, limit: number): Trace {
     query,
     normalized,
     stories,
+    records: tracedRecords(
+      db,
+      needles.map((needle) => needle.toLowerCase()),
+      limit,
+    ),
     events,
     summary: {
       events: events.length,
