@@ -28,6 +28,10 @@ import { writeTransaction } from "./storage/transaction.js";
  * with the evidence and the standing sentence that were true then; re-deriving it a day later
  * against records that have since moved would publish something nobody approved.
  *
+ * What the bot has pressed, it can also take back. The offer follows the channel's settings and so
+ * must the withdrawal, or narrowing a rule leaves the old invitation standing under every card that
+ * was sent while it was wider -- which is what happened to the owner's own channels on 2026-10-04.
+ *
  * Reactions are read, never listened for: one request lists the recent messages of a channel with
  * their counts, so this needs no socket held open and no port of our own. Who pressed is asked only
  * when the publish mark is there and is not ours, because a count cannot say whose hand it was and
@@ -85,26 +89,41 @@ async function read<T>(url: string, config: AppConfig, request: Fetch, schema: z
 }
 
 /**
- * Put one reaction under a card, so a reader has something to press. Discord answers a reaction we
- * already hold with 204 as well, so a repeat costs nothing but the request.
+ * Put one reaction under a card, so a reader has something to press, or take ours back off a card
+ * that should never have carried it. Discord answers a reaction we already hold with 204 as well,
+ * and so does a removal of one we do not, so a repeat of either costs nothing but the request.
+ *
+ * Taking one back is the half that was missing. What the bot offers follows the channel's settings,
+ * but what it has already pressed follows nothing: between a deploy and the config edit that caught
+ * up with it, 👍 and 👎 were seeded under 58 cards in the owner's own channels, and narrowing the
+ * rule afterwards left every one of them standing. An invitation to vote that the channel no longer
+ * extends is indistinguishable, to the reader looking at it, from one it does.
  */
-async function offer(channelId: string, messageId: string, emoji: string, config: AppConfig, request: Fetch) {
+async function press(
+  channelId: string,
+  messageId: string,
+  emoji: string,
+  method: "PUT" | "DELETE",
+  config: AppConfig,
+  request: Fetch,
+) {
   const response = await request(
     `${API}/channels/${channelId}/messages/${messageId}/reactions/${encodeURIComponent(emoji)}/@me`,
     {
-      method: "PUT",
+      method,
       headers: { Authorization: `Bot ${config.DISCORD_BOT_TOKEN}`, "content-length": "0" },
       signal: AbortSignal.timeout(20_000),
     },
   );
-  if (!response.ok) log("warn", "Reaction offer rejected", { status: response.status });
+  if (!response.ok) log("warn", "Reaction change rejected", { status: response.status, method });
   await response.body?.cancel();
 }
 
 /**
- * How recent a card must be to be worth offering reactions under, and how many offers one pass will
- * make. Both bound the first pass after a release: fifty messages in two channels is two hundred
- * requests, and Discord would turn most of them away.
+ * How recent a card must be for its reactions to be worth changing, and how many presses and
+ * withdrawals one pass will make between them. Both bound the first pass after a release, and the
+ * first pass after a channel's settings change: fifty messages in five channels is two hundred and
+ * fifty requests, and Discord would turn most of them away.
  *
  * Twelve hours was a guess that a card goes cold overnight, and it cost us the measurement: in the
  * first two days of asking, 105 cards carried the pair and 6 drew an answer. At that rate the fifty
@@ -113,7 +132,7 @@ async function offer(channelId: string, messageId: string, emoji: string, config
  * with an opinion, and a pass every five minutes has room to catch up.
  */
 const SEED_WINDOW_MS = 7 * 24 * 3_600_000;
-const MAX_SEEDS = 60;
+const MAX_CHANGES = 60;
 
 type Card = {
   id: number;
@@ -197,7 +216,7 @@ export async function readReactionsAndPublish(
   );
   const onTheWire = new Set(wire(config).map((destination) => destination.id));
   let promoted = 0;
-  let seeds = 0;
+  let changes = 0;
   for (const channel of channels) {
     const counted = counting && judged(channel);
     const messages = await read(
@@ -230,17 +249,31 @@ export async function readReactionsAndPublish(
         ).run(card.id, votesFor(rule.likeEmoji), votesFor(rule.dislikeEmoji), new Date(now).toISOString());
 
       // What the bot offers is what the channel is for: a pair to answer with where there are
-      // readers, the publish mark where the only hand is the owner's.
-      const pair = [...(counted ? [rule.likeEmoji, rule.dislikeEmoji] : [])];
-      if (publishing && config.promotion && !onTheWire.has(channel.id)) pair.push(config.promotion.publishEmoji);
-      if (seeds < MAX_SEEDS && now - Date.parse(card.updated_at) < SEED_WINDOW_MS)
-        for (const emoji of pair)
+      // readers, the publish mark where the only hand is the owner's. The mark is offered by what a
+      // channel is rather than by where a card would land -- `radar` is not the wire, but it is a
+      // room full of strangers, and a door out of it is a second way into a channel that already
+      // has one. Both conditions stay: a channel of the owner's that is also on the wire would
+      // otherwise be offered a door into itself.
+      const offered = [...(counted ? [rule.likeEmoji, rule.dislikeEmoji] : [])];
+      const marking = publishing && Boolean(config.promotion) && !judged(channel) && !onTheWire.has(channel.id);
+      if (marking && config.promotion) offered.push(config.promotion.publishEmoji);
+      if (changes < MAX_CHANGES && now - Date.parse(card.updated_at) < SEED_WINDOW_MS) {
+        for (const emoji of offered)
           if (!reaction(emoji)?.me) {
-            await offer(channel.channelId, message.id, emoji, config, request);
-            seeds += 1;
+            await press(channel.channelId, message.id, emoji, "PUT", config, request);
+            changes += 1;
           }
+        // And back off the ones this channel no longer asks for. Only our own press is ever taken
+        // back: a reader's answer is theirs, and a count that outlived the question is still an
+        // answer somebody gave.
+        for (const held of message.reactions)
+          if (held.me && held.emoji.name && !offered.includes(held.emoji.name)) {
+            await press(channel.channelId, message.id, held.emoji.name, "DELETE", config, request);
+            changes += 1;
+          }
+      }
 
-      if (!publishing || !config.promotion || onTheWire.has(channel.id)) continue;
+      if (!marking || !config.promotion) continue;
       // A card travels; a recap does not. The morning recap in `radar` drew a vote on 2026-09-20 and
       // the whole of it was reposted to `news`, where the same lines had already been sent an hour
       // and a half earlier. Only the message about one thing is a message worth moving.

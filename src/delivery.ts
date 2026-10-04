@@ -1,6 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { applyCardAmendments, queueIncidentAmendments } from "./amendments.js";
-import type { AppConfig, Destination } from "./config.js";
+import { type AppConfig, type Destination, judged } from "./config.js";
 import { BLOCKED_PREFIX, type Settlement, settle } from "./deliveryOutcome.js";
 import { type Job, multipart, PreparationError, type PreparedDelivery, prepareRequest } from "./deliveryRequest.js";
 import { prepareDeliveries } from "./events/batching.js";
@@ -18,12 +18,19 @@ const REJECTED_BEFORE_REQUEST = "Delivery rejected before external request";
 const instant = (epochMs: number): string => new Date(epochMs).toISOString();
 
 /**
- * The first 👍 under a Telegram post, as Discord gets one under every card: an empty row asks
- * nobody anything, and one already there says "tap if this was useful". A bot has a single reaction
- * per message, so there is no 👎 beside it. Decoration: a refusal never touches the delivery.
+ * The first 👍 under a Telegram post, as Discord gets one under every card in a room with readers:
+ * an empty row asks nobody anything, and one already there says "tap if this was useful". A bot has
+ * a single reaction per message, so there is no 👎 beside it, and a Telegram channel's thumbs are
+ * therefore favour with no refusal to weigh against -- which is why `tg-news` reads as 26 in favour
+ * and none against. Decoration: a refusal never touches the delivery.
+ *
+ * `judged` asks the same question Discord's seeding asks, in the same words: a channel the owner
+ * keeps for himself is not a room to invite a vote in. No Telegram destination says `none` today;
+ * the rule lives here anyway, because the first one that does should not have to discover that the
+ * two transports read the same field differently.
  */
 async function seedReaction(destination: Destination, messageId: number, config: AppConfig, request: Fetch) {
-  if (destination.platform !== "telegram") return;
+  if (destination.platform !== "telegram" || !judged(destination)) return;
   try {
     const response = await request(`https://api.telegram.org/bot${config.TELEGRAM_BOT_TOKEN}/setMessageReaction`, {
       method: "POST",

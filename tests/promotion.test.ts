@@ -10,6 +10,7 @@ const config = {
   destinations: [
     { id: "trail", platform: "discord", channelId: "10", signals: ["article"], feedback: "none" },
     { id: "news", platform: "discord", channelId: "20", signals: ["launch", "change"] },
+    { id: "radar", platform: "discord", channelId: "30", signals: ["codename"] },
     { id: "tg-news", platform: "telegram", chatId: "-100", signals: ["launch", "change"] },
   ],
   reactions: { likeEmoji: "👍", dislikeEmoji: "👎" },
@@ -32,8 +33,8 @@ function card(db: ReturnType<typeof openDatabase>, destinationId = "trail", kind
 
 const answer = (reactions: { name: string; count: number; me?: boolean }[], reactors: string[], put: string[] = []) =>
   (async (url: string, init?: { method?: string }) => {
-    if (init?.method === "PUT") {
-      put.push(String(url));
+    if (init?.method === "PUT" || init?.method === "DELETE") {
+      put.push(`${init.method} ${url}`);
       return new Response(null, { status: 204 });
     }
     return String(url).includes("/reactions/")
@@ -111,7 +112,7 @@ test("the owner's own channel offers the mark and no thumbs, and keeps no vote",
   const put: string[] = [];
   const at = Date.parse("2026-09-08T00:30:00.000Z");
   expect(await readReactionsAndPublish(db, config, answer([], [], put), at)).toBe(0);
-  expect(put).toEqual(["https://discord.com/api/v10/channels/10/messages/555/reactions/%E2%9D%A4%EF%B8%8F/@me"]);
+  expect(put).toEqual(["PUT https://discord.com/api/v10/channels/10/messages/555/reactions/%E2%9D%A4%EF%B8%8F/@me"]);
   // One hand is not an audience: a count of one here would read in a quality report as a room.
   expect(db.query("SELECT COUNT(*) c FROM scout_reactions").get()).toEqual({ c: 0 });
 });
@@ -123,9 +124,47 @@ test("a channel with readers offers the pair to answer with, and not the mark", 
   const at = Date.parse("2026-09-08T00:30:00.000Z");
   await readReactionsAndPublish(db, config, answer([], [], put), at);
   expect(put).toEqual([
-    "https://discord.com/api/v10/channels/20/messages/555/reactions/%F0%9F%91%8D/@me",
-    "https://discord.com/api/v10/channels/20/messages/555/reactions/%F0%9F%91%8E/@me",
+    "PUT https://discord.com/api/v10/channels/20/messages/555/reactions/%F0%9F%91%8D/@me",
+    "PUT https://discord.com/api/v10/channels/20/messages/555/reactions/%F0%9F%91%8E/@me",
   ]);
+});
+
+test("a public room gets the pair and no mark, even though it is not the wire", async () => {
+  // `radar` carries `codename`, so a promotion would land somewhere else and the old rule offered
+  // the mark there. It is still a room full of strangers, and a second door into `news` means every
+  // published card is read with "and how did this one get here".
+  const db = openDatabase(":memory:");
+  card(db, "radar");
+  const put: string[] = [];
+  await readReactionsAndPublish(db, config, answer([], [], put), Date.parse("2026-09-08T00:30:00.000Z"));
+  expect(put).toEqual([
+    "PUT https://discord.com/api/v10/channels/30/messages/555/reactions/%F0%9F%91%8D/@me",
+    "PUT https://discord.com/api/v10/channels/30/messages/555/reactions/%F0%9F%91%8E/@me",
+  ]);
+});
+
+test("the bot takes back a thumb the channel stopped asking for, and never a reader's", async () => {
+  // Seeded in the owner's own channel while it still read as a room, and left standing when the
+  // rule narrowed: an invitation to vote that nobody extends looks exactly like one that stands.
+  const db = openDatabase(":memory:");
+  card(db, "trail");
+  const put: string[] = [];
+  await readReactionsAndPublish(
+    db,
+    config,
+    answer(
+      [
+        { name: "👍", count: 1, me: true },
+        { name: "👎", count: 2, me: false },
+        { name: "❤️", count: 1, me: true },
+      ],
+      [],
+      put,
+    ),
+    Date.parse("2026-09-08T00:30:00.000Z"),
+  );
+  // The mark stays as it is, the seed goes, and the two thumbs a reader left are none of our business.
+  expect(put).toEqual(["DELETE https://discord.com/api/v10/channels/10/messages/555/reactions/%F0%9F%91%8D/@me"]);
 });
 
 test("the bot's own press is not a vote", async () => {
