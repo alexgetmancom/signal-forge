@@ -94,6 +94,36 @@ function resolveRef(ref: string): string {
   return sha;
 }
 
+/**
+ * What to replay against when `--base` is not given: everything not yet pushed.
+ *
+ * It used to be HEAD, which on a clean tree is the working tree -- so the replay compared a tree
+ * with itself and printed "cards changed: 0 ... identical" in full confidence. That is the shape of
+ * mistake this project already knows from the stale local database: a plausible answer does not look
+ * like one. `--needed` worked this out correctly for the diff and the replay did not, so the two
+ * halves of one run disagreed about what the change even was.
+ */
+function defaultBase(): string {
+  return git("rev-parse", "--verify", "--quiet", "@{upstream}") ? "@{upstream}" : "HEAD";
+}
+
+/**
+ * Refuses a run whose two sides are the same tree, rather than reporting that nothing moved.
+ *
+ * Nothing did move, and that is exactly the problem: the answer is true about the comparison and
+ * says nothing about the change.
+ */
+function refuseSelfComparison(against: string): void {
+  // `--quiet` answers with its exit code and prints nothing, so the code is the whole signal.
+  const sameTree = Bun.spawnSync(["git", "diff", "--quiet", against], { cwd: root }).exitCode === 0;
+  if (!(sameTree && git("status", "--porcelain") === "")) return;
+  say(
+    `Nothing to compare: the working tree and ${against} are the same tree, so every phase would report "identical".`,
+  );
+  say("Name the other side with --base <ref> -- origin/main is usually the one meant.");
+  process.exit(2);
+}
+
 type Phase = {
   name: string;
   /** Whether the default run includes it. The two that answer "what reaches a reader" do. */
@@ -171,7 +201,7 @@ for (const requirement of REQUIREMENTS)
  * everything not yet pushed otherwise, because that is the change about to reach a reader.
  */
 function changedFiles(): string[] {
-  const against = base ?? (git("rev-parse", "--verify", "--quiet", "@{upstream}") ? "@{upstream}" : "HEAD");
+  const against = base ?? defaultBase();
   return [
     ...git("diff", "--name-only", against).split("\n"),
     ...git("status", "--porcelain")
@@ -220,7 +250,9 @@ if ((await prodCopy(flags.has("--fresh"), say)) === null) {
 }
 
 const needsBase = chosen.some((phase) => phase.always || phase.name === "reports" || phase.name === "evidence");
-const unpacked = needsBase ? unpackBase(base ?? "HEAD") : "";
+const replayBase = base ?? defaultBase();
+if (needsBase) refuseSelfComparison(replayBase);
+const unpacked = needsBase ? unpackBase(replayBase) : "";
 const findings: Finding[] = [];
 for (const [index, phase] of chosen.entries()) {
   if (index > 0) say("");
@@ -258,8 +290,8 @@ const uncommitted = [status, git("diff", "HEAD"), ...untracked].join("\n").trim(
 
 const entry: Entry = {
   at: new Date().toISOString(),
-  base: base ?? "HEAD",
-  baseSha: unpacked === "" ? "" : resolveRef(base ?? "HEAD"),
+  base: replayBase,
+  baseSha: unpacked === "" ? "" : resolveRef(replayBase),
   head: resolveRef("HEAD"),
   dirty: uncommitted !== "",
   tree: uncommitted === "" ? null : new Bun.CryptoHasher("sha256").update(uncommitted).digest("hex").slice(0, 12),

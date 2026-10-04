@@ -167,6 +167,10 @@ function admitAnswer(
 
 function dropRecord(db: Database, c: Collection, id: string): void {
   db.query("DELETE FROM records WHERE source=? AND id=?").run(c.source, id);
+  // The silence was owed to a record, so it leaves with the record. Foreign keys would say this in
+  // the schema, but `PRAGMA foreign_keys` is 0 on production, so a REFERENCES clause here would look
+  // like a rule and enforce nothing; a row left behind would outlive every record it spoke for.
+  db.query("DELETE FROM amended_records WHERE source=? AND id=?").run(c.source, id);
 }
 
 /** One more collection in which the record was not in the answer. */

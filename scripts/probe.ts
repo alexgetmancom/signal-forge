@@ -34,9 +34,16 @@ const argv = Bun.argv.slice(2);
 const flags = new Set(argv.filter((value) => value.startsWith("--")));
 const expressionAt = argv.findIndex((value) => value === "-e" || value === "--eval");
 const expression = expressionAt >= 0 ? argv[expressionAt + 1] : undefined;
+/** `--db <path>` is the project's way of meaning a file on purpose, here as everywhere else. */
+const databaseAt = argv.indexOf("--db");
+const named = databaseAt >= 0 ? argv[databaseAt + 1] : undefined;
+// Every flag that takes a value, so its value is never mistaken for the file to run. `--db <path>`
+// used to leave the path as the only positional, and the probe tried to import the database as a
+// module: "module.default is not a function", naming neither the flag nor the mistake.
+const takesValue = new Set(["-e", "--eval", "--db"]);
 // `expressionAt + 1` is 0 when there is no `-e`, and writing this without the guard silently drops
 // the first positional -- which is exactly the bug `rehearse 60` carried for weeks.
-const file = argv.find((value, index) => !value.startsWith("-") && !(expressionAt >= 0 && index === expressionAt + 1));
+const file = argv.find((value, index) => !value.startsWith("-") && !takesValue.has(argv[index - 1] ?? ""));
 
 function say(message: string): void {
   process.stderr.write(`${message}\n`);
@@ -47,11 +54,16 @@ if (!expression && !file) {
   process.exit(2);
 }
 
-const path = await prodCopy(flags.has("--fresh"), say);
+if (databaseAt >= 0 && named === undefined) {
+  say("--db needs a path. Leave it out entirely to ask a fresh copy of production.");
+  process.exit(2);
+}
+const path = named ?? (await prodCopy(flags.has("--fresh"), say));
 if (path === null) {
   say("Could not copy the database, and the local one is stale. A probe answering from it is worse than no probe.");
   process.exit(1);
 }
+if (named !== undefined) say(`Asking ${named}, named on purpose, rather than a copy of production.`);
 
 // Through the app's own opener rather than `new Database`: a probe that binds a named parameter on
 // a connection that is not `strict` is answered with zero rows instead of an error.

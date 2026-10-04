@@ -211,6 +211,16 @@ test("a record this service amended regains its field in silence, once", () => {
   c.records[0] = { id: "a", name: "A", access: "gated" };
   expect(saveCollection(db, c, []).events).toBe(1);
 });
+test("a record that leaves upstream takes its unspent amendment with it", () => {
+  const c = collection(["a"]);
+  saveCollection(db, c, []);
+  db.query("INSERT INTO amended_records(source,id,reason) VALUES(?,?,?)").run(c.source, "a", "test");
+  // Gone from the answer once is a miss; twice is a removal, and the row has nothing left to speak for.
+  saveCollection(db, collection(["b"]), []);
+  saveCollection(db, collection(["b"]), []);
+  expect(db.query("SELECT COUNT(*) n FROM records WHERE id='a'").get()).toEqual({ n: 0 });
+  expect(db.query("SELECT COUNT(*) n FROM amended_records").get()).toEqual({ n: 0 });
+});
 test("an amendment is spent by observing the record, not by the clock", () => {
   const c = collection(["a"]);
   saveCollection(db, c, []);

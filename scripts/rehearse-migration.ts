@@ -35,6 +35,7 @@ import { join } from "node:path";
 import { HOT_QUERIES, HOT_WRITES, scansATable } from "../src/storage/hotQueries.js";
 import { runMigrations } from "../src/storage/migrationRunner.js";
 import { CURRENT_SCHEMA_VERSION, readMigrations } from "../src/storage/migrations.js";
+import { amnestied, bodyFields, fieldMoves } from "./bodyFieldMoves.js";
 import type { Finding } from "./rehearsalLedger.js";
 
 // No default. The one this had was `./data/app.db`, the stale copy AGENTS.md says never to answer
@@ -248,6 +249,7 @@ try {
   }
   const beforeCounts = counts(before);
   const beforeBodies = fingerprints(before);
+  const beforeFields = bodyFields(before);
   const beforePlans = plans(before);
   const beforeTimings = timings(before);
   // Closed before the migration opens its own, and never open at the same time. Both halves of that
@@ -268,6 +270,8 @@ try {
   const after = new Database(copy, { create: false, strict: true });
   const afterCounts = counts(after);
   const afterBodies = fingerprints(after);
+  const afterFields = bodyFields(after);
+  const owedSilence = amnestied(after);
   const afterPlans = plans(after);
   const afterTimings = timings(after);
   const integrity = after.query<{ integrity_check: string }, []>("PRAGMA integrity_check").get()?.integrity_check;
@@ -277,6 +281,21 @@ try {
     ([key, hash]) => beforeBodies.has(key) && beforeBodies.get(key) !== hash,
   );
   const removedRecords = [...beforeBodies.keys()].filter((key) => !afterBodies.has(key));
+  const moves = fieldMoves(
+    changedBodies.map(([key]) => key),
+    beforeFields,
+    afterFields,
+  );
+  // The question `recordBodiesChanged` only gestures at: when these records are next collected, how
+  // many of them will say something to a reader that no upstream said? A body whose every moved
+  // field is NOISE says nothing, and a record already owed a silence says nothing once.
+  const readable = new Set(moves.filter((move) => move.carriedOnACard).map((move) => move.field));
+  const speaking = changedBodies.filter(([key]) => {
+    if (owedSilence.has(key)) return false;
+    const was = new Set(beforeFields.get(key) ?? []);
+    const is = new Set(afterFields.get(key) ?? []);
+    return [...readable].some((field) => was.has(field) !== is.has(field));
+  });
   const tableChanges = Object.entries(afterCounts)
     .filter(([table, count]) => (beforeCounts[table] ?? 0) !== count)
     .map(([table, count]) => ({ table, before: beforeCounts[table] ?? 0, after: count }));
@@ -312,7 +331,7 @@ try {
     .map(([name, plan]) => ({ name, plan }));
   const safe =
     integrity === "ok" &&
-    changedBodies.length === 0 &&
+    speaking.length === 0 &&
     removedRecords.length === 0 &&
     planRegressions.length === 0 &&
     timingRegressions.length === 0;
@@ -331,6 +350,12 @@ try {
         tableChanges,
         // A stored body that moved is the case to stop for: every one of them is a "changed" event.
         recordBodiesChanged: changedBodies.length,
+        // Which fields moved, and whether a reader would see one. See fieldMoves.
+        fieldMoves: moves,
+        // The answer the two numbers above only gesture at: how many records will tell a reader
+        // something no upstream said, the next time they are collected.
+        nextCollectionSpeaksAbout: speaking.length,
+        amendedRecords: owedSilence.size,
         recordsRemoved: removedRecords.length,
         planChanges,
         planRegressions,
@@ -342,9 +367,15 @@ try {
         // shipped without `ANALYZE` is visible instead of silently doing nothing.
         stillScanning: scanning,
         verdict: safe
-          ? "Safe to apply: the schema moved and no stored record body did."
-          : "Inspect before applying: stored record bodies moved, rows disappeared, a hot read lost its index " +
-            `or got ${SLOWER_BY}x slower, or the copy failed its integrity check.`,
+          ? changedBodies.length === 0
+            ? "Safe to apply: the schema moved and no stored record body did."
+            : `Safe to apply: ${changedBodies.length} stored bodies moved, and none of them will say anything ` +
+              "to a reader when it is next collected."
+          : speaking.length > 0
+            ? `Inspect before applying: ${speaking.length} records will tell a reader something no upstream said ` +
+              "when they are next collected. Owe each one a silence in amended_records, or expect that many cards."
+            : "Inspect before applying: rows disappeared, a hot read lost its index " +
+              `or got ${SLOWER_BY}x slower, or the copy failed its integrity check.`,
       },
       null,
       2,
