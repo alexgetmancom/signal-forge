@@ -70,21 +70,59 @@ export function queryShape(query: string): string {
  * question. A command nobody finds and a command that does not exist look identical from here, and
  * only one of them is fixed by writing more code.
  *
+ * Which is exactly what this list, left half-written, then caused. Read on 2026-10-04 over the
+ * previous fortnight, the four largest questions asked by hand were reported as gaps with no
+ * command, and every one of them had one:
+ *
+ *     deepseek_usage (aggregated)   271 asks   `deepseek-usage`
+ *     events                        155 asks   `events`, `event`, `trace`
+ *     records                        57 asks   `trace`, `source`
+ *     memory_samples                 29 asks   `memory`
+ *
+ * 58 of the 155 were a name hunt -- `entity_id LIKE '%x%'`, eleven of them counting rows one name
+ * at a time -- which is what `trace` is, and none has been asked by hand since it grew the raw
+ * records. So the entries below are not bookkeeping: an absent one is the report telling whoever
+ * reads it to write a command that shipped, and `sql` staying silent at the one moment the answer
+ * is cheap to hear.
+ *
  * Keep this honest rather than complete: an entry claims that the named command answers the usual
- * question about that table, and a wrong entry is worse than a missing one.
+ * question about that table, and a wrong entry is worse than a missing one. `deliveries` named
+ * `delivery-health` here for as long as the list has existed, `model_facts` named `model-facts`, and
+ * neither has ever been a command -- claims nobody could act on, pointing at the registry's own
+ * blind spot. The test in tests/commandUsage.test.ts asks the registry whether each name is real,
+ * because the one thing worse than the gap this list closes is this list lying about it. It found
+ * the second of those two on its first run.
  */
-const COVERED_BY: Readonly<Record<string, string>> = {
+export const COVERED_BY: Readonly<Record<string, string>> = {
   code_metrics: "timings",
   source_collection_metrics: "flaky, failures, outages",
   source_collection_days: "flaky, failures, signal-quality, collection-cost",
   sources: "source, issues, silent-sources",
   live_sources: "source, issues, silent-sources",
   operator_journal: "usage, journal",
-  deliveries: "destinations, delivery-health",
+  deliveries: "destinations, deliveries, sent",
   source_failure_evidence: "failures",
   hypotheses: "hypotheses",
-  model_facts: "model-facts",
+  model_facts: "models, model",
   snapshots: "snapshot",
+  // An event is read three ways and the question decides which: the last of them, one of them in
+  // full, or every sighting of a name across all of them. `trace` is the one the hand-written
+  // queries were reaching for and the one hardest to guess from the name of the table.
+  events: "events, event, trace",
+  // A name with no event can still be held as a raw row, which is the half of `trace` that answers
+  // "was anything collected at all"; `source` holds the same rows for one collector rather than
+  // one subject.
+  records: "trace, source",
+  memory_samples: "memory",
+  deepseek_usage: "deepseek-usage",
+  event_evaluations: "judge-calibration, judge-gap",
+  delivery_events: "sent, news, event",
+  suppressions: "suppressions",
+  stories: "stories",
+  story_events: "stories, event",
+  scout_reactions: "reactions, disliked",
+  publications: "publications",
+  sqlite_master: "schema, storage",
 };
 
 /**

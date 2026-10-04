@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test";
+import { loadConfig } from "../src/config.js";
 import { recordOperatorAction } from "../src/journal.js";
-import { queryShape, usageReport } from "../src/reports/usage.js";
+import { cliCommand } from "../src/operations/definition.js";
+import { operations } from "../src/operations.js";
+import { COVERED_BY, queryShape, usageReport } from "../src/reports/usage.js";
 import { openDatabase } from "../src/storage/database.js";
 import { aCall } from "./fixtures/build.js";
 
@@ -105,5 +108,20 @@ test("a question an existing command already answers is named as such", () => {
   expect(covered?.coveredBy).toBe("timings");
   const uncovered = report.askedByHand.find((shape) => shape.shape === "a_table_no_command_reads");
   expect(uncovered?.coveredBy).toBeNull();
+  db.close();
+});
+
+test("every command this list says already answers a question is a command", () => {
+  // `deliveries` named `delivery-health` for as long as COVERED_BY existed and no such command has
+  // ever been registered. A wrong entry is the worse half of the failure the list exists to fix:
+  // the gap report is read by whoever is deciding what to write, and it was pointing at nothing.
+  const db = openDatabase(":memory:");
+  const registered = new Set(
+    Object.keys(
+      operations(db, loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname })),
+    ).map(cliCommand),
+  );
+  const claimed = [...new Set(Object.values(COVERED_BY).flatMap((names) => names.split(", ")))];
+  expect(claimed.filter((name) => !registered.has(name))).toEqual([]);
   db.close();
 });
