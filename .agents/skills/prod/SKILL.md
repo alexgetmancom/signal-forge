@@ -3,8 +3,9 @@ name: prod
 description: Answer any question about what signal-forge saw, sent, collected or broke — news of the day, events, stories, deliveries, sources, issues, logs — from production, never the local database. Use whenever the user says "prod", "на проде", "что вышло", "посмотри", or asks about real data.
 ---
 
-Production is the only source of truth. The local `data/app.db` is a stale copy; never read it, never
-answer from it, and never run `bun src/cli.ts` for a question about real data.
+Production is the only source of truth. There is no local database: `data/app.db` does not exist, and
+opening the default path refuses rather than creating an empty one. Never run `bun src/cli.ts` for a
+question about real data.
 
 Two routes, same operations and same database:
 

@@ -3,7 +3,7 @@ import { recordOperatorAction } from "./journal.js";
 import { cliInput } from "./operations/cliInput.js";
 import { cliCommand, type OperationMap, operationCatalog, operations } from "./operations.js";
 import { measure } from "./runtime/metricRecording.js";
-import { openDatabase } from "./storage/database.js";
+import { openDatabase, refuseTheMissingDefault } from "./storage/database.js";
 import { asTsv } from "./text.js";
 
 /**
@@ -40,6 +40,9 @@ if (config.NODE_ENV !== "production")
   process.stderr.write(
     `Local database (${config.DATABASE_URL}), not production. For production: bun run prod ${Bun.argv.slice(2).join(" ") || "<command>"}\n`,
   );
+// Before opening, because opening the default path when nothing is there creates an empty
+// database and every answer below it becomes a confident zero.
+refuseTheMissingDefault(config.DATABASE_URL);
 const db = openDatabase(config.DATABASE_URL);
 try {
   const defs = operations(db, config);

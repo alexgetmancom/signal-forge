@@ -22,7 +22,9 @@ import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { DEFAULT_DATABASE_URL } from "../src/config.js";
 import type { Event } from "../src/events/types.js";
+import { refuseTheMissingDefault } from "../src/storage/database.js";
 
 type Detail = "brief" | "evidence";
 type Render = (event: Event, url: string, summary?: string, detail?: Detail) => Record<string, unknown>;
@@ -30,7 +32,9 @@ type Render = (event: Event, url: string, summary?: string, detail?: Detail) => 
 const root = resolve(import.meta.dir, "..");
 const args = new Map<string, string>();
 for (let index = 2; index < Bun.argv.length; index += 2) args.set(Bun.argv[index] ?? "", Bun.argv[index + 1] ?? "");
-const dbPath = args.get("--db") ?? "./data/app.db";
+const dbPath = args.get("--db") ?? DEFAULT_DATABASE_URL;
+// There is no local database: say so rather than building an empty one and replaying into it.
+refuseTheMissingDefault(dbPath);
 const base = args.get("--base") ?? "HEAD";
 // An unpacked base is a directory path, and its last segment is the SHA it was unpacked from.
 const shown = base.includes("/") ? (base.split("/").pop() as string).slice(0, 12) : base;

@@ -2,6 +2,14 @@ import { readFileSync } from "node:fs";
 import { z } from "zod";
 import { SIGNAL_CLASSES } from "./events/signals.js";
 
+/**
+ * Where a database path points when nobody said, and the one path that is allowed not to exist.
+ *
+ * There is no file there outside the container and there is not meant to be: see
+ * `refuseTheMissingDefault` in src/storage/database.ts, and the entry in AGENTS.md.
+ */
+export const DEFAULT_DATABASE_URL = "./data/app.db";
+
 export const streamSchema = z.enum([
   "api-models",
   "openrouter",
@@ -80,7 +88,7 @@ const envSchema = z.object({
   NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
   PORT: z.coerce.number().int().min(1).max(65535).default(8080),
   BIND_HOST: z.string().default("127.0.0.1"),
-  DATABASE_URL: z.string().default("./data/app.db"),
+  DATABASE_URL: z.string().default(DEFAULT_DATABASE_URL),
   CONFIG_PATH: z.string().default("./signal-forge.json"),
   /** Where the nightly backup job leaves its archives and the marker it writes after verifying one. */
   BACKUP_DIRECTORY: z.string().default("./backups"),

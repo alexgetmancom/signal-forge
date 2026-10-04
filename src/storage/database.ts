@@ -1,7 +1,44 @@
 import { Database } from "bun:sqlite";
-import { mkdirSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
+import { DEFAULT_DATABASE_URL } from "../config.js";
 import { runMigrations } from "./migrationRunner.js";
+
+/**
+ * Why a tool outside the container must not open the default path when nothing is there, as the
+ * sentence to print; null when the path is fine to open.
+ *
+ * `new Database(path, { create: true })` makes a file when there is none, the migrations then fill
+ * it with an empty schema, and every report answers zero. Zero is the one wrong answer that looks
+ * exactly like a right one: a source that collected nothing, a day with no events and a database
+ * that does not exist are indistinguishable once they are printed. This repository used to carry a
+ * local copy of production for these tools to point at, which was worse -- it answered with numbers
+ * that were real once and had been wrong for weeks, and the warning printed above every one of them
+ * stopped nobody, because a plausible number does not look like a mistake.
+ *
+ * So the local copy is gone and this says so instead of silently recreating it empty. Only for the
+ * default path: an explicit `--db` or `DATABASE_URL` is somebody who means that file, including
+ * production's own first boot, which is the one time a database legitimately does not exist yet.
+ *
+ * It returns the sentence rather than exiting so that the decision to stop belongs to the command
+ * and the reason can be tested without running a process.
+ */
+export function missingDefaultDatabase(path: string): string | null {
+  if (path !== DEFAULT_DATABASE_URL || existsSync(path)) return null;
+  return (
+    `There is no local database, by design: ${DEFAULT_DATABASE_URL} does not exist and opening it would have created an empty one that answers zero to everything.\n` +
+    "Real data lives on production: `bun run prod <command>`, or `bun run probe` for a question not worth a command.\n" +
+    "To work against a file on purpose, name it: `--db <path>` or `DATABASE_URL=<path>`."
+  );
+}
+
+/** The same refusal as a command's exit: print the reason and stop, or carry on. */
+export function refuseTheMissingDefault(path: string): void {
+  const reason = missingDefaultDatabase(path);
+  if (!reason) return;
+  process.stderr.write(`${reason}\n`);
+  process.exit(2);
+}
 
 export function openDatabase(path: string): Database {
   const db = openWithoutMigrating(path);
