@@ -4,6 +4,24 @@ import { join } from "node:path";
 let production = false;
 let directory: string | null = null;
 let currentDay = "";
+/**
+ * Where a line goes instead of the console, if anywhere. Under `bun test` the console belongs to
+ * the assertions: a test that drives a failure path on purpose printed the same warning the service
+ * prints when it is genuinely broken, so a passing run and a run in trouble read alike, and three
+ * hundred expected `Delivery settled {"status":"failed"}` lines were scrolled past to reach the one
+ * line that was not expected. `tests/quiet.ts` is preloaded for every test file and discards them;
+ * a test that is about what gets logged passes a sink and reads it. The lines are still built, still
+ * redacted and still written to a configured log directory -- only the terminal is spared.
+ */
+let sink: ((line: string) => void) | null | undefined;
+
+/**
+ * Send formatted lines to `write` instead of the console; `null` discards them, `undefined` puts
+ * the console back. Restore it in a `finally`: a sink outlives the test that set it.
+ */
+export function logTo(write: ((line: string) => void) | null | undefined): void {
+  sink = write;
+}
 
 /** Daily files kept beside the database. A month covers any weekly review with room to spare. */
 const LOG_RETENTION_DAYS = 30;
@@ -90,12 +108,20 @@ export function log(level: LogLevel, message: string, details?: unknown): void {
   persist(line, timestamp);
 
   if (production) {
+    if (sink !== undefined) {
+      sink?.(line);
+      return;
+    }
     console.log(line);
     return;
   }
 
   const suffix = safeDetails === undefined ? "" : ` ${redactExternalSecrets(JSON.stringify(safeDetails))}`;
   const output = `[${timestamp}] [${level.toUpperCase()}] ${redactExternalSecrets(message)}${suffix}`;
+  if (sink !== undefined) {
+    sink?.(output);
+    return;
+  }
   if (level === "error") console.error(output);
   else console.log(output);
 }

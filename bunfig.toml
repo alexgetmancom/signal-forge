@@ -1,0 +1,3 @@
+[test]
+# The service logs expected failures loudly during tests; tests/quiet.ts explains why they are hidden.
+preload = ["./tests/quiet.ts"]

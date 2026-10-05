@@ -1,8 +1,9 @@
-import { expect, spyOn, test } from "bun:test";
+import { expect, test } from "bun:test";
 import { type Destination, loadConfig } from "../src/config.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import type { Collection } from "../src/events/types.js";
 import { listLifecycleDeadlines, rebuildLifecycleDeadlines, scheduleLifecycleReminders } from "../src/lifecycle.js";
+import { logTo } from "../src/logger.js";
 import { parseOpenAIDeprecations } from "../src/sources/deprecations.js";
 import { parseGeminiDeprecations, parseGroqDeprecations } from "../src/sources/lifecycle.js";
 import { openDatabase } from "../src/storage/database.js";
@@ -222,8 +223,8 @@ test("rows of a lifecycle page that share an id stand as one, the last, and the 
       .map((row) => `<tr>${row.map((cell) => `<td>${cell}</td>`).join("")}</tr>`)
       .join("")}</table>`;
   const lines: string[] = [];
-  const spy = spyOn(console, "log").mockImplementation((line: unknown) => {
-    lines.push(String(line));
+  logTo((line) => {
+    lines.push(line);
   });
   try {
     const twice = parseGroqDeprecations(
@@ -254,7 +255,7 @@ test("rows of a lifecycle page that share an id stand as one, the last, and the 
     parseGroqDeprecations(table([["old-model", "08/16/26", "new-model"]]));
     expect(lines.filter((line) => line.includes("Lifecycle rows that share an id"))).toEqual([]);
   } finally {
-    spy.mockRestore();
+    logTo(null);
   }
 });
 
