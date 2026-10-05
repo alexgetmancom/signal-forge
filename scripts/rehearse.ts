@@ -22,6 +22,7 @@
  *   bun run rehearse 60                    a longer window
  *   bun run rehearse 30 discord-signals    including what one channel had already been told
  *   bun run rehearse --base 7e0599f        against the policy as it stood at a commit
+ *   bun run rehearse --limit 400           how many moved decisions the policy phase prints
  *   bun run rehearse --fresh               ignore the cached copy and pull again
  *   bun run rehearse --all                 every phase, including the ones that are not about cards
  *   bun run rehearse --only projections    one of them
@@ -52,11 +53,22 @@ const flags = new Set(argv.filter((value) => value.startsWith("--")));
 /** `--base <ref>` names the policy to compare against. */
 const baseAt = argv.indexOf("--base");
 const base = baseAt >= 0 ? argv[baseAt + 1] : undefined;
+/**
+ * Every flag that takes a value, so its value is never mistaken for a positional.
+ *
+ * This listed two of them, so `--limit 2000` was read as a window of 2000 days -- and the printout
+ * that suggested `--limit` was the thing that suggested it. A flag the tool advertises and then
+ * silently repurposes is worse than no flag.
+ */
+const TAKES_VALUE = ["--base", "--only", "--limit"];
 const positional = argv.filter(
-  (value, index) => !value.startsWith("--") && !["--base", "--only"].includes(argv[index - 1] ?? ""),
+  (value, index) => !value.startsWith("--") && !TAKES_VALUE.includes(argv[index - 1] ?? ""),
 );
 const days = positional[0] ?? "30";
 const destination = positional[1];
+/** `--limit <n>` is the policy replay's print cap, forwarded rather than left unreachable. */
+const limitAt = argv.indexOf("--limit");
+const limit = limitAt >= 0 ? argv[limitAt + 1] : undefined;
 
 function say(message: string): void {
   process.stderr.write(`${message}\n`);
@@ -141,6 +153,7 @@ const PHASES: Phase[] = [
       "scripts/replay-policy.ts",
       ...["--db", copy, "--days", days, "--base", unpacked, "--result", resultPath],
       ...(destination ? ["--destination", destination] : []),
+      ...(limit ? ["--limit", limit] : []),
     ],
   },
   {
@@ -265,8 +278,19 @@ for (const [index, phase] of chosen.entries()) {
   });
   const code = await child.exited;
   const reported = existsSync(resultPath) ? (JSON.parse(readFileSync(resultPath, "utf8")) as Finding) : null;
+  // The ledger keeps the finding and not the result file: a phase is free to write its whole list of
+  // moved decisions there, and the notebook stays a notebook rather than sixty copies of four
+  // hundred rows.
   findings.push(
-    reported ?? { phase: phase.name, verdict: code === 0 ? "same" : "failed", moved: 0, fingerprint: null },
+    reported
+      ? {
+          phase: reported.phase,
+          verdict: reported.verdict,
+          moved: reported.moved,
+          fingerprint: reported.fingerprint,
+          ...(reported.note === undefined ? {} : { note: reported.note }),
+        }
+      : { phase: phase.name, verdict: code === 0 ? "same" : "failed", moved: 0, fingerprint: null },
   );
   // A phase that could not run says nothing about the change, so the ones after it are not asked.
   if (code !== 0) break;

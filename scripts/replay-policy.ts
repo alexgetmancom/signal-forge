@@ -12,6 +12,13 @@
  * event arrived; the three that need state no longer stored -- a delivery's status at the time,
  * oscillation, the baseline a reader last saw -- stay out either way.
  *
+ * What "moved" means is split, because one number answered two questions and the useful one was
+ * hidden. Renaming a suppression reason moves every decision it held: a merge of two rules reported
+ * 407 moved decisions, of which 406 were the same event held for the same cause under a new name
+ * and 1 was a card that stopped going out. Only the second kind is a change to what a reader sees,
+ * so the two are counted apart, the outcome changes are printed first, and the whole list of both
+ * is written beside the counts -- the printout is capped and the cap used to be the only copy.
+ *
  * The database is opened read-only; the base policy is unpacked from git into a temporary directory
  * and nothing in the repository or its refs is touched.
  *
@@ -113,36 +120,62 @@ try {
       if (label(from) !== label(to)) changed.push({ event, from, to });
     }
   }
+  // An outcome change is one a reader could notice: the event started or stopped speaking, or it
+  // speaks as a different class, which decides the card's form and who gets it. Everything else
+  // that "moved" is the same decision wearing a different reason's name.
+  const movedOutcome = ({ from, to }: { from: Verdict | undefined; to: Verdict | undefined }): boolean =>
+    !from || !to || Boolean(from.reason) !== Boolean(to.reason) || from.signal !== to.signal;
+  const outcome = changed.filter(movedOutcome);
+  const renamed = changed.filter((one) => !movedOutcome(one));
   const title = (event: Event): string => {
     const record = JSON.parse(event.after_json ?? event.before_json ?? "{}") as { name?: unknown; title?: unknown };
     return String(record.name ?? record.title ?? event.entity_id).slice(0, 80);
   };
+  const line = ({ event, from, to }: { event: Event; from: Verdict | undefined; to: Verdict | undefined }) => ({
+    eventId: event.id,
+    source: event.source,
+    title: title(event),
+    from: label(from),
+    to: label(to),
+  });
   process.stdout.write(
     [
       `Policy replay: ${shown} -> working tree, ${days} days, ${rows.length} events in ${batches.size} batches`,
       destination ? `destination: ${destination} (point-in-time repeat checks included)` : "every destination",
       `speaking (no standing reason): ${speaksBefore} -> ${speaksAfter}`,
-      `decisions changed: ${changed.length}`,
+      `decisions changed: ${changed.length} -- outcome: ${outcome.length}, reason renamed only: ${renamed.length}`,
       "",
-      ...changed
+      // Outcome changes first and in full where the cap allows: they are what the run was for.
+      ...[...outcome, ...renamed]
         .slice(0, limit)
         .map(
           ({ event, from, to }) =>
             `#${event.id} [${event.source}] ${title(event)}\n    ${label(from)}  ->  ${label(to)}`,
         ),
-      ...(changed.length > limit ? [`... and ${changed.length - limit} more (--limit)`] : []),
+      ...(changed.length > limit
+        ? [`... and ${changed.length - limit} more (--limit N, or the full list in the --result file)`]
+        : []),
       "",
     ].join("\n"),
   );
   if (result)
     writeFileSync(
       result,
-      JSON.stringify({
-        phase: "policy",
-        verdict: changed.length === 0 ? "same" : "moved",
-        moved: changed.length,
-        fingerprint: digest.digest("hex"),
-      }),
+      JSON.stringify(
+        {
+          phase: "policy",
+          verdict: changed.length === 0 ? "same" : "moved",
+          moved: changed.length,
+          fingerprint: digest.digest("hex"),
+          note: `${outcome.length} changed outcome, ${renamed.length} the same decision renamed`,
+          // Every moved decision, not a sample: the printout is capped and this file is where the
+          // 407th row has to be if anybody is ever to read it.
+          outcomeChanged: outcome.map(line),
+          renamedOnly: renamed.map(line),
+        },
+        null,
+        2,
+      ),
     );
 } finally {
   rmSync(workspace, { recursive: true, force: true });

@@ -103,7 +103,17 @@ try {
       say(`${file} has no default export. It should be a function taking { db, config }.`);
       process.exit(2);
     }
-    show(await module.default({ db, config }));
+    try {
+      show(await module.default({ db, config }));
+    } catch (failure) {
+      // A file is a module and an expression is a scope, and the difference is invisible until a
+      // file reaches for the `db` the expression form hands out: `ReferenceError: db is not defined`
+      // names the symbol and not the contract, so the contract is named here. Two sessions were
+      // lost to opening `new Database(...)` by hand instead -- the exact thing probe exists to stop.
+      if (failure instanceof ReferenceError && /\b(db|config)\b/.test(failure.message))
+        say(`${failure.message} -- a file gets db and config as arguments: export default ({ db, config }) => ...`);
+      throw failure;
+    }
   }
 } finally {
   db.close();

@@ -4,7 +4,7 @@ import { pageModel } from "./pageWorth.js";
 import { retellsToldModels } from "./retoldWorth.js";
 import type { SignalClass } from "./signals.js";
 import { isMakersAnnouncement } from "./signals.js";
-import { batchViewOf, standingReason } from "./standing.js";
+import { type BatchView, batchViewOf, standingReason } from "./standing.js";
 import type { SuppressionReason } from "./suppression.js";
 import {
   announcedBeforeSighted,
@@ -18,6 +18,53 @@ import {
 import type { Event } from "./types.js";
 
 /**
+ * The events as every rule sees them: classed, and sharing one batch view.
+ *
+ * Both replays and `reports/why.ts` ask the standing questions of stored events, and all three got
+ * this preamble wrong at least once. The class is not a column to be read: `events.signal` is
+ * written by `classifyEmitted` on the live path, so it is absent on everything stored before that
+ * existed -- 242 listing arrivals in production, every one of them older than 2026-09-21 -- and
+ * five of the standing questions are about the class. A replay that reads the column answers those
+ * five the wrong way on exactly the events an investigation into history asks about.
+ *
+ * So the preamble is named once and shared, rather than copied into each caller and then forgotten
+ * in the next one. Reads only.
+ */
+export function asTheRulesSeeThem(
+  db: Database,
+  events: readonly Event[],
+): { events: (Event & { signal: SignalClass })[]; view: BatchView } {
+  const classed = events.map((event) => ({ ...event, signal: classify(db, event) }));
+  return { events: classed, view: batchViewOf(db, classed) };
+}
+
+/**
+ * The batch an event was actually in, so that a replay of one event is not a replay of a batch of
+ * one.
+ *
+ * Four standing questions are about an event's siblings -- a field that arrived across the whole
+ * list, a change that reached three records at once, a branch of pages read together. Replayed
+ * alone the event has no siblings and all four answer no, which is not an answer but an artefact.
+ * `batch_events` still knows who the siblings were, so they can be fetched instead of assumed; this
+ * is the lookup `replayDestinationVerdicts` was already doing for its own `batch_id`.
+ *
+ * `reconstructed` is false for an event that never reached a batch, where a batch of one is the
+ * truthful answer and the caller should say so rather than report four passes.
+ */
+export function theBatchItWasIn(db: Database, event: Event): { events: Event[]; reconstructed: boolean } {
+  const batch = db
+    .query<{ batch_id: number }, [number]>("SELECT batch_id FROM batch_events WHERE event_id=?")
+    .get(event.id);
+  if (!batch) return { events: [event], reconstructed: false };
+  const siblings = db
+    .query<Event, [number]>(
+      "SELECT e.* FROM batch_events b JOIN events e ON e.id=b.event_id WHERE b.batch_id=? ORDER BY e.id",
+    )
+    .all(batch.batch_id);
+  return { events: siblings.length ? siblings : [event], reconstructed: siblings.length > 0 };
+}
+
+/**
  * The destination-independent half of the delivery policy, for replay: the class the rules give each
  * event and the standing reason, if any, that holds it back from everyone. The destination-dependent
  * checks (already told, oscillating, waiting to settle) read delivery history as it is now rather
@@ -27,8 +74,7 @@ export function replayVerdicts(
   db: Database,
   events: readonly Event[],
 ): { eventId: number; signal: SignalClass; reason: SuppressionReason | null }[] {
-  const classed = events.map((event) => ({ ...event, signal: classify(db, event) }));
-  const view = batchViewOf(db, classed);
+  const { events: classed, view } = asTheRulesSeeThem(db, events);
   return classed.map((event) => ({ eventId: event.id, signal: event.signal, reason: standingReason(db, event, view) }));
 }
 
@@ -50,8 +96,7 @@ export function replayDestinationVerdicts(
   events: readonly Event[],
   destinationId: string,
 ): { eventId: number; signal: SignalClass; reason: SuppressionReason | null }[] {
-  const classed = events.map((event) => ({ ...event, signal: classify(db, event) }));
-  const view = batchViewOf(db, classed);
+  const { events: classed, view } = asTheRulesSeeThem(db, events);
   const batchOf = (eventId: number): number =>
     db.query<{ batch_id: number }, [number]>("SELECT batch_id FROM batch_events WHERE event_id=?").get(eventId)
       ?.batch_id ?? -1;

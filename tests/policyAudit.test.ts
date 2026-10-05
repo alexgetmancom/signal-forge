@@ -46,7 +46,7 @@ function populate(db: ReturnType<typeof openDatabase>) {
   ) as Record<string, number>;
 }
 
-test("why says which rule held an event, and which questions a batch of one cannot answer", () => {
+test("why says which rule held an event, against the batch it was actually in", () => {
   const db = openDatabase(":memory:");
   const ids = populate(db);
   const answer = why(db, ids["tencent/old-weights"] ?? 0);
@@ -57,12 +57,30 @@ test("why says which rule held an event, and which questions a batch of one cann
   // Every question is reported, not just the deciding one.
   expect(answer?.replay.answers.length).toBeGreaterThan(20);
   expect(answer?.replay.answers.at(0)?.check).toBe("renamed_by_the_source");
-  // And the ones a single event cannot speak for are named rather than reported as a pass.
-  expect(answer?.cannotBeReplayed).toContain("one_change_across_the_whole_list");
+  // The batch it was in is reconstructed from batch_events, so the questions about its siblings
+  // are answered rather than declared unanswerable.
+  expect(answer?.replay.batch).toEqual({ size: 2, reconstructed: true });
+  expect(answer?.cannotBeReplayed).toEqual([]);
 
   // The repository published yesterday is held by nothing.
   expect(why(db, ids["tencent/new-weights"] ?? 0)?.replay.heldBy).toBeNull();
   expect(why(db, 99_999)).toBeNull();
+  db.close();
+});
+
+test("why classifies the event rather than trusting a column that may be empty", () => {
+  const db = openDatabase(":memory:");
+  const ids = populate(db);
+  const id = ids["tencent/old-weights"] ?? 0;
+  const classed = why(db, id)?.replay.signal;
+  // Everything stored before `classifyEmitted` wrote this column has it empty, and five of the
+  // standing questions are about the class. Reading the column answers those five wrongly on
+  // exactly the events an investigation into history asks about.
+  db.query("UPDATE events SET signal=NULL WHERE id=?").run(id);
+  const answer = why(db, id);
+  expect(answer?.event.signal).toBeNull();
+  expect(answer?.replay.signal).toBe(classed as string);
+  expect(answer?.replay.heldBy).toBe("published_long_before_we_read_it");
   db.close();
 });
 

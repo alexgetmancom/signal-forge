@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
-import { batchViewOf, standingAnswers } from "../events/standing.js";
+import { asTheRulesSeeThem, theBatchItWasIn } from "../events/replayPolicy.js";
+import { standingAnswers } from "../events/standing.js";
 import type { Event } from "../events/types.js";
 
 /**
@@ -16,6 +17,12 @@ import type { Event } from "../events/types.js";
  * stored decision is what actually happened, under the code that was running that day; the replay
  * is what the rules in this deployment say today. A rule shipped since then shows up as exactly
  * that gap, which is how you tell "we fixed it" from "it never applied".
+ *
+ * The replay is built through `asTheRulesSeeThem` and `theBatchItWasIn` rather than by hand, which
+ * is the whole reason both of those are named: the first version of this file read `events.signal`
+ * out of the row and judged a batch of one, so it answered the five class-dependent questions
+ * wrongly on every event stored before that column was written, and reported the four
+ * batch-dependent ones as unanswerable when the batch was sitting in `batch_events`.
  */
 export type Why = {
   event: {
@@ -24,6 +31,7 @@ export type Why = {
     stream: string;
     entityId: string;
     kind: string;
+    /** The class stored on the row, which is null for anything older than the column. */
     signal: string | null;
     detectedAt: string;
   };
@@ -40,16 +48,19 @@ export type Why = {
    * tightening a rule needs to know what would have caught the event next if it had not.
    */
   replay: {
+    /** The class the rules give it now, which is what the questions were actually asked about. */
+    signal: string;
+    /** The siblings the batch-dependent questions were asked against, and where they came from. */
+    batch: { size: number; reconstructed: boolean };
     heldBy: string | null;
     answers: { check: string; reason: string | null; fromTheBatch: boolean }[];
   };
   /**
-   * What a replay of one event cannot reproduce, named rather than silently wrong.
+   * What this replay could not reproduce, named rather than silently answered no.
    *
-   * Four of the standing questions are about an event's siblings -- a field that arrived on the
-   * whole list, a change that reached three records at once, a branch of pages published in one
-   * read. Replayed alone the event has no siblings, so those answer no. The batch it was actually
-   * in is gone; the stored half above is what speaks for it.
+   * Empty for an event whose batch was found, which is almost all of them. An event that never
+   * reached a batch has no siblings to find, so the four questions about siblings are listed here
+   * instead of reported as passes; the stored half above is what speaks for it.
    */
   cannotBeReplayed: string[];
 };
@@ -72,9 +83,13 @@ export function why(db: Database, eventId: number): Why | null {
       "SELECT destination_id,reason,detail,recorded_at FROM suppressions WHERE event_id=? ORDER BY destination_id",
     )
     .all(eventId);
-  // The view a batch of one builds: everything that is a function of the event alone is faithful,
-  // and everything that is not is listed in `cannotBeReplayed` rather than reported as a pass.
-  const answers = standingAnswers(db, row, batchViewOf(db, [row]));
+  const batch = theBatchItWasIn(db, row);
+  const { events, view } = asTheRulesSeeThem(db, batch.events);
+  // The classed copy of this event, not the row: the questions must be asked of what the view was
+  // built from, or the event and its own batch disagree about what it is.
+  const self = events.find((event) => event.id === row.id) ?? events[0];
+  if (!self) return null;
+  const answers = standingAnswers(db, self, view);
   return {
     event: {
       id: row.id,
@@ -96,9 +111,13 @@ export function why(db: Database, eventId: number): Why | null {
       })),
     },
     replay: {
+      signal: self.signal,
+      batch: { size: events.length, reconstructed: batch.reconstructed },
       heldBy: answers.find((answer) => answer.reason)?.reason ?? null,
       answers,
     },
-    cannotBeReplayed: answers.filter((answer) => answer.fromTheBatch).map((answer) => answer.check),
+    cannotBeReplayed: batch.reconstructed
+      ? []
+      : answers.filter((answer) => answer.fromTheBatch).map((answer) => answer.check),
   };
 }
