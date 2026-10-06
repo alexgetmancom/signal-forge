@@ -8,7 +8,7 @@
  */
 import { isStealthLaunch, listsAnotherMakersModel, stealthSubject } from "../resellers.js";
 import type { Event } from "../types.js";
-import { type Fact, prices } from "./common.js";
+import { compactCount, type Fact, prices } from "./common.js";
 import type { CardContext } from "./facts.js";
 import { priceChip, priceChips } from "./price.js";
 import { place } from "./words.js";
@@ -79,7 +79,13 @@ export function stealthChips(event: Event & CardContext, found: readonly string[
  */
 export function launchChips(event: Event & CardContext, found: readonly string[]): string[] {
   const borrowed = event.borrowed ?? {};
-  const chips = [...found];
+  // A window another catalogue answers differently carries the same question mark the card's own
+  // line does, so the picture and the text do not disagree with each other.
+  const chips = [...found].map((chip) =>
+    typeof borrowed.contestedContext === "number" && chip.endsWith("context")
+      ? chip.replace(/ context$/, "? context")
+      : chip,
+  );
   if (!chips.some((chip) => chip.endsWith("context"))) {
     const context = contextChip(borrowed.context);
     if (context) chips.push(context);
@@ -93,11 +99,16 @@ export function launchChips(event: Event & CardContext, found: readonly string[]
   return chips.slice(0, 3);
 }
 
-/** A borrowed context length as the picture says it: 1048576 tokens is "1M context". */
+/**
+ * A borrowed context length as the picture says it: 1048576 tokens is "1M context".
+ *
+ * Counted by `compactCount` like every other window on a card. Its own rounding said "524K" where
+ * the body of the same card said 512K, which is one number spelled two ways in one picture.
+ */
 function contextChip(value: unknown): string | null {
   const tokens = Number(value);
   if (!Number.isFinite(tokens) || tokens < 1000) return null;
-  return `${tokens >= 1_000_000 ? `${Math.round(tokens / 1_000_000)}M` : `${Math.round(tokens / 1000)}K`} context`;
+  return `${compactCount(tokens)} context`;
 }
 
 /** The light on a card with no maker on it. */

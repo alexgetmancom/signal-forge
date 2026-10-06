@@ -230,6 +230,26 @@ function sameHandle(value: unknown, handle: unknown): boolean {
   return bare(value) === bare(handle);
 }
 
+/**
+ * A window two catalogues answer differently, marked where a reader meets it.
+ *
+ * "512K" reads as a measurement; it was one catalogue's answer, and Mistral's own page, the Vercel
+ * gateway and models.dev all said a million for the same model on the day it launched. The card
+ * keeps the number the source it is reporting gave -- printing the other one would be quoting a
+ * catalogue the event did not come from -- and puts a question mark on it, with the other reading
+ * named underneath, so the number is still usable and no longer stated as settled.
+ */
+function contested(facts: Fact[], event: Event & CardContext): Fact[] {
+  const theirs = event.borrowed?.contestedContext;
+  if (typeof theirs !== "number") return facts;
+  const by = sourceLabel(String(event.borrowed?.contestedBy ?? ""));
+  return facts.flatMap((fact) =>
+    typeof fact !== "string" && fact.label === "Context"
+      ? [{ label: fact.label, value: `${fact.value}?` }, `${by} lists ${compactCount(theirs)} for the same model`]
+      : [fact],
+  );
+}
+
 export function eventFactParts(event: Event & CardContext, summary?: string): Fact[] {
   const before = event.before_json ? (JSON.parse(event.before_json) as RecordData) : null;
   const after = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
@@ -450,7 +470,7 @@ export function eventFactParts(event: Event & CardContext, summary?: string): Fa
     }
   }
 
-  const collapsed = collapseDetails(lines);
+  const collapsed = contested(collapseDetails(lines), event);
   // A model a catalogue already sells is not an unconfirmed name, whatever the arena calls it.
   const identity =
     (event.stream === "arena" || event.stream === "leaderboards") && !event.elsewhere?.length

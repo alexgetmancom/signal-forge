@@ -82,10 +82,36 @@ const BORROWED_FIELDS = ["context", "input", "output", "maxOutputTokens", "reaso
  */
 const PRICED_BY = new Set(["openrouter", "vercel-gateway"]);
 
+/**
+ * How far two catalogues may differ on one window before a reader should be told they do.
+ *
+ * Mistral's own API answered 524288 for Mistral Large 4 on 2026-10-06 while the Vercel gateway,
+ * models.dev and Mistral's own announcement all said a million. 207 of the 1,477 pairs of rows that
+ * name one model in two catalogues disagree by more than this, so it is not one vendor's slip and
+ * not something a card can resolve: it can only say that the number is contested. A fifth is wide
+ * enough to pass a rounding difference and narrow enough to catch 512K against 1M.
+ */
+const CONTESTED = 0.2;
+
+/**
+ * Whether a stored row is the same model as the one on the card, strictly enough to argue with it.
+ *
+ * Borrowing a missing number tolerates a loose match, because a fuller row for a near neighbour
+ * still beats a blank. Contradicting a number does not: `gpt-5` matches `gpt-5-mini` in the query
+ * above, and their windows differ because they are different models. The provider prefix a gateway
+ * puts in front -- `mistral/mistral-large-4` -- and a pinned version behind -- `-0` -- are the same
+ * model; anything else is not.
+ */
+function namesTheSameModel(id: string, subject: string): boolean {
+  const name = (id.toLowerCase().split("/").at(-1) ?? "").trim();
+  return name === subject || name.replace(/-\d+$/, "") === subject;
+}
+
 export function borrowedFacts(db: Database, event: Event, subject: string): Record<string, unknown> {
   const have: Record<string, unknown> = recordFor(event) ?? {};
   const wanted = BORROWED_FIELDS.filter((field) => have[field] === undefined || have[field] === null);
-  if (!wanted.length || subject.length < 4) return {};
+  const ours = typeof have.context === "number" && have.context > 0 ? have.context : null;
+  if ((!wanted.length && ours === null) || subject.length < 4) return {};
   const borrowed: Record<string, unknown> = {};
   for (const row of db
     .query<{ body: string; source: string }, [string]>(
@@ -99,6 +125,18 @@ export function borrowedFacts(db: Database, event: Event, subject: string): Reco
     } catch {
       continue;
     }
+    // A window the maker's own row already carries is not borrowed, but a catalogue that answers a
+    // different one is worth a reader's doubt: the card prints the number it was given and marks it.
+    const theirs = typeof fields.context === "number" ? fields.context : null;
+    if (
+      ours !== null &&
+      theirs !== null &&
+      namesTheSameModel(String(fields.id ?? ""), subject) &&
+      theirs > 0 &&
+      Math.abs(theirs - ours) / Math.max(theirs, ours) > CONTESTED &&
+      borrowed.contestedContext === undefined
+    )
+      Object.assign(borrowed, { contestedContext: theirs, contestedBy: row.source });
     for (const field of wanted) {
       if (field === "pricing" && !PRICED_BY.has(row.source)) continue;
       if (borrowed[field] === undefined && fields[field] !== undefined && fields[field] !== null) {

@@ -5,6 +5,7 @@ import { canonical, splitMessage } from "../src/events/canonical.js";
 import { isRoutine } from "../src/events/interpretation.js";
 import { hasNotificationContent } from "../src/events/notification.js";
 import { saveCollection } from "../src/events/pipeline.js";
+import { borrowedFacts } from "../src/events/priceWorth.js";
 import { collapseDetails, compactCount, MAX_DETAIL_LINES, prices } from "../src/events/render/common.js";
 import { eventEmbed } from "../src/events/render/discord.js";
 import { eventFacts } from "../src/events/render/facts.js";
@@ -1493,4 +1494,68 @@ test("a context window is counted in the thousand it was written in", () => {
   expect(compactCount(1050000)).toBe("1.05M");
   // Below a thousand there is nothing to shorten.
   expect(compactCount(999)).toBe("999");
+});
+
+test("a context window two catalogues answer differently is marked, not resolved", () => {
+  const launch: Event & { borrowed?: Record<string, unknown> } = {
+    signal: null,
+    id: 11,
+    source: "mistral",
+    stream: "api-models",
+    entity_id: "mistral-large-4",
+    kind: "new",
+    before_json: null,
+    after_json: JSON.stringify({ id: "mistral-large-4", name: "mistral-large-4", context: 524288 }),
+    detected_at: "2026-10-06T12:48:38.000Z",
+  } as Event;
+  // Without a second reading the number is stated plainly.
+  expect(eventFacts(launch)).toEqual(["Context: 512K"]);
+  // With one, the card keeps the number its own source gave and says who reads it otherwise.
+  expect(eventFacts({ ...launch, borrowed: { contestedContext: 1_048_576, contestedBy: "vercel-gateway" } })).toEqual([
+    "Context: 512K?",
+    "Vercel AI Gateway lists 1M for the same model",
+  ]);
+});
+
+test("only the same model argues with a card's window", () => {
+  const db = openDatabase(":memory:");
+  const catalogue = (source: string, records: RecordData[]): Collection => ({
+    source,
+    stream: "api-models",
+    url: "https://example.com",
+    raw: records,
+    records,
+  });
+  saveCollection(
+    db,
+    catalogue("vercel-gateway", [
+      { id: "mistral/mistral-large-4", name: "Mistral Large 4", context: 1_048_576 },
+      { id: "openai/gpt-5-mini", name: "GPT-5 mini", context: 128_000 },
+    ]),
+    [],
+    "2026-10-06T12:00:00.000Z",
+  );
+  const event = {
+    signal: null,
+    id: 1,
+    source: "mistral",
+    stream: "api-models",
+    entity_id: "mistral-large-4",
+    kind: "new",
+    before_json: null,
+    after_json: JSON.stringify({ id: "mistral-large-4", name: "mistral-large-4", context: 524_288 }),
+    detected_at: "2026-10-06T12:48:38.000Z",
+  } as Event;
+  expect(borrowedFacts(db, event, "mistral-large-4")).toMatchObject({
+    contestedContext: 1_048_576,
+    contestedBy: "vercel-gateway",
+  });
+  // A neighbour whose name merely contains this one is a different model with a different window.
+  const sibling = {
+    ...event,
+    entity_id: "gpt-5",
+    after_json: JSON.stringify({ id: "gpt-5", name: "gpt-5", context: 400_000 }),
+  } as Event;
+  expect(borrowedFacts(db, sibling, "gpt-5").contestedContext).toBeUndefined();
+  db.close();
 });
