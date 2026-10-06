@@ -27,6 +27,11 @@ export type JudgeModality = {
   notComparable: number;
   /** Judgements where the two readings are the same, split by what they agreed on. */
   agreed: { text: number; otherModality: number };
+  /**
+   * How many each disagreement happened, beside the examples. The lists are cut to `limit`, and a
+   * list of twenty that is actually two hundred reads as the smaller problem.
+   */
+  disagreed: { missedByTheRules: number; calledByTheRulesOnly: number };
   missedByTheRules: Disagreement[];
   calledByTheRulesOnly: Disagreement[];
 };
@@ -74,6 +79,7 @@ export function judgeModality(db: Database, days = 30, limit = 20, now = new Dat
     promptVersion: PROMPT_VERSION,
     notComparable: 0,
     agreed: { text: 0, otherModality: 0 },
+    disagreed: { missedByTheRules: 0, calledByTheRulesOnly: 0 },
     missedByTheRules: [],
     calledByTheRulesOnly: [],
   };
@@ -93,6 +99,7 @@ export function judgeModality(db: Database, days = 30, limit = 20, now = new Dat
       report.agreed[byJev ? "otherModality" : "text"] += 1;
       continue;
     }
+    report.disagreed[byJev ? "missedByTheRules" : "calledByTheRulesOnly"] += 1;
     const into = byJev ? report.missedByTheRules : report.calledByTheRulesOnly;
     if (into.length < limit)
       into.push({

@@ -47,6 +47,7 @@ export function judgeCalibrationOperations(db: Database, _config: AppConfig): Op
         "same. `missedByTheRules` is a name with no modality word in it that Jev calls a picture, " +
         "a sound or an embedding -- the case that puts a card in front of a reader who did not " +
         "come for it, which `models/gemini-nano-banana-2.1` did on 2026-10-06. " +
+        "`disagreed` counts both in full, because the lists are cut to `limit`. " +
         "`calledByTheRulesOnly` is the opposite: a word in a name that Jev does not read as the " +
         "model's job, which sends to the radar something that could have been a card, and is the " +
         "cheaper mistake because a reader's thumb can promote it. `notComparable` is every " +

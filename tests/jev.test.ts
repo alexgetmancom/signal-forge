@@ -366,6 +366,7 @@ test("what a model makes is asked and stored, and the two readings of a name are
   expect(report.missedByTheRules.map((row) => row.entity)).toEqual(["dreamweaver-1"]);
   expect(report.calledByTheRulesOnly.map((row) => row.entity)).toEqual(["gemini-3.8-live"]);
   expect(report.agreed).toEqual({ text: 0, otherModality: 0 });
+  expect(report.disagreed).toEqual({ missedByTheRules: 1, calledByTheRulesOnly: 1 });
   expect(report.notComparable).toBe(0);
   db.close();
 });
