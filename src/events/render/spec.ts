@@ -79,13 +79,9 @@ export function stealthChips(event: Event & CardContext, found: readonly string[
  */
 export function launchChips(event: Event & CardContext, found: readonly string[]): string[] {
   const borrowed = event.borrowed ?? {};
-  // A window another catalogue answers differently carries the same question mark the card's own
-  // line does, so the picture and the text do not disagree with each other.
-  const chips = [...found].map((chip) =>
-    typeof borrowed.contestedContext === "number" && chip.endsWith("context")
-      ? chip.replace(/ context$/, "? context")
-      : chip,
-  );
+  // A contested window needs no mark added here: these chips are built from the card's own facts,
+  // which already carry it. Marking them again printed "512K?? context" on the picture.
+  const chips = [...found];
   if (!chips.some((chip) => chip.endsWith("context"))) {
     const context = contextChip(borrowed.context);
     if (context) chips.push(context);
