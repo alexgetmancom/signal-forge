@@ -409,7 +409,23 @@ function projectEvent(projection: StoryProjection, event: StoryEvent): StoryGrou
   const repositoryEvent = event.source.startsWith("github:");
   const terms = repositoryEvent ? [] : identityTerms(identity);
   const url = repositoryEvent ? null : canonicalUrl(record?.url);
-  const titles = repositoryEvent ? new Set<string>() : titleTerms(record);
+  /**
+   * A repository slug is an address, not a title. `similarTitle` needs two words to agree when the
+   * shorter side has only two, and a model's name usually is two: "Nano Banana 2.1" reduces to
+   * `{nano, banana}` once the digits are dropped as too short. On 2026-10-06 that married Gemini's
+   * own launch of `models/gemini-nano-banana-2.1` to `apimartds0g/nano-banana-reverse-api-id`, a
+   * wrapper around someone else's API first seen three days earlier -- and the subject then held two
+   * stories at once, so the card that went to the news channel at 15:00 was invisible to the radar
+   * card that announced at 16:37 that it had "never carded".
+   *
+   * Every discovered repository naming a model is in this shape: the name contains the model and
+   * then says what the repository does to it. Identity terms and the URL stay, because an
+   * `openai/model-x` repository beside a `model-x` arena entry is evidence a hypothesis is built
+   * from; only the word soup goes, which is what `github:` sources have been excluded from since
+   * they were added.
+   */
+  const slugEvent = repositoryEvent || event.source.startsWith("discovery:github-");
+  const titles = slugEvent ? new Set<string>() : titleTerms(record);
   const canonical = identity.canonicalId ? normalizeIdentity(identity.canonicalId) : null;
   const { key, subject, vendor, vendorKey } = baseKeyFor(event, record, canonical);
   const family = sourceFamily(event.source, event.stream);

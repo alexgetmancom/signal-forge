@@ -1559,3 +1559,34 @@ test("only the same model argues with a card's window", () => {
   expect(borrowedFacts(db, sibling, "gpt-5").contestedContext).toBeUndefined();
   db.close();
 });
+
+/**
+ * The output side is the one a reader decides on, and models.dev -- most of our coverage -- lists
+ * only the input. `flux-3-image` arrived on the Arena on 2026-10-06 under the line "Text → ?", two
+ * lines of a card spent saying we had not looked.
+ */
+test("a modality line is not printed when what the model produces is unknown", () => {
+  const half: Event = {
+    signal: null,
+    id: 9001,
+    source: "arena",
+    stream: "arena",
+    entity_id: "flux-3-image",
+    kind: "new",
+    after_json: JSON.stringify({ id: "flux-3-image", name: "flux-3-image", input: { text: true } }),
+    detected_at: "2026-10-06T18:26:00.000Z",
+  } as Event;
+  expect(eventFacts(half).join("\n")).not.toContain("Modalities");
+
+  const whole: Event = {
+    ...half,
+    id: 9002,
+    after_json: JSON.stringify({
+      id: "flux-3-image",
+      name: "flux-3-image",
+      input: { text: true },
+      output: { image: true },
+    }),
+  };
+  expect(eventFacts(whole).join("\n")).toContain("Modalities: Text → Image");
+});

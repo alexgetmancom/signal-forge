@@ -387,3 +387,31 @@ test("a listing nobody can call is counted as held on availability, not as a mis
   expect(open.heldOnAvailability).toBe(0);
   db.close();
 });
+
+/**
+ * The claim in the headline has to be true even when the subject's events did not all land in one
+ * story. Gemini's own launch of `models/gemini-nano-banana-2.1` was carded to the news channel at
+ * 15:00 on 2026-10-06 from a story the three catalogue listings never joined, and the radar card
+ * that followed at 16:37 said the model had never been carded.
+ */
+test("a subject carded under another story has spoken, whatever this story's own events say", () => {
+  const { db, add } = setup();
+  const mirror = add("models-dev", "api-models", "third_party", { name: "Step 5 Preview" }, "2026-09-20T05:31:00.165Z");
+  // The delivered event shares the subject's entity id and belongs to no story of ours at all.
+  const elsewhere =
+    db
+      .query<{ id: number }, []>(
+        `INSERT INTO events(source,stream,entity_id,kind,after_json,detected_at,snapshot_id,authority)
+         VALUES('stepfun','api-models','step-5-preview','new','{"name":"Step 5 Preview"}',
+                '2026-09-19T12:00:00.000Z',1,'first_party') RETURNING id`,
+      )
+      .get()?.id ?? 0;
+  db.exec("INSERT INTO batches(id,source,digest,ready_at) VALUES(9,'x',0,'2026-09-19T12:00:00.000Z')");
+  db.query("INSERT INTO batch_events(batch_id,event_id,url,signal) VALUES(9,?,'','launch')").run(elsewhere);
+  db.exec(
+    `INSERT INTO deliveries(batch_id,destination_id,destination_json,body,part,status,updated_at)
+     VALUES(9,'signals','{}','sent',0,'sent','2026-09-19T12:00:00.000Z')`,
+  );
+  expect(detectCorroborated(db, [scouts], now)).toEqual([]);
+  expect(corroborationOfEvent(db, mirror)).toBeNull();
+});

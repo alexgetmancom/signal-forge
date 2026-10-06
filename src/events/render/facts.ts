@@ -56,6 +56,20 @@ function transition(key: string, before: unknown, after: unknown): Fact {
 }
 
 /** `{ text: true, image: true }` → `{ web: true }` reads as "Text, Image → Web". */
+/**
+ * What a model takes in and what it gives back, and nothing when the half that matters is unknown.
+ *
+ * The output side is the one a reader is deciding on: it is the difference between a coding model
+ * and a picture model. A catalogue that lists only the input leaves that unanswered, and the line
+ * used to print the gap as a question mark -- "Text → ?" under `flux-3-image` on 2026-10-06, a
+ * field that spends two lines of a card to say we did not look. models.dev, which is most of our
+ * coverage, publishes `input` and no `output` at all, so this was the common case rather than the
+ * rare one.
+ *
+ * Saying nothing is honest and short. The answer itself is held elsewhere -- OpenRouter publishes
+ * `output` for the same models and `model_fact_fields` already stores it -- and reaching it from a
+ * renderer that is handed one event is a separate change.
+ */
 function modalities(input: unknown, output: unknown): string | null {
   const names = (raw: unknown) =>
     (raw && typeof raw === "object" && !Array.isArray(raw)
@@ -68,8 +82,8 @@ function modalities(input: unknown, output: unknown): string | null {
     ).map((name) => name.charAt(0).toUpperCase() + name.slice(1));
   const from = names(input);
   const to = names(output);
-  if (!from.length && !to.length) return null;
-  return `${from.join(", ") || "?"} → ${to.join(", ") || "?"}`;
+  if (!to.length) return null;
+  return `${from.join(", ") || "?"} → ${to.join(", ")}`;
 }
 
 /** An observation with no value is not worth a line of its own when nothing preceded it. */

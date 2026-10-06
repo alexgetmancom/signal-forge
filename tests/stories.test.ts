@@ -731,3 +731,52 @@ test("a release date no calendar can hold is ignored instead of failing the whol
   expect(story?.released_at).toBeNull();
   db.close();
 });
+
+/**
+ * A repository slug is an address, not a title. `apimartds0g/nano-banana-reverse-api-id` is a
+ * wrapper around somebody else's API, and on 2026-10-06 it took Gemini's own launch of
+ * `models/gemini-nano-banana-2.1` into its story: two words were enough for `similarTitle`, because
+ * the model's name reduces to `{nano, banana}` once its digits are dropped as too short. The
+ * subject then held two stories, and the radar announced a model the news channel had carded ninety
+ * minutes earlier as one that had "never carded".
+ */
+test("a discovered repository's slug does not pull a maker's own launch into its story", () => {
+  const db = openDatabase(":memory:");
+  // A first read of a source is the baseline it is compared against; arrivals come after it.
+  saveCollection(
+    db,
+    collection("discovery:github-llm", "github", [{ id: "someone/unrelated-tool", name: "someone/unrelated-tool" }]),
+    [],
+    "2026-10-03T22:00:00.000Z",
+  );
+  saveCollection(
+    db,
+    collection("gemini", "api-models", [{ id: "models/gemini-3.0-pro", name: "Gemini 3.0 Pro" }]),
+    [],
+    "2026-10-03T22:00:00.000Z",
+  );
+  saveCollection(
+    db,
+    collection("discovery:github-llm", "github", [
+      { id: "someone/unrelated-tool", name: "someone/unrelated-tool" },
+      { id: "apimartds0g/nano-banana-reverse-api-id", name: "apimartds0g/nano-banana-reverse-api-id" },
+    ]),
+    [],
+    "2026-10-03T23:18:07.353Z",
+  );
+  saveCollection(
+    db,
+    collection("gemini", "api-models", [
+      { id: "models/gemini-3.0-pro", name: "Gemini 3.0 Pro" },
+      { id: "models/gemini-nano-banana-2.1", name: "Nano Banana 2.1" },
+    ]),
+    [],
+    "2026-10-06T15:00:31.381Z",
+  );
+
+  const stories = listStories(db, { limit: 10 });
+  expect(stories).toHaveLength(2);
+  // Each holds exactly its own event, and the launch is not filed under the wrapper.
+  expect(stories.map((story) => story.eventIds.length)).toEqual([1, 1]);
+  db.close();
+});

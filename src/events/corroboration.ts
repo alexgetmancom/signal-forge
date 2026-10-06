@@ -159,6 +159,34 @@ function knownBefore(db: Database, evidence: readonly StoryEvidence[], since: st
   );
 }
 
+/**
+ * Whether the subject itself has ever reached a reader, under any story.
+ *
+ * `delivered` on the evidence answers for one story, and a subject does not reliably hold one: on
+ * 2026-10-06 Gemini's own launch of `models/gemini-nano-banana-2.1` sat in a story started by
+ * `apimartds0g/nano-banana-reverse-api-id` while the three catalogue listings built another, so the
+ * card that went to the news channel at 15:00 was invisible to this check and the radar announced
+ * at 16:37 that the model had "never carded" -- a sentence that was false when it was written.
+ *
+ * Matched on the entity id rather than the story, because that is the one key a catalogue, a
+ * gateway and a vendor API spell the same way for the same model. The grouping that let the two
+ * stories form is fixed separately; this makes the claim in the headline true even when it is not.
+ */
+function subjectAlreadySpoke(db: Database, evidence: readonly StoryEvidence[]): boolean {
+  const ids = [...new Set(evidence.map((event) => event.entity_id.toLowerCase()))];
+  if (!ids.length) return false;
+  return Boolean(
+    db
+      .query<{ one: number }, string[]>(
+        `SELECT 1 AS one FROM events e
+           JOIN batch_events be ON be.event_id=e.id
+           JOIN deliveries d ON d.batch_id=be.batch_id AND d.status='sent'
+          WHERE lower(e.entity_id) IN (${ids.map(() => "?").join(",")}) LIMIT 1`,
+      )
+      .get(...ids),
+  );
+}
+
 function silentAndCorroborated(db: Database, now: number): { row: CorroboratedRow; evidence: StoryEvidence[] }[] {
   const since = now - WATCH_MS;
   const grouped = new Map<number, StoryEvidence[]>();
@@ -184,6 +212,7 @@ function silentAndCorroborated(db: Database, now: number): { row: CorroboratedRo
     };
     if (!gatheredQuickly(row, evidence, since)) continue;
     if (knownBefore(db, evidence, new Date(since).toISOString())) continue;
+    if (subjectAlreadySpoke(db, evidence)) continue;
     ready.push({ row, evidence });
   }
   return ready;

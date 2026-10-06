@@ -124,3 +124,45 @@ test("steps too small to report on their own add up to one card", () => {
   expect(delivered[0]).toContain("$1.9 → $1.63 per 1M");
   db.close();
 });
+
+/**
+ * A hold is a decision about one batch, and corroboration sends a card for the same event from a
+ * batch of its own: the Mistral Large 4 Preview debut went to the scouts at 14:03 on 2026-10-06 and
+ * the released hold repeated it, identically, at 15:00.
+ */
+test("a held move another producer has already sent is dropped, not released into a second card", () => {
+  const db = openDatabase(":memory:");
+  db.exec("INSERT INTO snapshots(id,source,collected_at) VALUES(1,'vercel-gateway','2026-10-06T13:00:00.000Z')");
+  db.exec(
+    `INSERT INTO events(id,source,stream,entity_id,kind,after_json,detected_at,snapshot_id,authority)
+     VALUES(1,'artificial-analysis','leaderboards','mistral-large-4-preview','new',
+            '{"name":"Mistral Large 4 Preview"}','2026-10-06T13:03:00.000Z',1,'third_party')`,
+  );
+  // The batch the hold was written against, and the room it was held for.
+  db.exec(
+    "INSERT INTO batches(id,source,digest,ready_at) VALUES(1,'artificial-analysis',0,'2026-10-06T13:03:00.000Z')",
+  );
+  db.exec("INSERT INTO batch_events(batch_id,event_id,url,signal) VALUES(1,1,'','codename')");
+  db.exec(
+    `INSERT INTO batch_targets(batch_id,destination_id,destination_json)
+     VALUES(1,'changes','${'{"id":"changes","platform":"discord","channelId":"1","signals":["change"]}'}')`,
+  );
+  db.exec(
+    `INSERT INTO suppressions(event_id,destination_id,batch_id,reason,detail,recorded_at)
+     VALUES(1,'changes',1,'waiting_for_the_move_to_settle','heard about this subject recently','2026-10-06T13:03:00.000Z')`,
+  );
+  // Meanwhile corroboration carded the very same event into the very same room.
+  db.exec(
+    "INSERT INTO batches(id,source,digest,ready_at) VALUES(2,'artificial-analysis',0,'2026-10-06T13:03:30.000Z')",
+  );
+  db.exec("INSERT INTO batch_events(batch_id,event_id,url,signal) VALUES(2,1,'','codename')");
+  db.exec(
+    `INSERT INTO deliveries(batch_id,destination_id,destination_json,body,part,status,updated_at)
+     VALUES(2,'changes','{}','{"embeds":[]}',0,'sent','2026-10-06T13:03:30.000Z')`,
+  );
+
+  expect(releaseSettledMoves(db, Date.parse("2026-10-06T22:00:00.000Z"))).toBe(0);
+  // And the hold is gone rather than reconsidered on every pass forever.
+  expect(db.query<{ n: number }, []>("SELECT count(*) n FROM suppressions").get()?.n).toBe(0);
+  db.close();
+});

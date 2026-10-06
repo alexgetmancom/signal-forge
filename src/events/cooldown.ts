@@ -99,6 +99,19 @@ export function withBaseline<T extends Event>(event: T, baseline: DeliveryBaseli
   return baseline.sinceJson ? { ...event, before_json: baseline.sinceJson } : event;
 }
 
+/** Whether this event has already reached this destination, in any batch and by any producer. */
+function deliveredAlready(db: Database, eventId: number, destinationId: string): boolean {
+  return Boolean(
+    db
+      .query<{ one: number }, [number, string]>(
+        `SELECT 1 AS one FROM batch_events be
+           JOIN deliveries d ON d.batch_id=be.batch_id AND d.destination_id=?2
+          WHERE be.event_id=?1 AND d.status='sent' LIMIT 1`,
+      )
+      .get(eventId, destinationId),
+  );
+}
+
 /**
  * A move that was held and then stopped moving.
  *
@@ -126,7 +139,25 @@ export function releaseSettledMoves(db: Database, now = Date.now()): number {
     .all();
   let released = 0;
   for (const row of held) {
+    /**
+     * Someone else said it while this one waited.
+     *
+     * A hold is a decision about one batch, and it is not the only way an event reaches a room:
+     * `detectCorroborated` sends a card of its own for a subject three sources agree on, from a
+     * batch this suppression knows nothing about. On 2026-10-06 the Mistral Large 4 Preview
+     * leaderboard debut (event 52418) was held for the scouts, carded by corroboration at 14:03,
+     * and released into an identical second card at 15:00 -- the same embed, the same room, an hour
+     * apart.
+     *
+     * The hold is dropped rather than released, because the reason to speak was that the reader had
+     * not heard the move, and the reader has now heard it.
+     */
+    if (deliveredAlready(db, row.id, row.destination_id)) {
+      db.query("DELETE FROM suppressions WHERE event_id=? AND destination_id=?").run(row.id, row.destination_id);
+      continue;
+    }
     if (deliveryBaseline(db, row, row.destination_id, row.held_batch, now).hold) continue;
+
     const batch = db
       .query<{ id: number }, [string]>(
         "INSERT INTO batches(source,digest,ready_at) VALUES('story-digest',1,?) RETURNING id",
