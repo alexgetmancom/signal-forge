@@ -6,6 +6,7 @@ import { boardInterest, boardPlace, isTellableDebut } from "./boardSignals.js";
 import { breakoutLine, breakoutOf } from "./breakouts.js";
 import { splitMessage } from "./canonical.js";
 import { corroborationLine, corroborationOfEvent } from "./corroboration.js";
+import { normalizeIdentity } from "./identity.js";
 import { vendorOf } from "./interpretation.js";
 import { recordFor } from "./record.js";
 import type { Attachment } from "./render/attachment.js";
@@ -65,6 +66,35 @@ function leadingDebut(group: StoryRenderEvent[]): { lead: StoryRenderEvent; othe
   return { lead, others };
 }
 
+/**
+ * One model, listed twice in the same read of one catalogue.
+ *
+ * Mistral published `mistral-large-4` and `mistral-large-4-0` in the same collection on
+ * 2026-10-06, the second being the first under its pinned version, and the wire got a thread card
+ * reading "2 updates from 1 source" with the same "Context 524K" twice -- where the launch card
+ * for either row would have said "Mistral Large 4 is out". A story is several things that turned
+ * out to be related; this is one thing a catalogue spells two ways.
+ *
+ * The canonical row leads, which is the shorter id: an alias is the name plus a suffix. The other
+ * rows stay linked to the message as evidence, the way a debut's lesser boards do.
+ */
+function sameRowTwice(group: StoryRenderEvent[]): { lead: StoryRenderEvent; others: StoryRenderEvent[] } | null {
+  if (group.length < 2) return null;
+  const [first] = group as [StoryRenderEvent];
+  const subject = (event: StoryRenderEvent) => normalizeIdentity(String(recordFor(event)?.name ?? event.entity_id));
+  const alike = (event: StoryRenderEvent) =>
+    event.kind === "new" &&
+    event.source === first.source &&
+    event.stream === first.stream &&
+    subject(event) === subject(first);
+  if (!group.every(alike)) return null;
+  const sorted = [...group].sort(
+    (one, other) => one.entity_id.length - other.entity_id.length || one.entity_id.localeCompare(other.entity_id),
+  );
+  const [lead, ...others] = sorted as [StoryRenderEvent, ...StoryRenderEvent[]];
+  return { lead, others };
+}
+
 /** "#8 code" -- the board a lesser debut landed on, short enough to sit beside a score. */
 function debutChip(event: StoryRenderEvent): string | null {
   const place = boardPlace(event);
@@ -109,9 +139,9 @@ export function messageParts(
       ? `📡 ${source} · ${speaking.length} updates\n\n`
       : "";
   const blocks = items.map((group) => {
-    const debuts = leadingDebut(group);
-    if (group.length > 1 && !debuts) return renderStoryText(group, destination.platform, summaries);
-    const event = debuts?.lead ?? (group[0] as StoryRenderEvent);
+    const one = leadingDebut(group) ?? sameRowTwice(group);
+    if (group.length > 1 && !one) return renderStoryText(group, destination.platform, summaries);
+    const event = one?.lead ?? (group[0] as StoryRenderEvent);
     const rendered = renderEvent(event, event.url, destination.platform, summaries.get(event.id));
     const lines = rendered.split("\n");
     const heading = lines[0] ?? `Update · ${sourceLabel(event.source)}`;
@@ -155,8 +185,9 @@ function cardEmbeds(
     ? [rosterEmbed(items.flat(), destination.detail)]
     : items.map((group) => {
         const debuts = leadingDebut(group);
-        if (group.length > 1 && !debuts) return storyEmbed(group, summaries, destination.detail);
-        const event = debuts?.lead ?? (group[0] as StoryRenderEvent);
+        const one = debuts ?? sameRowTwice(group);
+        if (group.length > 1 && !one) return storyEmbed(group, summaries, destination.detail);
+        const event = one?.lead ?? (group[0] as StoryRenderEvent);
         const embed = eventEmbed(event, event.url, summaries.get(event.id), destination.detail);
         const banner = embed.banner as { chips: string[] } | undefined;
         if (banner && debuts)
@@ -171,7 +202,9 @@ function cardEmbeds(
   if (roster) behind.set(embeds[0] as Record<string, unknown>, items.flat());
   else
     items.forEach((group, index) => {
-      const lead = leadingDebut(group)?.lead ?? (group.length === 1 ? (group[0] as StoryRenderEvent) : null);
+      const lead =
+        (leadingDebut(group) ?? sameRowTwice(group))?.lead ??
+        (group.length === 1 ? (group[0] as StoryRenderEvent) : null);
       const file = lead ? eventAttachment(lead) : null;
       const embed = embeds[index];
       if (!embed) return;

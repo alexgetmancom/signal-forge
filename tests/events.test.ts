@@ -5,7 +5,7 @@ import { canonical, splitMessage } from "../src/events/canonical.js";
 import { isRoutine } from "../src/events/interpretation.js";
 import { hasNotificationContent } from "../src/events/notification.js";
 import { saveCollection } from "../src/events/pipeline.js";
-import { collapseDetails, MAX_DETAIL_LINES, prices } from "../src/events/render/common.js";
+import { collapseDetails, compactCount, MAX_DETAIL_LINES, prices } from "../src/events/render/common.js";
 import { eventEmbed } from "../src/events/render/discord.js";
 import { eventFacts } from "../src/events/render/facts.js";
 import { renderEvent } from "../src/events/render/telegram.js";
@@ -1475,4 +1475,22 @@ test("the store records whether an event said anything to a reader", () => {
     { id: 2, speaks: 1 },
   ]);
   db.close();
+});
+
+test("a context window is counted in the thousand it was written in", () => {
+  // A power of two is what its maker calls it: 131072 is 128K everywhere but in a calculator.
+  expect(compactCount(131072)).toBe("128K");
+  expect(compactCount(524288)).toBe("512K");
+  expect(compactCount(262144)).toBe("256K");
+  expect(compactCount(65536)).toBe("64K");
+  expect(compactCount(1048576)).toBe("1M");
+  // 204800 is 200 × 1024, and the vendor sheet it comes from says 200K.
+  expect(compactCount(204800)).toBe("200K");
+  // A round decimal count stays decimal, including 128000, which divides by 1024 as well.
+  expect(compactCount(128000)).toBe("128K");
+  expect(compactCount(256000)).toBe("256K");
+  expect(compactCount(1000000)).toBe("1M");
+  expect(compactCount(1050000)).toBe("1.05M");
+  // Below a thousand there is nothing to shorten.
+  expect(compactCount(999)).toBe("999");
 });

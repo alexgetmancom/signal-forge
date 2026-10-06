@@ -122,14 +122,30 @@ export function fieldLabel(key: string): string {
   return words ? words.charAt(0).toUpperCase() + words.slice(1) : key;
 }
 
-/** A context window reads as 131K, not as 131072. */
+/**
+ * A context window reads as 128K, not as 131072 and not as 131K.
+ *
+ * Counted in whichever thousand the number was written in. A context window is a power of two, and
+ * every vendor, every price list and every reader calls 131072 "128K"; dividing it by 1000 produced
+ * "131K", a number that appears nowhere else and reads as a typo of the real one. Mistral Large 4
+ * reached the wire on 2026-10-06 as "524K context" where its own page says 512K. 1,139 stored rows
+ * carried such a window: 262144, 131072, 32768, 65536, 204800.
+ *
+ * A round decimal count -- 128000, 200000, 1000000 -- is divided by a thousand as before, because
+ * that is how it was written. The test is the number itself rather than the field it came from: a
+ * vote count that happens to be a multiple of 1024 reads the same either way.
+ */
 export function compactCount(value: unknown): string {
   const count = typeof value === "number" ? value : Number(value);
   if (!Number.isFinite(count) || Math.abs(count) < 1000) return describe(value);
-  const millions = count / 1_000_000;
-  if (Math.abs(count) >= 1_000_000)
+  // A number that divides by both -- 128000 is 125 × 1024 -- was written in thousands, and its
+  // maker calls it 128K. The binary reading is for the windows only it makes whole.
+  const binary = Number.isInteger(count) && count % 1024 === 0 && count % 1000 !== 0;
+  const unit = binary ? 1024 : 1000;
+  const millions = count / (unit * unit);
+  if (Math.abs(count) >= unit * unit)
     return `${millions.toFixed(millions >= 10 || Number.isInteger(millions) ? 0 : 2).replace(/\.?0+$/, "")}M`;
-  return `${Math.round(count / 1000)}K`;
+  return `${Math.round(count / unit)}K`;
 }
 
 export function describe(value: unknown): string {

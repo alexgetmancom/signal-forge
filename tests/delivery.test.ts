@@ -695,3 +695,39 @@ test("a quote inside a link URL cannot end the href attribute", () => {
   expect(message.html).toContain(">the release</a>");
   expect(message.html).toContain('href="https://example.com/b?q=&quot;y&quot;"');
 });
+
+test("one model a catalogue spells twice is one launch card, not a thread about itself", () => {
+  const local = openDatabase(":memory:");
+  const destination: Destination = { id: "dc", platform: "discord", channelId: "77", signals: ["launch"] };
+  const row = (id: string) => ({ id, name: "mistral-large-4", maker: "Mistral", owner: "mistralai", context: 524288 });
+  const catalogue = (records: ReturnType<typeof row>[]): Collection => ({
+    source: "mistral",
+    stream: "api-models",
+    url: "https://docs.mistral.ai/getting-started/models/",
+    raw: records,
+    records,
+  });
+  saveCollection(local, catalogue([row("codestral-2508")]), [destination], "2026-10-06T12:00:00.000Z");
+  // Mistral published the model and its pinned version in the same read.
+  saveCollection(
+    local,
+    catalogue([row("codestral-2508"), row("mistral-large-4"), row("mistral-large-4-0")]),
+    [destination],
+    "2026-10-06T12:48:38.000Z",
+  );
+  prepareDeliveries(local, Date.parse("2026-10-06T13:00:00.000Z"));
+
+  const body = local.query<{ body: string }, []>("SELECT body FROM deliveries ORDER BY id LIMIT 1").get()?.body ?? "{}";
+  const payload = JSON.parse(body) as { embeds?: { title?: string; description?: string }[] };
+  expect(payload.embeds).toHaveLength(1);
+  const [embed] = payload.embeds ?? [];
+  // The canonical row leads, and the card is the launch card either row would have produced alone.
+  expect(embed?.title).not.toContain("🧵");
+  expect(embed?.title).toContain("Mistral Large 4");
+  expect(embed?.description).not.toContain("updates from");
+  // A power of two reads the way its maker writes it.
+  expect(embed?.description).toContain("512K");
+  // Both events stay linked to the message as evidence.
+  expect(local.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM delivery_events").get()?.n).toBe(2);
+  local.close();
+});
