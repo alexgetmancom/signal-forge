@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
 import { judgeCalibration } from "../reports/judgeCalibration.js";
+import { judgeModality } from "../reports/judgeModality.js";
 import { count, type OperationMap } from "./definition.js";
 
 /**
@@ -35,6 +36,34 @@ export function judgeCalibrationOperations(db: Database, _config: AppConfig): Op
       cli: { args: [{ name: "days", optional: true }] },
       http: { method: "get", path: "/api/judge-calibration" },
       handler: (input: { days: number }) => judgeCalibration(db, input.days),
+    },
+    judge_modality: {
+      section: "sources",
+      summary: "What the rules read off a model's name against what Jev says the model makes, counted.",
+      startHere: "is a name enough to tell a picture model from a coding one",
+      note:
+        "Shadow only: Jev has been asked what a model produces since prompt version 6 and nothing " +
+        "acts on the answer. Read the two disagreements separately, because they do not cost the " +
+        "same. `missedByTheRules` is a name with no modality word in it that Jev calls a picture, " +
+        "a sound or an embedding -- the case that puts a card in front of a reader who did not " +
+        "come for it, which `models/gemini-nano-banana-2.1` did on 2026-10-06. " +
+        "`calledByTheRulesOnly` is the opposite: a word in a name that Jev does not read as the " +
+        "model's job, which sends to the radar something that could have been a card, and is the " +
+        "cheaper mistake because a reader's thumb can promote it. `notComparable` is every " +
+        "judgement with no modality on it: all of them, for a day after the version bump, until " +
+        "`bun run backfill-judgements` has run. Neither column is ground truth; the boards a model " +
+        "is measured on are, and this is the evidence for going to look at them.",
+      mutates: false,
+      agent: true,
+      schema: z.object({ days: count(365, 30), limit: count(200, 20) }),
+      cli: {
+        args: [
+          { name: "days", optional: true },
+          { name: "limit", optional: true },
+        ],
+      },
+      http: { method: "get", path: "/api/judge-modality" },
+      handler: (input: { days: number; limit: number }) => judgeModality(db, input.days, input.limit),
     },
   };
 }

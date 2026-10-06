@@ -3,7 +3,9 @@ import { loadConfig } from "../src/config.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import { isNewsworthyStory, isNotableCommit, newsroomVote, notableCommits, prepareInsights } from "../src/insights.js";
 import { jevCallsToday, judgeEvents, judgementOf, PROMPT_VERSION, worthCutoff } from "../src/jev.js";
+import { judgeModality } from "../src/reports/judgeModality.js";
 import { openDatabase } from "../src/storage/database.js";
+import { anEvent } from "./fixtures/build.js";
 
 const fixture = new URL("./fixtures/config.json", import.meta.url).pathname;
 const config = { ...loadConfig({ CONFIG_PATH: fixture }), DEEPSEEK_API_KEY: "ds", TYPESAFE_API_KEY: "jev" };
@@ -25,7 +27,14 @@ function commits(db: ReturnType<typeof openDatabase>, names: string[], at: Date)
 }
 
 test("notability needs a model or feature Jev scores clearly, or a likely codename", () => {
-  const j = { kind: "feature" as const, worth: 2, codename: 0.1, confidence: 0.9, rules: "evidence", at: "" };
+  const j = {
+    kind: "feature" as const,
+    worth: 2,
+    codename: 0.1,
+    confidence: 0.9,
+    rules: "evidence",
+    at: "",
+  };
   expect(isNotableCommit(j)).toBe(true);
   expect(isNotableCommit({ ...j, kind: "internal" })).toBe(false);
   expect(isNotableCommit({ ...j, kind: "internal", codename: 0.7 })).toBe(true);
@@ -310,4 +319,72 @@ test("a sighting of a model the catalogues already carry says so, and a first on
   expect(states.find((state) => state.title === "step-5-preview")).toHaveProperty("already_known_here", true);
   // Nothing here lists MiMo, so there is no fact to hand over, and no field either.
   expect(states.find((state) => state.title === "mimo-v2.5-pro")).not.toHaveProperty("already_known_here");
+});
+
+test("what a model makes is asked and stored, and the two readings of a name are counted apart", async () => {
+  // `models/gemini-nano-banana-2.1` reached the news channel on 2026-10-06 because its name carries
+  // no modality word. Jev is asked the same question from version 6, and this is the shadow count.
+  const db = openDatabase(":memory:");
+  const now = new Date("2026-10-06T08:00:00Z");
+  const base = { source: "google-models", stream: "api-models" as const, url: "https://x.test", raw: {} };
+  saveCollection(db, { ...base, records: [{ id: "seed", name: "seed" }] }, [], "2026-10-06T07:00:00.000Z");
+  saveCollection(
+    db,
+    {
+      ...base,
+      records: [
+        { id: "seed", name: "seed" },
+        // No word in the name says pictures, and Jev answers that it draws.
+        { id: "dreamweaver-1", name: "Dreamweaver 1" },
+        // "live" is in the word list, and Jev answers that it writes text.
+        { id: "gemini-3.8-live", name: "Gemini 3.8 Live" },
+      ],
+    },
+    [],
+    "2026-10-06T07:30:00.000Z",
+  );
+  const questions: string[][] = [];
+  const request = async (_url: string, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body)) as {
+      state: { id?: string };
+      questions: Record<string, unknown>;
+    };
+    questions.push(Object.keys(body.questions));
+    return Response.json({
+      answers: {
+        kind: { choice: "new_model" },
+        worth: { score: 2 },
+        codename: { noul: 0.1 },
+        modality: { choice: body.state.id === "dreamweaver-1" ? "image" : "text" },
+      },
+    });
+  };
+  expect(await judgeEvents(db, config, request as never, now)).toBe(2);
+  expect(questions[0]).toEqual(["kind", "worth", "modality", "codename"]);
+  const report = judgeModality(db, 30, 20, now);
+  expect(report.promptVersion).toBe(PROMPT_VERSION);
+  expect(report.missedByTheRules.map((row) => row.entity)).toEqual(["dreamweaver-1"]);
+  expect(report.calledByTheRulesOnly.map((row) => row.entity)).toEqual(["gemini-3.8-live"]);
+  expect(report.agreed).toEqual({ text: 0, otherModality: 0 });
+  expect(report.notComparable).toBe(0);
+  db.close();
+});
+
+test("a judgement given without the modality question is counted as unanswered, not as text", () => {
+  const db = openDatabase(":memory:");
+  const event = anEvent(db, {
+    source: "google-models",
+    stream: "api-models",
+    entityId: "veo-4",
+    afterJson: JSON.stringify({ id: "veo-4", name: "Veo 4" }),
+    detectedAt: "2026-10-06T07:00:00.000Z",
+  });
+  db.query(
+    `INSERT INTO event_evaluations(event_id,evaluator,model,prompt_version,kind,worth,codename,confidence,rules,evaluated_at)
+     VALUES(?,'jev','jev-latest',?,'new_model',2,0,null,'launch','2026-10-06T07:00:00.000Z')`,
+  ).run(event, PROMPT_VERSION);
+  const report = judgeModality(db, 30, 20, new Date("2026-10-06T08:00:00Z"));
+  expect(report.notComparable).toBe(1);
+  expect(report.agreed).toEqual({ text: 0, otherModality: 0 });
+  db.close();
 });

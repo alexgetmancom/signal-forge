@@ -1,0 +1,13 @@
+-- Jev is asked a fourth question from prompt version 6: what kind of model the row is about --
+-- text, image, video, audio, embedding -- and this is where the answer is kept.
+--
+-- A column rather than a reading of `kind`, because they are different questions: `new_model`
+-- already answers that a model was released, and says nothing about what it makes. The routing
+-- decision this is evidence for is made by a regular expression over a name today
+-- (`isAJobThisReaderDidNotComeFor`), which is why `models/gemini-nano-banana-2.1` reached the news
+-- channel on 2026-10-06: the name carries no modality word at all.
+--
+-- Nullable, and stays nullable. Every judgement stored before version 6 was given without the
+-- question being asked, and a default would make those rows claim an answer nobody gave; the
+-- report that measures this counts a null as "not asked" rather than as "text".
+ALTER TABLE event_evaluations ADD COLUMN modality TEXT;

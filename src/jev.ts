@@ -45,7 +45,7 @@ const MAX_STATE_CHARS = 4_000;
  * evidence that was there. The backfill asks only what the current version has not answered, so
  * running it when nothing changed costs nothing.
  */
-export const PROMPT_VERSION = "5";
+export const PROMPT_VERSION = "6";
 const EVALUATOR = "jev";
 const CALLS_PREFIX = "jev-calls:";
 const TOKENS_PREFIX = "jev-tokens:";
@@ -61,6 +61,31 @@ const KINDS = {
   other: null,
 } as const;
 type JevKind = keyof typeof KINDS;
+
+/**
+ * What a model makes, which is not what `kind` asks. `new_model` says a model was released; this
+ * says whether it writes text, draws, speaks or embeds -- the question that decides whether the
+ * reader of a coding channel came for it.
+ *
+ * Asked because the rules answer it from a word list over the name (`isAJobThisReaderDidNotComeFor`)
+ * and a name need not carry the word: `models/gemini-nano-banana-2.1` is an image model whose name
+ * says nothing about images, and it reached the news channel on 2026-10-06. The list was extended
+ * by hand afterwards, which is the fix that has to be made again for the next famous nickname.
+ *
+ * Nothing acts on the answer. It is stored beside the rule's own reading so the two can be counted
+ * against each other -- `judge-modality` -- and the boards a model is measured on are the ground
+ * truth neither of them is.
+ */
+const MODALITIES = {
+  text: "writes text or code, including a reasoning or chat model",
+  image: "generates or edits images",
+  video: "generates or edits video",
+  audio: "speech, music, transcription or any other sound",
+  embedding: "embeddings, reranking, moderation, classification or another machine-read output",
+  not_a_model: "the text is not about a model at all",
+  other: null,
+} as const;
+type JevModality = keyof typeof MODALITIES;
 
 const QUESTIONS = {
   kind: {
@@ -80,6 +105,12 @@ const QUESTIONS = {
     instructions: "How much would an expert who follows AI releases every day want to be told about this?",
     criteria: ["not at all", "slightly", "clearly", "must know"],
   },
+  modality: {
+    type: "choice",
+    instructions:
+      "What does the model this text is about produce? Answer for the model itself, not for what the text is written in.",
+    criteria: MODALITIES,
+  },
   codename: {
     type: "noul",
     instructions: "The text names a model, product or feature that has not been publicly released or announced yet.",
@@ -90,6 +121,9 @@ const answerSchema = z.object({
   answers: z.object({
     kind: z.object({ choice: z.string(), confidence: z.number().optional() }).passthrough(),
     worth: z.object({ score: z.number(), confidence: z.number().optional() }).passthrough(),
+    // Optional, unlike the other three: a question the endpoint does not answer must cost the
+    // judgement its modality and not the whole judgement. Nothing downstream reads it yet.
+    modality: z.object({ choice: z.string() }).passthrough().optional(),
     codename: z.object({ noul: z.number() }).passthrough(),
   }),
   usage: z.object({ input_tokens: z.number().optional(), output_tokens: z.number().optional() }).optional(),
@@ -101,6 +135,14 @@ export type Judgement = {
   worth: number;
   /** Probability the text names something unreleased. */
   codename: number;
+  /**
+   * What the model makes, when it was asked. Written, never read back here: `judgementOf` selects
+   * the columns the recaps act on, and a policy replay opens production's own file read-only, with
+   * the schema it had before this migration -- naming a new column there fails the rehearsal rather
+   * than reporting on it. The one reader of this answer is `judge-modality`, which runs on a
+   * migrated database because it is a report of the service's own.
+   */
+  modality?: JevModality | null;
   confidence: number | null;
   /** What the rules said, kept so the two can be compared. */
   rules: string;
@@ -123,7 +165,14 @@ export function jevCallsToday(db: Database, now = new Date()): number {
 export function judgementOf(db: Database, eventId: number): Judgement | null {
   const row = db
     .query<
-      { kind: JevKind; worth: number; codename: number; confidence: number | null; rules: string; at: string },
+      {
+        kind: JevKind;
+        worth: number;
+        codename: number;
+        confidence: number | null;
+        rules: string;
+        at: string;
+      },
       [number, string]
     >(
       `SELECT kind, worth, codename, confidence, rules, evaluated_at at FROM event_evaluations
@@ -218,6 +267,9 @@ async function askJev(
     const kind = (answers.kind.choice in KINDS ? answers.kind.choice : "other") as JevKind;
     return {
       kind,
+      modality: (answers.modality && answers.modality.choice in MODALITIES
+        ? answers.modality.choice
+        : null) as JevModality | null,
       worth: answers.worth.score,
       codename: answers.codename.noul,
       confidence: answers.kind.confidence ?? null,
@@ -389,8 +441,8 @@ export async function judgeEvents(
     // either writes: two passes half a second apart judged event 39041 at version 3 at once and the
     // second was refused outright. A judgement already stored is the answer we just paid for again.
     db.query(
-      `INSERT INTO event_evaluations(event_id, evaluator, model, prompt_version, kind, worth, codename, confidence, rules, evaluated_at)
-       VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`,
+      `INSERT INTO event_evaluations(event_id, evaluator, model, prompt_version, kind, worth, codename, modality, confidence, rules, evaluated_at)
+       VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT DO NOTHING`,
     ).run(
       event.id,
       EVALUATOR,
@@ -399,6 +451,7 @@ export async function judgeEvents(
       judgement.kind,
       judgement.worth,
       judgement.codename,
+      judgement.modality ?? null,
       judgement.confidence,
       judgement.rules,
       judgement.at,
