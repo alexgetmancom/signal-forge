@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { isTellableDebut, isUnannouncedBoard } from "../src/events/boardSignals.js";
 import { notificationBlock } from "../src/events/notification.js";
 import { pageClass } from "../src/events/pageSignals.js";
-import { catalogueClass } from "../src/events/resellers.js";
+import { catalogueClass, isUnfollowedMakerAtAReseller } from "../src/events/resellers.js";
 import { signalClass } from "../src/events/signals.js";
 import { isAJobThisReaderDidNotComeFor, isAnnouncedBoard } from "../src/events/subject.js";
 import type { Event } from "../src/events/types.js";
@@ -114,4 +114,28 @@ test("one question, asked the same way by the catalogue and the pages", () => {
   // The same word, read out of a path whose separators are not a name's. Google published the
   // Gemini 3.8 TTS models as eight pages on 2026-09-23 and the survivor reached the news channel.
   expect(pageClass(page("/gemini-api/docs/speech/quickstart"))).toBe("evidence");
+});
+
+test("an embedding from a maker this reader does not follow is nowhere, not a sighting", () => {
+  // Both Cohere embedding rows reached the radar on 2026-10-05 and were both thumbed down. Each
+  // answer here was already written: the gateway lists somebody else's model, and Cohere is named
+  // among the makers this feed is not for. The modality question simply reached them first, and
+  // `codename` is a louder answer than the `evidence` they were headed for.
+  const listing = (id: string): Event =>
+    ({
+      id: 3,
+      source: "vercel-gateway",
+      stream: "api-models",
+      entity_id: id,
+      kind: "new",
+      detected_at: "2026-10-05T09:00:00.000Z",
+      after_json: JSON.stringify({ id, maker: "Cohere", name: id }),
+      before_json: null,
+    }) as unknown as Event;
+  for (const id of ["cohere/embed-v5.0-fast", "cohere/embed-v5.0-pro"]) {
+    const event = listing(id);
+    expect(isUnfollowedMakerAtAReseller(event)).toBe(true);
+    expect(isAJobThisReaderDidNotComeFor(event, { id, name: id })).toBe(true);
+    expect(catalogueClass(event, { id, maker: "Cohere", name: id } as never)).toBe("evidence");
+  }
 });

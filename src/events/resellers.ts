@@ -187,6 +187,16 @@ export function catalogueClass(event: Event, record: RecordData | null): SignalC
      */
     if (event.stream === "weights" || record?.selectable === false) return "codename";
     /**
+     * Asked before the modality question, because every answer below it is a sighting worth having
+     * and this one is not. Asked after the maturity one, because a row nobody can call yet names
+     * nobody either, and an unknown lab is exactly who the radar is for.
+     * `cohere/embed-v5.0-fast` and `-pro` reached the radar as sightings on 2026-10-05 and were
+     * both thumbed down: an embedding from a maker this reader does not follow is nowhere, and
+     * the modality question used to reach it first and route it to the radar instead -- a rule
+     * written to demote a launch acting as a promotion out of `evidence`.
+     */
+    if (isUnfollowedMakerAtAReseller(event)) return "evidence";
+    /**
      * A model that speaks, listens, embeds or scores is not the model a reader of this feed
      * chose a subscription for. Two Gemini TTS rows reached the public channel on 2026-09-22 as
      * launches; nobody there is picking a voice. The sighting still belongs on the radar.
@@ -202,8 +212,7 @@ export function catalogueClass(event: Event, record: RecordData | null): SignalC
      * `maker`: the DashScope collector stamps "Alibaba Model Studio" on every row, GLM included.
      * A name that names nobody -- `whisper-1`, `codestral`, `wan2.5` -- is the catalogue's own.
      */
-    if (!listsAnotherMakersModel(event)) return "launch";
-    return isUnfollowedMakerAtAReseller(event) ? "evidence" : "codename";
+    return listsAnotherMakersModel(event) ? "codename" : "launch";
   }
   // Listed first and switched on later: the switch is the release. In the maker's own catalogue it
   // is a launch like any arrival would have been; anywhere else it is still a sighting.
