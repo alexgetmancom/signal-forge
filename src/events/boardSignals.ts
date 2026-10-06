@@ -5,11 +5,17 @@
  * about a model, and only Artificial Analysis lists a model it has not already measured.
  */
 import { recordFor } from "./record.js";
+import { isAnnouncedArrival, isAnnouncedBoard } from "./subject.js";
 import type { Event, RecordData } from "./types.js";
 
 /**
- * A place on a scoreboard people quote. A top-ten debut here is what a reader repeats about a new
- * model; the design and niche boards are sightings for the scouts when they are anything at all.
+ * The scoreboards people quote, which is a wider set than the ones this service announces.
+ *
+ * Being quoted is what makes a move worth reporting in the morning recap and what makes an
+ * Artificial Analysis measurement count at all. Whether an arrival on one is a card for the news
+ * channel is the other question, and `subject.ts` answers it: the design and niche boards are
+ * sightings for the radar when they are anything at all, and so are the boards whose subject is a
+ * voice, a picture or a video.
  */
 const MAIN_BOARDS = new Set([
   "text/overall",
@@ -103,34 +109,25 @@ export function boardInterest(event: Event): number {
 }
 
 /**
- * The Arena boards this service announces.
- *
- * Arena runs eleven boards and a model arriving near the top of any of them used to be a card. Two
- * of them are what these readers act on: the coding board, because what they do with a model is
- * write code with it, and the general text board, because taking first place there is the state of
- * the art changing hands. The other nine are sightings for the scouts.
- *
- * `gpt-6.1-sol-max` entering vision at #10 on 2026-10-02 went to both public channels and came back
- * with two votes down and one up. Its code debut at #3 two days earlier is the card that was
- * wanted; the vision row is a fourth message about a model the channel had already had the launch,
- * the pricing and an Artificial Analysis placing for.
- *
- * This is deliberately a board rule and not a source rule: Artificial Analysis is a different
- * source with its own boards, and `MAIN_BOARDS` still answers for them.
- */
-const ANNOUNCED_ARENA_BOARDS = new Set(["code/overall", "text/overall"]);
-
-/**
- * An Arena row on a board this service does not announce, whatever it did.
+ * An Arena row on an Arena board this service does not announce, whatever it did.
  *
  * Asked of every kind, not only of an arrival: a vision or text-to-image row taking first place is
  * the same board nobody here asked about. Both delivery gates read this, so neither can answer it
  * differently -- which is the failure `isTellableDebut` was written for.
+ *
+ * Deliberately still a source rule, and `isAnnouncedBoard` is deliberately not one. Arena ranks
+ * models this service already knows, so an arrival there carries nothing but the place and the
+ * place is the whole story. A board whose rows are names nobody has seen is the opposite: a model
+ * reaching first place on a design board before existing anywhere else is a sighting worth having,
+ * and the radar got four of them in the week to 2026-09-09. Which board is announced decides the
+ * class -- a card for the news channel, or a sighting for the radar -- and that question is
+ * `isAnnouncedArrival`, asked once by `isTellableDebut` and once by `signalClass`. This one only
+ * says when a place on a board is not worth repeating anywhere.
  */
 export function isUnannouncedBoard(event: Event): boolean {
   if (event.source !== "arena-leaderboards" || event.stream !== "leaderboards") return false;
   const category = recordFor(event)?.category;
-  return typeof category === "string" && !ANNOUNCED_ARENA_BOARDS.has(category);
+  return typeof category === "string" && !isAnnouncedBoard(category);
 }
 
 /**
@@ -147,7 +144,7 @@ export function isTellableDebut(event: Event): boolean {
   if (event.stream !== "leaderboards" || event.kind !== "new") return false;
   if (isUnannouncedBoard(event)) return false;
   const place = boardPlace(event);
-  if (place !== null && place <= DEBUT_PLACES) return isMainBoard(recordFor(event)?.category);
+  if (place !== null && place <= DEBUT_PLACES) return isAnnouncedArrival(event);
   // Outside the ranked places only Artificial Analysis has anything to say, and only above the
   // floor: see `ANNOUNCED_INDEX`. `scoredDebutIndex` answers for the board and the source.
   const index = scoredDebutIndex(event);

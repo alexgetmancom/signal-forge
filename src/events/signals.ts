@@ -1,10 +1,11 @@
 import { text } from "../text.js";
-import { boardPlace, DEBUT_PLACES, isMainBoard, isTellableDebut, scoredDebutIndex } from "./boardSignals.js";
+import { boardPlace, DEBUT_PLACES, isTellableDebut, scoredDebutIndex } from "./boardSignals.js";
 import { incidentIsSevere, incidentTouchesSubscribers } from "./incidents.js";
 import { NEWSROOMS, newsClass, PRODUCT_BLOGS, patchBuild, RELEASE_NOTE_PAGES } from "./newsrooms.js";
 import { pageClass } from "./pageSignals.js";
 import { recordFor } from "./record.js";
 import { becameSelectable, catalogueClass, isStealthLaunch } from "./resellers.js";
+import { isAnnouncedArrival } from "./subject.js";
 import type { Event, SignalClass } from "./types.js";
 import { meaningfulWebString, tellingWebString } from "./web.js";
 
@@ -84,7 +85,7 @@ export function signalClass(event: Event): SignalClass {
   if (event.stream === "leaderboards") {
     if (event.kind !== "new") return "rank";
     const place = boardPlace(event);
-    if (place !== null && place <= DEBUT_PLACES) return isMainBoard(recordFor(event)?.category) ? "debut" : "codename";
+    if (place !== null && place <= DEBUT_PLACES) return isAnnouncedArrival(event) ? "debut" : "codename";
     // Outside the ranked places only a first Artificial Analysis measurement says anything, and only
     // above the floor it sets: `isTellableDebut` is the same gate both delivery gates read, so a card
     // cannot be classed a debut here and then silenced as a row there. Below the floor the number is

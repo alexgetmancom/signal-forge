@@ -6,9 +6,9 @@
  * written word is.
  */
 import { text } from "../text.js";
-import { MODALITY_VARIANT } from "./modality.js";
 import { articleTopic, NAMES_A_MODEL } from "./newsrooms.js";
 import { recordFor } from "./record.js";
+import { isAJobThisReaderDidNotComeFor } from "./subject.js";
 import type { Event, SignalClass } from "./types.js";
 
 /**
@@ -61,6 +61,6 @@ export function pageClass(event: Event): SignalClass {
   // Whether the product it names is already on sale is not in the page, and `classify` asks the
   // catalogue that knows.
   if (pageNamesAProduct(recordFor(event))) return "codename";
-  if (MODALITY_VARIANT.test(path.toLowerCase().replaceAll(/[/_.]/g, "-"))) return "evidence";
+  if (isAJobThisReaderDidNotComeFor({ ...event, entity_id: path }, recordFor(event))) return "evidence";
   return articleTopic(event);
 }

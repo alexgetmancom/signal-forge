@@ -847,11 +847,15 @@ test("entering a board is a sentence, and only a top-ten debut is told at once",
   expect(embed.banner.vendor).toBe("OpenAI");
   expect(embed.author).toBeUndefined();
   expect(embed.description).toBeUndefined();
-  // A model taking first place on a board people quote is a debut, told at once.
-  expect(isRoutine(event)).toBe(false);
   expect(embed.title).toBe("🏆 gpt-image-2.5-sunburst debuts at #1");
+  // First place on a board about pictures is a sighting for the radar, so it rides the digest
+  // rather than interrupting: this is the picture a reader gets when it is told, not a promise that
+  // it is told at once. A model taking first place on the coding board is the one that cannot wait.
+  expect(isRoutine(event)).toBe(true);
+  const code = { ...event, after_json: JSON.stringify({ ...JSON.parse(event.after_json), category: "code/overall" }) };
+  expect(isRoutine(code)).toBe(false);
   // Below the top ten it is a row, and it waits for the digest like any other board churn.
-  const low = { ...event, after_json: JSON.stringify({ ...JSON.parse(event.after_json), rank: 14 }) };
+  const low = { ...event, after_json: JSON.stringify({ ...JSON.parse(code.after_json), rank: 14 }) };
   expect(isRoutine(low)).toBe(true);
 });
 

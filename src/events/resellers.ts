@@ -7,8 +7,8 @@
  * in order for every api-models, openrouter and weights row.
  */
 import { text } from "../text.js";
-import { MODALITY_VARIANT } from "./modality.js";
 import { recordFor } from "./record.js";
+import { isAJobThisReaderDidNotComeFor } from "./subject.js";
 import type { Event, RecordData, SignalClass } from "./types.js";
 import { vendorOfName } from "./vendors.js";
 
@@ -191,8 +191,7 @@ export function catalogueClass(event: Event, record: RecordData | null): SignalC
      * chose a subscription for. Two Gemini TTS rows reached the public channel on 2026-09-22 as
      * launches; nobody there is picking a voice. The sighting still belongs on the radar.
      */
-    if (MODALITY_VARIANT.test(`${text(record?.id) || event.entity_id} ${text(record?.name)}`.toLowerCase()))
-      return "codename";
+    if (isAJobThisReaderDidNotComeFor(event, record)) return "codename";
     /**
      * And only in the catalogue of the company that made it. A platform listing somebody else's
      * model is a sighting, whoever owns the platform: `glm-5.3` appearing on Alibaba's DashScope

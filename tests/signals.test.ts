@@ -309,7 +309,7 @@ test("a patch build stays out of the release class; a minor, major or named rele
   expect(signalClass(changelog("cursor-changelog", { name: "Cursor Projects" }))).toBe("release");
 });
 
-test("a model new to a board is news only in the top ten, and a debut only on a board people quote", () => {
+test("a model new to a board is news only in the top ten, and a debut only on a board this feed announces", () => {
   const entry = (category: string, rank: unknown) =>
     signalClass(
       event({ stream: "leaderboards", kind: "new", source: "arena-leaderboards" }, {
@@ -320,7 +320,12 @@ test("a model new to a board is news only in the top ten, and a debut only on a 
       } as never),
     );
   expect(entry("text/overall", 7)).toBe("debut");
-  expect(entry("artificial-analysis/text-to-image", 1)).toBe("debut");
+  // A board whose subject is a picture, a voice or a video is a sighting at any place it hands out:
+  // the news channel is for models a reader writes code with. Eleven v4 Turbo took #1 on
+  // text-to-speech on 2026-10-05 and was a card until this.
+  expect(entry("artificial-analysis/text-to-image", 1)).toBe("codename");
+  expect(entry("artificial-analysis/text-to-speech", 1)).toBe("codename");
+  expect(entry("vision/overall", 1)).toBe("codename");
   expect(entry("designarena/website", 4)).toBe("codename");
   expect(entry("text/overall", 11)).toBe("rank");
   // DeepSeek v4.1 Flash arrived at #0 on 2026-09-10: a board's blank, not first place.
