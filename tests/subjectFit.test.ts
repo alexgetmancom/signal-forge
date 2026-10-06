@@ -192,3 +192,26 @@ test("a modality from a maker this reader does not follow is a line in the morni
   // NVIDIA's voice model is nobody's sighting here.
   expect(row("gemini", "nvidia-riva-tts", "NVIDIA Riva TTS", "NVIDIA")).toBe("evidence");
 });
+
+test("a maker's nickname for a line of models says the modality the name does not", () => {
+  const listing = (id: string, name: string): Event =>
+    ({
+      id: 12,
+      source: "gemini",
+      stream: "api-models",
+      entity_id: id,
+      kind: "new",
+      detected_at: "2026-10-06T17:00:00.000Z",
+      after_json: JSON.stringify({ id, name, inputTokenLimit: 65536 }),
+      before_json: null,
+    }) as unknown as Event;
+  // Nano Banana is Google's picture line: no word in the row says so, and the news channel got it.
+  const banana = listing("models/gemini-nano-banana-2.1", "Nano Banana 2.1");
+  expect(isAJobThisReaderDidNotComeFor(banana, { id: "models/gemini-nano-banana-2.1", name: "Nano Banana 2.1" })).toBe(
+    true,
+  );
+  expect(catalogueClass(banana, { id: "models/gemini-nano-banana-2.1", name: "Nano Banana 2.1" })).toBe("codename");
+  // The text model beside it is untouched.
+  const flash = listing("models/gemini-4-flash", "Gemini 4 Flash");
+  expect(catalogueClass(flash, { id: "models/gemini-4-flash", name: "Gemini 4 Flash" })).toBe("launch");
+});

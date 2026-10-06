@@ -32,9 +32,17 @@ import type { Event, RecordData } from "./types.js";
  * reached the radar on 2026-09-23 priced per image, and a reader who writes code for a living picks
  * none of it. Two Gemini TTS rows reached the public channel on 2026-09-22 as launches; nobody
  * there is picking a voice. The sighting still belongs on the radar; the news channel is not for it.
+ *
+ * `banana` is here because a maker's own nickname for a line of models says the modality where the
+ * modality word does not: `models/gemini-nano-banana-2.1` reached the news channel on 2026-10-06 as
+ * a launch, carrying a token limit and three generic methods and nothing that reads as a picture.
+ * This database already knew: the same family sits on Arena's `text-to-image` board as
+ * `gemini-3.1-flash-image (nano-banana-2)`. A nickname is a weaker instrument than a word -- it
+ * ages, and the next line will be called something else -- so the list that fixes this properly is
+ * the boards a subject has been measured on, which is a question this file should be asking.
  */
 const MODALITY_VARIANT =
-  /(?:^|[\s-])(?:tts|stt|asr|embed|embedding|embeddings|rerank|reranker|moderation|ocr|guard|realtime|live|livetranslate|image|images|video|audio|speech|voice|voices|music|imagen|veo|lyria|diffusion|dall[\s-]?e|recraft)(?:[\s-]|$)/;
+  /(?:^|[\s-])(?:tts|stt|asr|embed|embedding|embeddings|rerank|reranker|moderation|ocr|guard|realtime|live|livetranslate|image|images|video|audio|speech|voice|voices|music|imagen|veo|lyria|banana|diffusion|dall[\s-]?e|recraft)(?:[\s-]|$)/;
 
 /**
  * The words a name is read as: one lowercase string where every separator a name, a path or a
