@@ -61,7 +61,7 @@ const BUDGET: Readonly<Record<string, number>> = {
   "src/reports/sourceVerdicts.ts:sourceVerdicts": 150,
   "src/sources/catalogs.ts:PROVIDER_CATALOGUES": 150,
   "src/alerts.ts:publishAlerts": 125,
-  "src/events/signals.ts:signalClass": 100,
+  "src/events/signals.ts:signalClass": 25,
   "src/poller.ts:collectDueSources": 75,
   "src/runtime/worker.ts:startIntervalWorker": 125,
   "src/sources/labels.ts:STATIC_LABELS": 125,

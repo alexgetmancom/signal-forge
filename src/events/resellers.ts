@@ -8,7 +8,7 @@
  */
 import { text } from "../text.js";
 import { recordFor } from "./record.js";
-import { isAJobThisReaderDidNotComeFor } from "./subject.js";
+import { isAJobThisReaderDidNotComeFor, isAMakerThisReaderDoesNotFollow } from "./subject.js";
 import type { Event, RecordData, SignalClass } from "./types.js";
 import { vendorOfName } from "./vendors.js";
 
@@ -102,49 +102,45 @@ export function resellerMaker(event: Event): string | null {
 }
 
 /**
- * The makers whose models this reader will never call.
+ * The maker a row names, spelled the way the vendor table spells it, or null when it names nobody.
  *
- * Not a ranking, and not a judgement of the model: it is who this feed is for. A reader on a $20
- * coding subscription runs frontier and open coding models. Upstage's Solar Mini 4 -- 3B active,
- * Korean-first -- and Cohere's Command A+ -- an enterprise model whose own launch note puts it
- * below Claude Haiku on coding -- both reached the scouts in the week to 2026-09-23, and so did
- * Microsoft's image models and NVIDIA's Nemotron checkpoints. A small unknown lab is still watched:
- * that is what the scouts are for, and what `breakouts.ts` promotes. These are known quantities
- * aimed somewhere else.
+ * The same reading for a registry as for a catalogue: `ibm-granite/granite-timeseries-ensemble-r1`
+ * is IBM by its namespace exactly as `cohere/embed-v5.0-fast` is Cohere, and a weights row had no
+ * way to say so until this was asked of it.
  */
-const NOT_FOR_THIS_READER = new Set([
-  "Cohere",
-  "Upstage",
-  "NVIDIA",
-  "Microsoft",
-  "Amazon",
-  "Perplexity",
-  "Groq",
-  "Baidu",
-  // Added when the vendor table learned to spell them, on 2026-09-27. Until then they were Unknown
-  // and reached this answer by the other branch, so naming them here is what keeps the routing the
-  // same: being spellable is attribution, and attribution is not the same claim as being followed.
-  // An embedding house, a rerankers house, an inference provider, an edge-model lab and two
-  // national programmes -- none of them what a reader on a coding subscription calls.
-  "Mixedbread",
-  "Quiver AI",
-  "Perceptron",
-  "Inference.net",
-  "Fireworks",
-  "Liquid AI",
-  "IBM",
-  "AI Singapore",
-  "Swiss AI",
-]);
+function makerOfRow(event: Event): string | null {
+  const maker = resellerMaker(event);
+  if (!maker) return null;
+  const record = recordFor(event);
+  const named = vendorOfName(`${maker} ${text(record?.id) || event.entity_id} ${text(record?.name) ?? ""}`);
+  return named === "Unknown" ? null : named;
+}
+
+/**
+ * Weights published by a maker this reader does not follow.
+ *
+ * The registry had never been asked. IBM's Granite Timeseries Ensemble R1 -- a time-series
+ * forecaster with twenty-five downloads -- reached the radar on 2026-10-05 with IBM already named
+ * among the makers this feed is not for, and NVIDIA's Nemotron checkpoints had reached it the same
+ * way, because `catalogueClass` asked the question of an api catalogue and never of a registry.
+ *
+ * Only a maker the vendor table can spell: an unknown lab publishing weights is the earliest word
+ * on it anywhere and exactly what the radar is for, which is also what `breakouts.ts` promotes.
+ * The row still counts as the week's arrival -- see `arrivalRejection`, which asks this -- because
+ * what arrived is a wider question than what was worth a card.
+ */
+export function isAnUnfollowedMakersWeights(event: Event): boolean {
+  return event.stream === "weights" && event.kind === "new" && isAMakerThisReaderDoesNotFollow(makerOfRow(event));
+}
 
 export function isUnfollowedMakerAtAReseller(event: Event): boolean {
   if (event.kind !== "new" || (event.stream !== "api-models" && event.stream !== "openrouter")) return false;
   if (!listsAnotherMakersModel(event)) return false;
-  const maker = resellerMaker(event);
-  if (!maker) return false;
-  const record = recordFor(event);
-  const named = vendorOfName(`${maker} ${text(record?.id) || event.entity_id} ${text(record?.name) ?? ""}`);
-  return named === "Unknown" || NOT_FOR_THIS_READER.has(named);
+  // A stealth row names nobody on purpose and is exactly what the radar is for; a row whose maker
+  // the vendor table cannot spell is nobody this reader follows either, which at a reseller is the
+  // same answer. A registry reads the second case the other way -- see `catalogueClass`.
+  if (!resellerMaker(event)) return false;
+  return !makerOfRow(event) || isAMakerThisReaderDoesNotFollow(makerOfRow(event));
 }
 
 /** True when a catalogue arrival is a platform listing somebody else's model, not its maker shipping it. */
@@ -185,7 +181,8 @@ export function catalogueClass(event: Event, record: RecordData | null): SignalC
      * of them callable without renting the hardware to serve it. A launch is a model somebody
      * can call, which is a row in an API catalogue.
      */
-    if (event.stream === "weights" || record?.selectable === false) return "codename";
+    if (event.stream === "weights" || record?.selectable === false)
+      return isAnUnfollowedMakersWeights(event) ? "evidence" : "codename";
     /**
      * Asked before the modality question, because every answer below it is a sighting worth having
      * and this one is not. Asked after the maturity one, because a row nobody can call yet names

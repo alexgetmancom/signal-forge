@@ -230,6 +230,11 @@ const STANDING_CHECKS: readonly StandingCheck[] = [
   held("fixes_only_release", (_db, e) => e.signal === "release" && isFixesOnlyRelease(e)),
 ];
 
+/** The names of every standing question, in the order they are asked. */
+export function standingCheckNames(): string[] {
+  return STANDING_CHECKS.map((check) => check.name);
+}
+
 /** What every standing question answered about one event, in the order they are asked. */
 export type StandingAnswer = { check: string; reason: SuppressionReason | null; fromTheBatch: boolean };
 

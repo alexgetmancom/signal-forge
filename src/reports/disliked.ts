@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { MODALITY_FACETS } from "../events/subject.js";
 
 /**
  * The cards a reader marked 👎, with the handles that could cut a whole category out.
@@ -52,28 +53,10 @@ export type DislikedReport = {
   cuts: DislikedCut[];
 };
 
-/**
- * What a card is about, in the terms a reader rejects things in.
- *
- * A vibe-coding channel does not care about image or video models anywhere, which is a cut across
- * every source at once -- and no source says "modality" in a field of its own. Arena spells it in
- * the board (`image-edit/overall`), OpenRouter in the input and output arrays, Vercel only in a
- * price per character of speech, and the rest only in the name. So it is derived from whatever the
- * record happens to carry, and a record that says none of it stays `unknown` rather than being
- * guessed into a bucket somebody would then cut.
- */
-const MODALITY_WORDS: readonly { modality: string; pattern: RegExp }[] = [
-  { modality: "image", pattern: /image|imagine|vision|diffusion|flux|canvas|photo/i },
-  { modality: "video", pattern: /video|sora|veo|runway|motion/i },
-  { modality: "audio", pattern: /voice|speech|tts|audio|whisper|music|eleven/i },
-  { modality: "embedding", pattern: /embed|rerank|retrieval/i },
-  { modality: "code", pattern: /code|coder|webdev|web-dev|swe/i },
-];
-
 function modalityOf(row: DeliveredRow): string {
   const sides = [row.inputs, row.outputs].filter((side): side is string => typeof side === "string");
   const text = [row.category, row.entity_id, row.name, row.price_fields, ...sides].filter(Boolean).join(" ");
-  for (const { modality, pattern } of MODALITY_WORDS) if (pattern.test(text)) return modality;
+  for (const { modality, pattern } of MODALITY_FACETS) if (pattern.test(text)) return modality;
   return /text/.test(sides.join(" ")) || /text/.test(row.category ?? "") ? "text" : "unknown";
 }
 

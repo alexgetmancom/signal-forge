@@ -14,20 +14,70 @@ import type { Event } from "./types.js";
  * counted a late docs page as a sighting the channel never received. One function, run once, whose
  * answer the reports read back, keeps what was counted and what was sent the same thing.
  */
-export function classify(db: Database, event: Event): SignalClass {
+/**
+ * One question that needs the database, and the class it answers with.
+ *
+ * Named and listed for the reason the class questions are, which `signals.ts` tells: the order is
+ * the policy and a chain of `if`s can only be read by running it. Each entry is asked of the class
+ * the event alone was given, so `signal` is a parameter rather than something re-derived here.
+ */
+type ClassifyRule = {
+  name: string;
+  ask: (db: Database, event: Event, signal: SignalClass) => SignalClass | null;
+};
+
+const CLASSIFY_RULES: readonly ClassifyRule[] = [
   // A small company whose model took off here is followed from then on: its next arrival at a
   // reseller is a sighting on arrival, not a line in tomorrow's recap.
-  if (isUnfollowedMakerAtAReseller(event) && isLearnedMaker(db, resellerMaker(event))) return "codename";
-  const signal = signalClass(event);
+  {
+    name: "a_maker_this_feed_learned_to_follow",
+    ask: (db, event) =>
+      isUnfollowedMakerAtAReseller(event) && isLearnedMaker(db, resellerMaker(event)) ? "codename" : null,
+  },
   // The maker's own page about a model that has just been listed is the announcement link, and the
   // reader wants it beside the card rather than instead of it. An old model's page appearing is
   // still only a trail.
-  if (signal === "codename" && launchedAlready(db, event)) return justListed(db, event) ? "release" : "evidence";
-  if (signal === "codename" && servingModeOfKnownModel(db, event)) return "evidence";
-  if (signal === "change" && supersededModel(db, event) && !movesWhatAReaderActsOn(event)) return "evidence";
-  if (signal === "change" && sideRepricingAtReseller(event)) return "evidence";
-  if (signal === "change" && learnedARateItDidNotKnow(event)) return "evidence";
-  return signal;
+  {
+    name: "a_sighting_of_a_model_already_launched",
+    ask: (db, event, signal) =>
+      signal === "codename" && launchedAlready(db, event) ? (justListed(db, event) ? "release" : "evidence") : null,
+  },
+  {
+    name: "a_serving_mode_of_a_model_already_sold",
+    ask: (db, event, signal) => (signal === "codename" && servingModeOfKnownModel(db, event) ? "evidence" : null),
+  },
+  {
+    name: "a_number_moving_on_a_superseded_model",
+    ask: (db, event, signal) =>
+      signal === "change" && supersededModel(db, event) && !movesWhatAReaderActsOn(event) ? "evidence" : null,
+  },
+  {
+    name: "a_reseller_repricing_its_own_side_rates",
+    ask: (_db, event, signal) => (signal === "change" && sideRepricingAtReseller(event) ? "evidence" : null),
+  },
+  {
+    name: "a_rate_a_sheet_had_left_blank",
+    ask: (_db, event, signal) => (signal === "change" && learnedARateItDidNotKnow(event) ? "evidence" : null),
+  },
+];
+
+/** The names of every database-dependent class question, in the order they are asked. */
+export function classifyRuleNames(): string[] {
+  return CLASSIFY_RULES.map((rule) => rule.name);
+}
+
+/** Which question changed the class an event was stored with, if any did. */
+export function classifyDecision(db: Database, event: Event): { rule: string | null; signal: SignalClass } {
+  const signal = signalClass(event);
+  for (const rule of CLASSIFY_RULES) {
+    const answer = rule.ask(db, event, signal);
+    if (answer) return { rule: rule.name, signal: answer };
+  }
+  return { rule: null, signal };
+}
+
+export function classify(db: Database, event: Event): SignalClass {
+  return classifyDecision(db, event).signal;
 }
 
 /**

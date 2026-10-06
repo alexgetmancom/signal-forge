@@ -100,3 +100,80 @@ export function isAnnouncedBoard(category: unknown): boolean {
 export function isAnnouncedArrival(event: Event): boolean {
   return isAnnouncedBoard(recordFor(event)?.category);
 }
+
+/**
+ * The makers whose models this reader will never call, wherever the row was found.
+ *
+ * Not a ranking and not a judgement of the model: it is who this feed is for. A reader on a $20
+ * coding subscription runs frontier and open coding models. Upstage's Solar Mini 4 -- 3B active,
+ * Korean-first -- and Cohere's Command A+ -- an enterprise model whose own launch note puts it
+ * below Claude Haiku on coding -- both reached the radar in the week to 2026-09-23, and so did
+ * Microsoft's image models and NVIDIA's Nemotron checkpoints. A small unknown lab is still
+ * watched: that is what the radar is for, and what `breakouts.ts` promotes. These are known
+ * quantities aimed somewhere else.
+ *
+ * It lives beside the modality reading because it is the same question asked about the other half
+ * of the subject -- what the model does, and who made it -- and because the two were asked in the
+ * wrong order for as long as they lived apart. It was consulted for api catalogues and never for
+ * a weights registry, which is how IBM's Granite Timeseries Ensemble R1, a time-series forecaster
+ * with twenty-five downloads, reached the radar on 2026-10-05 with IBM already named here.
+ */
+const UNFOLLOWED_MAKERS = new Set([
+  "Cohere",
+  "Upstage",
+  "NVIDIA",
+  "Microsoft",
+  "Amazon",
+  "Perplexity",
+  "Groq",
+  "Baidu",
+  // Added when the vendor table learned to spell them, on 2026-09-27. Until then they were Unknown
+  // and reached this answer by the other branch, so naming them here is what keeps the routing the
+  // same: being spellable is attribution, and attribution is not the same claim as being followed.
+  // An embedding house, a rerankers house, an inference provider, an edge-model lab and two
+  // national programmes -- none of them what a reader on a coding subscription calls.
+  "Mixedbread",
+  "Quiver AI",
+  "Perceptron",
+  "Inference.net",
+  "Fireworks",
+  "Liquid AI",
+  "IBM",
+  "AI Singapore",
+  "Swiss AI",
+]);
+
+/**
+ * Whether a maker this feed can spell is one it does not follow. An unspellable one is not an
+ * answer here: a row that names no maker cannot be judged small, and the caller decides what to do
+ * with that -- a reseller treats it as unfollowed, a weights registry as the unknown lab it watches.
+ */
+export function isAMakerThisReaderDoesNotFollow(maker: string | null | undefined): boolean {
+  return Boolean(maker) && UNFOLLOWED_MAKERS.has(maker as string);
+}
+
+/**
+ * What a card is about, in the terms a reader rejects things in.
+ *
+ * A vibe-coding channel does not care about image or video models anywhere, which is a cut across
+ * every source at once -- and no source says "modality" in a field of its own. Arena spells it in
+ * the board (`image-edit/overall`), OpenRouter in the input and output arrays, Vercel only in a
+ * price per character of speech, and the rest only in the name. So it is derived from whatever the
+ * record happens to carry, and a record that says none of it stays `unknown` rather than being
+ * guessed into a bucket somebody would then cut.
+ *
+ * The fifth list of modality words this repository had, and the reason it lives here now: it knew
+ * `flux`, `eleven`, `vision` and `canvas`, which the rule that actually decides routing does not,
+ * so the report counting the complaints was reading the subject more carefully than the rule
+ * causing them. It is still a separate list, and must stay one: it labels a card for a reader of a
+ * report, so it names `code` and `text` as modalities too, and a routing rule that demoted
+ * everything matching `code` would demote this feed's entire subject. One file, two lists, and the
+ * difference between them written down -- which is what the four lists it joins never had.
+ */
+export const MODALITY_FACETS: readonly { modality: string; pattern: RegExp }[] = [
+  { modality: "image", pattern: /image|imagine|vision|diffusion|flux|canvas|photo/i },
+  { modality: "video", pattern: /video|sora|veo|runway|motion/i },
+  { modality: "audio", pattern: /voice|speech|tts|audio|whisper|music|eleven/i },
+  { modality: "embedding", pattern: /embed|rerank|retrieval/i },
+  { modality: "code", pattern: /code|coder|webdev|web-dev|swe/i },
+];

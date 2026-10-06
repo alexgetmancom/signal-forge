@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import { z } from "zod";
 import type { AppConfig } from "../config.js";
 import { lateArrivals } from "../reports/lateArrivals.js";
+import { rules } from "../reports/rules.js";
 import { why } from "../reports/why.js";
 import { count, identifier, type OperationMap } from "./definition.js";
 
@@ -15,8 +16,21 @@ import { count, identifier, type OperationMap } from "./definition.js";
  * that is where an operator looks for each, so the registry keeps them apart and this file keeps
  * them together.
  */
-export function policyOperations(db: Database, _config: AppConfig): OperationMap {
+export function policyOperations(db: Database, config: AppConfig): OperationMap {
   return {
+    rules: {
+      section: "delivery",
+      summary:
+        "Every rule that decides what a reader is told, named, in the order it is asked: the four layers and what each is allowed to read, which channel subscribes to which classes, and the sentence behind every reason a card can be held.",
+      startHere: "where is the rule that would have stopped this, and which layer is it in",
+      note: "The map, not a verdict: it says which questions exist and in what order, and `why <event-id>` says what each one answered about a single event. Read the layers in order, because the order is the policy -- a question asked earlier cannot be overruled later, and two rules swapped between layers one and two is the whole substance of the embedding that reached the radar on 2026-10-05. Generated from the lists the delivery path itself runs, so it cannot describe a rule that is not there or miss one that is.",
+      mutates: false,
+      agent: true,
+      schema: z.object({}),
+      cli: { args: [] },
+      http: { method: "get", path: "/api/rules" },
+      handler: () => rules(config),
+    },
     why: {
       section: "evidence",
       summary:

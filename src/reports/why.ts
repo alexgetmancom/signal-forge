@@ -1,5 +1,7 @@
 import type { Database } from "bun:sqlite";
+import { classifyDecision } from "../events/classify.js";
 import { asTheRulesSeeThem, theBatchItWasIn } from "../events/replayPolicy.js";
+import { classDecision } from "../events/signals.js";
 import { standingAnswers } from "../events/standing.js";
 import type { Event } from "../events/types.js";
 
@@ -50,6 +52,18 @@ export type Why = {
   replay: {
     /** The class the rules give it now, which is what the questions were actually asked about. */
     signal: string;
+    /**
+     * The class question that decided it, named. The layer no reason used to come from: Eleven v4
+     * Turbo was answered here and the twenty-nine standing rules below all read as silent, which
+     * from outside looks like no rule having an opinion rather than one having spoken earlier.
+     */
+    classRule: string;
+    /**
+     * The database-dependent question that then changed it, or null when none did. The two are
+     * reported apart because they can only be read apart: the first is a function of the event, so
+     * it answers the same way forever, and the second asks what else had been collected by then.
+     */
+    classifiedBy: string | null;
     /** The siblings the batch-dependent questions were asked against, and where they came from. */
     batch: { size: number; reconstructed: boolean };
     heldBy: string | null;
@@ -112,6 +126,8 @@ export function why(db: Database, eventId: number): Why | null {
     },
     replay: {
       signal: self.signal,
+      classRule: classDecision(self).rule,
+      classifiedBy: classifyDecision(db, self).rule,
       batch: { size: events.length, reconstructed: batch.reconstructed },
       heldBy: answers.find((answer) => answer.reason)?.reason ?? null,
       answers,

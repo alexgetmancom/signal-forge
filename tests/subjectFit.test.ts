@@ -139,3 +139,28 @@ test("an embedding from a maker this reader does not follow is nowhere, not a si
     expect(catalogueClass(event, { id, maker: "Cohere", name: id } as never)).toBe("evidence");
   }
 });
+
+test("a registry asks who published the weights, and watches the labs it cannot spell", () => {
+  const weights = (source: string, id: string, name: string): Event =>
+    ({
+      id: 4,
+      source,
+      stream: "weights",
+      entity_id: id,
+      kind: "new",
+      detected_at: "2026-10-05T09:00:00.000Z",
+      after_json: JSON.stringify({ id, name }),
+      before_json: null,
+    }) as unknown as Event;
+  // Granite Timeseries Ensemble R1, twenty-five downloads, a time-series forecaster: IBM was named
+  // among the makers this feed is not for and the weights stream had never been asked.
+  const granite = weights(
+    "huggingface:ibm-granite",
+    "ibm-granite/granite-timeseries-ensemble-r1",
+    "Granite Timeseries Ensemble R1",
+  );
+  expect(signalClass(granite)).toBe("evidence");
+  // And the half that must not move: a lab nobody can spell publishing weights is the radar's
+  // whole job, and `breakouts.ts` is what promotes it.
+  expect(signalClass(weights("huggingface:typesafe", "typesafe/jev-1", "Jev 1"))).toBe("codename");
+});

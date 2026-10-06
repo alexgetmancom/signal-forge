@@ -8,7 +8,7 @@ import type { Event } from "./types.js";
  * The reason is the rule that stopped it, so the reasons can be counted; the detail is the same
  * decision in the words a reader would use, so a single row answers the question without a replay.
  */
-const SUPPRESSION_REASONS = [
+export const SUPPRESSION_REASONS = [
   "no_reader_facing_change",
   "scheduled_pricing_rotation",
   "oscillating",
@@ -59,7 +59,7 @@ export type SuppressionReason = (typeof SUPPRESSION_REASONS)[number];
  * above and left undescribed here does not compile, which is what the switch did by hand until it
  * outgrew the size a declaration is allowed.
  */
-const SUPPRESSION_DETAIL: Record<SuppressionReason, string> = {
+export const SUPPRESSION_DETAIL: Record<SuppressionReason, string> = {
   no_reader_facing_change: "Nothing a reader would act on",
   scheduled_pricing_rotation: "Base rates rotated onto a tier this record already publishes",
   oscillating: "The value returned to one it held earlier today",

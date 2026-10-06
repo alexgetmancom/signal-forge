@@ -1,6 +1,7 @@
 import { becameReachable, CATALOGUE_STREAMS, reachableListingSql, unreachableBecause } from "../events/availability.js";
 import { signalOf } from "../events/classify.js";
 import { readableName } from "../events/naming.js";
+import { isAnUnfollowedMakersWeights } from "../events/resellers.js";
 import { ANNOUNCEMENT_STREAMS, CODING_TOOL_SOURCES } from "../events/signals.js";
 import type { Event } from "../events/types.js";
 import {
@@ -77,7 +78,11 @@ export function arrivalRejection(event: Event, renamed: Set<number>): string | n
   const opened = becameReachable(event);
   if (!opened) {
     const signal = signalOf(event);
-    if (signal !== "launch" && signal !== "codename") return "neither_a_launch_nor_a_sighting";
+    // Weights from a maker nobody here follows are `evidence` on purpose, so that the radar is not
+    // told about NVIDIA's next checkpoint; the week it was published is still the week it arrived,
+    // which is the same argument the paragraph above makes for a reseller's listing.
+    if (signal !== "launch" && signal !== "codename" && !isAnUnfollowedMakersWeights(event))
+      return "neither_a_launch_nor_a_sighting";
     // A catalogue rewriting a row it already had is the catalogue repeating itself.
     if (event.kind !== "new") return "not_a_record_arriving";
   }
