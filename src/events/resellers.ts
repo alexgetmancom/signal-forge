@@ -10,7 +10,7 @@ import { text } from "../text.js";
 import { recordFor } from "./record.js";
 import { isAJobThisReaderDidNotComeFor, isAMakerThisReaderDoesNotFollow } from "./subject.js";
 import type { Event, RecordData, SignalClass } from "./types.js";
-import { vendorOfName } from "./vendors.js";
+import { vendorOf, vendorOfName } from "./vendors.js";
 
 /**
  * The maker whose own models an API catalogue sells. A catalogue absent here sells other makers'
@@ -198,7 +198,14 @@ export function catalogueClass(event: Event, record: RecordData | null): SignalC
      * chose a subscription for. Two Gemini TTS rows reached the public channel on 2026-09-22 as
      * launches; nobody there is picking a voice. The sighting still belongs on the radar.
      */
-    if (isAJobThisReaderDidNotComeFor(event, record)) return "codename";
+    if (isAJobThisReaderDidNotComeFor(event, record))
+      /**
+       * And the radar is only for the makers this reader follows. A voice from Cohere is not a
+       * sighting anybody here is waiting for; a voice from OpenAI is. The same question the line
+       * above asks of a reseller's row, asked of the maker's own name, because a modality row in a
+       * first-party catalogue never reaches that line.
+       */
+      return isAMakerThisReaderDoesNotFollow(vendorOf(event, record)) ? "evidence" : "codename";
     /**
      * And only in the catalogue of the company that made it. A platform listing somebody else's
      * model is a sighting, whoever owns the platform: `glm-5.3` appearing on Alibaba's DashScope

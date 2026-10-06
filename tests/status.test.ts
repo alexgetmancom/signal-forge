@@ -9,7 +9,7 @@ import { loadConfig } from "../src/config.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import type { Collection } from "../src/events/types.js";
 import { listActionableIssues } from "../src/reports/issues.js";
-import { PLATFORMS, parsePlatformStatus } from "../src/sources/platforms.js";
+import { closingsUrl, PLATFORMS, parsePlatformStatus } from "../src/sources/platforms.js";
 import { publishBoard } from "../src/status.js";
 import { openDatabase } from "../src/storage/database.js";
 import { storeSnapshot } from "../src/storage/snapshots.js";
@@ -785,4 +785,65 @@ test("an indicator the board does not know is not reported as healthy", () => {
   );
   const embed = platformEmbed(db, Date.parse("2026-09-08T12:00:00.000Z")) as { color: number };
   expect(embed.color).not.toBe(0x2ecc71);
+});
+
+test("a resolution the page has published arrives at the next poll, in the vendor's own words", () => {
+  const platform = PLATFORMS[1] as (typeof PLATFORMS)[number];
+  const open = JSON.stringify({
+    status: { description: "All Systems Operational", indicator: "none" },
+    incidents: [],
+  });
+  const closed = JSON.stringify({
+    incidents: [
+      {
+        id: "ch27pb90bn85",
+        name: "Elevated errors for Claude Opus 5.5",
+        status: "resolved",
+        impact: "major",
+        resolved_at: "2026-10-06T12:43:02.988Z",
+        incident_updates: [{ body: "The issue affecting Claude Opus 5.5 has been resolved." }],
+      },
+      // Last week's, long closed: the history endpoint carries fifty of these and none is news.
+      {
+        id: "old",
+        name: "Elevated errors",
+        status: "resolved",
+        impact: "major",
+        resolved_at: "2026-09-20T10:00:00.000Z",
+        incident_updates: [{ body: "Resolved." }],
+      },
+    ],
+  });
+  const parsed = parsePlatformStatus(open, platform, closed, Date.parse("2026-10-06T12:54:58.000Z"));
+  expect(parsed.records).toHaveLength(1);
+  expect(parsed.records[0]).toMatchObject({
+    id: "ch27pb90bn85",
+    stage: "resolved",
+    summary: "The issue affecting Claude Opus 5.5 has been resolved.",
+  });
+  // The summary is still the authority on what is open: an incident both documents carry is one row.
+  const both = JSON.stringify({
+    status: { description: "Partial System Degradation", indicator: "major" },
+    incidents: [
+      {
+        id: "ch27pb90bn85",
+        name: "Elevated errors for Claude Opus 5.5",
+        status: "monitoring",
+        impact: "major",
+        incident_updates: [{ body: "We are monitoring." }],
+      },
+    ],
+  });
+  const overlap = parsePlatformStatus(both, platform, closed, Date.parse("2026-10-06T12:54:58.000Z"));
+  expect(overlap.records).toHaveLength(1);
+  expect(overlap.records[0]).toMatchObject({ stage: "monitoring" });
+  // A page that refuses its history says so in the snapshot rather than looking like a calm one.
+  expect((parsePlatformStatus(open, platform).raw as { closingsRead: boolean }).closingsRead).toBe(false);
+  expect((overlap.raw as { closingsRead: boolean }).closingsRead).toBe(true);
+});
+
+test("the closing document is the summary's own url", () => {
+  expect(closingsUrl(PLATFORMS[1] as (typeof PLATFORMS)[number])).toBe(
+    "https://anthropic.statuspage.io/api/v2/incidents.json",
+  );
 });

@@ -1227,14 +1227,17 @@ test("a launch that was sighted under a codename says which one", () => {
     entity_id: "gemini-4-ultra",
     kind: "new",
     before_json: null,
-    after_json: JSON.stringify({ id: "gemini-4-ultra", name: "Gemini 4 Ultra" }),
+    after_json: JSON.stringify({ id: "gemini-4-ultra", name: "Gemini 4 Ultra", context: 1_000_000 }),
     detected_at: "2026-09-20T10:00:00.000Z",
   };
-  expect(eventFacts({ ...launch, lead: { hours: 120, source: "arena", name: "spicy-mayo" } })[0]).toBe(
+  // Last, not first: it annotates the arrival rather than being it, and the story card quotes the
+  // opening fact of each event it gathers.
+  expect(eventFacts({ ...launch, lead: { hours: 120, source: "arena", name: "spicy-mayo" } })).toEqual([
+    "Context: 1M",
     "🕵 Sighted 5 days earlier on Arena as `spicy-mayo`",
-  );
+  ]);
   expect(
-    eventFacts({ ...launch, lead: { hours: 18, source: "npm:@google/genai", name: "@google/genai 2.0.0" } })[0],
+    eventFacts({ ...launch, lead: { hours: 18, source: "npm:@google/genai", name: "@google/genai 2.0.0" } }).at(-1),
   ).toBe("⏱ Seen 18 hours earlier on npm · @google/genai");
 });
 

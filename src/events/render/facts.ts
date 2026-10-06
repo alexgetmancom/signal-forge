@@ -236,9 +236,15 @@ export function eventFactParts(event: Event & CardContext, summary?: string): Fa
   const record = after ?? before;
   const title = String(record?.name ?? event.entity_id);
   const lines: Fact[] = [];
-  // Who was first is the story of an arrival; on a price moving it was a model seen twelve days
-  // before its cache read got cheaper, which nobody reading asked.
-  if (event.lead && event.kind !== "changed") lines.push(leadLine(event.lead, title));
+  /**
+   * Who was first is the story of an arrival; on a price moving it was a model seen twelve days
+   * before its cache read got cheaper, which nobody reading asked.
+   *
+   * Held back to the end rather than pushed here, because it annotates the news instead of being
+   * it. As the first line it was what a story card quoted -- `storyEmbed` takes each event's
+   * opening fact -- so "Mistral Large 4 is out" arrived as "Seen 3 hours earlier on OpenRouter".
+   */
+  const lead = event.lead && event.kind !== "changed" ? leadLine(event.lead, title) : null;
   // A roster entry beside its own siblings says "already out" in its own sentence.
   const sibling = event.stream === "arena" && !before && Boolean(event.siblings?.length);
   // A stealth model is listed by several venues within the hour by design; the card names them in
@@ -450,5 +456,10 @@ export function eventFactParts(event: Event & CardContext, summary?: string): Fa
     (event.stream === "arena" || event.stream === "leaderboards") && !event.elsewhere?.length
       ? identityLine(event, record, title)
       : null;
-  return [...(summary ? [{ label: "AI summary", value: summary }] : []), ...collapsed, ...(identity ? [identity] : [])];
+  return [
+    ...(summary ? [{ label: "AI summary", value: summary }] : []),
+    ...collapsed,
+    ...(lead ? [lead] : []),
+    ...(identity ? [identity] : []),
+  ];
 }

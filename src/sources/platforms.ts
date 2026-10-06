@@ -18,6 +18,18 @@ import type { Vendor } from "./vendors.js";
  * stored snapshot so a flapping description cannot manufacture news.
  */
 
+const incident = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  status: z.string().min(1),
+  impact: z.string().min(1),
+  shortlink: z.string().nullish(),
+  started_at: z.string().nullish(),
+  resolved_at: z.string().nullish(),
+  incident_updates: z.array(z.object({ body: z.string() })).default([]),
+  components: z.array(z.object({ name: z.string() })).default([]),
+});
+
 const summary = z.object({
   status: z.object({ description: z.string().min(1), indicator: z.string().min(1) }),
   components: z
@@ -31,21 +43,23 @@ const summary = z.object({
       }),
     )
     .default([]),
-  incidents: z
-    .array(
-      z.object({
-        id: z.string().min(1),
-        name: z.string().min(1),
-        status: z.string().min(1),
-        impact: z.string().min(1),
-        shortlink: z.string().nullish(),
-        started_at: z.string().nullish(),
-        incident_updates: z.array(z.object({ body: z.string() })).default([]),
-        components: z.array(z.object({ name: z.string() })).default([]),
-      }),
-    )
-    .default([]),
+  incidents: z.array(incident).default([]),
 });
+
+const history = z.object({ incidents: z.array(incident).default([]) });
+
+/**
+ * How long after a vendor closes an incident its closing is still collected.
+ *
+ * The summary lists open incidents only, so an end is an absence: two consecutive polls without the
+ * row turn into an `unlisted` change, and the card is amended with our own wording rather than the
+ * vendor's. Anthropic resolved `ch27pb90bn85` at 12:43 UTC on 2026-10-06 and the amendment landed at
+ * 13:10, twenty-nine minutes later, still carrying "we are working on a fix" as the newest update.
+ * `/api/v2/incidents.json` carries the same incident with `status: resolved` and the sentence that
+ * closed it, at the first poll after it happened. A day is long enough for the slowest interval here
+ * (900s) and short enough that the first collection does not import a quarter of the page's history.
+ */
+const CLOSING_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 /**
  * `interval` is per platform because their bot protection differs: OpenAI's Statuspage tolerates a
@@ -125,7 +139,31 @@ export const PLATFORMS: {
   },
 ];
 
-export function parsePlatformStatus(payload: string, platform: (typeof PLATFORMS)[number]): Collection {
+/** The incidents this page closed recently, newest first, excluding any the summary still lists. */
+function closedRecently(
+  payload: string | null,
+  open: z.infer<typeof incident>[],
+  now: number,
+): z.infer<typeof incident>[] {
+  if (!payload) return [];
+  const listed = new Set(open.map((one) => one.id));
+  return history
+    .parse(JSON.parse(payload))
+    .incidents.filter(
+      (one) =>
+        !listed.has(one.id) &&
+        typeof one.resolved_at === "string" &&
+        Number.isFinite(Date.parse(one.resolved_at)) &&
+        now - Date.parse(one.resolved_at) <= CLOSING_WINDOW_MS,
+    );
+}
+
+export function parsePlatformStatus(
+  payload: string,
+  platform: (typeof PLATFORMS)[number],
+  closed: string | null = null,
+  now: number = Date.now(),
+): Collection {
   const data = summary.parse(JSON.parse(payload));
   const groups = new Map(data.components.filter((c) => c.group).map((c) => [c.id, c.name]));
   // Ordered by the registry rather than by the page, so a component moving in their document does
@@ -152,12 +190,15 @@ export function parsePlatformStatus(payload: string, platform: (typeof PLATFORMS
       indicator: data.status.indicator,
       components: watched,
       incidents: data.incidents,
+      // Whether the closing endpoint answered this time, so a page that starts refusing it is
+      // visible in the snapshot instead of looking like a page that simply closes nothing.
+      closingsRead: closed !== null,
     },
     // A resolved incident can leave the summary. Two successful omissions turn it into an explicit
     // resolved change, keeping the incident evidence without treating recovery as deletion.
     trackChanges: true,
     resolveMissing: true,
-    records: data.incidents.map((incident) => ({
+    records: [...data.incidents, ...closedRecently(closed, data.incidents, now)].map((incident) => ({
       id: incident.id,
       name: `${platform.name}: ${incident.name}`,
       url: incident.shortlink ?? platform.page,
@@ -175,9 +216,20 @@ export function parsePlatformStatus(payload: string, platform: (typeof PLATFORMS
   };
 }
 
+/** The same page's incident history, which is the only document that spells out a resolution. */
+export function closingsUrl(platform: (typeof PLATFORMS)[number]): string {
+  return platform.url.replace(/summary\.json$/, "incidents.json");
+}
+
 export async function collectPlatformStatus(
   platform: (typeof PLATFORMS)[number],
   request: Fetch = fetch,
 ): Promise<Collection> {
-  return parsePlatformStatus(await fetchText(platform.url, { accept: "application/json" }, request), platform);
+  const [open, closed] = await Promise.all([
+    fetchText(platform.url, { accept: "application/json" }, request),
+    // A page that refuses its history still has an outage to report, and that is the urgent half.
+    // The cost of losing this document is a slower end, which is what the summary already gives.
+    fetchText(closingsUrl(platform), { accept: "application/json" }, request).catch(() => null),
+  ]);
+  return parsePlatformStatus(open, platform, closed);
 }

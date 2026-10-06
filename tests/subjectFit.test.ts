@@ -164,3 +164,31 @@ test("a registry asks who published the weights, and watches the labs it cannot 
   // whole job, and `breakouts.ts` is what promotes it.
   expect(signalClass(weights("huggingface:typesafe", "typesafe/jev-1", "Jev 1"))).toBe("codename");
 });
+
+test("a modality from a maker this reader does not follow is a line in the morning, not a sighting", () => {
+  const listing = (source: string, id: string, name: string, maker: string): Event =>
+    ({
+      id: 7,
+      source,
+      stream: "api-models",
+      entity_id: id,
+      kind: "new",
+      detected_at: "2026-10-06T09:00:00.000Z",
+      after_json: JSON.stringify({ id, name, maker }),
+      before_json: null,
+    }) as unknown as Event;
+  const row = (source: string, id: string, name: string, maker: string) => {
+    const event = listing(source, id, name, maker);
+    return catalogueClass(event, { id, name, maker });
+  };
+  // Cohere's own page selling Cohere's own embeddings never reaches the reseller question, and the
+  // radar is not waiting for them either.
+  expect(row("cohere", "embed-v5.0-fast", "Embed v5.0 Fast", "Cohere")).toBe("evidence");
+  // A maker this feed does follow, same modality: still a sighting the scouts asked for.
+  expect(row("gemini", "gemini-3.8-tts", "Gemini 3.8 TTS", "Google")).toBe("codename");
+  // And the modality question is the only one being qualified: a text launch is still a launch.
+  expect(row("mistral", "mistral-large-4", "Mistral Large 4", "Mistral")).toBe("launch");
+  // The maker is read off the row, not off the catalogue it sits in: Google's own page listing
+  // NVIDIA's voice model is nobody's sighting here.
+  expect(row("gemini", "nvidia-riva-tts", "NVIDIA Riva TTS", "NVIDIA")).toBe("evidence");
+});
