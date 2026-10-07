@@ -102,7 +102,12 @@ supervisor.register(
 );
 supervisor.register(
   startIntervalWorker(db, "promotion", 300_000, async () => {
-    await readReactionsAndPublish(db, config);
+    // Said out loud because silence here reads as "it did not work": the owner presses the mark and
+    // nothing moves until the next pass, and with the count dropped there was no way to tell a card
+    // that was refused from one no pass had seen yet. Delivery 898 on 2026-10-07 cost a trip to the
+    // database to learn it had travelled four minutes after the press, exactly as written.
+    const promoted = await readReactionsAndPublish(db, config);
+    if (promoted) log("info", "Cards promoted to the wire", { promoted });
   }),
 );
 supervisor.register(

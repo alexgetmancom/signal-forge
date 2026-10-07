@@ -30,7 +30,25 @@ import {
  * silently changed what Discord showed and what counted as an empty message.
  */
 
-const COUNT_FIELDS = new Set(["context", "inputTokenLimit", "outputTokenLimit", "votes"]);
+const COUNT_FIELDS = new Set(["context", "inputTokenLimit", "maxOutput", "outputTokenLimit", "votes"]);
+/**
+ * The capability matrix a maker publishes, which is a diff and never a debut.
+ *
+ * Anthropic's `/v1/models` answers with every capability, every effort level, every dated
+ * context-management feature and every thinking type, and reading them is what makes a model
+ * gaining `effort.xhigh` visible at all -- before it, 7,303 collections over thirty days raised one
+ * event. That is worth having and it is worth having on the card that reports the gain, where the
+ * list is the whole story.
+ *
+ * On an arrival it is not the story. Claude Haiku 5.5 went out on 2026-10-07 under six fields and
+ * twenty-two values, of which a reader decides on two; the launch before it, Opus 5.5, said the
+ * name and the window and drew more of a room than its successor did. A debut card answers what the
+ * model is, and the matrix answers what it supports, which is a question nobody has yet asked.
+ *
+ * Dropped from the card only. Every value stays in the record, stays in the evidence, and arrives
+ * in full the first time one of them moves.
+ */
+const MATRIX_FIELDS = new Set(["capabilities", "contextManagement", "effortLevels", "thinkingTypes"]);
 const ZERO_IS_BLANK = new Set(["context", "input", "output", "inputTokenLimit", "outputTokenLimit", "parameters"]);
 /** An Elo score arrives as 1507.164171675996. Nobody reads past the first decimal. */
 const SCORE_FIELDS = new Set(["score", "scoreUpper", "scoreLower"]);
@@ -485,6 +503,8 @@ export function eventFactParts(event: Event & CardContext, summary?: string): Fa
         continue;
       }
       if (key === "parameters") continue;
+      // The matrix is the news when it moves and clutter when it arrives; see MATRIX_FIELDS.
+      if (MATRIX_FIELDS.has(key)) continue;
       // Whether a listing can be used is stated as a sentence, not as "Selectable: yes". A maker
       // that repeats the provider is one line spent on nothing.
       if (key === "selectable") continue;
