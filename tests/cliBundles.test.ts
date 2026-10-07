@@ -46,3 +46,33 @@ test("a dated alias is the model it dates, not a second one", () => {
     "qwen3.8-max",
   ]);
 });
+
+test("a bundle is read on the channel its vendor ships to first, not on `latest`", async () => {
+  const { collectCliBundle } = await import("../src/sources/cliBundles.js");
+  const gemini = CLI_BUNDLES.find((bundle) => bundle.source === "gemini-cli-models");
+  if (!gemini) throw new Error("the Gemini CLI bundle is gone");
+
+  const names = ["gemini-3.8-flash", "gemini-3.5-flash-lite", "gemini-3.1-pro", "gemini-3-pro", "gemini-2.5-flash"];
+  const gzipped = Bun.gzipSync(Buffer.from(names.map((name) => `"${name}"`).join(" ")));
+  const asked: string[] = [];
+  const request = async (url: string | URL | Request) => {
+    asked.push(String(url));
+    return String(url).endsWith("/dist-tags")
+      ? Response.json({ nightly: "0.65.0-nightly.20261007", preview: "0.64.0-preview.0", latest: "0.63.0" })
+      : new Response(gzipped);
+  };
+
+  // `latest` was two minors behind on 2026-10-07 and this source had produced no event in a
+  // fortnight of reading it. The tarball asked for is the one the leading channel names.
+  const collection = await collectCliBundle(gemini, request);
+  expect(collection.url).toBe("https://www.npmjs.com/package/@google/gemini-cli/v/0.65.0-nightly.20261007");
+  expect(asked.some((url) => url.includes("gemini-cli-0.65.0-nightly.20261007.tgz"))).toBe(true);
+});
+
+test("a nightly that trails its own latest is not a channel this reads", () => {
+  const qwen = CLI_BUNDLES.find((bundle) => bundle.source === "qwen-code-models");
+  if (!qwen) throw new Error("the Qwen Code bundle is gone");
+  // Reading it would walk the source onto an older bundle, where every name the newer one added
+  // reads as a model that was removed.
+  expect(qwen.channels).not.toContain("nightly");
+});

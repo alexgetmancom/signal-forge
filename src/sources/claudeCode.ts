@@ -1,7 +1,7 @@
 import type { Collection } from "../events/types.js";
 import { httpFailure, SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
-import { type BundleMemory, forgetful } from "./bundleMemory.js";
+import { type BundleMemory, forgetful, withinPublishRace } from "./bundleMemory.js";
 import { scanGzipStream } from "./gzipScan.js";
 import { fetchResponse, readResponseStream } from "./http.js";
 import { crossesMakers, notAModelFamily, splitJoinedModels } from "./modelMentions.js";
@@ -64,6 +64,13 @@ export async function collectClaudeCodeModels(
     if (known.length) return collection(version, known);
   }
   const response = await fetchResponse(`${BINARY}${version}.tgz`, {}, request);
+  // The dist-tag moves before the platform package's tarball is served, so a just-published version
+  // 404s for a few minutes. Failing here would be wrong twice: the source goes red over a registry
+  // catching up with itself, and the backoff then delays reading the newest release of all. The
+  // version is deliberately not remembered, so the next poll downloads it on the normal interval.
+  const known = memory.ids();
+  if (response.status === 404 && known.length && withinPublishRace(memory, version))
+    return collection(memory.lastVersion() ?? version, known);
   if (!response.ok) throw httpFailure(`Claude Code binary: HTTP ${response.status}`, response.status);
   if (!response.body) throw new SourceError("protocol", `Claude Code binary: no body`);
   const found = new Set<string>();

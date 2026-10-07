@@ -95,6 +95,7 @@ test("a version that has moved is downloaded however much is remembered", async 
     lastVersion: () => "2.1.282",
     ids: () => ["claude-opus-4-8"],
     remember: () => {},
+    awaiting: () => new Date().toISOString(),
   };
   let downloaded = 0;
   const request = async (url: string | URL | Request) => {

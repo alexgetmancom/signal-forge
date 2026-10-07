@@ -1,7 +1,7 @@
 import type { Collection } from "../events/types.js";
 import { httpFailure, SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
-import { type BundleMemory, forgetful } from "./bundleMemory.js";
+import { type BundleMemory, forgetful, withinPublishRace } from "./bundleMemory.js";
 import { scanGzipStream } from "./gzipScan.js";
 import { fetchResponse, readResponseStream } from "./http.js";
 import { publishedVersion } from "./npmVersion.js";
@@ -66,6 +66,17 @@ export type Bundle = {
   pattern: RegExp;
   /** Below this, the read found the wrong file and the answer is not a catalogue. */
   floor: number;
+  /**
+   * The channels this package publishes to, in the order it uses them; the first one that exists is
+   * read. A client knows a model's name in order to call it, and it knows it on whichever channel
+   * the vendor ships to first, which is rarely `latest`.
+   *
+   * A channel only belongs here if it leads. `@qwen-code/qwen-code` keeps a `nightly` that trails
+   * its own `latest` -- 0.24.7 against 0.25.0 on 2026-10-07 -- and reading it would walk this source
+   * backwards onto an older bundle, where every name the newer one added reads as a model that was
+   * removed.
+   */
+  channels: readonly string[];
 };
 
 export const CLI_BUNDLES: readonly Bundle[] = [
@@ -76,6 +87,9 @@ export const CLI_BUNDLES: readonly Bundle[] = [
     page: "https://www.npmjs.com/package/@google/gemini-cli",
     pattern: /"(gemini-\d+(?:\.\d+)?(?:-[a-z][a-z0-9]*)+)"/g,
     floor: 5,
+    // `nightly` runs two minors ahead of `latest` -- 0.65.0 against 0.63.0 on 2026-10-07 -- and this
+    // source had produced no event at all while it read the slower of the two.
+    channels: ["nightly", "preview", "latest"],
   },
   {
     source: "qwen-code-models",
@@ -84,6 +98,8 @@ export const CLI_BUNDLES: readonly Bundle[] = [
     page: "https://www.npmjs.com/package/@qwen-code/qwen-code",
     pattern: /"(qwen\d+(?:\.\d+)?(?:-[a-z][a-z0-9]*)+)"/g,
     floor: 5,
+    // No `nightly`: this package's trails its `latest`. See `channels`.
+    channels: ["preview", "latest"],
   },
 ];
 
@@ -92,7 +108,7 @@ export async function collectCliBundle(
   request: Fetch = fetch,
   memory: BundleMemory = forgetful,
 ): Promise<Collection> {
-  const version = await publishedVersion(bundle.package, ["latest"], request);
+  const version = await publishedVersion(bundle.package, bundle.channels, request);
   if (!version) throw new SourceError("empty", `${bundle.package} has no published version`);
   // Only a new version is downloaded, and what counts as already read lives in the database rather
   // than in this process: see src/sources/bundleMemory.ts.
@@ -106,6 +122,11 @@ export async function collectCliBundle(
     {},
     request,
   );
+  // A tarball that 404s minutes after its dist-tag moved is npm catching up with itself, not a
+  // source failing; see `withinPublishRace`. Not remembered, so the next poll downloads it.
+  const pending = memory.ids();
+  if (response.status === 404 && pending.length >= bundle.floor && withinPublishRace(memory, version))
+    return collected(bundle, memory.lastVersion() ?? version, pending);
   if (!response.ok) throw httpFailure(`${bundle.package}: HTTP ${response.status}`, response.status);
   if (!response.body) throw new SourceError("protocol", `${bundle.package}: no body`);
   const ids = await bundleIdsFromStream(readResponseStream(response), bundle.pattern);
@@ -115,13 +136,13 @@ export async function collectCliBundle(
   return collected(bundle, version, ids);
 }
 
-/** The same question `claudeCodeUnchanged` asks, for the two bundles that publish only to `latest`. */
+/** The same question `claudeCodeUnchanged` asks, for the other shipped bundles. */
 export async function cliBundleUnchanged(
   bundle: Bundle,
   request: Fetch = fetch,
   memory: BundleMemory = forgetful,
 ): Promise<boolean> {
-  const version = await publishedVersion(bundle.package, ["latest"], request);
+  const version = await publishedVersion(bundle.package, bundle.channels, request);
   return version !== null && memory.lastVersion() === version && memory.ids().length >= bundle.floor;
 }
 
