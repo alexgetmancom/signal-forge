@@ -79,6 +79,14 @@ const MAKER_API_SECONDS = 60;
 const HOSTS = new Set(["groq", "cerebras", "deepinfra"]);
 
 /**
+ * A provider catalogue's pace: a maker reading out its own roster is read at the maker's pace, a
+ * host reselling somebody else's weights at whatever the config asks for. Staggered by index so
+ * thirty of them do not leave together.
+ */
+const providerInterval = (id: string, index: number, fallback: number): number =>
+  HOSTS.has(id) ? fallback + index * 30 : MAKER_API_SECONDS + index * 3;
+
+/**
  * A maker's own account on an open-weights hub, read for the repository that appears before any
  * announcement links to it.
  *
@@ -256,7 +264,7 @@ export function cataloguesSources({ db, config, cache }: SourceContext): SourceE
     id: provider.id,
     authority: provider.authority,
     vendor: provider.vendor,
-    intervalSeconds: HOSTS.has(provider.id) ? config.pollSeconds + index * 30 : MAKER_API_SECONDS + index * 3,
+    intervalSeconds: providerInterval(provider.id, index, config.defaultIntervalSeconds),
     capabilityId: provider.id,
     requiredCapabilities: [provider.key],
     collector: () => collectProviderCatalogue(provider, config),
@@ -271,7 +279,7 @@ export function cataloguesSources({ db, config, cache }: SourceContext): SourceE
       group: "Catalogues",
       // Its own stream: one router's answer carries every maker at once, which nothing else here does.
       stream: "openrouter",
-      intervalSeconds: config.pollSeconds,
+      intervalSeconds: config.defaultIntervalSeconds,
       collector: () => collectOpenRouter(),
     },
     {
@@ -353,7 +361,7 @@ export function cataloguesSources({ db, config, cache }: SourceContext): SourceE
       {
         id: "models-dev",
         heavy: true,
-        intervalSeconds: config.pollSeconds,
+        intervalSeconds: config.defaultIntervalSeconds,
         nothingNew: () => acceptedEtagUnchanged(db, cache, "models-dev", MODELS_DEV_URL),
         collector: () => collectModelsDev(fetch, cache),
       },
@@ -367,7 +375,7 @@ export function cataloguesSources({ db, config, cache }: SourceContext): SourceE
         collector: () => collectTrueFoundryAzure(config.GITHUB_TOKEN ?? "", fetch, cache),
       },
       // A gateway reselling other makers' models: its listing is availability, not a maker's word.
-      { id: "vercel-gateway", intervalSeconds: config.pollSeconds, collector: () => collectVercelGateway() },
+      { id: "vercel-gateway", intervalSeconds: config.defaultIntervalSeconds, collector: () => collectVercelGateway() },
       {
         id: "vertex-quotas",
         // Cloud Quotas allows 600 reads a minute and this is one. The page is 1.1 MB with no validator,

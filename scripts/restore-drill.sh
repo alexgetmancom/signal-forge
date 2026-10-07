@@ -71,6 +71,8 @@ step "Migrations and boot"
 # A configuration with no destinations, beside the restored database: the drill proves the schema
 # migrates and the views rebuild, not that the copy can deliver. It is written before the container
 # starts, because a container that exits on a missing config cannot be exec'd into to create one.
+# Deliberately the old spelling of `defaultIntervalSeconds`: the deployed config still uses it, so
+# the drill is the one place that proves `loadConfig` still accepts it.
 printf '{"pollSeconds":86400,"destinations":[]}' >"$WORK/drill.json"
 # Readiness is read from inside the container: with no network there is nothing to curl from here.
 docker run -d --name "$NAME" --network none --memory "$MEMORY" \

@@ -1,5 +1,5 @@
 {
-  "pollSeconds": 300,
+  "defaultIntervalSeconds": 300,
   "sourceEnabled": {
     "openai": true,
     "anthropic": true,

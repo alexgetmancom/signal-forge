@@ -136,7 +136,17 @@ const envSchema = z.object({
 });
 export const settingsSchema = z
   .object({
-    pollSeconds: z.number().int().min(60).default(300),
+    /**
+     * The interval a source gets when it asks for nothing in particular.
+     *
+     * It was `pollSeconds`, which read as the period of the polling cycle and is not: that is
+     * `SOURCE_CYCLE_MS` in `src/poller.ts`, a fixed thirty seconds, and it is the real floor under
+     * every interval in the registry. The old name cost a session, which concluded from it that no
+     * source could be read faster than this number and that the fix was a refactor of the poller.
+     * The fix was a smaller number. Only the sources that name it are affected by it -- the hosted
+     * reseller catalogues and the leaderboards -- and the makers' own endpoints set their own pace.
+     */
+    defaultIntervalSeconds: z.number().int().min(60).default(300),
     /** Optional collectors are requested by default; set a source to false to disable it deliberately. */
     sourceEnabled: z.record(z.string(), z.boolean()).default({}),
     /** A running source may collect evidence without creating subscriber delivery work. */
@@ -239,7 +249,15 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   const config = envSchema.parse(env);
   if (Boolean(config.SOLO_PUBLISHER_MCP_URL) !== Boolean(config.SOLO_PUBLISHER_MCP_TOKEN))
     throw new Error("SOLO_PUBLISHER_MCP_URL and SOLO_PUBLISHER_MCP_TOKEN must be configured together");
-  const settings = settingsSchema.parse(JSON.parse(readFileSync(config.CONFIG_PATH, "utf8")));
+  // `pollSeconds` is the old spelling of `defaultIntervalSeconds`, still in the deployed file. The
+  // config is edited on the host rather than shipped, so a rename that refused the old key would
+  // take the service down between the push and the edit.
+  const file = JSON.parse(readFileSync(config.CONFIG_PATH, "utf8")) as Record<string, unknown>;
+  if ("pollSeconds" in file && !("defaultIntervalSeconds" in file)) {
+    file.defaultIntervalSeconds = file.pollSeconds;
+    delete file.pollSeconds;
+  }
+  const settings = settingsSchema.parse(file);
   for (const d of settings.destinations) {
     if (d.platform === "telegram" && !config.TELEGRAM_BOT_TOKEN)
       throw new Error("TELEGRAM_BOT_TOKEN is required for Telegram destinations");

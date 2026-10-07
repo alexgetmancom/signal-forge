@@ -21,6 +21,21 @@ import { rememberStoryProjection } from "./stories.js";
 const MAX_CONCURRENT_SOURCES = 4;
 
 /**
+ * How often the poller wakes and asks every source whether it is due.
+ *
+ * This, and not any setting, is the floor under every `intervalSeconds` in the registry: an
+ * interval is honoured to within one tick, so a source asking for 60 is read every 60 to 90
+ * seconds. The `openai`, `anthropic` and `gemini` rows sat 65 to 84 seconds apart on 2026-10-07
+ * against a declared 60.
+ *
+ * It lived as a bare `30_000` beside nine other worker periods in `src/index.ts`, where it read as
+ * one more arbitrary number. It is not arbitrary: nothing in the registry can be faster than this,
+ * and a session was spent concluding the opposite from the name of `defaultIntervalSeconds` --
+ * which is a value some sources take, not the period of anything.
+ */
+export const SOURCE_CYCLE_MS = 30_000;
+
+/**
  * Each consecutive failure doubles the wait, up to eight times the normal interval. A source that
  * is refusing us recovers on its own schedule, and asking every two minutes in the meantime is how
  * a refusal turns into a block — which is exactly what happened when a status page's bot

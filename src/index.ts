@@ -12,7 +12,7 @@ import { prepareInsights } from "./insights.js";
 import { rebuildLifecycleDeadlines, scheduleLifecycleReminders } from "./lifecycle.js";
 import { configureLogger, log } from "./logger.js";
 import { rebuildModelFacts } from "./modelFacts.js";
-import { pollSources } from "./poller.js";
+import { pollSources, SOURCE_CYCLE_MS } from "./poller.js";
 import { readReactionsAndPublish } from "./promotion.js";
 import { syncPublications } from "./publications.js";
 import { scheduleRecaps } from "./recapSchedule.js";
@@ -122,7 +122,7 @@ supervisor.register(
   }),
 );
 supervisor.register(
-  startIntervalWorker(db, "sources", 30_000, async () => {
+  startIntervalWorker(db, "sources", SOURCE_CYCLE_MS, async () => {
     await pollSources(db, config);
   }),
 );

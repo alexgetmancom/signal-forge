@@ -39,7 +39,7 @@ export function leaderboardsSources({ config, cache }: SourceContext): SourceEnt
       confidence: "observed",
       group: "Arena",
       stream: "arena",
-      intervalSeconds: config.pollSeconds,
+      intervalSeconds: config.defaultIntervalSeconds,
       collector: () => collectArena(),
     },
     ...sourcesOfKind(LEADERBOARD, [
