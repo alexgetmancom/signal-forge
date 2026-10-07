@@ -335,7 +335,13 @@ export function cataloguesSources({ db, config, cache }: SourceContext): SourceE
         id: "openai-pricing",
         vendor: "OpenAI",
         pace: { group: "discovery:docs-openai", seconds: 5 },
-        intervalSeconds: 900,
+        // A minute, and it costs nothing at all: measured over two days this source made 218
+        // requests, read zero bodies and decoded zero bytes, because the page carries a validator
+        // and answers 304 every time. The quarter hour it sat on was not buying anything -- unlike
+        // `anthropic-pricing` next door, where there is no validator and the interval is a real
+        // trade. A price appearing here is a model priced before it is announced, which is the
+        // earliest word OpenAI gives about one, so the only question was what it cost to ask often.
+        intervalSeconds: 60,
         collector: () => collectOpenAIPricing(fetch, cache),
       },
       // A price list rather than a model list: the same maker's own word, read half-hourly.
