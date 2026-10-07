@@ -198,6 +198,13 @@ function discoverySources({ db, config, cache }: SourceContext): SourceEntry[] {
         id: site.id,
         vendor: site.vendor,
         // One host per probe, so a slow answer from one maker never delays a question to another.
+        // The group is the probe's own id because the probe is the only reader of that host that
+        // guesses: everything else there reads a page it knows exists. Other sources on the same
+        // host join this group by name -- `discovery:docs-anthropic` is also held by the Anthropic
+        // model index, pricing, deprecations, SDK release notes and sitemap, which are six readers
+        // of `platform.claude.com` that would otherwise arrive together. A docs CDN answers 429 to
+        // nobody and simply starts asking for a CAPTCHA instead, which is what happened to a status
+        // page on 2026-09-22, and the pace is the only thing standing between us and that.
         pace: { group: site.id, seconds: 5 },
         collector: () => collectDocsProbe(db, site, fetch),
       })),

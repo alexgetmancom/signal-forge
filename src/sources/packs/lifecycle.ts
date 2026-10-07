@@ -66,7 +66,12 @@ export function lifecycleSources({ cache }: SourceContext): SourceEntry[] {
     },
     ...sourcesOfKind(RETIREMENT_SCHEDULE, [
       { id: "openai-deprecations", vendor: "OpenAI", collector: () => collectOpenAIDeprecations() },
-      { id: "anthropic-deprecations", vendor: "Anthropic", collector: () => collectAnthropicDeprecations() },
+      {
+        id: "anthropic-deprecations",
+        vendor: "Anthropic",
+        pace: { group: "discovery:docs-anthropic", seconds: 5 },
+        collector: () => collectAnthropicDeprecations(),
+      },
       { id: "gemini-deprecations", vendor: "Google", collector: () => collectGeminiDeprecations() },
       { id: "vertex-deprecations", vendor: "Google", collector: () => collectVertexDeprecations() },
       { id: "aws-bedrock-lifecycle", vendor: "AWS", collector: () => collectAwsBedrockLifecycle() },

@@ -305,7 +305,12 @@ function developerFeedSources({ db, cache }: SourceContext): SourceEntry[] {
       collector: () => collectOpenAIApiChangelog(fetch, cache),
     },
     { id: "claude-code-changelog", vendor: "Anthropic", collector: () => collectClaudeCodeChangelog(fetch, cache) },
-    { id: "anthropic-sdk-releases", vendor: "Anthropic", collector: () => collectAnthropicSdkReleases(fetch, cache) },
+    {
+      id: "anthropic-sdk-releases",
+      vendor: "Anthropic",
+      pace: { group: "discovery:docs-anthropic", seconds: 5 },
+      collector: () => collectAnthropicSdkReleases(fetch, cache),
+    },
     {
       id: "huggingface-blog-feed",
       authority: "vendor_owned",
@@ -321,7 +326,12 @@ function sitemapSources(_context: SourceContext): SourceEntry[] {
   return sourcesOfKind(SITEMAP, [
     { id: "openai-sitemap", vendor: "OpenAI", collector: () => collectLabSitemap("openai-sitemap") },
     { id: "deepmind-sitemap", vendor: "Google", collector: () => collectLabSitemap("deepmind-sitemap") },
-    { id: "anthropic-sitemap", vendor: "Anthropic", collector: () => collectLabSitemap("anthropic-sitemap") },
+    {
+      id: "anthropic-sitemap",
+      vendor: "Anthropic",
+      pace: { group: "discovery:docs-anthropic", seconds: 5 },
+      collector: () => collectLabSitemap("anthropic-sitemap"),
+    },
     // Small pages, and the labs that no feed here reads announce on them first.
     {
       id: "xiaomi-sitemap",

@@ -350,7 +350,13 @@ export function cataloguesSources({ db, config, cache }: SourceContext): SourceE
       {
         id: "anthropic-pricing",
         vendor: "Anthropic",
-        intervalSeconds: 1800,
+        // Ten minutes, so a launch card has a chance of carrying the price in its first printing
+        // rather than only in the amendment that follows. The page serves `last-modified` and
+        // ignores `if-modified-since`, so there is no cheap half and every read is the whole 49 KB;
+        // bytes are not the limit here, the host's patience is, which is what the pace group below
+        // is for. `platform.claude.com` has answered 429 to this service zero times.
+        intervalSeconds: 600,
+        pace: { group: "discovery:docs-anthropic", seconds: 5 },
         collector: () => collectAnthropicPricing(fetch, cache),
       },
       ...providers.filter((provider) => provider.authority === "first_party"),
