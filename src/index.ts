@@ -93,7 +93,7 @@ supervisor.register(
 );
 supervisor.register(startIntervalWorker(db, "delivery", 1500, () => deliverPending(db, config)));
 // Hourly: the Telegram counts feed no decision, only the reports, and Telegram keeps what is unread
-// for a day. Discord's are read every five minutes because the scouts' votes promote a card.
+// for a day. Discord's are read every minute, because one of them is a door out of the channel.
 supervisor.register(
   startIntervalWorker(db, "telegram-reactions", 3_600_000, async () => {
     // A busy hour is more than one page: read until Telegram has nothing left.
@@ -101,7 +101,18 @@ supervisor.register(
   }),
 );
 supervisor.register(
-  startIntervalWorker(db, "promotion", 300_000, async () => {
+  /**
+   * A minute, because one pass does both halves of the wait and five minutes paid for each twice.
+   *
+   * The same pass offers the mark and reads it back, so a card sent at 18:13 on 2026-10-07 had no
+   * publish mark under it until 18:25 and was carried at 18:30: twelve minutes before the owner had
+   * anything to press, five more before the press was seen. Neither is the service refusing, and
+   * from the outside both read as one.
+   *
+   * It is one request per Discord channel, and there are four of them. The cost of asking four
+   * times a minute is not the reason this was ever five.
+   */
+  startIntervalWorker(db, "promotion", 60_000, async () => {
     // Said out loud because silence here reads as "it did not work": the owner presses the mark and
     // nothing moves until the next pass, and with the count dropped there was no way to tell a card
     // that was refused from one no pass had seen yet. Delivery 898 on 2026-10-07 cost a trip to the
