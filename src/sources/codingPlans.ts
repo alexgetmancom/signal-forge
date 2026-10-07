@@ -52,11 +52,18 @@ async function openCodeList(
     stream: "api-models",
     url: page,
     raw: ids.join("\n"),
+    /**
+     * The list is bare ids and names no maker, so none is claimed. `maker` held the venue until
+     * 2026-10-07, which was wrong twice: `claude-sonnet-5-5` is Anthropic's and `exo-free` is
+     * somebody's whose name the venue is hiding, and neither is OpenCode's. `resellerMaker` reads
+     * that field, so every row answered "OpenCode" to the question of whose model it is, and once
+     * OpenCode joined the makers this feed follows that answer demoted the venue's launches to
+     * sightings. Which venue it is still reaches the card from `source`.
+     */
     records: ids.map((id) => ({
       id,
       name: id,
       model: servedModel(id),
-      maker: "OpenCode",
       free: isFreeModel(id),
       headline: isFreeModel(id) && !isSmallModel(id),
     })),

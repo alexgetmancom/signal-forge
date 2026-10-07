@@ -27,12 +27,23 @@ type ClassifyRule = {
 };
 
 const CLASSIFY_RULES: readonly ClassifyRule[] = [
-  // A small company whose model took off here is followed from then on: its next arrival at a
-  // reseller is a sighting on arrival, not a line in tomorrow's recap.
+  /**
+   * A small company whose model took off here is followed from then on: its next arrival at a
+   * reseller is a sighting on arrival, not a line in tomorrow's recap.
+   *
+   * It lifts a row out of the quiet classes and never lowers one. A launch is the loudest answer the
+   * event alone can give and this question knows nothing that could withdraw it: on 2026-10-06
+   * `exo-free` arrived free and claimed by nobody on OpenCode Zen, was called a launch by
+   * `free_and_unclaimed_at_a_reseller`, and was then demoted here to a sighting that only the radar
+   * subscribes to -- so the one thing a reader on a coding subscription can use today was told
+   * quietly. Ten of the venue's twelve arrivals since the maker was learned went that way.
+   */
   {
     name: "a_maker_this_feed_learned_to_follow",
-    ask: (db, event) =>
-      isUnfollowedMakerAtAReseller(event) && isLearnedMaker(db, resellerMaker(event)) ? "codename" : null,
+    ask: (db, event, signal) =>
+      signal !== "launch" && isUnfollowedMakerAtAReseller(event) && isLearnedMaker(db, resellerMaker(event))
+        ? "codename"
+        : null,
   },
   // The maker's own page about a model that has just been listed is the announcement link, and the
   // reader wants it beside the card rather than instead of it. An old model's page appearing is

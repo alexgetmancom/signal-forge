@@ -8,6 +8,7 @@ import type { Event } from "../src/events/types.js";
 import type { Fetch } from "../src/http-client.js";
 import { withAudience } from "../src/sources/audienceJudge.js";
 import { listedInCatalogue, olderThanKnown } from "../src/sources/mentionStage.js";
+import { writeState } from "../src/storage/appState.js";
 import { openDatabase } from "../src/storage/database.js";
 
 const event = (over: Partial<Event> & { record: Record<string, unknown> }): Event => ({
@@ -280,4 +281,31 @@ test("a version with its dot dropped is the same model as the version with it", 
   expect(normalizeIdentity("grok-4.20-beta")).toBe("grok 4 20 beta");
   expect(normalizeIdentity("qwen3-14b")).toBe("qwen3 14b");
   expect(normalizeIdentity("nemotron-3-super-120b-a12b")).toBe("nemotron 3 super 120b a12b");
+});
+
+test("learning a venue's maker does not turn its free unclaimed launch into a sighting", () => {
+  const db = openDatabase(":memory:");
+  writeState(db, "followed-maker:opencode", "2026-09-23T14:47:56.801Z");
+  const zen = {
+    free: true,
+    headline: true,
+    id: "exo-free",
+    maker: "OpenCode",
+    model: "exo",
+    name: "exo-free",
+  };
+  const arrival = event({
+    source: "opencode-zen",
+    stream: "api-models",
+    record: zen,
+    signal: signalClass(event({ source: "opencode-zen", stream: "api-models", record: zen })),
+  });
+  expect(arrival.signal).toBe("launch");
+  expect(classify(db, arrival)).toBe("launch");
+  // The same question still lifts a paid row the venue lists for a maker nobody here follows.
+  const listing = { id: "exo-pro", maker: "OpenCode", model: "exo-pro", name: "exo-pro" };
+  expect(
+    classify(db, event({ source: "opencode-zen", stream: "api-models", record: listing, signal: "evidence" })),
+  ).toBe("codename");
+  db.close();
 });
