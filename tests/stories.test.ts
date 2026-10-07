@@ -67,7 +67,13 @@ test("identity keeps Arena codenames unresolved until a canonical source identif
     { source: "openrouter", stream: "openrouter", entity_id: "openai/gpt-6" },
     { id: "openai/gpt-6", name: "GPT-6" },
   );
-  expect(catalogue).toMatchObject({ canonicalId: "openai/gpt-6", status: "canonical", aliases: ["GPT-6"] });
+  // `gpt-6` beside it: the catalogue's id is what a reader calls at this venue and stays canonical,
+  // and the name under the host's prefix is one more way to meet the same model.
+  expect(catalogue).toMatchObject({
+    canonicalId: "openai/gpt-6",
+    status: "canonical",
+    aliases: ["GPT-6", "gpt-6"],
+  });
 });
 
 test("stories correlate evidence without rewriting the original events", () => {
@@ -778,5 +784,47 @@ test("a discovered repository's slug does not pull a maker's own launch into its
   expect(stories).toHaveLength(2);
   // Each holds exactly its own event, and the launch is not filed under the wrapper.
   expect(stories.map((story) => story.eventIds.length)).toEqual([1, 1]);
+  db.close();
+});
+
+/**
+ * Four ids, one model. The venue's own id stays canonical -- it is what a reader calls there -- and
+ * the bare name joins as an alias, so the story a maker's own catalogue opened is the one the
+ * resellers land in instead of three more beside it.
+ */
+test("a reseller leading an id with its own name does not open a second story for the model", () => {
+  const db = openDatabase(":memory:");
+  const decoy = { id: "other", name: "other" };
+  saveCollection(db, collection("deepseek-api", "api-models", [decoy]), [], "2026-10-01T08:00:00.000Z");
+  saveCollection(db, collection("openrouter", "openrouter", [decoy]), [], "2026-10-01T08:00:00.000Z");
+  saveCollection(db, collection("models-dev", "api-models", [decoy]), [], "2026-10-01T08:00:00.000Z");
+  saveCollection(
+    db,
+    collection("deepseek-api", "api-models", [decoy, { id: "DeepSeek-V4.1-Flash", name: "DeepSeek-V4.1-Flash" }]),
+    [],
+    "2026-10-01T09:00:00.000Z",
+  );
+  saveCollection(
+    db,
+    collection("openrouter", "openrouter", [
+      decoy,
+      { id: "deepseek-ai/DeepSeek-V4.1-Flash", name: "deepseek-ai/DeepSeek-V4.1-Flash" },
+    ]),
+    [],
+    "2026-10-01T10:00:00.000Z",
+  );
+  saveCollection(
+    db,
+    collection("models-dev", "api-models", [
+      decoy,
+      { id: "azure-ai-foundry/DeepSeek-V4.1-Flash", name: "azure-ai-foundry/DeepSeek-V4.1-Flash" },
+    ]),
+    [],
+    "2026-10-01T11:00:00.000Z",
+  );
+
+  const stories = listStories(db, { limit: 10 });
+  expect(stories).toHaveLength(1);
+  expect(stories[0]?.eventIds).toHaveLength(3);
   db.close();
 });

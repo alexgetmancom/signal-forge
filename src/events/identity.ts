@@ -137,6 +137,34 @@ function stableId(record: IdentityRecord | null, event: IdentitySubject): string
 }
 
 /**
+ * The model's own name inside a catalogue id that leads with whoever is serving it.
+ *
+ * One model is four subjects: `DeepSeek-V4.1-Flash` is published under its own name, and again as
+ * `deepseek-ai/DeepSeek-V4.1-Flash`, `microsoft-foundry/DeepSeek-V4.1-Flash` and
+ * `azure-ai-foundry/DeepSeek-V4.1-Flash`. The prefixed id is the canonical one for the venue that
+ * wrote it -- it is what a reader calls there -- so it stays, and the bare name joins the aliases
+ * instead: an alias merges a story where one already holds the name and invents nothing where none
+ * does. Measured on 2026-10-07 over the 1587 ids these streams have carried: 929 lead with a host,
+ * and 318 of their bare names are subjects in their own right.
+ *
+ * An alias is scoped by the vendor a story is filed under, and a vendor is read off the name before
+ * the host, so the four above agree on DeepSeek and merge. Where the bare name says nothing about
+ * its maker the merge rests on the prefix alone -- and of the 45 such names, every one arrives with
+ * exactly one prefix and one maker, so no two makers can meet over a shared tail in the history
+ * this has. `signaturesConflict` still keeps two versions apart.
+ *
+ * Only the first segment goes, so what follows it is left to say what it is: the alias of
+ * `nvidia/GLM-5.3-Flash-NVFP4` is `GLM-5.3-Flash-NVFP4` and not the model it quantises. `packages`
+ * is excluded above because `stableId` prefixes its id with its own registry, and the segment after
+ * that is a scope rather than a name.
+ */
+function withoutTheHostsPrefix(id: string | null): string | null {
+  if (!id?.includes("/")) return null;
+  const tail = id.split("/").slice(1).join("/");
+  return tail.length > 1 ? tail : null;
+}
+
+/**
  * Derives identity only from evidence already present in the record. A leaderboard key is never
  * promoted to a canonical model ID: it remains a codename until another source identifies it.
  */
@@ -199,11 +227,20 @@ export function identityFor(event: IdentitySubject, record: IdentityRecord | nul
     };
   }
 
-  if (["api-models", "openrouter", "weights", "packages"].includes(event.stream)) {
+  if (event.stream === "packages") {
     return {
       canonicalId: id,
       displayName: name,
       aliases: unique([name, id]).filter((value) => value !== id),
+      status: id ? "canonical" : "unknown",
+    };
+  }
+
+  if (["api-models", "openrouter", "weights"].includes(event.stream)) {
+    return {
+      canonicalId: id,
+      displayName: name,
+      aliases: unique([name, id, withoutTheHostsPrefix(id)]).filter((value) => value !== id),
       status: id ? "canonical" : "unknown",
     };
   }
