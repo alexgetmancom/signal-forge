@@ -301,8 +301,14 @@ function repositorySources({ db, config, cache }: SourceContext): SourceEntry[] 
         id: mentionSource(watch.repo),
         appendOnly: true,
         ...(watch.vendor ? { vendor: watch.vendor } : {}),
-        // One request when nothing moved; one more per commit when something did.
-        intervalSeconds: 600 + index * 20,
+        // One request when nothing moved; one more per commit when something did, which is why
+        // the maker's own repositories can be read at the pace of its API and the rest cannot: the
+        // eight `vendor_owned` ones are where the maker writes a name down before anybody says it,
+        // and `github:openai/codex:models` is the only witness this tracker has to `gpt-6-astra-wm`
+        // and was 32 minutes ahead of everything else on `gpt-5.6-cyber`. Thirty GitHub sources
+        // spend 124 requests an hour against a token's 5,000, so the two minutes are affordable;
+        // the third parties stay at ten, since their additions trail the vendors they copy.
+        intervalSeconds: (watch.authority === "vendor_owned" ? 120 : 600) + index * 20,
         requiredCapabilities: ["GITHUB_TOKEN"],
         capabilityId: "github",
         collector: () => collectModelMentions(db, config, watch, fetch),
