@@ -1616,3 +1616,32 @@ test("a modality line is not printed when what the model produces is unknown", (
   };
   expect(eventFacts(whole).join("\n")).toContain("Modalities: Text → Image");
 });
+
+test("a venue that lists only the input borrows what the model gives back", () => {
+  // The card already borrows a context window and a price from a fuller row; `output` was one of
+  // the fields it fetched and nothing read it, so the answer sat in hand and the line said nothing.
+  const event = {
+    signal: null,
+    id: 9003,
+    source: "arena",
+    stream: "arena",
+    entity_id: "flux-3-image",
+    kind: "new",
+    after_json: JSON.stringify({ id: "flux-3-image", name: "flux-3-image", input: { text: true } }),
+    detected_at: "2026-10-06T18:26:00.000Z",
+    borrowed: { output: { image: true } },
+  } as unknown as Event & { borrowed: Record<string, unknown> };
+  expect(eventFacts(event).join("\n")).toContain("Modalities: Text → Image");
+
+  // The maker's own row is never overridden by one borrowed from somewhere else.
+  const ours = {
+    ...event,
+    after_json: JSON.stringify({
+      id: "flux-3-image",
+      name: "flux-3-image",
+      input: { text: true },
+      output: { text: true },
+    }),
+  };
+  expect(eventFacts(ours).join("\n")).toContain("Modalities: Text → Text");
+});

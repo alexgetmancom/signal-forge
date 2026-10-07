@@ -66,9 +66,8 @@ function transition(key: string, before: unknown, after: unknown): Fact {
  * coverage, publishes `input` and no `output` at all, so this was the common case rather than the
  * rare one.
  *
- * Saying nothing is honest and short. The answer itself is held elsewhere -- OpenRouter publishes
- * `output` for the same models and `model_fact_fields` already stores it -- and reaching it from a
- * renderer that is handed one event is a separate change.
+ * Saying nothing is honest and short, and it was all this could do while the answer was only held
+ * elsewhere. `modalityLine` is the separate change that reaches it.
  */
 function modalities(input: unknown, output: unknown): string | null {
   const names = (raw: unknown) =>
@@ -84,6 +83,28 @@ function modalities(input: unknown, output: unknown): string | null {
   const to = names(output);
   if (!to.length) return null;
   return `${from.join(", ") || "?"} → ${to.join(", ")}`;
+}
+
+/**
+ * The same line, with the half the venue does not carry read from a catalogue that does.
+ *
+ * `borrowed` is already how a card says what an empty row holds -- a context window, a price, what
+ * the model accepts -- and `output` is already one of the fields it fetches. The line that needed
+ * it most was the only reader not asking: the Arena lists what a model takes and not what it gives
+ * back, models.dev is most of our coverage and publishes no `output` at all, and OpenRouter
+ * publishes both for the same models minutes away. So the card had the answer in hand and printed
+ * nothing. Unmarked, as the borrowed window and the borrowed input are: a second catalogue saying
+ * what a model produces is not a claim anyone disputes.
+ *
+ * The maker's own row wins where it has anything to say, which is why this fills rather than
+ * overrides -- and why a rename still compares the two rows it was given and not a third one.
+ */
+function modalityLine(event: Event & CardContext, record: Record<string, unknown>): string | null {
+  const borrowed = event.borrowed ?? {};
+  return modalities(
+    present(record.input) ? record.input : borrowed.input,
+    present(record.output) ? record.output : borrowed.output,
+  );
 }
 
 /** An observation with no value is not worth a line of its own when nothing preceded it. */
@@ -338,7 +359,7 @@ export function eventFactParts(event: Event & CardContext, summary?: string): Fa
       lines.push(transition("selectable", before.selectable, after.selectable));
     if (canonical(before.input) !== canonical(after.input) || canonical(before.output) !== canonical(after.output)) {
       const was = modalities(before.input, before.output);
-      const now = modalities(after.input, after.output);
+      const now = modalityLine(event, after);
       if (now) lines.push({ label: "Modalities", value: was ? `${was} ⇒ ${now}` : now });
     }
   } else if (event.stream === "arena" && !before && after) {
@@ -349,7 +370,7 @@ export function eventFactParts(event: Event & CardContext, summary?: string): Fa
     else {
       // Pickable is the ordinary case; only its absence is worth a field.
       if (after.selectable === false) lines.push({ label: "Pickable", value: "No" });
-      const kinds = modalities(after.input, after.output);
+      const kinds = modalityLine(event, after);
       if (kinds) lines.push({ label: "Modalities", value: kinds });
     }
     if (present(after.model) && canonical(after.model) !== canonical(after.name))
