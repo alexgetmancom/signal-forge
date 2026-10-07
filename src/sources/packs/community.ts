@@ -245,7 +245,18 @@ function repositorySources({ db, config, cache }: SourceContext): SourceEntry[] 
   /** Every repository read, sorted by who owns it; the id and the collector are all that differ. */
   const watched: KindMember[] = [];
   const owned: KindMember[] = [
-    { id: "codex-models", vendor: "OpenAI", collector: () => collectCodexModels(fetch, cache) },
+    {
+      id: "codex-models",
+      vendor: "OpenAI",
+      // The rest of this kind reads the GitHub API under a token's budget. This one reads a single
+      // raw file, and 99.1% of its asks came back 304 over the week of 2026-09-30 -- 107 requests,
+      // one body, 211 KB a day -- so the kind's half hour buys nothing here and costs a release.
+      // OpenAI writes a model into this file before anyone announces it and we see the commit in
+      // minutes: gpt-6-sol and gpt-6-luna were committed at 18:17:39 on 2026-09-22 and detected at
+      // 18:20:38, while gpt-6.1-sol took 19 of the 30 a half hour can hide.
+      intervalSeconds: 300,
+      collector: () => collectCodexModels(fetch, cache),
+    },
   ];
 
   for (const watch of config.github) {
