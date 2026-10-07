@@ -88,6 +88,7 @@ const STATIC_LABELS: Record<string, string> = {
   "status:moonshot": "Moonshot · status",
   "openai-deprecations": "OpenAI · deprecations",
   "anthropic-deprecations": "Anthropic · deprecations",
+  "anthropic-pricing": "Anthropic · API pricing",
   "gemini-deprecations": "Gemini · deprecations",
   "vertex-deprecations": "Vertex AI · deprecations",
   "vertex-quotas": "Vertex AI · quotas",

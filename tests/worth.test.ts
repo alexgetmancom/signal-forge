@@ -4,6 +4,8 @@ import { prepareDeliveries } from "../src/events/batching.js";
 import { displayTitle } from "../src/events/naming.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import { borrowedFacts } from "../src/events/priceWorth.js";
+import type { CardContext } from "../src/events/render/facts.js";
+import { launchChips } from "../src/events/render/spec.js";
 import type { Collection, Event, RecordData } from "../src/events/types.js";
 import { isAVenuesHostingWindow } from "../src/events/worth.js";
 import { openDatabase } from "../src/storage/database.js";
@@ -1191,6 +1193,50 @@ test("a venue that carries no facts borrows them from a catalogue that does", ()
   } as unknown as Event;
 
   expect(borrowedFacts(db, event, "space-bunny")).toEqual({ context: 1_048_576, input: ["image", "text", "video"] });
+  db.close();
+});
+
+test("a Claude launch carries its maker's own price, which is the only one there at the time", () => {
+  const db = openDatabase(":memory:");
+  const listing = (source: string, record: RecordData): Collection => ({
+    source,
+    stream: "api-models",
+    url: `https://${source}`,
+    raw: [],
+    records: [record],
+  });
+  // The maker's own table, in the maker's own unit: dollars per million, as the page writes them.
+  saveCollection(
+    db,
+    listing("anthropic-pricing", {
+      id: "claude-haiku-5-5",
+      name: "Claude Haiku 5.5",
+      maker: "Anthropic",
+      pricing: { input: 0.1, output: 0.5 },
+    }),
+    [wire],
+    "2026-10-07T17:40:00.000Z",
+  );
+  const launch = {
+    id: 1,
+    source: "anthropic",
+    stream: "api-models",
+    entity_id: "claude-haiku-5-5",
+    kind: "new",
+    after_json: JSON.stringify({ id: "claude-haiku-5-5", name: "Claude Haiku 5.5", context: 1_000_000 }),
+    detected_at: "2026-10-07T17:51:19.499Z",
+  } as unknown as Event;
+
+  const borrowed = borrowedFacts(db, launch, "claude-haiku-5-5");
+  expect(borrowed.pricing).toEqual({ input: 0.1, output: 0.5 });
+  expect(borrowed.pricingSource).toBe("anthropic-pricing");
+  // The two numbers a launch is weighed by, on the picture, in the unit recorded against the source.
+  // Taken for dollars per token the same sheet reads $100,000, which is what the registry prevents.
+  expect(launchChips({ ...launch, borrowed } as Event & CardContext, ["1M context"])).toEqual([
+    "1M context",
+    "$0.1 in",
+    "$0.5 out",
+  ]);
   db.close();
 });
 

@@ -74,13 +74,17 @@ export function isAResellerFillingInAPrice(event: Event): boolean {
  */
 const BORROWED_FIELDS = ["context", "input", "output", "maxOutputTokens", "reasoning", "pricing"];
 /**
- * A price is borrowed only from the catalogues whose unit is known, both of which write dollars per
- * token. Every other one writes its rates in its own unit, and a sheet read in the wrong one is off
- * by a million on a card people quote. Two whose units are known beat five that have to be guessed:
- * with OpenRouter alone, a Claude launch card carried the context and no price, because Anthropic
- * reaches the gateway first and OpenRouter an hour later.
+ * A price is borrowed only from the catalogues whose unit is known. Every other one writes its
+ * rates in its own unit, and a sheet read in the wrong one is off by a million on a card people
+ * quote; the unit of each of these is recorded against its name in `priceUnitForSource`.
+ *
+ * Three whose units are known beat five that have to be guessed. The gateways are resellers quoting
+ * themselves and they list late: on the Claude Haiku 5.5 launch of 2026-10-07 the maker's API
+ * answered at 17:51 and the first price anywhere appeared at 18:13, so the card went out with the
+ * window and no price, as the two Claude launches before it had. `anthropic-pricing` is the maker's
+ * own table, which is the only one that can be there at the same time as the model.
  */
-const PRICED_BY = new Set(["openrouter", "vercel-gateway"]);
+const PRICED_BY = new Set(["anthropic-pricing", "openrouter", "vercel-gateway"]);
 
 /**
  * How far two catalogues may differ on one window before a reader should be told they do.

@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import type { HttpCache } from "../../storage/httpCache.js";
+import { collectAnthropicPricing } from "../anthropicPricing.js";
 import { collectAntigravityBuild } from "../antigravity.js";
 import { collectBedrock } from "../bedrock.js";
 import {
@@ -335,6 +336,14 @@ export function cataloguesSources({ db, config, cache }: SourceContext): SourceE
         vendor: "DeepSeek",
         intervalSeconds: 1800,
         collector: () => collectDeepSeekPricing(fetch, cache),
+      },
+      // The third of them, and the only price for a Claude model that is not a reseller quoting
+      // itself. `/v1/models` prices nothing, so this is the documentation table.
+      {
+        id: "anthropic-pricing",
+        vendor: "Anthropic",
+        intervalSeconds: 1800,
+        collector: () => collectAnthropicPricing(fetch, cache),
       },
       ...providers.filter((provider) => provider.authority === "first_party"),
     ]),

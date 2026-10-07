@@ -3,6 +3,7 @@ import { loadConfig } from "../src/config.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import { selectMeaningfulWebStrings, tellingWebString } from "../src/events/web.js";
 import { SourceError } from "../src/failure.js";
+import { parseAnthropicPricing } from "../src/sources/anthropicPricing.js";
 import { collectLeaderboards, parseArena, parseLeaderboards } from "../src/sources/arena.js";
 import { parseSimpleBench, parseVoxelBench, parseWeirdMl } from "../src/sources/benchmarks.js";
 import { collectAnthropic, collectOpenAI, collectOpenRouter } from "../src/sources/catalogs.js";
@@ -384,6 +385,79 @@ test("DeepSeek pricing parser preserves model versions, capabilities and price w
   });
   expect(() => parseDeepSeekPricing("<table><tr><td>MODEL</td></tr></table>")).toThrow();
 });
+/** The table as the page served it on 2026-10-07, down to the quirks that cost a card its price. */
+const ANTHROPIC_PRICING = `## Model pricing
+
+The following table shows pricing for all Claude models:
+
+| Model | Base input tokens | 5m cache writes | 1h cache writes | Cache hits and refreshes | Output tokens |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| Claude Opus 5.5 | $4 / MTok | $5 / MTok | $8 / MTok | $0.20 / MTok<sup>2</sup> | $20 / MTok |
+| Claude Sonnet 5 | $2 / MTok<sup>3</sup> | $2.50 / MTok | $4 / MTok | $0.20 / MTok | $10 / MTok |
+| Claude Haiku 5.5 (for prompts up to 100,000 tokens) | $0.10 / MTok | $0.125 / MTok | $0.20 / MTok | $0.01 / MTok | $0.50 / MTok |
+| Claude Haiku 5.5 (for prompts over 100,000 tokens) | $0.50 / MTok | $0.625 / MTok | $1 / MTok | $0.05 / MTok | $2.50 / MTok |
+| Claude Opus 4 ([retired, except on Google Cloud](https://platform.claude.com/docs/deprecations)) | $15 / MTok | $18.75 / MTok | $30 / MTok | $1.50 / MTok | $75 / MTok |
+| Web search | $10 / 1K searches | | | | |
+
+## Feature-specific pricing
+
+| Model | Base input tokens | Output tokens |
+| :--- | :--- | :--- |
+| Claude Opus 5.5 | $2 / MTok | $10 / MTok |
+`;
+
+test("Anthropic's own price table is read under the ids its API answers with", () => {
+  const parsed = parseAnthropicPricing(ANTHROPIC_PRICING);
+  expect(parsed).toMatchObject({ source: "anthropic-pricing", stream: "api-models", confirmChanges: true });
+  const byId = new Map(parsed.records.map((record) => [record.id, record]));
+
+  // `/v1/models` answers `claude-opus-5-5` for "Claude Opus 5.5". A row filed under any other id is
+  // a price nothing will ever find.
+  expect(byId.get("claude-opus-5-5")).toMatchObject({
+    name: "Claude Opus 5.5",
+    maker: "Anthropic",
+    // Stored as the page wrote it, in dollars per million; `priceUnitForSource` knows the unit.
+    pricing: { input: 4, output: 20, input_cache_write: 5, input_cache_write_1h: 8, input_cache_read: 0.2 },
+  });
+  // A footnote marker sits inside the price cell: `$2 / MTok<sup>3</sup>` is two dollars.
+  expect(byId.get("claude-sonnet-5")?.pricing).toMatchObject({ input: 2, output: 10 });
+  // A parenthesised lifecycle note is not part of the name, and its link is not part of it either.
+  expect(byId.get("claude-opus-4")).toMatchObject({
+    name: "Claude Opus 4",
+    qualifier: "retired, except on Google Cloud",
+  });
+
+  // Two bands, one model: the first is the rate, the rest are a sheet. Filed as two records they
+  // would both answer to the same name and a launch card would borrow whichever came back first.
+  expect(byId.size).toBe(4);
+  expect(byId.get("claude-haiku-5-5")).toMatchObject({
+    name: "Claude Haiku 5.5",
+    qualifier: "for prompts up to 100,000 tokens",
+    pricing: { input: 0.1, output: 0.5 },
+    bands: { "for prompts over 100,000 tokens": { input: 0.5, output: 2.5 } },
+  });
+
+  // Only the model table. The page prices eight other things, and the feature table below would
+  // re-price Opus 5.5 at half with nothing in the record to say which number a reader is seeing.
+  expect(byId.get("claude-opus-5-5")?.pricing).toMatchObject({ input: 4 });
+  // A row that prices a tool rather than a model names no model.
+  expect([...byId.keys()]).not.toContain("web-search");
+});
+
+test("a reshaped Anthropic price page is refused rather than read as every model losing its price", () => {
+  expect(() => parseAnthropicPricing("# Pricing\n\nWe have changed how we publish this.\n")).toThrow(SourceError);
+  // The table is there and every column this reads prices from is gone: a page that moved.
+  expect(() =>
+    parseAnthropicPricing("## Model pricing\n\n| Model | Availability |\n| :--- | :--- |\n| Claude Opus 5.5 | GA |\n"),
+  ).toThrow(SourceError);
+  // Headings intact and not one Claude row left.
+  expect(() =>
+    parseAnthropicPricing(
+      "## Model pricing\n\n| Model | Base input tokens |\n| :--- | :--- |\n| Web search | $10 / 1K searches |\n",
+    ),
+  ).toThrow(SourceError);
+});
+
 test("DeepSeek API catalog preserves the provider model identity and rejects malformed lists", () => {
   const parsed = parseDeepSeekModels(
     JSON.stringify({
