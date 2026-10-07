@@ -376,6 +376,8 @@ test("DeepSeek pricing parser preserves model versions, capabilities and price w
     id: "deepseek-v4-flash",
     modelVersion: "DeepSeek-V4-Flash-0731",
     context: "1M",
+    // The page writes the cell as "MAXIMUM: 384K"; the field is already named Max output.
+    maxOutput: "384K",
     capabilities: ["Tool Calls"],
     pricing: { inputCacheHitOffPeak: 0.007, inputCacheHitPeak: 0.014 },
     concurrencyLimit: 2500,

@@ -94,6 +94,21 @@ const PRICED_BY = new Set(["openrouter", "vercel-gateway"]);
 const CONTESTED = 0.2;
 
 /**
+ * One model's name with the differences that are only spelling taken out.
+ *
+ * A maker and a gateway write the same release two ways: Anthropic's own API answers
+ * `claude-haiku-5-5` and every gateway carrying it writes `anthropic/claude-haiku-5.5`. Matching on
+ * the raw text meant no row of Anthropic's ever matched a row of anybody else's, so a Claude launch
+ * borrowed nothing at all -- not a price, not a window, not a modality -- while the Vercel gateway
+ * held the full rate card for the same model. Measured against the stored catalogue, folding the
+ * dot into the dash adds `vercel-gateway` and `models-dev` to the five venues `claude-haiku-5-5`
+ * already found.
+ */
+function spelling(id: string): string {
+  return (id.toLowerCase().split("/").at(-1) ?? "").trim().replace(/\./g, "-");
+}
+
+/**
  * Whether a stored row is the same model as the one on the card, strictly enough to argue with it.
  *
  * Borrowing a missing number tolerates a loose match, because a fuller row for a near neighbour
@@ -101,13 +116,19 @@ const CONTESTED = 0.2;
  * above, and their windows differ because they are different models. The provider prefix a gateway
  * puts in front -- `mistral/mistral-large-4` -- and a pinned version behind -- `-0` -- are the same
  * model; anything else is not.
+ *
+ * The pin is read off the spelling the catalogue used, before the dot is folded in, or the fold
+ * manufactures one: `claude-sonnet-4.5` becomes `claude-sonnet-4-5`, whose trailing `-5` reads as a
+ * pin and would make Sonnet 4.5 answer for Sonnet 4 -- and then contest its context window with a
+ * number belonging to a different model.
  */
 function namesTheSameModel(id: string, subject: string): boolean {
-  const name = (id.toLowerCase().split("/").at(-1) ?? "").trim();
-  return name === subject || name.replace(/-\d+$/, "") === subject;
+  const written = (id.toLowerCase().split("/").at(-1) ?? "").trim();
+  return spelling(written) === subject || spelling(written.replace(/-\d+$/, "")) === subject;
 }
 
-export function borrowedFacts(db: Database, event: Event, subject: string): Record<string, unknown> {
+export function borrowedFacts(db: Database, event: Event, raw: string): Record<string, unknown> {
+  const subject = spelling(raw);
   const have: Record<string, unknown> = recordFor(event) ?? {};
   const wanted = BORROWED_FIELDS.filter((field) => have[field] === undefined || have[field] === null);
   const ours = typeof have.context === "number" && have.context > 0 ? have.context : null;
@@ -115,8 +136,9 @@ export function borrowedFacts(db: Database, event: Event, subject: string): Reco
   const borrowed: Record<string, unknown> = {};
   for (const row of db
     .query<{ body: string; source: string }, [string]>(
+      // Both sides folded, so the maker's own `-5-5` meets the gateway's `.5`; see `spelling`.
       `SELECT body, source FROM records WHERE stream IN ('api-models','openrouter','weights')
-       AND lower(id) LIKE '%' || ? || '%' LIMIT 20`,
+       AND replace(lower(id), '.', '-') LIKE '%' || ? || '%' LIMIT 20`,
     )
     .all(subject)) {
     let fields: Record<string, unknown>;

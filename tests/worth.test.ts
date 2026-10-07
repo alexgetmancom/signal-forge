@@ -1228,10 +1228,12 @@ test("a launch borrows the numbers its maker's own row leaves out, and a price o
   expect(first.context).toBe(200_000);
   expect(first.pricing).toBeUndefined();
 
+  // Spelled as OpenRouter actually spells it. This fixture used to write `claude-opus-5-5`, which
+  // no gateway does, and the dash hid the only thing standing between a Claude launch and its price.
   saveCollection(
     db,
     listing("openrouter", {
-      id: "anthropic/claude-opus-5-5",
+      id: "anthropic/claude-opus-5.5",
       name: "Claude Opus 5.5",
       pricing: { prompt: "0.000015", completion: "0.000075" },
     }),

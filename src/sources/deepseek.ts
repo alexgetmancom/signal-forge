@@ -148,6 +148,24 @@ function priceKey(section: string, period: string): string {
   return `${section}${suffix}`;
 }
 
+/**
+ * The ceiling a cell states, without the word the row already is.
+ *
+ * DeepSeek writes the cell under MAX OUTPUT as "MAXIMUM: 384K", so the card rendered it under a
+ * field of its own and read "Max output: MAXIMUM: 384K" -- the same word twice and a colon in the
+ * middle of a number. The qualifier is the page's typography for a row whose label is three cells
+ * to the left, and it says nothing the field name has not.
+ *
+ * Only a leading all-caps word and its colon are taken off. A cell that says something this parser
+ * does not recognise is kept whole, because a number with a condition on it is still worth printing
+ * as the page wrote it: "384K (beta)" is not a cell to start guessing about.
+ */
+function ceiling(cell: string | undefined): string | null {
+  if (!cell) return null;
+  const stated = cell.replace(/^[A-Z][A-Z\s]*:\s*/, "").trim();
+  return stated || null;
+}
+
 /** Parse the official table without turning a missing or malformed page into an empty catalogue. */
 export function parseDeepSeekPricing(html: string): Collection {
   const rows = tableRows(html);
@@ -208,7 +226,7 @@ export function parseDeepSeekPricing(html: string): Collection {
       });
     } else if (upper.includes("MAX OUTPUT")) {
       records.forEach((record, index) => {
-        record.maxOutput = values[index] ?? null;
+        record.maxOutput = ceiling(values[index]);
       });
     } else if (upper.includes("CONCURRENCY LIMIT")) {
       records.forEach((record, index) => {
