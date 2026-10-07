@@ -2,10 +2,12 @@
  * Layer boundaries, checked on the local import graph of src/.
  *
  * The rules themselves are not here: they live in .dependency-cruiser.jsonc, each with the reason
- * it exists written beside it. This file builds the graph and reports what the rules forbid.
+ * it exists written beside it. `importGraph.ts` reads the graph; this file reports what the rules
+ * forbid, and `rehearsalNeeded.ts` asks the same graph a transitive question.
  */
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { dirname, extname, join, relative, resolve } from "node:path";
+import { readFileSync } from "node:fs";
+import { join, relative, resolve } from "node:path";
+import { imports, resolveLocal, walk } from "./importGraph.js";
 
 const root = resolve(import.meta.dir, "..");
 const sourceRoot = join(root, "src");
@@ -15,42 +17,8 @@ type Edge = { source: string; target: string; kind: "local" | "npm" };
 type Selector = { path?: string; pathNot?: string; circular?: boolean; dependencyTypes?: ("local" | "npm")[] };
 type Rule = { name: string; comment?: string; from: Selector; to: Selector };
 
-function walk(directory: string, result: string[] = []): string[] {
-  for (const entry of readdirSync(directory, { withFileTypes: true })) {
-    const path = join(directory, entry.name);
-    if (entry.isDirectory()) walk(path, result);
-    else if (entry.isFile() && extname(entry.name) === ".ts") result.push(path);
-  }
-  return result;
-}
-
 function moduleName(file: string): string {
   return relative(root, file).split("/").join("/");
-}
-
-/**
- * The clause before `from` may not cross a quote. Written as `[\s\S]*?` it could, and then
- * `import "./delivery.js";` matched the *next* statement's specifier instead of its own: a
- * side-effect import was invisible to every rule below.
- */
-function imports(file: string): string[] {
-  const source = readFileSync(file, "utf8");
-  const result = [
-    ...source.matchAll(/(?:^|\n)\s*(?:import|export)\s+(?:type\s+)?(?:[^"']*?\sfrom\s+)?["']([^"']+)["']/g),
-  ].map((match) => match[1] as string);
-  result.push(...[...source.matchAll(/\bimport\(\s*["']([^"']+)["']\s*\)/g)].map((match) => match[1] as string));
-  return result;
-}
-
-/**
- * A relative specifier this cannot resolve is reported rather than skipped. A missed edge is a rule
- * that silently stops holding, which is worse than no rule at all: the gate still says it passed.
- */
-function resolveLocal(file: string, specifier: string): string | null {
-  const base = resolve(dirname(file), specifier.replace(/\.js$/, ".ts"));
-  for (const candidate of [base, `${base}.ts`, join(base, "index.ts"), base.replace(/\.ts$/, ".json")])
-    if (statSync(candidate, { throwIfNoEntry: false })?.isFile()) return candidate;
-  return null;
 }
 
 /**

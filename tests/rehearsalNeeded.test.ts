@@ -24,6 +24,25 @@ describe("what a change owes", () => {
     expect(owed[0]?.files).toEqual(["src/events/render/discord.ts"]);
   });
 
+  test("a file the replay reaches owes it, named or not", () => {
+    // The mapping was a list of names, and these are the files that list forgot. `standing.ts`
+    // holds the forty rules deciding who speaks; `identity.ts` decides what shares a story, and a
+    // change to it merged fifty-two of them on a morning when it owed nothing at all.
+    expect(required(["src/events/standing.ts"]).map((one) => one.phase)).toEqual(["policy"]);
+    expect(required(["src/events/toldBefore.ts"]).map((one) => one.phase)).toEqual(["policy"]);
+    expect(required(["src/events/identity.ts"]).map((one) => one.phase)).toContain("stories");
+    expect(required(["src/stories.ts"]).map((one) => one.phase)).toEqual(["stories"]);
+    // A gate the live path reads and the replay does not still owes it: see the roots of `policy`.
+    expect(required(["src/events/cooldown.ts"]).map((one) => one.phase)).toEqual(["policy"]);
+  });
+
+  test("a collector owes nothing a replay answers for, and neither does the gate", () => {
+    // Reaching the other way would make every change owe every phase, which is the mapping saying
+    // nothing in a longer sentence: `operations.ts` alone reaches 268 of the 309 modules in src/.
+    expect(required(["src/sources/codingPlans.ts"])).toEqual([]);
+    expect(required(["scripts/importGraph.ts"])).toEqual([]);
+  });
+
   test("a change that owes nothing says nothing", () => {
     expect(required(["scripts/check.ts", "AGENTS.md", "tests/tsv.test.ts"])).toEqual([]);
     expect(owedLine([])).toBeNull();
@@ -42,6 +61,7 @@ describe("what a change owes", () => {
       "projections",
       "reports",
       "retention",
+      "stories",
     ]);
   });
 });

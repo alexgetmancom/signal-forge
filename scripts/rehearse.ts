@@ -26,6 +26,7 @@
  *   bun run rehearse --fresh               ignore the cached copy and pull again
  *   bun run rehearse --all                 every phase, including the ones that are not about cards
  *   bun run rehearse --only projections    one of them
+ *   bun run rehearse --only stories        which events share a story, under both trees
  *   bun run rehearse --only evidence       what every reader derives from every stored event
  *   bun run rehearse --only retention     what a sweep would free on production, measured
  *   bun run rehearse --needed              the ones this branch's diff owes, worked out rather than remembered
@@ -163,6 +164,16 @@ const PHASES: Phase[] = [
     run: (unpacked, resultPath) => [
       "scripts/replay-cards.ts",
       ...["--db", copy, "--days", days, "--base", unpacked, "--result", resultPath],
+    ],
+  },
+  {
+    name: "stories",
+    always: false,
+    what: "which events share a story, which no card replay can see",
+    run: (unpacked, resultPath) => [
+      "scripts/replay-stories.ts",
+      ...["--db", copy, "--base", unpacked, "--result", resultPath],
+      ...(limit ? ["--limit", limit] : []),
     ],
   },
   {
