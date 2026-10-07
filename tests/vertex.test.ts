@@ -4,6 +4,7 @@ import { loadConfig } from "../src/config.js";
 import { notificationBlock } from "../src/events/notification.js";
 import { signalClass } from "../src/events/signals.js";
 import type { Event } from "../src/events/types.js";
+import { collectGoogleSkus } from "../src/sources/googleSkus.js";
 import {
   collectVertexModelGarden,
   collectVertexQuotas,
@@ -246,4 +247,31 @@ test("a Grok quota or listing on Vertex is a sighting, and a quota moving is sil
   expect(
     notificationBlock(event("vertex-quotas", "changed", record, { ...record, limits: { RequestsPerMinute: 60 } })),
   ).toBe("A project quota moved, not the model");
+});
+
+test("the cheap price list is read every pass and the expensive one keeps its hour", async () => {
+  const seen: string[] = [];
+  const skus = async (url: string) => {
+    seen.push(url);
+    if (url === account.token_uri) return Response.json({ access_token: "token-1", expires_in: 3599 });
+    const model = url.includes("C7E2-9256-1C43") ? "claude 4.8" : "gemini 3.8 flash tts";
+    return Response.json({ skus: [{ description: `Generate content input token count ${model} text` }] });
+  };
+  const service = (url: string) => url.match(/services\/([^/]+)\//)?.[1] ?? "";
+  const start = Date.parse("2026-10-07T00:00:00Z");
+
+  const first = await collectGoogleSkus(config, skus, start);
+  expect(seen.filter(service).map(service)).toEqual(["C7E2-9256-1C43", "AEFD-7695-64FA"]);
+  expect(first.records.map((record) => record.id)).toEqual(["claude-4.8", "gemini-3.8-flash-tts"]);
+
+  // Five minutes on: Google's own list is asked again, Vertex AI's 11.7 MB is not, and the
+  // collection is still whole -- a record dropped here would be read as a model withdrawn.
+  seen.length = 0;
+  const soon = await collectGoogleSkus(config, skus, start + 300_000);
+  expect(seen.filter(service).map(service)).toEqual(["AEFD-7695-64FA"]);
+  expect(soon.records).toEqual(first.records);
+
+  seen.length = 0;
+  await collectGoogleSkus(config, skus, start + 3_600_001);
+  expect(seen.filter(service).map(service)).toEqual(["C7E2-9256-1C43", "AEFD-7695-64FA"]);
 });

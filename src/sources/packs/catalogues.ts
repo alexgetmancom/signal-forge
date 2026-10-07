@@ -407,7 +407,9 @@ export function cataloguesSources({ db, config, cache }: SourceContext): SourceE
       },
       {
         id: "google-skus",
-        intervalSeconds: 3600,
+        // Five minutes reads the Gemini API price list; Vertex AI keeps its hour inside the
+        // collector, which is where the two lists' costs differ. See `SERVICES` in googleSkus.ts.
+        intervalSeconds: 300,
         capabilityId: "google-cloud",
         requiredCapabilities: ["GOOGLE_CLOUD_SERVICE_ACCOUNT"],
         collector: () => collectGoogleSkus(config),
