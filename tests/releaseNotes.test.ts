@@ -110,6 +110,22 @@ test("a heading that is written as a date and does not read as one fails the rea
   expect(related.records.map((record) => record.id)).toEqual(["2026-09-02"]);
 });
 
+test("the site's own footer is not the last entry's news", () => {
+  // Google signs every devsite page under the content, so the oldest changelog entry -- the last
+  // section on the page -- kept the licence, the trademark and the build date in its summary. The
+  // build date moves, and on 2026-10-06 it carried the entry for 2023-12-13 out as news.
+  const footer =
+    "<p>Except as otherwise noted, the content of this page is licensed under the Creative Commons Attribution 4.0 License , and code samples are licensed under the Apache 2.0 License .</p>" +
+    "<p>Java is a registered trademark of Oracle and/or its affiliates.</p>" +
+    "<p>Last updated 2026-10-06 UTC.</p>";
+  const page = (built: string) =>
+    `<main><h2 data-text="December 13, 2023">December 13, 2023</h2><p>Model updates: gemini-pro.</p>${footer.replace("2026-10-06", built)}</main>`;
+  const summary = String(parseGeminiApiChangelog(page("2026-10-06")).records[0]?.summary);
+  expect(summary).toBe("Model updates: gemini-pro.");
+  // The whole point: the day the page was built is no longer a change to a three-year-old entry.
+  expect(summary).toBe(String(parseGeminiApiChangelog(page("2026-10-01")).records[0]?.summary));
+});
+
 test("a date written without its comma is read, on the page that has one", () => {
   // `December 13 2023` is in Gemini's own archive. "Written as a date" allowed the comma to be
   // missing and the reader required it, so that one old entry failed the whole read -- 139 entries

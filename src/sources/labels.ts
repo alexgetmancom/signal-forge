@@ -1,7 +1,12 @@
 import { WATCHED_SITES } from "./pages.js";
+import { VENDOR_NAMES } from "./vendors.js";
 
 const STATIC_LABELS: Record<string, string> = {
   openrouter: "OpenRouter",
+  stepfun: "StepFun API",
+  "openai-docs-index": "OpenAI · docs index",
+  "antigravity-cli-build": "Antigravity · CLI build",
+  "discovery:claude-downloads": "Claude · downloads · discovery",
   "models-dev": "models.dev · catalogue",
   "truefoundry-azure": "TrueFoundry · Azure catalogue",
   openai: "OpenAI API",
@@ -121,6 +126,43 @@ const STATIC_LABELS: Record<string, string> = {
 };
 
 /** Pure source naming used by both the registry and transport-neutral renderers. */
+/**
+ * What the tail of a source id says the source reads.
+ *
+ * Twenty-one registered sources answered `sourceLabel` with their own id on 2026-10-08, and an id
+ * is not a place: a weights card read "Weights published on kaggle:google." Written as rules rather
+ * than as twenty-one more rows, because the ids are not arbitrary -- a maker plus the surface of it
+ * this reads -- and the next source to follow the pattern is then named before it is registered.
+ */
+const SURFACE_SUFFIXES: readonly { ending: string; reads: string }[] = [
+  { ending: "-model-index", reads: "model index" },
+  { ending: "-cli-models", reads: "model ids" },
+  { ending: "-code-models", reads: "model ids" },
+  { ending: "-models", reads: "model ids" },
+  { ending: "-desktop-apt", reads: "desktop app" },
+  { ending: "-changelog", reads: "changelog" },
+  { ending: "-pricing", reads: "pricing" },
+];
+
+/** The slug of a maker or a product, spelled the way its own makers spell it. */
+function surface(slug: string): string {
+  const bare = (text: string) => text.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const vendor = VENDOR_NAMES.find((name) => bare(name) === bare(slug));
+  if (vendor) return vendor;
+  return slug
+    .split("-")
+    .map((word) => SURFACE_WORDS[word] ?? word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
+/** The words a title case would get wrong, which is every one a product spells its own way. */
+const SURFACE_WORDS: Readonly<Record<string, string>> = {
+  ai: "AI",
+  chatgpt: "ChatGPT",
+  cli: "CLI",
+  zai: "Z.ai",
+};
+
 export function sourceLabel(id: string): string {
   const staticLabel = STATIC_LABELS[id];
   if (staticLabel) return staticLabel;
@@ -137,6 +179,13 @@ export function sourceLabel(id: string): string {
     const site = WATCHED_SITES.find((one) => one.id === id.slice("pages:".length));
     return site ? site.name : `${id.slice("pages:".length)} · site pages`;
   }
+  if (id.startsWith("kaggle:")) return `Kaggle · ${surface(id.slice("kaggle:".length))}`;
+  if (id.startsWith("discovery:docs-")) return `${surface(id.slice("discovery:docs-".length))} · docs · discovery`;
+  if (id.startsWith("discovery:blog-")) return `${surface(id.slice("discovery:blog-".length))} · blog · discovery`;
+  const google = id.match(/^google-blog-([a-z]{2})$/);
+  if (google) return `Google · blog · ${(google[1] ?? "").toUpperCase()}`;
+  const suffix = SURFACE_SUFFIXES.find((one) => id.endsWith(one.ending));
+  if (suffix) return `${surface(id.slice(0, -suffix.ending.length))} · ${suffix.reads}`;
   if (id.startsWith("npm:")) return `npm · ${id.slice("npm:".length)}`;
   if (id.startsWith("pypi:")) return `PyPI · ${id.slice("pypi:".length)}`;
   if (id.startsWith("github:")) {

@@ -226,6 +226,17 @@ test("registry rejects duplicate IDs and conflicting pacing", () => {
   expect(() => validateSourceRegistry([{ ...definition, mode: "invalid" as "active" }])).toThrow("invalid mode");
 });
 
+test("no registered source is named to a reader by its own id", () => {
+  // `sourceLabel` answers with the id it was given when nothing matches, which is right for a name
+  // off a card and wrong for a source this deployment runs: twelve of them reached that fallback on
+  // 2026-10-08, and a weights card read "Weights published on kaggle:google."
+  const db = openDatabase(":memory:");
+  const unnamed = buildSourceRegistry(db, config())
+    .map((definition) => definition.id)
+    .filter((id) => sourceLabel(id) === id);
+  expect(unnamed).toEqual([]);
+});
+
 test("source labels cover generated families", () => {
   expect(sourceLabel("huggingface:openai")).toBe("Hugging Face · openai");
   expect(sourceLabel("github:openai/codex:releases")).toBe("GitHub · openai/codex · releases");
@@ -238,5 +249,8 @@ test("source labels cover generated families", () => {
   expect(sourceLabel("mimo")).toBe("Xiaomi MiMo API");
   expect(sourceLabel("poolside")).toBe("Poolside API");
   expect(sourceLabel("deepinfra")).toBe("DeepInfra API");
+  expect(sourceLabel("kaggle:google")).toBe("Kaggle · Google");
+  expect(sourceLabel("anthropic-model-index")).toBe("Anthropic · model index");
+  expect(sourceLabel("discovery:docs-openai")).toBe("OpenAI · docs · discovery");
   expect(sourceLabel("unknown-source")).toBe("unknown-source");
 });

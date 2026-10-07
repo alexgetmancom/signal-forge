@@ -30,7 +30,20 @@ import {
  * silently changed what Discord showed and what counted as an empty message.
  */
 
-const COUNT_FIELDS = new Set(["context", "inputTokenLimit", "maxOutput", "outputTokenLimit", "votes"]);
+/**
+ * A token count, written the way a reader counts: `maxOutputTokens` is the gateways' spelling of
+ * `outputTokenLimit` and was in neither this set nor `ZERO_IS_BLANK`, so a Vercel row printed
+ * "Output token limit 256000" beside a context already written as 256K, and a row that named no
+ * limit printed "Output token limit 0".
+ */
+const COUNT_FIELDS = new Set([
+  "context",
+  "inputTokenLimit",
+  "maxOutput",
+  "maxOutputTokens",
+  "outputTokenLimit",
+  "votes",
+]);
 /**
  * The capability matrix a maker publishes, which is a diff and never a debut.
  *
@@ -49,7 +62,15 @@ const COUNT_FIELDS = new Set(["context", "inputTokenLimit", "maxOutput", "output
  * in full the first time one of them moves.
  */
 const MATRIX_FIELDS = new Set(["capabilities", "contextManagement", "effortLevels", "thinkingTypes"]);
-const ZERO_IS_BLANK = new Set(["context", "input", "output", "inputTokenLimit", "outputTokenLimit", "parameters"]);
+const ZERO_IS_BLANK = new Set([
+  "context",
+  "input",
+  "output",
+  "inputTokenLimit",
+  "maxOutputTokens",
+  "outputTokenLimit",
+  "parameters",
+]);
 /** An Elo score arrives as 1507.164171675996. Nobody reads past the first decimal. */
 const SCORE_FIELDS = new Set(["score", "scoreUpper", "scoreLower"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -67,10 +88,22 @@ function field(key: string, raw: unknown): Fact {
 function transition(key: string, before: unknown, after: unknown): Fact {
   // A value that appears for the first time is the value; "not set → hidream" is a line spent on a blank.
   if (!present(before)) return { label: fieldLabel(key), value: value(key, after) };
-  return {
-    label: fieldLabel(key),
-    value: `${value(key, before)} → ${present(after) ? value(key, after) : "—"}`,
-  };
+  if (!present(after)) return { label: fieldLabel(key), value: `${value(key, before)} → —` };
+  /**
+   * A count is written in whatever spelling still shows it moved.
+   *
+   * A rounded count is the right thing to read until it is both sides of an arrow: models.dev took
+   * DeepSeek Pro Latest from 384000 to 393216 and the card said "384K → 384K", which is a card
+   * reporting that nothing happened. The exact numbers are the fallback rather than the rule, so
+   * "1M → 2M" stays as it is and only the move a rounding hides spells itself out.
+   *
+   * Counts only. A score rounds for a different reason -- 1507.164171675996 is a precision the
+   * board publishes and nobody reads -- and a board that moved a model by a hundredth is the case
+   * that rounding is there to swallow, not a move to spell out in fifteen digits.
+   */
+  const rounded = [value(key, before), value(key, after)];
+  const exact = rounded[0] === rounded[1] && COUNT_FIELDS.has(key) ? [describe(before), describe(after)] : rounded;
+  return { label: fieldLabel(key), value: `${exact[0]} → ${exact[1]}` };
 }
 
 /** `{ text: true, image: true }` → `{ web: true }` reads as "Text, Image → Web". */

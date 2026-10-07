@@ -75,12 +75,27 @@ export function isStealthLaunch(event: Event): boolean {
   return STEALTH_VENUES.has(event.source) && record?.free === true;
 }
 
-/** A reseller gives a stealth model away while it is being watched: zero on both sides of the meter. */
+/**
+ * A reseller gives a stealth model away while it is being watched: zero on both sides of the meter.
+ *
+ * Two venues spell the same meter differently -- OpenRouter bills a `prompt` and a `completion`,
+ * Vercel's gateway an `input` and an `output` -- and only the first pair was read. A missing key
+ * is `NaN`, which is not zero, so `stealth/glyph-cluster` was free on the tin and not a stealth
+ * launch to this: no hold for its other venues, no facts borrowed from the catalogues that had it,
+ * and a card that said nothing it knew. A pair counts only when both of its sides are present, so
+ * a row carrying neither is still not free.
+ */
 function isFree(record: RecordData | null): boolean {
   const pricing = record?.pricing;
   if (!pricing || typeof pricing !== "object") return false;
   const rates = pricing as Record<string, unknown>;
-  return ["prompt", "completion"].every((key) => Number(rates[key]) === 0);
+  const meters = [
+    ["prompt", "completion"],
+    ["input", "output"],
+  ];
+  return meters.some(
+    (pair) => pair.every((key) => rates[key] !== undefined) && pair.every((key) => Number(rates[key]) === 0),
+  );
 }
 
 /** What the venues are all listing: `space-bunny-free` and `stealth/space-bunny-alpha` are one model. */

@@ -60,6 +60,58 @@ test("a field is labelled in words, and never repeats the handle above it", () =
   expect(facts.map((fact) => (typeof fact === "string" ? fact : fact.label))).toEqual(["Providers"]);
 });
 
+test("a gateway's own spelling of a token limit is counted and blanked like the rest", () => {
+  const facts = (row: object) =>
+    eventFactParts({
+      id: 1,
+      source: "vercel-gateway",
+      stream: "api-models",
+      entity_id: "stealth/glyph-cluster",
+      kind: "new",
+      detected_at: "2026-10-07T17:52:25.113Z",
+      before_json: null,
+      after_json: JSON.stringify(row),
+    } as never).map((fact) => (typeof fact === "string" ? fact : `${fact.label}=${fact.value}`));
+  // `maxOutputTokens` was in neither COUNT_FIELDS nor ZERO_IS_BLANK, so the gateway's rows printed
+  // "Output token limit 256000" beside a context already written as 256K, and "0" when it had none.
+  expect(facts({ id: "stealth/glyph-cluster", name: "Glyph Cluster", maxOutputTokens: 256_000 })).toContain(
+    "Output token limit=256K",
+  );
+  expect(facts({ id: "openai/gpt-6-luna-decisions", name: "GPT-6 Luna Decisions", maxOutputTokens: 0 })).not.toContain(
+    "Output token limit=0",
+  );
+});
+
+test("a move a rounding would hide is written out in full", () => {
+  const moved = (before: number, after: number) =>
+    eventFactParts({
+      id: 1,
+      source: "models-dev",
+      stream: "api-models",
+      entity_id: "deepseek-pro-latest",
+      kind: "changed",
+      detected_at: "2026-10-01T00:00:00.000Z",
+      before_json: JSON.stringify({ id: "deepseek-pro-latest", name: "DeepSeek Pro Latest", outputTokenLimit: before }),
+      after_json: JSON.stringify({ id: "deepseek-pro-latest", name: "DeepSeek Pro Latest", outputTokenLimit: after }),
+    } as never).map((fact) => (typeof fact === "string" ? fact : `${fact.label}=${fact.value}`));
+  // "384K → 384K" is a card reporting that nothing happened.
+  expect(moved(384_000, 393_216)).toContain("Output token limit=384000 → 393216");
+  // A move the rounding still shows keeps the rounding.
+  expect(moved(131_072, 1_048_576)).toContain("Output token limit=128K → 1M");
+  // A score rounds for the other reason: the precision is the board's and nobody reads it.
+  const scored = eventFactParts({
+    id: 2,
+    source: "arena-leaderboards",
+    stream: "arena",
+    entity_id: "muse-spark",
+    kind: "changed",
+    detected_at: "2026-10-01T00:00:00.000Z",
+    before_json: JSON.stringify({ id: "muse-spark", name: "muse-spark", score: 1488.164171675996 }),
+    after_json: JSON.stringify({ id: "muse-spark", name: "muse-spark", score: 1488.21117 }),
+  } as never).map((fact) => (typeof fact === "string" ? fact : `${fact.label}=${fact.value}`));
+  expect(scored).toContain("Score=1488.2 → 1488.2");
+});
+
 test("a release titled with its version says what released", () => {
   // `0.156.0` reached the public channel three times as a bare number.
   expect(displayTitle("0.156.0", "packages", "openai-codex-changelog")).toBe("OpenAI Codex 0.156.0");

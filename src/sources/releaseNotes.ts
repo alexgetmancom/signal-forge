@@ -162,6 +162,20 @@ function mainOf(html: string): string {
   return html.match(/<main\b[^>]*>([\s\S]*?)<\/main>/i)?.[1] ?? html;
 }
 
+/**
+ * The page's own footer, which belongs to the page and not to the last entry on it.
+ *
+ * A dated section runs to the next heading, and the last one runs to the end of the content, so it
+ * swallows whatever the site puts below: Google's devsite signs every page with its licence, its
+ * trademarks and the day it was last built. The day is the part that moves. On 2026-10-06 "Last
+ * updated 2026-10-01 UTC" became "2026-10-06 UTC" and the Gemini API changelog entry for
+ * 2023-12-13 went out as news, three years late, because that one byte was inside its summary.
+ *
+ * One record of the hundred and forty carries it, which is the last one; the fix is worth its one
+ * re-read rather than a rule about which entries may speak.
+ */
+const PAGE_FOOTER = /^(?:except as otherwise noted|last updated \d{4}-\d{2}-\d{2}|java is a registered trademark)/i;
+
 /** What a block of markup says, cut to the length a record keeps, or the fallback when it says nothing. */
 function summaryOf(html: string, fallback: string): string {
   return contentBlocks(html).slice(0, SUMMARY_LIMIT) || fallback;
@@ -190,7 +204,11 @@ function contentBlocks(value: string): string {
   const blocks = [...value.matchAll(/<(p|ul|ol|blockquote)\b[^>]*>[\s\S]*?<\/\1>/gi)].map((match) =>
     htmlText(match[0] ?? ""),
   );
-  return (blocks.length ? blocks.join(" ") : htmlText(value)).trim();
+  // The footer is a block of its own, so the entry ends where it begins rather than at a sentence
+  // boundary guessed out of the joined text.
+  const footer = blocks.findIndex((block) => PAGE_FOOTER.test(block.trim()));
+  const kept = footer < 0 ? blocks : blocks.slice(0, footer);
+  return (kept.length ? kept.join(" ") : htmlText(value)).trim();
 }
 
 function releaseCollection(source: string, url: string, records: RecordData[]): Collection {

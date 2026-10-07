@@ -46,6 +46,23 @@ test("a free model no vendor claims is a launch, and a paid or named one is not"
   ).toBe(false);
 });
 
+test("a gateway that spells its meter input and output is read the same way", () => {
+  // Vercel's gateway bills an input and an output where OpenRouter bills a prompt and a completion.
+  // stealth/glyph-cluster was free on the tin and read as paid, so it was never a launch here.
+  const gateway = {
+    id: "stealth/glyph-cluster",
+    name: "Glyph Cluster",
+    maker: "stealth",
+    context: 256_000,
+    maxOutputTokens: 256_000,
+    pricing: { input: "0", output: "0" },
+  };
+  expect(isStealthLaunch(venue("vercel-gateway", gateway))).toBe(true);
+  expect(isStealthLaunch(venue("vercel-gateway", { ...gateway, pricing: { input: "3", output: "15" } }))).toBe(false);
+  // A row that names no meter at all is still not free.
+  expect(isStealthLaunch(venue("vercel-gateway", { ...gateway, pricing: {} }))).toBe(false);
+});
+
 test("every venue's spelling is one model", () => {
   expect(stealthSubject(venue("opencode-go", zen))).toBe("space-bunny");
   expect(stealthSubject(venue("openrouter", openRouter, "openrouter"))).toBe("space-bunny");
