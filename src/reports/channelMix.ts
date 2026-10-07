@@ -27,6 +27,8 @@ export type ChannelMixReport = {
     shadow: number;
   }[];
   destinations: { id: string; sent: number; failed: number; withLead: number; leadShare: number }[];
+  /** Who raised the batches, and how many of their deliveries went out. */
+  raised: { origin: string; batches: number; sent: number }[];
   promotions: { batches: number; sent: number };
 };
 
@@ -82,6 +84,24 @@ export function channelMix(db: Database, config: AppConfig, days = 7, now = Date
     )
     .all(`%${LEAD_MARK}%`, since);
 
+  /**
+   * Who raised the batches in the window, which `kind` and `digest` do not say.
+   *
+   * These are the same two columns that made "how often does this feed repeat itself" unanswerable:
+   * one group of 919 held routing, resends, corroboration and breakouts together, and separating
+   * them meant joining `operator_journal` by timestamp. An origin of "not recorded" is a batch from
+   * before the column, never a batch nobody raised.
+   */
+  const raised = db
+    .query<{ origin: string; batches: number; sent: number }, [string]>(
+      `SELECT COALESCE(b.origin,'not recorded') AS origin,
+              COUNT(DISTINCT b.id) AS batches,
+              COUNT(DISTINCT CASE WHEN d.status='sent' THEN d.id END) AS sent
+       FROM batches b LEFT JOIN deliveries d ON d.batch_id=b.id
+       WHERE b.ready_at>=? GROUP BY 1 ORDER BY batches DESC, origin`,
+    )
+    .all(since);
+
   const promotions = db
     .query<{ batches: number; sent: number }, [string]>(
       `SELECT COUNT(DISTINCT b.id) AS batches,
@@ -103,6 +123,7 @@ export function channelMix(db: Database, config: AppConfig, days = 7, now = Date
       // the whole claim the service makes.
       leadShare: row.sent ? round(row.withLead / row.sent) : 0,
     })),
+    raised,
     promotions,
   };
 }

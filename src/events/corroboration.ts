@@ -250,7 +250,7 @@ export function detectCorroborated(db: Database, destinations: readonly Destinat
       if (!targets.length) return;
       const batch = db
         .query<{ id: number }, [string, string]>(
-          "INSERT INTO batches(source,digest,ready_at) VALUES(?,0,?) RETURNING id",
+          "INSERT INTO batches(source,digest,ready_at,origin) VALUES(?,0,?,'corroboration') RETURNING id",
         )
         .get(event.source, corroboration.at);
       if (!batch) throw storageFailure("a corroboration batch");

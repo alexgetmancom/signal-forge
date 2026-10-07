@@ -160,7 +160,7 @@ export function releaseSettledMoves(db: Database, now = Date.now()): number {
 
     const batch = db
       .query<{ id: number }, [string]>(
-        "INSERT INTO batches(source,digest,ready_at) VALUES('story-digest',1,?) RETURNING id",
+        "INSERT INTO batches(source,digest,ready_at,origin) VALUES('story-digest',1,?,'digest') RETURNING id",
       )
       .get(new Date(now).toISOString());
     if (!batch) throw storageFailure("a released story digest batch");

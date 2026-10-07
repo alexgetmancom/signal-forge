@@ -174,7 +174,7 @@ function publish(db: Database, config: AppConfig, card: Card, now: number): bool
   writeTransaction(db, () => {
     const batch = db
       .query<{ id: number }, [string, string]>(
-        "INSERT INTO batches(source,digest,ready_at,kind,context_json) VALUES('scout-promotion',0,?,'promotion',?) RETURNING id",
+        "INSERT INTO batches(source,digest,ready_at,kind,context_json,origin) VALUES('scout-promotion',0,?,'promotion',?,'promotion') RETURNING id",
       )
       .get(new Date(now).toISOString(), JSON.stringify(context));
     if (!batch) throw storageFailure("a promotion batch");

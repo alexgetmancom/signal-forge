@@ -72,7 +72,7 @@ export function deliveryOperations(db: Database, config: AppConfig, _all: () => 
         const queued = writeTransaction(db, () => {
           const batch = db
             .query<{ id: number }, [string, string]>(
-              "INSERT INTO batches(source,digest,ready_at,kind,context_json) VALUES(?,0,?,'event',NULL) RETURNING id",
+              "INSERT INTO batches(source,digest,ready_at,kind,context_json,origin) VALUES(?,0,?,'event',NULL,'resend') RETURNING id",
             )
             .get(event.source, new Date().toISOString());
           if (!batch) throw new Error("Resend batch insert failed");

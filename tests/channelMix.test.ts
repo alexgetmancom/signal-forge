@@ -108,3 +108,33 @@ test("a shadow source is counted apart from a class nobody subscribes to", () =>
   });
   db.close();
 });
+
+test("the mix says who raised each batch, which kind and digest could not", () => {
+  // 919 batches held `kind='event', digest=0`: routing, an operator's resend, a corroboration and a
+  // breakout in one group. The first count of repeats built from it was wrong by four cards.
+  const db = openDatabase(":memory:");
+  const catalogue: Collection = {
+    source: "openai",
+    stream: "api-models",
+    url: "https://api.openai.com/models",
+    raw: [],
+    records: [{ id: "baseline", name: "Baseline", pricing: { prompt: "1" } }],
+  };
+  saveCollection(db, catalogue, [wire], "2026-09-10T10:00:00.000Z");
+  catalogue.records.push({ id: "gpt-6-astra", name: "GPT-6 Astra" });
+  saveCollection(db, catalogue, [wire], "2026-09-11T10:00:00.000Z");
+  // The same card sent again by hand, which is what routing was indistinguishable from.
+  db.query(
+    "INSERT INTO batches(source,digest,ready_at,kind,context_json,origin) VALUES('openai',0,'2026-09-11T12:00:00.000Z','event',NULL,'resend')",
+  ).run();
+  // A batch from before the column: the origin nobody wrote down, not an origin that was none.
+  db.query("INSERT INTO batches(source,digest,ready_at) VALUES('openai',0,'2026-09-11T13:00:00.000Z')").run();
+
+  const report = channelMix(db, { ...base, destinations: [wire] }, 7, Date.parse("2026-09-13T18:00:00.000Z"));
+  expect(report.raised).toEqual([
+    { origin: "not recorded", batches: 1, sent: 0 },
+    { origin: "policy", batches: 1, sent: 0 },
+    { origin: "resend", batches: 1, sent: 0 },
+  ]);
+  db.close();
+});

@@ -364,7 +364,7 @@ export function scheduleLifecycleReminders(db: Database, config: AppConfig, now 
       lifecycleReminderContextSchema.parse(context);
       const batch = db
         .query<{ id: number }, [string, number, string, string]>(
-          "INSERT INTO batches(source,digest,ready_at,kind,context_json) VALUES(?,?,?,'lifecycle_reminder',?) RETURNING id",
+          "INSERT INTO batches(source,digest,ready_at,kind,context_json,origin) VALUES(?,?,?,'lifecycle_reminder',?,'reminder') RETURNING id",
         )
         .get(reminder.source, 0, new Date(now).toISOString(), JSON.stringify(context));
       if (!batch) throw storageFailure("a lifecycle reminder batch");

@@ -177,7 +177,7 @@ export function detectBreakouts(db: Database, destinations: readonly Destination
       if (!targets.length) return;
       const batch = db
         .query<{ id: number }, [string, string]>(
-          "INSERT INTO batches(source,digest,ready_at) VALUES(?,0,?) RETURNING id",
+          "INSERT INTO batches(source,digest,ready_at,origin) VALUES(?,0,?,'breakout') RETURNING id",
         )
         .get(event.source, measured.at);
       if (!batch) throw storageFailure("a breakout batch");

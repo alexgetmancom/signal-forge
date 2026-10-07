@@ -129,7 +129,7 @@ async function scheduleRecap(db: Database, config: AppConfig, period: RecapPerio
   if (empty) return false;
   const batch = db
     .query<{ id: number }, [string, string, string]>(
-      "INSERT INTO batches(source,digest,ready_at,kind,context_json) VALUES(?,0,?,'weekly_recap',?) RETURNING id",
+      "INSERT INTO batches(source,digest,ready_at,kind,context_json,origin) VALUES(?,0,?,'weekly_recap',?,'recap') RETURNING id",
     )
     .get(source, readyAt, JSON.stringify(context));
   if (!batch) throw new Error("Recap batch insert failed");

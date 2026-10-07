@@ -132,7 +132,7 @@ export function routeEmitted(
       existing ??
       db
         .query<{ id: number }, [string, number, string]>(
-          "INSERT INTO batches(source,digest,ready_at) VALUES(?,?,?) RETURNING id",
+          "INSERT INTO batches(source,digest,ready_at,origin) VALUES(?,?,?,'policy') RETURNING id",
         )
         .get(batchSource, Number(digest), ready);
     if (!batch) throw storageFailure("an event batch");

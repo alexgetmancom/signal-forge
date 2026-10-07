@@ -151,7 +151,8 @@ export function calibrationOperations(db: Database, config: AppConfig, _all: () 
     channel_mix: {
       section: "sources",
       summary:
-        "What each destination actually carried: signal classes delivered or unrouted, lead-time share and promotions.",
+        "What each destination actually carried: signal classes delivered or unrouted, lead-time " +
+        "share, who raised the batches, and promotions.",
       startHere: "what the public channel is really full of",
       mutates: false,
       agent: true,

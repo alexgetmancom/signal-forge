@@ -195,7 +195,7 @@ test("a fresh database runs the journal and finishes with a valid current schema
       .query<{ name: string }, []>("PRAGMA table_info(batches)")
       .all()
       .map((column) => column.name),
-  ).toEqual(["id", "source", "digest", "ready_at", "sealed", "kind", "context_json"]);
+  ).toEqual(["id", "source", "digest", "ready_at", "sealed", "kind", "context_json", "origin"]);
   expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
   db.close();
 });
