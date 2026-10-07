@@ -569,6 +569,32 @@ test("a bundle of twelve updates is one message on each platform", () => {
   ]);
 });
 
+test("a batch too wide to name every card cuts the line of links instead of the message", () => {
+  // The Claude Docs digest of 2026-09-30 named 97 pages on one line, and Discord refused the whole
+  // message: 98 page updates were recorded as carried by a message nobody received.
+  saveCollection(db, collection(["a"]), targets);
+  const c = collection(["a", ...Array.from({ length: 120 }, (_, i) => `a-rather-long-model-name-${i}`)]);
+  saveCollection(db, c, targets);
+  const rows = db
+    .query<{ body: string; destination_id: string }, []>("SELECT body,destination_id FROM deliveries")
+    .all();
+
+  const discord = rows.filter((row) => row.destination_id !== "tg");
+  expect(discord).toHaveLength(1);
+  const payload = JSON.parse(discord[0]?.body ?? "") as { content: string };
+  expect(payload.content.length).toBeLessThanOrEqual(2000);
+  expect(payload.content).toStartWith("📡 OpenRouter · 120 updates");
+  // The tail that did not fit says how much of it there was, rather than stopping mid-line.
+  expect(payload.content).toMatch(/· \+\d+ more$/);
+  const named = payload.content.match(/\]\(https/g)?.length ?? 0;
+  expect(named).toBeGreaterThan(0);
+  expect(named).toBeLessThan(119);
+
+  // Every event is still carried by this message, named on the line or not, so none is sent twice.
+  const carried = db.query<{ n: number }, []>("SELECT COUNT(*) AS n FROM batch_events").get()?.n ?? 0;
+  expect(carried).toBeGreaterThanOrEqual(120);
+});
+
 test("timestamps let each platform speak its reader's clock", () => {
   const event = {
     signal: null,

@@ -260,6 +260,52 @@ function cardPings(
   return { roles, pingLine, tookOff };
 }
 
+/**
+ * How long a message's text may be, under the limit the platform actually enforces.
+ *
+ * Discord's is 2000 characters and Telegram's 4096, and neither of them is a soft limit: a message
+ * over it is refused whole. `-# Also:` grew with the batch and nothing measured it, so the Claude
+ * Docs digest of 2026-09-30 -- 98 page updates, 97 of them on that one line -- was rejected with
+ * `50035 Invalid Form Body` and all 98 were marked carried by a message that never existed. The
+ * margin is for the markup a platform counts and this does not.
+ */
+function contentLimit(platform: string): number {
+  return platform === "telegram" ? 3900 : 1900;
+}
+
+/**
+ * The line of links for the cards that did not fit, itself cut to what is left of the message.
+ *
+ * Dropping the tail is the only honest cut: the events behind every one of these embeds are carried
+ * by this message either way, so a link left off is a link a reader does not get, while a message
+ * over the limit is every card in it that nobody gets. The count of what was dropped is kept, since
+ * "and 60 more" is a different thing to know than a line that simply stops.
+ */
+function overflowLine(extra: readonly { title?: unknown; url?: unknown }[], budget: number): string {
+  const links = extra
+    .map((embed) => {
+      const name = String(embed.title ?? "").replace(/^[^\p{L}\p{N}]+/u, "");
+      const link = typeof embed.url === "string" ? embed.url.split("#")[0] : null;
+      return link ? `[${name}](${link})` : name;
+    })
+    .filter(Boolean);
+  if (links.length === 0) return "";
+  const prefix = "-# Also: ";
+  const kept: string[] = [];
+  let length = prefix.length;
+  for (const link of links) {
+    // Room for the separator before it, and for the `· +N more` that a cut tail owes.
+    const added = (kept.length ? 3 : 0) + link.length;
+    if (kept.length > 0 && length + added + 14 > budget) break;
+    kept.push(link);
+    length += added;
+  }
+  const dropped = links.length - kept.length;
+  const line = `${prefix}${kept.join(" · ")}${dropped > 0 ? ` · +${dropped} more` : ""}`;
+  // One link can be longer than the whole budget, and a header a reader needs is worth more than it.
+  return line.length > budget ? "" : line;
+}
+
 /** One message of cards, for a destination that reads them. */
 export function storeCards(
   work: Delivering,
@@ -278,18 +324,10 @@ export function storeCards(
   );
   // What did not fit is told on one line of links rather than in a second message: the
   // events behind it are carried by this message, so none of them is sent again later.
-  const alsoLine = extra.length
-    ? `-# Also: ${extra
-        .map((embed) => {
-          const name = String(embed.title ?? "").replace(/^[^\p{L}\p{N}]+/u, "");
-          const link = typeof embed.url === "string" ? embed.url.split("#")[0] : null;
-          return link ? `[${name}](${link})` : name;
-        })
-        .filter(Boolean)
-        .join(" · ")}`
-    : "";
+  const lines = [roster ? "" : header.trim(), ...tookOff, pingLine].filter(Boolean);
+  const alsoLine = overflowLine(extra, contentLimit(destination.platform) - lines.join("\n").length - 1);
   // A roster card names its own count and catalogue; the "3 updates" line above it would repeat it.
-  const content = [roster ? "" : header.trim(), ...tookOff, pingLine, alsoLine].filter(Boolean).join("\n");
+  const content = [...lines, alsoLine].filter(Boolean).join("\n");
   const files = page.map((embed) => attachments.get(embed)).filter((file): file is Attachment => Boolean(file));
   const carried = [...page, ...extra].flatMap((embed) => behind.get(embed) ?? []);
   // A message that continues one story hangs off the one that told it first, so the reveal of
