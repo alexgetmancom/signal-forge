@@ -64,8 +64,16 @@ function claudeClientCatalogue(db: Database): SourceEntry[] {
  * A maker's own model list is where a release shows first, and the request is one small JSON: MiMo
  * V2.6 appeared between two polls ten minutes apart on 2026-09-21, nine minutes after a rival's post.
  * The few seconds between makers keep their polls from landing together.
+ *
+ * One minute, down from two, because the cycle can carry it and nothing upstream objects: the poller
+ * wakes every thirty seconds, so an interval is honoured to within a tick -- the `openai`, `anthropic`
+ * and `gemini` rows sat 132 to 149 seconds apart on 2026-10-07, which is the two minutes asked for.
+ * One small JSON per maker per minute is 1,440 requests a day against endpoints that have answered
+ * 429 to this service zero times, and a `/v1/models` list is the cheapest call either vendor serves.
+ * Whatever the halving is worth, it is worth it here: this is the surface the maker itself answers
+ * with, and `confidenceFor` reads that as confirmed, so it is the one poll that ends a race.
  */
-const MAKER_API_SECONDS = 120;
+const MAKER_API_SECONDS = 60;
 /** Hosts serving other makers' open weights: rarely first, so the old pace. */
 const HOSTS = new Set(["groq", "cerebras", "deepinfra"]);
 
@@ -139,9 +147,11 @@ const RESELLER_CATALOGUE: SourceKind = {
  * a catalogue's business -- and `web_diff` because what was read is a page, not a model list an API
  * answers with.
  *
- * Two minutes, because this is the whole point of it. These pages are 12 and 17 KB, and on
+ * One minute, because this is the whole point of it. These pages are 12 and 17 KB, and on
  * 2026-09-29 the fifteen minutes between polls of a changelog was the entire margin by which this
- * tracker came second on GPT-6.1 Sol.
+ * tracker came second on GPT-6.1 Sol. It was two, and two is what a thirty-second cycle delivered;
+ * the page is small enough that the only thing a minute costs is the request, so it reads at the
+ * same pace as the API of the maker who writes it.
  */
 const MODEL_INDEX: SourceKind = {
   kind: "model-index",
@@ -150,7 +160,7 @@ const MODEL_INDEX: SourceKind = {
   confidence: "supported",
   group: "Catalogues",
   stream: "api-models",
-  intervalSeconds: 120,
+  intervalSeconds: MAKER_API_SECONDS,
 };
 
 /**

@@ -282,7 +282,10 @@ function developerFeedSources({ db, cache }: SourceContext): SourceEntry[] {
       id: "openai-codex-changelog",
       vendor: "OpenAI",
       heavy: true,
-      intervalSeconds: 120,
+      // A minute, because the question is a HEAD with an if-none-match and the answer is 304: see
+      // `acceptedEtagUnchanged`. The body is the 1.1 MB `heavy` exists for, and it is only ever
+      // read after the cheap half has already said the feed moved.
+      intervalSeconds: 60,
       nothingNew: () => acceptedEtagUnchanged(db, cache, "openai-codex-changelog", OPENAI_CODEX_CHANGELOG_FEED_URL),
       collector: () => collectOpenAICodexChangelog(fetch, cache),
     },
