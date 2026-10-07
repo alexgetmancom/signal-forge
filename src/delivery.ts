@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import { applyCardAmendments, queueIncidentAmendments } from "./amendments.js";
+import { applyCardAmendments, queueIncidentAmendments, queuePriceAmendments } from "./amendments.js";
 import { type AppConfig, type Destination, judged } from "./config.js";
 import { BLOCKED_PREFIX, type Settlement, settle } from "./deliveryOutcome.js";
 import { type Job, multipart, PreparationError, type PreparedDelivery, prepareRequest } from "./deliveryRequest.js";
@@ -63,6 +63,7 @@ export async function deliverPending(db: Database, config: AppConfig, request: F
     releaseSettledMoves(db, Date.now());
     prepareDeliveries(db, Date.now(), config.vendorRoles, config.allSignalsRole);
     queueIncidentAmendments(db);
+    queuePriceAmendments(db);
   });
   await applyCardAmendments(db, config, request);
 

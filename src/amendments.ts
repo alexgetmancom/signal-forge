@@ -1,10 +1,14 @@
 import type { Database } from "bun:sqlite";
 import type { AppConfig } from "./config.js";
 import { incidentEnded } from "./events/incidents.js";
+import { borrowedFacts } from "./events/priceWorth.js";
+import { type Fact, prices } from "./events/render/common.js";
 import { CAPTION_LIMIT, clipHtml, TEXT_LIMIT, telegramMessage, visibleLength } from "./events/render/telegramCard.js";
+import { stealthSubject } from "./events/resellers.js";
 import type { Event } from "./events/types.js";
 import type { Fetch } from "./http-client.js";
 import { log } from "./logger.js";
+import { sourceLabel } from "./sources/labels.js";
 
 /**
  * Cards that change after they were sent, edited where the reader already saw them.
@@ -50,6 +54,94 @@ export function queueIncidentAmendments(db: Database, now = Date.now()): number 
         .run(ending.id, card.id, new Date(now).toISOString()).changes;
   }
   return queued;
+}
+
+/**
+ * How long after a launch a price is still worth adding to the card that went without one.
+ *
+ * The window is the news cycle of the launch itself, not of the price. A rate that turns up three
+ * days later is a price change and has a card of its own; a rate that turns up within the day is
+ * the number the launch card was missing, arriving late.
+ */
+const PRICE_WINDOW_MS = 24 * 3_600_000;
+
+/**
+ * Launch cards that went out without a price, for models that have one now.
+ *
+ * The maker ships the model and prices it on a different page, read by a different source on its
+ * own clock, so the two do not arrive together and on the evidence they never will: on 2026-10-07
+ * Anthropic's API answered Claude Haiku 5.5 at 17:51 and the first price anywhere appeared at
+ * 18:13. Holding the card back until a price exists would trade the lead this tracker is for
+ * against a number that is not news; sending a second card would interrupt a reader twice for one
+ * launch. A Discord edit notifies nobody, so the card a reader already has can simply gain the
+ * line.
+ *
+ * Only a card about one thing, as with an incident: editing a digest would rewrite entries about
+ * other models. Only a card that carries no price already -- the point is the blank, not the rate.
+ */
+export function queuePriceAmendments(db: Database, now = Date.now()): number {
+  const candidates = db
+    .query<{ event_id: number; delivery_id: number }, [string]>(
+      `SELECT de.event_id AS event_id, d.id AS delivery_id
+       FROM deliveries d
+       JOIN delivery_events de ON de.delivery_id=d.id
+       JOIN events e ON e.id=de.event_id
+       WHERE e.kind='new' AND e.detected_at>=? AND d.status='sent' AND d.external_id IS NOT NULL
+         AND json_extract(d.destination_json,'$.platform')='discord'
+         AND d.body NOT LIKE '%$%'
+         AND NOT EXISTS (SELECT 1 FROM card_amendments a WHERE a.delivery_id=d.id)
+         AND (SELECT COUNT(*) FROM delivery_events other WHERE other.delivery_id=d.id)=1
+       ORDER BY de.event_id`,
+    )
+    .all(new Date(now - PRICE_WINDOW_MS).toISOString());
+  let queued = 0;
+  for (const candidate of candidates) {
+    const event = db.query<Event, [number]>("SELECT * FROM events WHERE id=?").get(candidate.event_id);
+    if (!event) continue;
+    const borrowed = borrowedFacts(db, event, stealthSubject(event));
+    if (!priceLine(borrowed)) continue;
+    queued += db
+      .query("INSERT OR IGNORE INTO card_amendments(event_id,delivery_id,kind,updated_at) VALUES(?,?,'priced',?)")
+      .run(candidate.event_id, candidate.delivery_id, new Date(now).toISOString()).changes;
+  }
+  return queued;
+}
+
+/** The borrowed sheet as the one line a card has room for, or nothing when it holds no rate. */
+function priceLine(borrowed: Record<string, unknown>): string | null {
+  const found = prices(null, borrowed.pricing, String(borrowed.pricingSource ?? "")).find(
+    (fact): fact is Exclude<Fact, string> => typeof fact !== "string" && fact.label === "Price",
+  );
+  return found ? found.value : null;
+}
+
+/**
+ * The card with the price it was sent without, and nothing else touched.
+ *
+ * A field rather than a chip on the picture: the banner is drawn at send time and travels as an
+ * upload, so putting the rate there would mean re-drawing and re-uploading an image to say one
+ * number. The field sits under the description where the window already is.
+ */
+function pricedCard(body: string, line: string, source: string): Record<string, unknown> | null {
+  const payload = JSON.parse(body) as { content?: string; embeds?: Record<string, unknown>[] };
+  const embed = payload.embeds?.[0];
+  if (!embed || payload.embeds?.length !== 1) return null;
+  const fields = Array.isArray(embed.fields) ? (embed.fields as Record<string, unknown>[]) : [];
+  // Twice is worse than not at all: an amendment that ran against a card already carrying the rate
+  // would stack a second Price field under the first.
+  if (fields.some((field) => String(field.name ?? "") === "Price")) return null;
+  return {
+    content: payload.content ?? "",
+    embeds: [
+      {
+        ...embed,
+        // Named, as a borrowed rate is wherever one is printed: a second catalogue's number is not
+        // the maker's unless the maker is who it came from.
+        fields: [...fields, { name: "Price", value: `${line} · ${sourceLabel(source)}`.slice(0, 1024), inline: false }],
+      },
+    ],
+    allowed_mentions: { parse: [] },
+  };
 }
 
 /** "40 min", "5 h 12 min", "2 d 3 h": how long it was broken, as a reader would say it. */
@@ -148,6 +240,27 @@ function telegramEdits(config: AppConfig, chatId: string, messageId: string, ori
   return wasPhoto ? [asCaption, asText] : [asText, asCaption];
 }
 
+/** An incident card rewritten for the end it has now reached. */
+function resolved(db: Database, amendment: { event_id: number; body: string }): Record<string, unknown> | null {
+  const ending = endingOf(db, amendment.event_id);
+  return ending ? resolvedCard(amendment.body, ending) : null;
+}
+
+/**
+ * A launch card given the rate that arrived after it.
+ *
+ * Read again here rather than carried from the queue: an amendment waits its turn and is retried,
+ * and the sheet it was queued on may have moved by the time the edit goes out. The card should say
+ * what is true when it is written, not what was true when it was noticed.
+ */
+function repriced(db: Database, amendment: { event_id: number; body: string }): Record<string, unknown> | null {
+  const event = db.query<Event, [number]>("SELECT * FROM events WHERE id=?").get(amendment.event_id);
+  if (!event) return null;
+  const borrowed = borrowedFacts(db, event, stealthSubject(event));
+  const line = priceLine(borrowed);
+  return line ? pricedCard(amendment.body, line, String(borrowed.pricingSource ?? "")) : null;
+}
+
 export async function applyCardAmendments(db: Database, config: AppConfig, request: Fetch = fetch): Promise<void> {
   const pending = db
     .query<
@@ -160,10 +273,11 @@ export async function applyCardAmendments(db: Database, config: AppConfig, reque
         platform: string;
         channel: string | null;
         chat: string | number | null;
+        kind: string;
       },
       [number]
     >(
-      `SELECT a.event_id,a.delivery_id,a.attempts,d.body,d.external_id,
+      `SELECT a.event_id,a.delivery_id,a.attempts,a.kind,d.body,d.external_id,
          json_extract(d.destination_json,'$.platform') AS platform,
          json_extract(d.destination_json,'$.channelId') AS channel,
          json_extract(d.destination_json,'$.chatId') AS chat
@@ -174,8 +288,7 @@ export async function applyCardAmendments(db: Database, config: AppConfig, reque
   for (const amendment of pending) {
     const telegram = amendment.platform === "telegram";
     if (telegram ? !config.TELEGRAM_BOT_TOKEN : !config.DISCORD_BOT_TOKEN) continue;
-    const ending = endingOf(db, amendment.event_id);
-    const card = ending ? resolvedCard(amendment.body, ending) : null;
+    const card = amendment.kind === "priced" ? repriced(db, amendment) : resolved(db, amendment);
     let status: "pending" | "edited" | "failed" = "failed";
     if (card) {
       const edits: Edit[] = telegram

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { applyCardAmendments, outageLength, queueIncidentAmendments } from "../src/amendments.js";
+import { applyCardAmendments, outageLength, queueIncidentAmendments, queuePriceAmendments } from "../src/amendments.js";
 import type { Destination } from "../src/config.js";
 import { prepareDeliveries } from "../src/events/batching.js";
 import { saveCollection } from "../src/events/pipeline.js";
@@ -137,4 +137,95 @@ test("an outage's length reads the way a person says it", () => {
   expect(outageLength(312 * 60_000)).toBe("5 h 12 min");
   expect(outageLength(120 * 60_000)).toBe("2 h");
   expect(outageLength(51 * 3_600_000)).toBe("2 d 3 h");
+});
+
+test("a launch card sent before anyone priced the model gains the rate when it arrives", async () => {
+  const db = openDatabase(":memory:");
+  const maker = (models: Collection["records"]): Collection => ({
+    source: "anthropic",
+    stream: "api-models",
+    url: "https://api.anthropic.com/v1/models",
+    raw: [],
+    records: models,
+  });
+  const earlier = { id: "claude-opus-5-5", name: "Claude Opus 5.5", context: 1_000_000 };
+  saveCollection(db, maker([earlier]), [wire], "2026-10-07T12:00:00.000Z");
+  // 17:51: the maker answers, the card goes out, and no catalogue anywhere holds a price.
+  saveCollection(
+    db,
+    maker([earlier, { id: "claude-haiku-5-5", name: "Claude Haiku 5.5", context: 1_000_000 }]),
+    [wire],
+    "2026-10-07T17:51:19.499Z",
+  );
+  prepareDeliveries(db, Date.parse("2026-10-07T17:52:00.000Z"));
+  db.query("UPDATE deliveries SET status='sent',external_id='123456'").run();
+  expect(queuePriceAmendments(db, Date.parse("2026-10-07T17:53:00.000Z"))).toBe(0);
+
+  // 18:13: the maker's own price table catches up, twenty-two minutes behind its own API.
+  saveCollection(
+    db,
+    {
+      source: "anthropic-pricing",
+      stream: "api-models",
+      url: "https://platform.claude.com/docs/en/about-claude/pricing",
+      raw: [],
+      records: [
+        { id: "claude-haiku-5-5", name: "Claude Haiku 5.5", maker: "Anthropic", pricing: { input: 0.1, output: 0.5 } },
+      ],
+    },
+    [],
+    "2026-10-07T18:13:00.000Z",
+  );
+
+  expect(queuePriceAmendments(db, Date.parse("2026-10-07T18:14:00.000Z"))).toBe(1);
+  // Queued once. A second pass must not stack a second edit on the same card.
+  expect(queuePriceAmendments(db, Date.parse("2026-10-07T18:15:00.000Z"))).toBe(0);
+
+  const calls: { url: string; method: string | undefined; body: Record<string, unknown> }[] = [];
+  const request = async (url: string, init?: RequestInit) => {
+    calls.push({ url, method: init?.method, body: JSON.parse(String(init?.body)) });
+    return Response.json({ id: "123456" });
+  };
+  await applyCardAmendments(db, { DISCORD_BOT_TOKEN: "t", destinations: [wire] } as never, request);
+
+  expect(calls).toHaveLength(1);
+  expect(calls[0]?.method).toBe("PATCH");
+  const embed = (calls[0]?.body.embeds as Record<string, unknown>[] | undefined)?.[0];
+  const fields = embed?.fields as { name: string; value: string }[] | undefined;
+  // In the unit recorded against the source, and named, because a borrowed rate always is.
+  expect(fields?.at(-1)).toMatchObject({
+    name: "Price",
+    value: "$0.1 in · $0.5 out / 1M tokens · Anthropic · API pricing",
+  });
+  // The edit is the card that was sent with one field added: no second message, nothing pinged.
+  expect(db.query<{ n: number }, []>("SELECT COUNT(*) n FROM deliveries").get()?.n).toBe(1);
+  expect(calls[0]?.body.allowed_mentions).toEqual({ parse: [] });
+  db.close();
+});
+
+test("a launch card that already carried a price is left alone", () => {
+  const db = openDatabase(":memory:");
+  const gateway = (models: Collection["records"]): Collection => ({
+    source: "openrouter",
+    stream: "openrouter",
+    url: "https://openrouter.ai",
+    raw: [],
+    records: models,
+  });
+  const earlier = { id: "anthropic/claude-opus-5.5", name: "Claude Opus 5.5" };
+  saveCollection(db, gateway([earlier]), [wire], "2026-10-07T12:00:00.000Z");
+  saveCollection(
+    db,
+    gateway([
+      earlier,
+      { id: "anthropic/claude-haiku-5.5", name: "Claude Haiku 5.5", pricing: { prompt: "0.0000001" } },
+    ]),
+    [wire],
+    "2026-10-07T17:40:00.000Z",
+  );
+  prepareDeliveries(db, Date.parse("2026-10-07T17:52:00.000Z"));
+  db.query("UPDATE deliveries SET status='sent',external_id='123456'").run();
+  // The blank is the point: a card whose body already names a rate has nothing to gain.
+  expect(queuePriceAmendments(db, Date.parse("2026-10-07T18:14:00.000Z"))).toBe(0);
+  db.close();
 });
