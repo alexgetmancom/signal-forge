@@ -17,6 +17,11 @@ import type { Database } from "bun:sqlite";
  * build of it; both were the whole of the noise in the first reading. So a model whose name ends in
  * a date or a four-digit build is set aside when the name without it is catalogued -- and kept when
  * it is not, because then the base is missing too and that is the same finding.
+ *
+ * `observedAt` is when the price first appeared, from `records.first_seen_at`. It used to be
+ * `observed_at`, which every collection overwrites, so a gap that had stood for weeks was reported
+ * as minutes old and the one thing a reader wants to know about it -- how long it has been priced
+ * and undocumented -- was the one thing the report could not say.
  */
 export type PricedUncatalogued = { model: string; tiers: string[]; url: string; observedAt: string };
 
@@ -41,7 +46,7 @@ export function pricedUncatalogued(db: Database): {
   const priced = db
     .query<PricedRow, []>(
       `SELECT json_extract(body,'$.model') AS model, json_extract(body,'$.tier') AS tier,
-              json_extract(body,'$.url') AS url, min(observed_at) AS observed_at
+              json_extract(body,'$.url') AS url, min(COALESCE(first_seen_at,observed_at)) AS observed_at
        FROM records WHERE source='openai-pricing' GROUP BY model, tier ORDER BY model, tier`,
     )
     .all();

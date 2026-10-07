@@ -245,8 +245,12 @@ function writeRecords(
       }
     }
     db.query(
-      "INSERT INTO records(source,id,body,stream,observed_at) VALUES(?,?,?,?,?) ON CONFLICT(source,id) DO UPDATE SET body=excluded.body,stream=excluded.stream,observed_at=excluded.observed_at,missing_count=0,candidate_body=NULL",
-    ).run(c.source, record.id, body, c.stream, now);
+      // `first_seen_at` is written once and never moved, the way `sources.first_observed_at` is:
+      // `observed_at` is overwritten on every confirmation, so it cannot answer when we first met a
+      // record, and the readers that wanted a first sighting had nothing else to ask. Every other
+      // write of this table updates an existing row and so leaves the column alone.
+      "INSERT INTO records(source,id,body,stream,observed_at,first_seen_at) VALUES(?,?,?,?,?,?) ON CONFLICT(source,id) DO UPDATE SET body=excluded.body,stream=excluded.stream,observed_at=excluded.observed_at,missing_count=0,candidate_body=NULL,first_seen_at=COALESCE(records.first_seen_at,excluded.first_seen_at)",
+    ).run(c.source, record.id, body, c.stream, now, now);
   }
   spendAmendments(db, c.source, spent);
 }

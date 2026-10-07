@@ -46,6 +46,25 @@ test("first snapshot is quiet, new records fan out exactly once", () => {
     { destination_id: "dc" },
   ]);
 });
+test("a record remembers when it first appeared, not when it was last confirmed", () => {
+  saveCollection(db, collection(["a"]), targets);
+  const first = db
+    .query<{ first_seen_at: string; observed_at: string }, []>(
+      "SELECT first_seen_at,observed_at FROM records WHERE id='a'",
+    )
+    .get();
+  expect(first?.first_seen_at).toBe(first?.observed_at as string);
+  Bun.sleepSync(2);
+  saveCollection(db, collection(["a"]), targets);
+  const again = db
+    .query<{ first_seen_at: string; observed_at: string }, []>(
+      "SELECT first_seen_at,observed_at FROM records WHERE id='a'",
+    )
+    .get();
+  // The whole point of the column: confirming a record moves `observed_at` and must not move this.
+  expect(again?.first_seen_at).toBe(first?.first_seen_at as string);
+  expect(again?.observed_at).not.toBe(first?.observed_at as string);
+});
 test("a market's liquidity moving is no change, its price moving is", () => {
   const market = (price: number, liquidityUsd: number): Collection => ({
     source: "polymarket",

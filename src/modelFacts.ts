@@ -56,6 +56,7 @@ type ModelAggregate = { canonicalId: string; firstSeenAt: string; updatedAt: str
 type CurrentRecordRow = {
   source: string;
   id: string;
+  first_seen_at: string;
   body: string;
   stream: string;
   observed_at: string;
@@ -311,10 +312,14 @@ function projectModelFacts(storyRows: Iterable<StoryEventRow>, recordRows: Itera
     const aggregate = existing
       ? {
           ...existing,
-          firstSeenAt: minInstant(existing.firstSeenAt, row.observed_at),
+          // `first_seen_at` for the first, `observed_at` for the second: the one is written once
+          // when the record appears, the other on every collection that still sees it. Reading the
+          // second as a first sighting dated a month-old model to this morning, and because this
+          // projection is rebuilt rather than amended, it did so again on every run.
+          firstSeenAt: minInstant(existing.firstSeenAt, row.first_seen_at),
           updatedAt: maxInstant(existing.updatedAt, row.observed_at),
         }
-      : { canonicalId: identity.canonicalId, firstSeenAt: row.observed_at, updatedAt: row.observed_at };
+      : { canonicalId: identity.canonicalId, firstSeenAt: row.first_seen_at, updatedAt: row.observed_at };
     models.set(key, aggregate);
     members.push({ kind: "record", ref: recordRef(row.source, row.id), key });
     const extracted = extractCandidates(event, aggregate.canonicalId, null);
@@ -364,7 +369,8 @@ const STORY_EVENTS_SQL = `SELECT s.id AS story_id,s.stable_key,s.first_seen_at,s
  JOIN story_events se ON se.story_id=s.id
  JOIN events e ON e.id=se.event_id`;
 
-const RECORDS_SQL = `SELECT r.source,r.id,r.body,r.stream,r.observed_at,COALESCE(s.authority,'third_party') AS authority,
+const RECORDS_SQL = `SELECT r.source,r.id,r.body,r.stream,r.observed_at,
+ COALESCE(r.first_seen_at,r.observed_at) AS first_seen_at,COALESCE(s.authority,'third_party') AS authority,
  COALESCE(s.evidence_type,'unknown') AS evidence_type,COALESCE(s.confidence,'observed') AS confidence
  FROM records r LEFT JOIN sources s ON s.id=r.source`;
 

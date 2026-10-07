@@ -166,7 +166,7 @@ test("a fresh database runs the journal and finishes with a valid current schema
       .query<{ name: string }, []>("PRAGMA table_info(records)")
       .all()
       .map((column) => column.name),
-  ).toEqual(["source", "id", "body", "missing_count", "stream", "observed_at", "candidate_body"]);
+  ).toEqual(["source", "id", "body", "missing_count", "stream", "observed_at", "candidate_body", "first_seen_at"]);
   expect(db.query("SELECT name FROM sqlite_master WHERE type='trigger'").all()).toEqual([]);
   expect(db.query("SELECT name FROM sqlite_master WHERE name='change_candidates'").all()).toEqual([]);
   expect(
