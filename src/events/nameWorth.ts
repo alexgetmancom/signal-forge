@@ -222,6 +222,51 @@ export function isAnotherTierOfAListedModel(db: Database, event: Event): boolean
 }
 
 /**
+ * The tail that says how big a picture is, not which model drew it.
+ *
+ * An image arena seats one model once per output size. `gemini-nano-banana-2.1-2k` arrived on
+ * 2026-10-08 under Google's name with nothing announced, two days after `gemini-nano-banana-2.1`
+ * had reached the scouts from the same board with the same provider and the same input and output
+ * shape. The second card said the same thing as the first and spent the room's attention on a
+ * resolution. A codename is worth telling once; the sizes it is served at are not sightings.
+ */
+const SIZE_TAIL = /^(?:\d+k|\d+p|\d+x\d+)$/;
+
+/**
+ * Whether an arena seat is a size of a name this arena has already shown us.
+ *
+ * Asked of the events rather than of the records, because an arena rotates its roster: the plain
+ * `gemini-nano-banana-2.1` row was gone from the board by the time the 2k one appeared, so the
+ * catalogue of what is seated now cannot answer, and what we already told a reader can. For the
+ * same reason `isAnotherTierOfAListedModel` cannot be widened to cover this -- it asks whether a
+ * catalogue still lists the plain row, which is the right question for a catalogue and the wrong
+ * one for a board.
+ */
+export function isAnotherSizeOfASightedName(db: Database, event: Event): boolean {
+  if (event.stream !== "arena" || event.kind !== "new") return false;
+  const record = recordFor(event);
+  const written = [record?.model, record?.name].find(
+    (value): value is string => typeof value === "string" && value.trim().length > 0,
+  );
+  if (!written) return false;
+  const words = normalizeIdentity(written).split(" ").filter(Boolean);
+  // Two words left once the size is off, so a bare `2k` or a one-word name cannot stand for a model.
+  if (words.length < 3 || !SIZE_TAIL.test(words.at(-1) ?? "")) return false;
+  const base = words.slice(0, -1).join(" ");
+  return db
+    .query<{ model: string | null; name: string | null }, [string, number]>(
+      `SELECT json_extract(after_json,'$.model') AS model, json_extract(after_json,'$.name') AS name
+         FROM events WHERE source=?1 AND kind='new' AND id<?2 AND json_valid(after_json)`,
+    )
+    .all(event.source, event.id)
+    .some((row) =>
+      [row.model, row.name].some(
+        (value) => typeof value === "string" && normalizeIdentity(value).split(" ").filter(Boolean).join(" ") === base,
+      ),
+    );
+}
+
+/**
  * A row that exists to point at whatever is newest.
  *
  * `~deepseek/deepseek-v4-flash-latest` is not a model: it is a promise to route to one. Its every

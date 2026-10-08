@@ -52,16 +52,41 @@ function withoutZeroMinor(value: string): string {
   return value.replace(ZERO_MINOR, "$1");
 }
 
+/**
+ * A minor written to two digits is the minor without the padding.
+ *
+ * `llmux` keys Anthropic's models as `claude-haiku-5-50-20261007` and `claude-fable-5-10-20261007`,
+ * which are Haiku 5.5 and Fable 5.1 with the minor padded to two columns. On 2026-10-08 three of
+ * them reached the scouts as models nobody had heard of, nine hours after Haiku 5.5 was announced
+ * and under a headline saying no catalogue listed it. A trailing zero never changes a version:
+ * 5.50 is 5.5 as surely as 6.0 is 6, which is the rule above reading the other column.
+ *
+ * Anchored to a family name for the same reason `oneSpelling` is: `2026 05 20` and `gpt 4o 2024
+ * 11 20` end in the same two digits and are dates, and only the number that directly follows a
+ * family word is that family's version. Anchored to Anthropic's four in particular because that is
+ * where the padding has been seen. A trailing zero is meaningless arithmetic everywhere,
+ * but a maker is free to make it meaningful in a name: `grok-4.20` is xAI's joke and its twenty is
+ * written with the dot in place, which `oneSpelling` already leaves alone for the same reason.
+ * Anthropic has never shipped a minor past .5, so reading 50 as 5 there risks nothing.
+ */
+const PADDED_MINOR = /(^| )(claude (?:opus|sonnet|haiku|fable)) (\d+) (\d)0(?= |$)/g;
+
+function withoutPaddedMinor(value: string): string {
+  return value.replace(PADDED_MINOR, "$1$2 $3 $4");
+}
+
 export function normalizeIdentity(value: string): string {
   return oneSpelling(
-    withoutZeroMinor(
-      value
-        .normalize("NFKC")
-        .toLowerCase()
-        .replace(/^https?:\/\//, "")
-        .replace(/[^a-z0-9]+/g, " ")
-        .trim()
-        .replace(/\s+/g, " "),
+    withoutPaddedMinor(
+      withoutZeroMinor(
+        value
+          .normalize("NFKC")
+          .toLowerCase()
+          .replace(/^https?:\/\//, "")
+          .replace(/[^a-z0-9]+/g, " ")
+          .trim()
+          .replace(/\s+/g, " "),
+      ),
     ),
   );
 }

@@ -115,6 +115,43 @@ test("an arena entry that is a known model wired differently is not a sighting",
   db.close();
 });
 
+test("an arena seating a sighted name at another output size is not a second sighting", () => {
+  const db = openDatabase(":memory:");
+  const arena: Collection = {
+    source: "arena",
+    stream: "arena",
+    url: "https://arena.example",
+    raw: [],
+    records: [{ id: "baseline", name: "baseline", model: "baseline" }],
+  };
+  saveCollection(db, arena, [wire], "2026-10-06T00:00:00.000Z");
+  // The board shows a stealth name no catalogue carries. That is the sighting, and it speaks.
+  arena.records.push({
+    id: "seat-1",
+    name: "gemini-nano-banana-2.1 [web-search]",
+    model: "gemini-nano-banana-2.1",
+  });
+  saveCollection(db, arena, [wire], "2026-10-06T20:19:00.000Z");
+  prepareDeliveries(db, Date.parse("2026-10-06T21:00:00.000Z"));
+  expect(suppressed(db)["seat-1"]).toBeUndefined();
+
+  // Two days later the same name is seated at 2k, and the plain row has rotated off the board, so
+  // only what we already told a reader can say this is the same model.
+  arena.records = [
+    { id: "baseline", name: "baseline", model: "baseline" },
+    { id: "seat-2", name: "gemini-nano-banana-2.1-2k [web-search]", model: "gemini-nano-banana-2.1-2k" },
+    // A name that is not a size of something sighted here is still the first word on it.
+    { id: "seat-3", name: "gemini-nano-plantain-3.0 [web-search]", model: "gemini-nano-plantain-3.0" },
+  ];
+  saveCollection(db, arena, [wire], "2026-10-08T02:49:00.000Z");
+  prepareDeliveries(db, Date.parse("2026-10-08T03:00:00.000Z"));
+
+  const reasons = suppressed(db);
+  expect(reasons["seat-2"]).toBe("another_size_of_a_sighted_name");
+  expect(reasons["seat-3"]).toBeUndefined();
+  db.close();
+});
+
 test("a model answering in a repository under a name we can resolve is not a sighting", () => {
   const db = openDatabase(":memory:");
   // Every catalogue carries Haiku 4.5, out since October 2025, and GPT-6 Sol, announced three days

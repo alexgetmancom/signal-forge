@@ -15,7 +15,13 @@ import { judgementOf } from "../jev.js";
 import { isTheFirstReadOfAShape } from "../sources/probeMemory.js";
 import { isFixesOnlyRelease } from "./buildWorth.js";
 import { anotherEffortLeadsThisDebut, followsAnOldLaunch } from "./debutAge.js";
-import { isAliasRow, isAnotherServing, isAnotherTierOfAListedModel, knownModelNames } from "./nameWorth.js";
+import {
+  isAliasRow,
+  isAnotherServing,
+  isAnotherSizeOfASightedName,
+  isAnotherTierOfAListedModel,
+  knownModelNames,
+} from "./nameWorth.js";
 import { isScheduledPricingRotation } from "./oscillation.js";
 import { deeperPagesOfOneTree, isPageWithoutAProduct } from "./pageWorth.js";
 import { isAResellerFillingInAPrice, isLeftToTheDailyRecap, isTheModalityOfAPricedModel } from "./priceWorth.js";
@@ -199,6 +205,7 @@ const STANDING_CHECKS: readonly StandingCheck[] = [
   held("known_here_for_weeks", (_db, e, v) => v.longKnown.has(e.id), true),
   held("alias_of_another_row", (_db, e) => isAliasRow(e)),
   held("another_tier_of_a_listed_model", (db, e) => isAnotherTierOfAListedModel(db, e)),
+  held("another_size_of_a_sighted_name", (db, e) => isAnotherSizeOfASightedName(db, e)),
   held("the_modality_a_price_list_bills_for", (db, e) => isTheModalityOfAPricedModel(db, e)),
   held("already_listed_by_its_lab", (db, e) => isAlreadyListedByItsLab(db, e)),
   held("weights_with_nothing_to_run", (_db, e) => isWeightsBesideTheRelease(e)),

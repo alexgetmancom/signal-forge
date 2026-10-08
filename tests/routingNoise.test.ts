@@ -60,6 +60,55 @@ test("a consumer ChatGPT feature is evidence; one about models still travels", (
   ).toBe("release");
 });
 
+test("a docs tree finds its model when the catalogue writes the maker into the name", () => {
+  const db = openDatabase(":memory:");
+  // Anthropic's catalogue keys the model `claude-haiku-5-5`; its docs write `haiku-5-5` into the
+  // path and never the maker's word. Matching only an exact id or a provider's `vendor/model`
+  // answered no, and the docs tree of a model announced nine hours earlier reached the scouts as
+  // a codename -- Sonnet on 2026-09-29, Opus on 2026-09-23, Haiku on 2026-10-08.
+  saveCollection(
+    db,
+    {
+      source: "anthropic",
+      stream: "api-models",
+      url: "https://x",
+      raw: [],
+      records: [{ id: "claude-haiku-5-5", name: "Claude Haiku 5.5" }],
+    },
+    [],
+  );
+  expect(listedInCatalogue(db, "haiku-5-5")).toBe(true);
+  expect(listedInCatalogue(db, "claude-haiku-5-5")).toBe(true);
+  // A tail that is only a number must not stand for the model it happens to end.
+  expect(listedInCatalogue(db, "5-5")).toBe(false);
+  expect(listedInCatalogue(db, "haiku-5-6")).toBe(false);
+  const page = { source: "pages:claude-docs", stream: "pages" };
+  for (const path of [
+    "/docs/en/models/haiku-5-5/overview",
+    "/docs/en/models/haiku-5-5/whats-new-haiku-5-5",
+    "/docs/en/models/haiku-5-5/migration-guide",
+  ])
+    expect(
+      classify(
+        db,
+        event({ signal: null, ...page, entity_id: path, record: { id: path, name: "Claude Docs: Overview" } }),
+      ),
+    ).not.toBe("codename");
+  // The same shape for a model nobody sells is still the first word on it.
+  expect(
+    classify(
+      db,
+      event({
+        signal: null,
+        ...page,
+        entity_id: "/docs/en/models/haiku-5-6/overview",
+        record: { id: "/docs/en/models/haiku-5-6/overview", name: "Claude Docs: Overview" },
+      }),
+    ),
+  ).toBe("codename");
+  db.close();
+});
+
 test("catalogue lookups: a docs slug finds its launched model, an old model knows its successor", () => {
   const db = openDatabase(":memory:");
   saveCollection(
@@ -279,6 +328,15 @@ test("a version with its dot dropped is the same model as the version with it", 
   // A number that could be a real version is left alone: grok-4.20's twenty is a minor version,
   // and a parameter count is not a version at all.
   expect(normalizeIdentity("grok-4.20-beta")).toBe("grok 4 20 beta");
+  // A minor padded to two columns is the same minor: llmux keys Anthropic's models that way, and
+  // `claude-haiku-5-50-20261007` reached the scouts on 2026-10-08 as a model nobody had heard of,
+  // nine hours after Haiku 5.5 was announced.
+  expect(normalizeIdentity("claude-haiku-5-50-20261007")).toBe(normalizeIdentity("claude-haiku-5-5-20261007"));
+  expect(normalizeIdentity("claude-sonnet-5-50")).toBe(normalizeIdentity("claude-sonnet-5.5"));
+  expect(normalizeIdentity("claude-fable-5-10")).toBe(normalizeIdentity("claude-fable-5.1"));
+  // A date is not a version, however it ends.
+  expect(normalizeIdentity("gpt-4o-2024-11-20")).toBe("gpt 4o 2024 11 20");
+  expect(normalizeIdentity("gemini-2.5-flash-preview-05-20")).toBe("gemini 2 5 flash preview 05 20");
   expect(normalizeIdentity("qwen3-14b")).toBe("qwen3 14b");
   expect(normalizeIdentity("nemotron-3-super-120b-a12b")).toBe("nemotron 3 super 120b a12b");
 });

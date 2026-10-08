@@ -194,12 +194,22 @@ const MENTION_SOURCES = "(source LIKE 'github:%:models' OR source LIKE 'github:%
  */
 const likePattern = (value: string) => value.replace(/[\\%_]/g, "\\$&");
 
+/**
+ * A minor padded to two columns is the same minor, the lookup half of `withoutPaddedMinor`.
+ *
+ * `llmux` keys Anthropic's models as `claude-haiku-5-50-20261007`, which is Haiku 5.5. Asking the
+ * catalogue under that spelling answered no, so the stage was "named", and the card said no tracked
+ * catalogue listed a model that had been callable for nine hours. Only Anthropic's four families,
+ * which is where the padding has been seen and where no minor has reached .6.
+ */
+const unpadded = (value: string) => value.replace(/^(claude-(?:opus|sonnet|haiku|fable)-\d+[.-]\d)0(?=$|[.-])/i, "$1");
+
 /** Whether a source other than the repositories' own sightings has recorded this model. */
 function publiclyListed(db: Database, id: string): boolean {
   const bare = bareModelSlug(id);
   // Catalogues spell `kimi-k2.7` as `kimi-k2-7` too, and a repository names a family by the stem
   // its listed models extend: `qwen3.8` for `qwen3.8-27b`, `kimi-k2.7` for `kimi-k2.7-code`.
-  const spellings = [...new Set([bare, bare.replace(/(\d)\.(\d)/g, "$1-$2")])];
+  const spellings = [...new Set([bare, bare.replace(/(\d)\.(\d)/g, "$1-$2")].flatMap((one) => [one, unpadded(one)]))];
   const query = db.query(
     `SELECT 1 FROM records WHERE NOT ${MENTION_SOURCES} AND (lower(id)=?1
        OR lower(id) LIKE '%/' || ?2 ESCAPE '\\'
@@ -211,18 +221,41 @@ function publiclyListed(db: Database, id: string): boolean {
   return spellings.some((spelling) => Boolean(query.get(spelling, likePattern(spelling))));
 }
 
+/** The tail must be a name, not a number: `5-5` must not find `claude-haiku-5-5`. */
+const NAMED_TAIL = /^[a-z]{3}/;
+
 /**
  * Whether a model catalogue -- an API's list or OpenRouter, not a page, a post or a repository --
  * lists this model, under either spelling of its version: a docs path writes `grok-4-7` for the
- * `grok-4.7` xAI's API lists.
+ * `grok-4.7` xAI's API lists, and names it without the maker's word in front of it.
+ *
+ * Anthropic files Haiku 5.5 under `/docs/en/models/haiku-5-5/overview`, and its catalogue lists the
+ * model as `claude-haiku-5-5`. Matching only an exact id or a provider's `anthropic/claude-haiku-5-5`
+ * answered no, so `a_sighting_of_a_model_already_launched` never fired and the docs tree of a model
+ * announced nine hours earlier reached the scouts as a codename -- on 2026-10-08 for Haiku, and on
+ * 2026-09-29 for Sonnet, which is the case `pathSubjects` was written for and did not fix, because
+ * reading the right segment out of the path does not help if the lookup of it is this strict.
+ *
+ * Three letters are required at the front so the tail is a name rather than a number: `5-5` must not
+ * find `claude-haiku-5-5`, where `haiku-5-5` should.
  */
 export function listedInCatalogue(db: Database, id: string): boolean {
   const bare = bareModelSlug(id).toLowerCase();
-  const spellings = [...new Set([bare, bare.replace(/(\d)-(\d)/g, "$1.$2"), bare.replace(/(\d)\.(\d)/g, "$1-$2")])];
+  const spellings = [
+    ...new Set(
+      [bare, bare.replace(/(\d)-(\d)/g, "$1.$2"), bare.replace(/(\d)\.(\d)/g, "$1-$2")].flatMap((one) => [
+        one,
+        unpadded(one),
+      ]),
+    ),
+  ];
   const query = db.query(
-    `SELECT 1 FROM records WHERE stream IN ('api-models','openrouter') AND (lower(id)=?1 OR lower(id) LIKE '%/' || ?2 ESCAPE '\\') LIMIT 1`,
+    `SELECT 1 FROM records WHERE stream IN ('api-models','openrouter')
+       AND (lower(id)=?1 OR lower(id) LIKE '%/' || ?2 ESCAPE '\\'
+            OR (?3 AND lower(id) LIKE '%-' || ?2 ESCAPE '\\')) LIMIT 1`,
   );
-  return spellings.some((spelling) => Boolean(query.get(spelling, likePattern(spelling))));
+  const named = NAMED_TAIL.test(bare) ? 1 : 0;
+  return spellings.some((spelling) => Boolean(query.get(spelling, likePattern(spelling), named)));
 }
 
 /** `gpt-5.4-mini-2026-03-17` is a dated snapshot of `gpt-5.4-mini`; knowing one is knowing the other. */
@@ -266,7 +299,12 @@ export function familyVersion(id: string): { family: string; version: number[] }
   if (!match) return null;
   // The family is the text before the version, hyphen kept: `kimi-k` of `kimi-k2.5`, `qwen` of `qwen3.5`.
   const family = match[1] ?? match[3] ?? "";
-  const version = (match[2] ?? match[4] ?? "").split(/[.-]/).map(Number);
+  // `claude-haiku-5-50` is 5.5 with the minor padded to two columns, the same spelling
+  // `withoutPaddedMinor` reads in identity; left as 50 it outranks every real Haiku, so a later one
+  // looks older than it and the probes go hunting for a version nobody will ship. Asked only of the
+  // claude branch, where the padding was seen and where no minor has ever reached .6.
+  const written = match[4] ? match[4].replace(/^(\d+)([.-])(\d)0$/, "$1$2$3") : (match[2] ?? "");
+  const version = written.split(/[.-]/).map(Number);
   // models.dev writes `gpt-52` for gpt-5.2 and a Google post's path `gemini-15` for 1.5. No family
   // here is past version twelve, so a larger number is a spelling, not a version.
   if ((version[0] ?? 0) > 12) return null;

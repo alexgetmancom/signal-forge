@@ -271,6 +271,10 @@ test("an old or misspelt model users say answered them is older than what is lis
   expect(familyVersion("gpt-5-6-thinking")).toEqual({ family: "gpt-", version: [5] });
   expect(familyVersion("claude-opus-5-1")).toEqual({ family: "claude-opus-", version: [5, 1] });
   expect(familyVersion("gemini-3.8-live")).toEqual({ family: "gemini-", version: [3, 8] });
+  // A padded minor must not outrank the model it is: left as 50, every later Haiku looks older.
+  expect(familyVersion("claude-haiku-5-50-20261007")).toEqual({ family: "claude-haiku-", version: [5, 5] });
+  expect(familyVersion("claude-fable-5-10")).toEqual({ family: "claude-fable-", version: [5, 1] });
+  expect(familyVersion("grok-4.20")).toEqual({ family: "grok-", version: [4, 20] });
   const db = openDatabase(":memory:");
   saveCollection(
     db,
@@ -416,6 +420,32 @@ test("a family stem or a hyphen spelling of a listed model is known", () => {
   for (const id of ["kimi-k2.7", "qwen3.8", "kimi-k2.6"]) expect(stageKnown(db, id, "named")).toBe(true);
   for (const id of ["kimi-k2.8", "qwen3.9", "qwen3.8-max", "kimi-k2.7-codex"])
     expect(stageKnown(db, id, "named")).toBe(false);
+  db.close();
+});
+
+test("a repository writing a minor to two columns names a model the catalogue already lists", () => {
+  const db = openDatabase(":memory:");
+  // llmux keys Anthropic's models as `claude-haiku-5-50-20261007`, which is Haiku 5.5 with the
+  // minor padded. On 2026-10-08 three of them reached the scouts nine hours after Haiku 5.5 was
+  // announced, each under a headline saying no tracked catalogue listed it.
+  saveCollection(
+    db,
+    {
+      source: "anthropic",
+      stream: "api-models",
+      url: "https://x",
+      raw: [],
+      records: [
+        { id: "claude-haiku-5-5", name: "Claude Haiku 5.5" },
+        { id: "claude-fable-5-1", name: "Claude Fable 5.1" },
+      ],
+    },
+    [],
+  );
+  for (const id of ["claude-haiku-5-50-20261007", "claude-haiku-5-50", "claude-fable-5-10"])
+    expect(stageKnown(db, id, "named")).toBe(true);
+  // The padding is read, not invented: a minor nobody lists is still the first word on it.
+  for (const id of ["claude-haiku-5-60", "claude-opus-5-50"]) expect(stageKnown(db, id, "named")).toBe(false);
   db.close();
 });
 
