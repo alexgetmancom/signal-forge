@@ -8,22 +8,10 @@ import { fetchResponse, readResponseBytes } from "./http.js";
 import { googleCloudHeaders } from "./vertex.js";
 
 /**
- * Vertex AI and the Gemini API, the two billing services a Google model is priced under, and how
- * often each is worth asking.
- *
- * The two are nothing alike to read. Vertex AI is 11.7 MB a pass and prices every model Google
- * resells, Anthropic's and Meta's included; the Gemini API is 0.1 MB and prices Google's own, which
- * is the list a Gemini release appears on before it is announced -- Gemini 3.8 Flash TTS and Flash
- * Lite TTS did, on 2026-09-21. One interval for both meant the cheap list that matters most was read
- * as rarely as the expensive one that matters least: hourly, for 312 MB a day.
- *
- * So the cadence is per service rather than per source. The small list is read every time the source
- * runs and the large one keeps its hour, which buys twelve times the resolution on a Gemini price for
- * about 1.2 MB a day more.
- *
- * Not two sources, which is the other way to say this: a record carries the services it was found
- * under, and splitting the id would have moved 38 Vertex-only models to a new source and announced
- * every one of them as new, to say nothing of changing `services` on the 35 priced under both.
+ * Read Gemini's own list every pass and Vertex's reseller catalogue hourly. Keep both services in
+ * one collection so a model priced under both retains one record with both service labels.
+ * Only descriptions are used. Measured 2026-10-08: Google's field mask and compact JSON cut Vertex
+ * from 12.31 MB to 835 KB and Gemini from 940 KB to 65 KB, with all 89 records unchanged.
  */
 const SERVICES = {
   "C7E2-9256-1C43": { label: "Vertex AI", everyMs: 3_600_000 },
@@ -101,7 +89,7 @@ export async function collectGoogleSkus(
     let cursor = "";
     for (let page = 0; ; page++) {
       if (page >= 20) throw new SourceError("protocol", `Google Cloud SKU pagination exceeded limit for ${label}`);
-      const url = `https://cloudbilling.googleapis.com/v1/services/${service}/skus?pageSize=5000${cursor ? `&pageToken=${encodeURIComponent(cursor)}` : ""}`;
+      const url = `https://cloudbilling.googleapis.com/v1/services/${service}/skus?pageSize=5000&prettyPrint=false&fields=skus(description),nextPageToken${cursor ? `&pageToken=${encodeURIComponent(cursor)}` : ""}`;
       const response = await fetchResponse(url, { headers }, request);
       if (!response.ok) throw httpFailure(`Google Cloud SKUs for ${label}: HTTP ${response.status}`, response.status);
       const data = skusSchema.parse(JSON.parse((await readResponseBytes(response)).toString("utf8")));

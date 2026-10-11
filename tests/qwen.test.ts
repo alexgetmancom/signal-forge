@@ -27,6 +27,7 @@ test("Qwen retains ids, Unicode titles and order while ignoring text and nested 
   const collection = await collectQwenBlog(async (url, init) => {
     expect(String(url)).toBe("https://qwen.ai/api/v2/article/retrieval?type=qwen_ai&language=en-US");
     expect(new Headers(init?.headers).get("user-agent")).toBe("SignalForge/0.1");
+    expect(new Headers(init?.headers).get("accept-encoding")).toBe("br");
     return new Response(body);
   });
   expect(collection.records).toEqual(expected);
