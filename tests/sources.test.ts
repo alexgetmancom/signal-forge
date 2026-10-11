@@ -3,6 +3,7 @@ import { loadConfig } from "../src/config.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import { selectMeaningfulWebStrings, tellingWebString } from "../src/events/web.js";
 import { SourceError } from "../src/failure.js";
+import { emptyTraffic, withTraffic } from "../src/runtime/traffic.js";
 import { parseAnthropicPricing } from "../src/sources/anthropicPricing.js";
 import { collectLeaderboards, parseArena, parseLeaderboards } from "../src/sources/arena.js";
 import { parseSimpleBench, parseVoxelBench, parseWeirdMl } from "../src/sources/benchmarks.js";
@@ -2096,11 +2097,49 @@ test("Anthropic's news page is downloaded once for the two sources that read it"
     // The page as it actually answers: no validator to ask with and no freshness to trust.
     return new Response(html, { headers: { "cache-control": "private, no-cache, no-store, max-age=0" } });
   }) as unknown as typeof fetch;
-  const news = await collectAnthropicNews(request, new Date("2026-09-17T00:00:00Z"), cache);
-  const routes = await collectAnthropicRoutes(request, cache);
+  const newsTraffic = emptyTraffic();
+  const routesTraffic = emptyTraffic();
+  const [news, routes] = await Promise.all([
+    withTraffic(newsTraffic, () => collectAnthropicNews(request, new Date("2026-09-17T00:00:00Z"), cache)),
+    withTraffic(routesTraffic, () => collectAnthropicRoutes(request, cache)),
+  ]);
   expect(downloads).toBe(1);
+  expect(newsTraffic.requests).toBe(1);
+  expect(routesTraffic.requests).toBe(0);
+  expect(routesTraffic.cacheHits).toBe(1);
   expect(news.records).toHaveLength(1);
   expect(routes.records.map((record) => record.id)).toEqual(["claude-opus-5-5"]);
+  await collectAnthropicRoutes(request, cache);
+  expect(downloads).toBe(1);
+  cache.touch("https://www.anthropic.com/news", 0);
+  await Promise.all([
+    collectAnthropicNews(request, new Date("2026-09-17T00:00:00Z"), cache),
+    collectAnthropicRoutes(request, cache),
+  ]);
+  expect(downloads).toBe(2);
+  db.close();
+});
+
+test("a refused shared newsroom read fails both sources and the next attempt asks again", async () => {
+  const db = openDatabase(":memory:");
+  const cache = new HttpCache(db);
+  let downloads = 0;
+  const request = async () => {
+    downloads++;
+    return new Response(null, { status: 403 });
+  };
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    const results = await Promise.allSettled([
+      collectAnthropicNews(request, new Date("2026-09-17T00:00:00Z"), cache),
+      collectAnthropicRoutes(request, cache),
+    ]);
+    expect(downloads).toBe(attempt);
+    expect(results).toEqual([
+      { status: "rejected", reason: expect.objectContaining({ status: 403 }) },
+      { status: "rejected", reason: expect.objectContaining({ status: 403 }) },
+    ]);
+  }
+  db.close();
 });
 
 test("a shared body is reused for less than the interval of the sources that share it", () => {

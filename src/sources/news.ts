@@ -4,6 +4,7 @@ import type { Collection } from "../events/types.js";
 import { vendorOfName } from "../events/vendors.js";
 import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
+import { countCacheHit } from "../runtime/traffic.js";
 import type { HttpCache } from "../storage/httpCache.js";
 import { calendarDate } from "./feeds.js";
 import { attribute, decodeHtml } from "./html.js";
@@ -129,15 +130,31 @@ function freshNewsroom(collection: Collection, now: Date): Collection {
   return collection;
 }
 
+const newsroomReads = new WeakMap<HttpCache, Promise<string>>();
+
+/** Share the in-flight newsroom read as well as its cached body; both sources can start together. */
+async function anthropicNewsroom(request: Fetch, cache?: HttpCache): Promise<string> {
+  const pending = cache && newsroomReads.get(cache);
+  if (pending) {
+    const body = await pending;
+    countCacheHit();
+    return body;
+  }
+  const reading = fetchText("https://www.anthropic.com/news", {}, request, undefined, cache);
+  if (cache) newsroomReads.set(cache, reading);
+  try {
+    return await reading;
+  } finally {
+    if (cache) newsroomReads.delete(cache);
+  }
+}
+
 export async function collectAnthropicNews(
   request: Fetch = fetch,
   now = new Date(),
   cache?: HttpCache,
 ): Promise<Collection> {
-  return freshNewsroom(
-    parseAnthropicNews(await fetchText("https://www.anthropic.com/news", {}, request, undefined, cache)),
-    now,
-  );
+  return freshNewsroom(parseAnthropicNews(await anthropicNewsroom(request, cache)), now);
 }
 
 /**
@@ -164,7 +181,7 @@ export function parseAnthropicRoutes(html: string): Collection {
 }
 
 export async function collectAnthropicRoutes(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
-  return parseAnthropicRoutes(await fetchText("https://www.anthropic.com/news", {}, request, undefined, cache));
+  return parseAnthropicRoutes(await anthropicNewsroom(request, cache));
 }
 
 const claudeBlogLink = /<a\b([^>]*\bdata-cta="Blog page"[^>]*)>/g;
