@@ -328,6 +328,27 @@ const CURSOR = "@head";
 /** Commits read in one poll. A busier repository catches up over the following polls. */
 const BATCH = 30;
 
+/** Read four immutable commit details together, yielding in history order after every read settles. */
+async function* commitDetails(
+  api: string,
+  commits: z.infer<typeof commitSchema>[],
+  headers: Record<string, string>,
+  request: Fetch,
+): AsyncGenerator<z.infer<typeof detailSchema>> {
+  for (let start = 0; start < commits.length; start += 4) {
+    const results = await Promise.allSettled(
+      commits
+        .slice(start, start + 4)
+        .map(async (commit) =>
+          detailSchema.parse(JSON.parse(await fetchText(`${api}/commits/${commit.sha}`, headers, request))),
+        ),
+    );
+    const failure = results.find((result) => result.status === "rejected");
+    if (failure) throw failure.reason;
+    for (const result of results) if (result.status === "fulfilled") yield result.value;
+  }
+}
+
 export function mentionSource(repo: string): string {
   return `github:${repo}:models`;
 }
@@ -486,11 +507,14 @@ export async function collectModelMentions(
     .query<{ body: string }, [string, string]>("SELECT body FROM records WHERE source=? AND id=?")
     .get(source, CURSOR);
   const cursor = cursorRow ? (JSON.parse(cursorRow.body) as { sha?: string }).sha : undefined;
-  const head = z
-    .array(commitSchema)
-    .min(1)
-    .parse(JSON.parse(await fetchText(`${api}/commits?per_page=1`, headers, request)))[0];
-  if (!head) throw new SourceError("empty", `${watch.repo}: no commits`);
+  const head = {
+    sha: z
+      .string()
+      .regex(/^[a-f0-9]{40}$/)
+      .parse(
+        (await fetchText(`${api}/commits/HEAD`, { ...headers, Accept: "application/vnd.github.sha" }, request)).trim(),
+      ),
+  };
   const at = (sha: string): RecordData => ({ id: CURSOR, name: "Last commit read", sha });
   // The first read is the one chance to see what the repository already holds. `MiniMax-M3.1` sat
   // in five files of minimax-code on 2026-09-24 while the catalogue had M3, and starting from the
@@ -509,7 +533,9 @@ export async function collectModelMentions(
   let compare: z.infer<typeof compareSchema>;
   try {
     compare = compareSchema.parse(
-      JSON.parse(await fetchText(`${api}/compare/${cursor}...${head.sha}`, headers, request)),
+      // Explicit pagination starts at the oldest unread commit; the unpaged response can skip
+      // history when the comparison exceeds GitHub's 250-commit limit.
+      JSON.parse(await fetchText(`${api}/compare/${cursor}...${head.sha}?per_page=${BATCH}`, headers, request)),
     );
   } catch (error) {
     // The range is gone when history was rewritten under the cursor; read from the head again.
@@ -529,8 +555,7 @@ export async function collectModelMentions(
   const silentIds = [CURSOR];
   const seen = new Set<string>();
   const raw: unknown[] = [];
-  for (const commit of batch) {
-    const detail = detailSchema.parse(JSON.parse(await fetchText(`${api}/commits/${commit.sha}`, headers, request)));
+  for await (const detail of commitDetails(api, batch, headers, request)) {
     raw.push({ sha: detail.sha, files: detail.files.map((file) => file.filename) });
     const found = new Map<string, { file: string; line: string }>();
     for (const file of detail.files) {

@@ -71,6 +71,91 @@ const commit = (n: number, message: string) => ({
   commit: { message, author: { date: "2026-09-21T09:18:42Z" } },
 });
 
+test("commit details overlap in fours, keep the oldest evidence, and catch up in complete batches", async () => {
+  const db = openDatabase(":memory:");
+  const watch = { repo: "anomalyco/opencode", authority: "third_party" as const };
+  const history = Array.from({ length: 33 }, (_, index) => commit(index + 1, `Commit ${index + 1}`));
+  let head = sha(0);
+  let active = 0;
+  let peak = 0;
+  let remaining = 0;
+  const read: string[] = [];
+  let pending: (() => void)[] = [];
+  const request: Fetch = async (url, init) => {
+    if (url.endsWith("/commits/HEAD")) {
+      expect(new Headers(init?.headers).get("accept")).toBe("application/vnd.github.sha");
+      return new Response(head);
+    }
+    if (url.includes("/tarball/")) return new Response(EMPTY_ARCHIVE);
+    if (url.includes("/compare/")) {
+      const cursor = Number(new URL(url).pathname.split("/compare/")[1]?.split("...")[0]);
+      expect(new URL(url).searchParams.get("per_page")).toBe("30");
+      const commits = history.slice(cursor, cursor + 30);
+      remaining = commits.length;
+      return Response.json({ status: "ahead", commits });
+    }
+    const id = url.split("/").at(-1) ?? "";
+    const item = history.find((item) => item.sha === id);
+    if (!item) throw new Error("Unexpected commit request");
+    read.push(id);
+    peak = Math.max(peak, ++active);
+    await new Promise<void>((resolve) => {
+      pending.push(resolve);
+      remaining--;
+      if (pending.length === 4 || remaining === 0) {
+        for (const finish of pending.reverse()) finish();
+        pending = [];
+      }
+    });
+    active--;
+    const index = Number(id);
+    const patch = index === 4 ? '- "gpt-7-nova"' : index === 3 || index === 5 ? '+ "gpt-7-nova"' : "+ unchanged";
+    return Response.json({ ...item, files: [{ filename: "models.json", patch }] });
+  };
+  saveCollection(db, await collectModelMentions(db, config, watch, request), []);
+  head = sha(33);
+  const first = await collectModelMentions(db, config, watch, request);
+  expect(peak).toBe(4);
+  expect(read).toEqual(history.slice(0, 30).map((item) => item.sha));
+  expect(first.records[0]?.sha).toBe(sha(30));
+  expect(first.records[1]).toMatchObject({ id: "gpt-7-nova", commit: "Commit 3", url: history[2]?.html_url });
+  saveCollection(db, first, []);
+  const last = await collectModelMentions(db, config, watch, request);
+  expect(last.records).toEqual([{ id: "@head", name: "Last commit read", sha: sha(33) }]);
+  expect(read).toEqual(history.map((item) => item.sha));
+  db.close();
+});
+
+test("a failed detail waits for its siblings and leaves the accepted cursor for a retry", async () => {
+  const db = openDatabase(":memory:");
+  const watch = { repo: "anomalyco/opencode", authority: "third_party" as const };
+  let head = sha(0);
+  let completed = 0;
+  let refuse = true;
+  const request: Fetch = async (url) => {
+    if (url.endsWith("/commits/HEAD")) return new Response(head);
+    if (url.includes("/tarball/")) return new Response(EMPTY_ARCHIVE);
+    if (url.includes("/compare/"))
+      return Response.json({ status: "ahead", commits: [commit(1, "One"), commit(2, "Two")] });
+    if (url.endsWith(sha(1)) && refuse) return new Response(null, { status: 403 });
+    await Bun.sleep(5);
+    completed++;
+    return Response.json({ ...commit(url.endsWith(sha(1)) ? 1 : 2, "Change"), files: [] });
+  };
+  saveCollection(db, await collectModelMentions(db, config, watch, request), []);
+  head = sha(2);
+  await expect(collectModelMentions(db, config, watch, request)).rejects.toMatchObject({ status: 403 });
+  expect(completed).toBe(1);
+  expect(
+    JSON.parse(db.query<{ body: string }, []>("SELECT body FROM records WHERE id='@head'").get()?.body ?? "{}").sha,
+  ).toBe(sha(0));
+  refuse = false;
+  const retry = await collectModelMentions(db, config, watch, request);
+  expect(retry.records[0]?.sha).toBe(sha(2));
+  expect(completed).toBe(3);
+  db.close();
+});
+
 test("the first read is a cursor; a later commit tells only the model nothing here has recorded", async () => {
   const db = openDatabase(":memory:");
   const watch = { repo: "d4rken/clankermux", authority: "third_party" as const };
@@ -89,7 +174,7 @@ test("the first read is a cursor; a later commit tells only the model nothing he
   let head = commit(1, "Initial");
   const request = async (url: string) => {
     if (url.includes("/tarball/")) return new Response(EMPTY_ARCHIVE);
-    if (url.includes("/commits?per_page=1")) return Response.json([head]);
+    if (url.includes("/commits/HEAD")) return new Response(head.sha);
     if (url.includes("/compare/")) return Response.json({ status: "ahead", commits: [head] });
     return Response.json({
       ...head,
@@ -162,7 +247,7 @@ test("a model named, then served, is told twice; neither pings; another repo rep
   const request = async (url: string, init?: RequestInit) => {
     if (url.includes("/tarball/")) return new Response(EMPTY_ARCHIVE);
     if (url.includes("deepseek")) return stages.answer(String(init?.body));
-    if (url.includes("/commits?per_page=1")) return Response.json([head]);
+    if (url.includes("/commits/HEAD")) return new Response(head.sha);
     if (url.includes("/compare/")) return Response.json({ status: "ahead", commits: [head] });
     return Response.json({ ...head, files: files.current });
   };
@@ -348,7 +433,7 @@ test("a gateway is read only in its price table, never for an old model, and the
         choices: [{ message: { content: '{"gpt-6-nova":"named"}' } }],
         usage: { prompt_tokens: 100, completion_tokens: 50, prompt_cache_hit_tokens: 0, prompt_cache_miss_tokens: 100 },
       });
-    if (url.includes("/commits?per_page=1")) return Response.json([head]);
+    if (url.includes("/commits/HEAD")) return new Response(head.sha);
     if (url.includes("/compare/")) return Response.json({ status: "ahead", commits: [head] });
     return Response.json({
       ...head,
@@ -505,9 +590,7 @@ test("a repository first watched is read whole, and reports only what no catalog
     ]),
   );
   const answers: Record<string, string> = {
-    "https://api.github.com/repos/MiniMax-AI/minimax-code/commits?per_page=1": JSON.stringify([
-      { sha, html_url: "https://github.com/x/y/commit/a", commit: { message: "release", author: null } },
-    ]),
+    "https://api.github.com/repos/MiniMax-AI/minimax-code/commits/HEAD": sha,
   };
   const request = (async (url: string) => {
     if (String(url).endsWith(`/tarball/${sha}`)) return new Response(archive, { status: 200 });
@@ -538,10 +621,7 @@ function firstReadRequest(archive: () => Response) {
       calls.archive++;
       return archive();
     }
-    if (String(url).endsWith("/commits?per_page=1"))
-      return Response.json([
-        { sha, html_url: "https://github.com/x/y/commit/a", commit: { message: "release", author: null } },
-      ]);
+    if (String(url).endsWith("/commits/HEAD")) return new Response(sha);
     return new Response("", { status: 404 });
   }) as unknown as Fetch;
   return { sha, calls, request };
@@ -610,7 +690,7 @@ test("a repository whose range is gone is read from its head by status, whatever
   );
   const head = commit(2, "Rewritten history");
   const request = (async (url: string) => {
-    if (url.includes("/commits?per_page=1")) return Response.json([head]);
+    if (url.includes("/commits/HEAD")) return new Response(head.sha);
     // The page text is nothing a reader could rely on; the status is.
     return new Response("<html>Not Found</html>", { status: 404, statusText: "Missing" });
   }) as unknown as Fetch;
@@ -736,7 +816,7 @@ test("a repository whose history was rewritten still has its new commits read, a
     let head = commit(1, "Initial");
     const request = async (url: string) => {
       if (url.includes("/tarball/")) return new Response(EMPTY_ARCHIVE);
-      if (url.includes("/commits?per_page=1")) return Response.json([head]);
+      if (url.includes("/commits/HEAD")) return new Response(head.sha);
       if (url.includes("/compare/")) return Response.json({ status, commits: [head] });
       return Response.json({ ...head, files: [{ filename: "models.json", patch: '+  { "slug": "gpt-7-nova" }' }] });
     };
