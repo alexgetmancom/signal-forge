@@ -214,7 +214,7 @@ function decodeEntities(text: string): string {
 
 type Sitemap = { url: string; modified: string | null };
 
-function parseXml(payload: string): { urls: string[]; sitemaps: Sitemap[] } {
+export function parseSitemapXml(payload: string): { urls: string[]; sitemaps: Sitemap[] } {
   const root = /<(urlset|sitemapindex)\b/i.exec(payload);
   if (!root) throw new SourceError("schema", "Sitemap contained neither a urlset nor a sitemap index");
   const kind = (root[1] ?? "").toLowerCase();
@@ -256,7 +256,7 @@ export async function googleSitemapUnchanged(db: Database, request: Fetch = fetc
   if (!before) return false;
   const previous = (JSON.parse(before) as { sitemaps?: Sitemap[] }).sitemaps;
   if (!previous?.length) return false;
-  const { sitemaps } = parseXml(await fetchText(GOOGLE_SITEMAP, { accept: "application/xml" }, request));
+  const { sitemaps } = parseSitemapXml(await fetchText(GOOGLE_SITEMAP, { accept: "application/xml" }, request));
   if (!sitemaps.length || sitemaps.length > MAX_CHILD_SITEMAPS || sitemaps.some((sitemap) => !sitemap.modified))
     return false;
   return JSON.stringify(sitemaps) === JSON.stringify(previous);
@@ -307,7 +307,7 @@ export function parseSitemap(payloads: string[], site: WatchedSite, baseline: re
   const seen = new Map<string, RecordData>();
   const silentIds: string[] = [];
   payloads.forEach((payload, index) => {
-    for (const location of parseXml(payload).urls) {
+    for (const location of parseSitemapXml(payload).urls) {
       const record = pageRecord(location, site);
       if (!record || seen.has(record.id)) continue;
       seen.set(record.id, record);
@@ -340,7 +340,7 @@ export async function collectSitePages(
 ): Promise<Collection> {
   const headers = { accept: "application/xml" };
   const root = await fetchText(site.sitemap, headers, request, undefined, cache);
-  const { sitemaps } = parseXml(root);
+  const { sitemaps } = parseSitemapXml(root);
   if (!sitemaps.length) return parseSitemap([root], site);
   if (sitemaps.length > MAX_CHILD_SITEMAPS)
     throw new SourceError("protocol", `Sitemap for ${site.name} lists more than ${MAX_CHILD_SITEMAPS} child sitemaps`);

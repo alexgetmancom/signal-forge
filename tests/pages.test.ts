@@ -4,7 +4,9 @@ import { saveCollection } from "../src/events/pipeline.js";
 import { signalClass } from "../src/events/signals.js";
 import type { Event } from "../src/events/types.js";
 import { collectSitePages, googleSitemapUnchanged, parseSitemap, WATCHED_SITES } from "../src/sources/pages.js";
+import { collectOpenAISitemap } from "../src/sources/sitemaps.js";
 import { openDatabase } from "../src/storage/database.js";
+import { HttpCache } from "../src/storage/httpCache.js";
 import { storeSnapshot } from "../src/storage/snapshots.js";
 import { aSource } from "./fixtures/build.js";
 
@@ -21,6 +23,52 @@ const index = (children: string[]) =>
    <sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
      ${children.map((child) => `<sitemap><loc>${child}</loc></sitemap>`).join("")}
    </sitemapindex>`;
+
+test("OpenAI's two readers share complete model sitemaps through separate database cache instances", async () => {
+  const db = openDatabase(":memory:");
+  const site = WATCHED_SITES.find((site) => site.id === "openai");
+  if (!site) throw new Error("OpenAI is not watched");
+  const childCache = new HttpCache(db);
+  const parentCache = new HttpCache(db);
+  const shards = ["page", "release", "product", "research", "future"];
+  const urls = shards.map((shard) => `https://openai.com/sitemap.xml/${shard}/`);
+  const paths = ["/api/gpt-7", "/index/gpt-8", "/sora-3", "/research/gpt-9", "/novel-tool"];
+  let calls = 0;
+  let truncated = false;
+  const request = async (url: string) => {
+    calls++;
+    if (url === site.sitemap) return new Response(index(urls));
+    const path = paths[urls.indexOf(url)];
+    if (!path) throw new Error("Unexpected shard");
+    const location = truncated && url === urls[0] ? "/api/gpt-10" : path;
+    const body = `<urlset><url><loc>https://openai.com${location}</loc></url>${truncated && url === urls[3] ? "" : "</urlset>"}`;
+    return new Response(body, { headers: { "cache-control": "no-store" } });
+  };
+  const models = await collectOpenAISitemap(parentCache, request);
+  expect(calls).toBe(4);
+  // Reproduce the eight-minute offset observed on production, through a separate cache reader.
+  for (const url of urls) {
+    const entry = parentCache.get(url);
+    if (entry) parentCache.touch(url, entry.freshUntil - 8 * 60_000);
+  }
+  const pages = await collectSitePages(site, request, childCache);
+  expect(calls).toBe(6);
+  expect(pages.records.map((record) => record.id)).toContain("/novel-tool");
+  expect(pages.records.map((record) => record.id)).not.toContain("/index/gpt-8");
+  expect(models.records.map((record) => record.id)).toContain("https://openai.com/index/gpt-8");
+  expect(models.records).toHaveLength(4);
+  expect((await collectOpenAISitemap(parentCache, request)).records).toEqual(models.records);
+  expect(calls).toBe(10);
+  expect((await collectSitePages(site, request, childCache)).records).toEqual(pages.records);
+  expect(calls).toBe(12);
+  truncated = true;
+  for (const url of urls) parentCache.touch(url, 0);
+  await expect(collectOpenAISitemap(parentCache, request)).rejects.toMatchObject({ kind: "protocol" });
+  expect(parentCache.get(urls[0] ?? "")?.body).toContain("gpt-7");
+  // The site reader fetches for itself once published documents expire, and rejects partial XML.
+  await expect(collectSitePages(site, request, childCache)).rejects.toMatchObject({ kind: "protocol" });
+  db.close();
+});
 
 test("a sitemap becomes one record per page, named for a reader", () => {
   const collection = parseSitemap([urlset(["/news/claude-opus-5", "/pricing"])], site);

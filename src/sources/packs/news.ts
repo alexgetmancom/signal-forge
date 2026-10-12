@@ -41,7 +41,7 @@ import {
   collectOpenAIChatGPTReleaseNotes,
   collectXaiReleaseNotes,
 } from "../releaseNotes.js";
-import { collectLabSitemap } from "../sitemaps.js";
+import { collectLabSitemap, collectOpenAISitemap } from "../sitemaps.js";
 
 /** A lab's own front page, and the one place other people's posts about them are read. */
 const NEWSROOM: SourceKind = {
@@ -136,7 +136,7 @@ function newsroomSources({ cache }: SourceContext): SourceEntry[] {
     // src/poller.ts. Measured 2026-09-27.
     { id: "openai-news", vendor: "OpenAI", heavy: true, collector: () => collectOpenAINews() },
     // Five minutes rather than the newsroom's quarter hour, and it costs nothing: this page is the
-    // one `anthropic-routes` reads below, on the same five minutes, and `SHARED_BODIES_MS` lets the
+    // one `anthropic-routes` reads below, on the same five minutes, and the shared body window lets the
     // second of the pair read the body the first fetched. One document per round for both answers.
     {
       id: "anthropic-news",
@@ -322,30 +322,40 @@ function developerFeedSources({ db, cache }: SourceContext): SourceEntry[] {
   ]);
 }
 
-function sitemapSources(_context: SourceContext): SourceEntry[] {
+function sitemapSources({ cache }: SourceContext): SourceEntry[] {
   return sourcesOfKind(SITEMAP, [
-    { id: "openai-sitemap", vendor: "OpenAI", collector: () => collectLabSitemap("openai-sitemap") },
-    { id: "deepmind-sitemap", vendor: "Google", collector: () => collectLabSitemap("deepmind-sitemap") },
+    { id: "openai-sitemap", vendor: "OpenAI", collector: () => collectOpenAISitemap(cache) },
+    { id: "deepmind-sitemap", vendor: "Google", collector: () => collectLabSitemap("deepmind-sitemap", fetch, cache) },
     {
       id: "anthropic-sitemap",
       vendor: "Anthropic",
       pace: { group: "discovery:docs-anthropic", seconds: 5 },
-      collector: () => collectLabSitemap("anthropic-sitemap"),
+      collector: () => collectLabSitemap("anthropic-sitemap", fetch, cache),
     },
     // Small pages, and the labs that no feed here reads announce on them first.
     {
       id: "xiaomi-sitemap",
       vendor: "Xiaomi",
       intervalSeconds: 600,
-      collector: () => collectLabSitemap("xiaomi-sitemap"),
+      collector: () => collectLabSitemap("xiaomi-sitemap", fetch, cache),
     },
-    { id: "zai-sitemap", vendor: "Z.ai", intervalSeconds: 600, collector: () => collectLabSitemap("zai-sitemap") },
-    { id: "meta-blog", vendor: "Meta", intervalSeconds: 600, collector: () => collectLabSitemap("meta-blog") },
+    {
+      id: "zai-sitemap",
+      vendor: "Z.ai",
+      intervalSeconds: 600,
+      collector: () => collectLabSitemap("zai-sitemap", fetch, cache),
+    },
+    {
+      id: "meta-blog",
+      vendor: "Meta",
+      intervalSeconds: 600,
+      collector: () => collectLabSitemap("meta-blog", fetch, cache),
+    },
     {
       id: "deepseek-sitemap",
       vendor: "DeepSeek",
       intervalSeconds: 600,
-      collector: () => collectLabSitemap("deepseek-sitemap"),
+      collector: () => collectLabSitemap("deepseek-sitemap", fetch, cache),
     },
   ]);
 }

@@ -1,7 +1,9 @@
 import type { Collection } from "../events/types.js";
 import { SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
+import type { HttpCache } from "../storage/httpCache.js";
 import { fetchText } from "./http.js";
+import { parseSitemapXml } from "./pages.js";
 
 /**
  * Pages about a model, read from the labs' sitemaps. A page is listed when it is built, and a lab
@@ -10,11 +12,14 @@ import { fetchText } from "./http.js";
  * of the post. Only a path whose last part starts with a model's name, or says it introduces one, is
  * kept; the rest of a sitemap is careers and customer stories.
  */
+const OPENAI_SITEMAPS = [
+  "https://openai.com/sitemap.xml/page/",
+  "https://openai.com/sitemap.xml/release/",
+  "https://openai.com/sitemap.xml/product/",
+  "https://openai.com/sitemap.xml/research/",
+] as const;
+
 const SITEMAPS: readonly { url: string; maker: string; pages?: RegExp }[] = [
-  { url: "https://openai.com/sitemap.xml/page/", maker: "OpenAI" },
-  { url: "https://openai.com/sitemap.xml/release/", maker: "OpenAI" },
-  { url: "https://openai.com/sitemap.xml/product/", maker: "OpenAI" },
-  { url: "https://openai.com/sitemap.xml/research/", maker: "OpenAI" },
   { url: "https://deepmind.google/sitemap.xml", maker: "Google" },
   { url: "https://www.anthropic.com/sitemap.xml", maker: "Anthropic" },
   // Xiaomi's model pages were in its sitemap on 2026-09-22 under `/models/zh-CN/mimo-v2.6-pro`.
@@ -56,7 +61,6 @@ export function modelPages(xml: string, pattern?: RegExp): string[] {
 
 /** The sources, one per lab, so each is first-party to the vendor whose pages it lists. */
 export const SITEMAP_SOURCES = {
-  "openai-sitemap": "OpenAI",
   "deepmind-sitemap": "Google",
   "anthropic-sitemap": "Anthropic",
   "xiaomi-sitemap": "Xiaomi",
@@ -65,15 +69,44 @@ export const SITEMAP_SOURCES = {
   "deepseek-sitemap": "DeepSeek",
 } as const;
 
+/**
+ * Own the thirty-minute reading of OpenAI's model sitemaps. The hourly whole-site reader reuses
+ * these documents until the next model poll, independent of where its own hour starts. Only a
+ * complete successful read is published; an expired or absent body makes the site reader fetch.
+ */
+export async function collectOpenAISitemap(cache: HttpCache, request: Fetch = fetch): Promise<Collection> {
+  const records = new Map<string, { id: string; name: string; maker: string; url: string }>();
+  const documents: { url: string; body: string }[] = [];
+  for (const url of OPENAI_SITEMAPS) {
+    const body = await fetchText(url, {}, request);
+    parseSitemapXml(body);
+    for (const page of modelPages(body))
+      records.set(page, { id: page, name: page.split("/").at(-1) ?? page, maker: "OpenAI", url: page });
+    documents.push({ url, body });
+  }
+  if (!records.size) throw new SourceError("missing-content", "OpenAI's sitemap lists no model page");
+  const freshUntil = Date.now() + 1_800_000;
+  for (const { url, body } of documents) cache.put(url, { etag: null, lastModified: null, freshUntil, body });
+  return {
+    source: "openai-sitemap",
+    stream: "github",
+    url: OPENAI_SITEMAPS[0],
+    raw: [...records.keys()].sort().join("\n"),
+    records: [...records.values()],
+  };
+}
+
 export async function collectLabSitemap(
   source: keyof typeof SITEMAP_SOURCES,
   request: Fetch = fetch,
+  cache?: HttpCache,
 ): Promise<Collection> {
   const maker = SITEMAP_SOURCES[source];
   const sitemaps = SITEMAPS.filter((sitemap) => sitemap.maker === maker);
   const records = new Map<string, { id: string; name: string; maker: string; url: string }>();
   for (const sitemap of sitemaps) {
-    const xml = await fetchText(sitemap.url, {}, request);
+    const xml = await fetchText(sitemap.url, {}, request, undefined, cache);
+    if (!sitemap.pages) parseSitemapXml(xml);
     if (!xml.includes("href=") && !xml.includes("<loc>"))
       throw new SourceError("schema", `${sitemap.url} is not a sitemap`);
     for (const url of modelPages(xml, sitemap.pages))
