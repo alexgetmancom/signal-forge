@@ -28,29 +28,45 @@ export function claudeAssetImports(code: string, parent: string): string[] {
     urls.add(assetSchema.parse(new URL(match[1] ?? "", parent).href));
   return [...urls];
 }
+
+/** Keep the strings and graph edges; release each JavaScript body before retaining the next batch. */
+async function readClaudeAsset(url: string, depth: number, request: Fetch, cache?: HttpCache) {
+  const code = await fetchText(url, {}, request, undefined, cache);
+  return {
+    url,
+    depth,
+    bytes: Buffer.byteLength(code),
+    strings: extractStrings(code),
+    imports: depth < 2 ? claudeAssetImports(code, url) : [],
+  };
+}
+
 export async function collectClaude(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
   const html = await fetchText("https://claude.ai", {}, request);
   const entry = assetSchema.parse(
     html.match(/<script[^>]+src="(https:\/\/assets-proxy\.anthropic\.com\/[^"]+\.js)"/)?.[1],
   );
-  const code = await fetchText(entry, {}, request, undefined, cache);
-  const raw: Record<string, string> = { [entry]: code };
-  let bytes = code.length;
-  const queued = claudeAssetImports(code, entry).map((url) => ({ url, depth: 1 }));
+  const first = await readClaudeAsset(entry, 0, request, cache);
+  const raw: Record<string, string[]> = { [entry]: first.strings };
+  let bytes = first.bytes;
+  const queued = first.imports.map((url) => ({ url, depth: 1 }));
   const seen = new Set([entry, ...queued.map((item) => item.url)]);
+  if (seen.size > 1200)
+    throw new SourceError("protocol", "Public page Claude asset graph exceeds 1200 files at depth 2");
   // Two levels include feature chunks omitted by the entry bundle without traversing the entire vendor graph.
-  for (let i = 0; i < queued.length; i += 4) {
-    const batch = await Promise.all(
-      queued
-        .slice(i, i + 4)
-        .map(async (item) => ({ ...item, code: await fetchText(item.url, {}, request, undefined, cache) })),
+  for (let i = 0; i < queued.length; ) {
+    const batch = await Promise.allSettled(
+      queued.slice(i, i + 4).map((item) => readClaudeAsset(item.url, item.depth, request, cache)),
     );
-    for (const asset of batch) {
-      bytes += asset.code.length;
+    const failure = batch.find((result) => result.status === "rejected");
+    if (failure) throw failure.reason;
+    for (const result of batch) {
+      if (result.status !== "fulfilled") continue;
+      const asset = result.value;
+      bytes += asset.bytes;
       if (bytes > 150_000_000) throw new SourceError("protocol", "Public page Claude assets exceed 150 MB limit");
-      raw[asset.url] = asset.code;
-      if (asset.depth >= 2) continue;
-      for (const url of claudeAssetImports(asset.code, asset.url)) {
+      raw[asset.url] = asset.strings;
+      for (const url of asset.imports) {
         if (seen.has(url)) continue;
         seen.add(url);
         queued.push({ url, depth: asset.depth + 1 });
@@ -58,8 +74,9 @@ export async function collectClaude(request: Fetch = fetch, cache?: HttpCache): 
           throw new SourceError("protocol", "Public page Claude asset graph exceeds 1200 files at depth 2");
       }
     }
+    i += batch.length;
   }
-  const strings = selectMeaningfulWebStrings(Object.values(raw).flatMap(extractStrings));
+  const strings = selectMeaningfulWebStrings(Object.values(raw).flat());
   if (!strings.length) throw new SourceError("missing-content", "Public page Claude strings not found");
   return {
     source: "claude-web",
