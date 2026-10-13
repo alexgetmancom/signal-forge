@@ -255,7 +255,13 @@ test("the SKU field mask retains pagination and each service's cadence", async (
     seen.push(url);
     if (url === account.token_uri) return Response.json({ access_token: "token-1", expires_in: 3599 });
     const query = new URL(url).searchParams;
-    expect(query.get("fields")).toBe("skus(description),nextPageToken");
+    // Rates are worth their bytes on Google's own list and not on the reseller's: 2.55x either way,
+    // but Vertex's hourly 2.10 MB would buy the same numbers again. See `SERVICES`.
+    expect(query.get("fields")).toBe(
+      url.includes("AEFD-7695-64FA")
+        ? "skus(description,pricingInfo/pricingExpression/usageUnit,pricingInfo/pricingExpression/tieredRates/unitPrice),nextPageToken"
+        : "skus(description),nextPageToken",
+    );
     expect(query.get("prettyPrint")).toBe("false");
     const firstVertexPage = url.includes("C7E2-9256-1C43") && !query.has("pageToken");
     if (query.has("pageToken")) expect(query.get("pageToken")).toBe("next page+/");
@@ -283,6 +289,47 @@ test("the SKU field mask retains pagination and each service's cadence", async (
   seen.length = 0;
   await collectGoogleSkus(config, skus, start + 3_600_001);
   expect(seen.filter(service).map(service)).toEqual(["C7E2-9256-1C43", "C7E2-9256-1C43", "AEFD-7695-64FA"]);
+});
+
+test("a rate on Google's own list reaches the record, and the reseller's does not", async () => {
+  const rate = (dollarsPerMillion: number, usageUnit = "count") => ({
+    pricingExpression: {
+      usageUnit,
+      tieredRates: [
+        {
+          unitPrice: {
+            units: String(Math.floor(dollarsPerMillion / 1_000_000)),
+            nanos: Math.round((dollarsPerMillion % 1_000_000) * 1000),
+          },
+        },
+      ],
+    },
+  });
+  const skus = async (url: string) => {
+    if (url === account.token_uri) return Response.json({ access_token: "token-1", expires_in: 3599 });
+    // The reseller is asked for descriptions only, so its rows carry no rate to read.
+    if (url.includes("C7E2-9256-1C43"))
+      return Response.json({ skus: [{ description: "Generate content input token count gemini 4 argon text" }] });
+    return Response.json({
+      skus: [
+        { description: "Generate content input token count gemini 4 argon text", pricingInfo: [rate(4)] },
+        { description: "Generate content output token count gemini 4 argon text", pricingInfo: [rate(20)] },
+        { description: "Generate content cached input token count gemini 4 argon text", pricingInfo: [rate(0.2)] },
+        // Half price under a tier nobody is quoted, and a storage rate charged by the hour.
+        { description: "Generate content input token count gemini 4 argon text contributor", pricingInfo: [rate(2)] },
+        {
+          description: "Generate content cached content storage token hours gemini 4 argon",
+          pricingInfo: [rate(4.5, "h")],
+        },
+      ],
+    });
+  };
+  // After the cadence test's last read and before the next test's, because `lastRead` outlives a
+  // test: a reading stamped in the future would be served from memory to everything after it.
+  const collection = await collectGoogleSkus(config, skus, Date.parse("2026-10-08T00:00:00Z"));
+  const argon = collection.records.find((record) => record.id === "gemini-4-argon");
+  expect(argon?.pricing).toEqual({ input: 4, output: 20, input_cache_read: 0.2 });
+  expect(collection.records.find((record) => record.id === "gemini-4")?.pricing).toBeUndefined();
 });
 
 test("a codename Google prices before announcing is read, and the plans beside it are not", async () => {

@@ -3,7 +3,7 @@ import { signalClass } from "../src/events/signals.js";
 import type { Event } from "../src/events/types.js";
 import { claudeModelIds } from "../src/sources/claudeCode.js";
 import { commandCodeModelIds, isFreeModel, isSmallModel, servedModel } from "../src/sources/codingPlans.js";
-import { skuModels } from "../src/sources/googleSkus.js";
+import { type PricedSku, skuModels, skuPrices } from "../src/sources/googleSkus.js";
 import { kimiQuickstarts, minimaxReleases, xiaomiNews, zaiReleases } from "../src/sources/labPages.js";
 import { parseAnthropicRoutes } from "../src/sources/news.js";
 import { qwenPosts } from "../src/sources/qwen.js";
@@ -126,6 +126,59 @@ test("a model priced on Google Cloud is named once however it is billed", () => 
       "Vector Search Index Serving e2-standard-16",
     ]),
   ).toEqual(["gemini-3.8-flash-cyber", "gemini-3.8-flash-lite-tts", "gemini-3.8-flash-tts", "glm-5.2"]);
+});
+
+const priced = (description: string, perMillion: number, usageUnit = "count"): PricedSku => ({
+  description,
+  usageUnit,
+  perMillion,
+});
+
+test("a model's price is the rate it is charged on demand, not the cheapest row naming it", () => {
+  // The forty-three rows Gemini 4 Argon is published in, in miniature. The card that went out on
+  // 2026-10-13 said "$0.1 in" because a reader took the smallest of these.
+  expect(
+    skuPrices([
+      priced("Generate content input token count gemini 4 argon text", 4),
+      priced("Generate content output token count gemini 4 argon text", 20),
+      priced("Generate content cached input token count gemini 4 argon text", 0.2),
+      priced("Generate content input token count gemini 4 argon text contributor", 2),
+      priced("Generate content input token count gemini 4 argon text contributor caching", 0.1),
+      priced("Generate content output token count gemini 4 argon text priority", 36),
+      priced("Generate content input token count gemini 4 argon video", 4),
+      priced("BatchGenerate content output token count gemini 4 argon text", 10),
+      priced("Generate content cached content storage token hours gemini 4 argon", 4.5, "h"),
+    ]).get("gemini-4-argon"),
+  ).toEqual({ input: 4, output: 20, input_cache_read: 0.2 });
+});
+
+test("a codename's price is not its stem's", () => {
+  const prices = skuPrices([
+    priced("Generate content input token count gemini 4 argon text", 4),
+    priced("Generate content input token count gemini 4 text", 1.5),
+  ]);
+  expect(prices.get("gemini-4-argon")).toEqual({ input: 4 });
+  expect(prices.get("gemini-4")).toEqual({ input: 1.5 });
+});
+
+test("one rate written two ways is read, and two rates that disagree are not read at all", () => {
+  // Four spellings of one call, all on the live list; and a model whose rate depends on how long the
+  // prompt is, where the base tier is the headline and the long-context sheet is not.
+  expect(
+    skuPrices([
+      priced("GenerateContent text output token count for Gemini 2.0 Flash", 0.4),
+      priced("Generate_content cached text input token count for gemini 2.0 flash", 0.025),
+      priced("GenerateContent input token count for Gemini 2.0 Flash when input is up to 128k tokens", 0.1),
+      priced("GenerateContent input token count for Gemini 2.0 Flash when input is longer than 128k tokens", 0.2),
+    ]).get("gemini-2.0-flash"),
+  ).toEqual({ output: 0.4, input_cache_read: 0.025, input: 0.1 });
+  // Nothing says which of two disagreeing rows a reader pays, so the rate is left unsaid.
+  expect(
+    skuPrices([
+      priced("Generate content input token count gemini 9.9 pro text", 3),
+      priced("Generate content input token count gemini 9.9 pro text", 7),
+    ]).get("gemini-9.9-pro"),
+  ).toBeUndefined();
 });
 
 test("Command Code's CLI names its models, hidden ones included, once per id", () => {

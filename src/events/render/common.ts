@@ -229,7 +229,14 @@ function priceUnitForSource(source?: string, value?: unknown): PriceUnit {
   // `price_1m_input_tokens` and gives 2 for a model that costs two dollars, and Anthropic's own
   // table writes "$4 / MTok". A sheet read in the wrong unit is wrong by a million on a card people
   // quote, so the unit stays with the source and the number is stored as the page wrote it.
-  if (source === "deepseek-pricing" || source === "artificial-analysis" || source === "anthropic-pricing")
+  // `google-skus` reads `units` and `nanos` off the price list and stores dollars per million in
+  // those terms, because a float multiplication of a billionth lands on 0.19999999999999998.
+  if (
+    source === "deepseek-pricing" ||
+    source === "artificial-analysis" ||
+    source === "anthropic-pricing" ||
+    source === "google-skus"
+  )
     return "per-million";
   // Keep the pure formatting helper useful for callers without source metadata; production
   // event rendering always passes the source and therefore never infers units from a JS type.
