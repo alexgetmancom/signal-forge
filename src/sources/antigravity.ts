@@ -36,6 +36,15 @@ import { fetchResponse, fetchText, readResponseStream } from "./http.js";
  * Measured 2026-10-13: 55.3 MB compressed, 183.6 MB unpacked, 3.8 s to stream and scan. It is read
  * only when the manifest's version moves, which is what the manifest was already for, and streamed
  * rather than held -- see ./gzipScan.ts for why that distinction is 990 MB of resident memory.
+ *
+ * The desktop build is not read, and the condition for changing that is written down rather than
+ * left to memory: both surfaces ship the same ids, and on 2026-10-13 Desktop 2.23.0 carried
+ * `gemini-4-argon` and its three efforts in `resources/bin/language_server` and the CLI carried the
+ * same four, so reading both buys a second copy of one answer for another download of this size.
+ * Read it when the CLI stops being first -- a name that turns up in a catalogue, in a newsroom post
+ * or on a board while this source has never said it, which is what `coverage-gaps` and
+ * `prod trace <name>` answer. One shared id list between two artefacts is the thing to check for,
+ * and the desktop artefact is not a tarball, so `scanGzipStream` is not enough on its own.
  */
 const MANIFEST_BASE = "https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests";
 const CHANGELOG_MARKDOWN_URL = "https://antigravity.google/docs/changelog.md";
