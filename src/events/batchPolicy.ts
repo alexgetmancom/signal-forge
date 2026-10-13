@@ -213,7 +213,7 @@ export function withBorrowedContext(work: Delivering, speaking: BatchEvent[]): v
     // Every launch, not only a stealth one: Anthropic's own row for Claude Opus 5.5 carried
     // neither a context length nor a price, and the card went out with the bottom of its
     // picture empty while OpenRouter had both.
-    if (event.signal === "launch") {
+    if (event.signal === "launch" || event.signal === "codename") {
       const borrowed = borrowedFacts(db, event, stealthSubject(event));
       if (Object.keys(borrowed).length) Object.assign(event, { borrowed });
     }

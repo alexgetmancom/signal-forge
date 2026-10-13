@@ -558,6 +558,16 @@ export function eventFactParts(event: Event & CardContext, summary?: string): Fa
     }
   }
 
+  // A rate the subject is published at, from a catalogue whose unit is known, where a sighting has
+  // none of its own. Google wrote Gemini 4 Argon into its price list eight days before the blog
+  // post, so the one thing this card can say beyond the name is what the model will cost -- and the
+  // one that went out said only "on Google Cloud".
+  //
+  // Sightings only. A launch already carries its borrowed rate as a chip on the picture, and the
+  // body staying blank is what `queuePriceAmendments` reads to know a card is owed a price.
+  if (event.signal === "codename" && event.borrowed?.pricing && !lines.some((line) => factText(line).includes("$")))
+    lines.push(...prices(null, event.borrowed.pricing, String(event.borrowed.pricingSource ?? "")));
+
   const collapsed = contested(collapseDetails(lines), event);
   // A model a catalogue already sells is not an unconfirmed name, whatever the arena calls it.
   const identity =

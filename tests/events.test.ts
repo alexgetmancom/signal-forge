@@ -6,7 +6,7 @@ import { isRoutine } from "../src/events/interpretation.js";
 import { hasNotificationContent } from "../src/events/notification.js";
 import { saveCollection } from "../src/events/pipeline.js";
 import { borrowedFacts } from "../src/events/priceWorth.js";
-import { collapseDetails, compactCount, MAX_DETAIL_LINES, prices } from "../src/events/render/common.js";
+import { collapseDetails, compactCount, factText, MAX_DETAIL_LINES, prices } from "../src/events/render/common.js";
 import { eventEmbed } from "../src/events/render/discord.js";
 import { eventFacts } from "../src/events/render/facts.js";
 import { renderEvent } from "../src/events/render/telegram.js";
@@ -1411,6 +1411,30 @@ test("an arena entry whose sibling carries its own name is not said to stand bes
     siblings: [{ id: "a", name: "amber-fern", maker: "Unknown", input: { text: true } }],
   });
   expect(facts[0]).toBe("Another Arena entry under the same name.");
+});
+
+test("a name sighted on a price list says what it will cost, and a launch leaves that to its picture", () => {
+  const sighting = {
+    id: 1,
+    source: "google-skus",
+    stream: "api-models",
+    entity_id: "gemini-4-argon",
+    kind: "new",
+    signal: "codename",
+    detected_at: "2026-10-13T10:55:53.457Z",
+    before_json: null,
+    after_json: JSON.stringify({ id: "gemini-4-argon", name: "gemini-4-argon", maker: "Google" }),
+    borrowed: { pricing: { input: 4, output: 20, input_cache_read: 0.2 }, pricingSource: "google-skus" },
+  } as unknown as Parameters<typeof eventFacts>[0];
+  // The card that went out on 2026-10-13 said only "on Google Cloud"; this is the number it owed.
+  expect(eventFacts(sighting).map(factText)).toContain("Price: $4 in · $20 out · $0.2 cache read / 1M tokens");
+  // A launch puts the same borrowed rate on its picture, and its blank body is what tells
+  // `queuePriceAmendments` the card is still owed one.
+  expect(
+    eventFacts({ ...sighting, signal: "launch" })
+      .map(factText)
+      .join(" "),
+  ).not.toContain("$");
 });
 
 test("a repricing is read as its sharpest rate, with the rest counted", () => {
