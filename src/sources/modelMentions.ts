@@ -507,14 +507,13 @@ export async function collectModelMentions(
     .query<{ body: string }, [string, string]>("SELECT body FROM records WHERE source=? AND id=?")
     .get(source, CURSOR);
   const cursor = cursorRow ? (JSON.parse(cursorRow.body) as { sha?: string }).sha : undefined;
-  const head = {
-    sha: z
-      .string()
-      .regex(/^[a-f0-9]{40}$/)
-      .parse(
-        (await fetchText(`${api}/commits/HEAD`, { ...headers, Accept: "application/vnd.github.sha" }, request)).trim(),
-      ),
-  };
+  const sha = (
+    await fetchText(`${api}/commits/HEAD`, { ...headers, Accept: "application/vnd.github.sha" }, request)
+  ).trim();
+  // A sentence of ours, not a validator's: a ZodError here is filed as `unknown` and printed as
+  // "unexpected error (Error)", which says nothing about a repository that answered the wrong thing.
+  if (!/^[a-f0-9]{40}$/.test(sha)) throw new SourceError("schema", `${watch.repo} head did not return a commit SHA`);
+  const head = { sha };
   const at = (sha: string): RecordData => ({ id: CURSOR, name: "Last commit read", sha });
   // The first read is the one chance to see what the repository already holds. `MiniMax-M3.1` sat
   // in five files of minimax-code on 2026-09-24 while the catalogue had M3, and starting from the

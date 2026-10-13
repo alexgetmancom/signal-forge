@@ -359,6 +359,9 @@ function shippedBinarySources(db: SourceContext["db"]): SourceEntry[] {
     vendor: "Google",
     // 55.3 MB unpacking to 183.6 MB, read only when the updater's manifest names a new build.
     heavy: true,
+    // Its own host: the kind's budget is npm's, and this is the only member that asks Google for a
+    // build. A shared budget is for sparing one upstream, and these two share none.
+    pace: { group: "storage.googleapis.com", seconds: 5 },
     nothingNew: () => antigravityCliModelsUnchanged(fetch, bundleMemory(db, "antigravity-cli-models")),
     collector: () => collectAntigravityCliModels(fetch, bundleMemory(db, "antigravity-cli-models")),
   });

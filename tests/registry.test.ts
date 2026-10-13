@@ -115,8 +115,10 @@ test("source registry has unique IDs, valid streams, labels and consistent pacin
       ["downloads.claude.ai", 5],
       // docs.cohere.com is read twice: the changelog and the deprecation schedule.
       ["docs.cohere.com", 10],
-      // The three shipped-binary readers ask npm for a dist-tags document every five minutes.
+      // The shipped-binary readers ask npm for a dist-tags document every five minutes -- all but
+      // the Antigravity CLI, whose manifest is Google's and which therefore spares a different host.
       ["registry.npmjs.org", 5],
+      ["storage.googleapis.com", 5],
     ]),
   );
   db.close();
