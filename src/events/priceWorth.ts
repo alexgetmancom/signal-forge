@@ -83,8 +83,14 @@ const BORROWED_FIELDS = ["context", "input", "output", "maxOutputTokens", "reaso
  * answered at 17:51 and the first price anywhere appeared at 18:13, so the card went out with the
  * window and no price, as the two Claude launches before it had. `anthropic-pricing` is the maker's
  * own table, which is the only one that can be there at the same time as the model.
+ *
+ * `google-skus` is the same thing for Google and better placed than any of them: the price list is
+ * where Gemini 4 Argon was first written at all, eight days before the blog post, and it is read
+ * every five minutes. Its unit is dollars per million, recorded against its name like the rest, and
+ * what it stores is the on-demand rate rather than the cheapest row naming a model -- which it did
+ * store for an hour on 2026-10-13, and a card quoted it.
  */
-const PRICED_BY = new Set(["anthropic-pricing", "openrouter", "vercel-gateway"]);
+const PRICED_BY = new Set(["anthropic-pricing", "openrouter", "vercel-gateway", "google-skus"]);
 
 /**
  * How far two catalogues may differ on one window before a reader should be told they do.

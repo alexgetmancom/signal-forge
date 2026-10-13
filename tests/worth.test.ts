@@ -1233,6 +1233,45 @@ test("a venue that carries no facts borrows them from a catalogue that does", ()
   db.close();
 });
 
+test("a Gemini launch carries the price list that named it first", () => {
+  const db = openDatabase(":memory:");
+  const listing = (source: string, record: RecordData): Collection => ({
+    source,
+    stream: "api-models",
+    url: `https://${source}`,
+    raw: [],
+    records: [record],
+  });
+  // The on-demand rate of the three Google publishes, in the unit recorded against the source.
+  saveCollection(
+    db,
+    listing("google-skus", {
+      id: "gemini-4-argon",
+      name: "gemini-4-argon",
+      maker: "Google",
+      pricing: { input: 4, output: 20, input_cache_read: 0.2 },
+    }),
+    [wire],
+    "2026-10-13T12:43:50.894Z",
+  );
+  const launch = {
+    id: 1,
+    source: "gemini",
+    stream: "api-models",
+    entity_id: "gemini-4-argon",
+    kind: "new",
+    after_json: JSON.stringify({ id: "gemini-4-argon", name: "Gemini 4 Argon" }),
+    detected_at: "2026-10-13T13:00:00.000Z",
+  } as unknown as Event;
+
+  const borrowed = borrowedFacts(db, launch, "gemini-4-argon");
+  expect(borrowed.pricing).toEqual({ input: 4, output: 20, input_cache_read: 0.2 });
+  expect(borrowed.pricingSource).toBe("google-skus");
+  // Read per token this sheet says $4,000,000 a million, which is what the unit registry prevents.
+  expect(launchChips({ ...launch, borrowed } as Event & CardContext, [])).toEqual(["$4 in", "$20 out"]);
+  db.close();
+});
+
 test("a Claude launch carries its maker's own price, which is the only one there at the time", () => {
   const db = openDatabase(":memory:");
   const listing = (source: string, record: RecordData): Collection => ({
