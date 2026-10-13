@@ -1,10 +1,13 @@
 import { z } from "zod";
 import type { Collection, RecordData } from "../events/types.js";
-import { SourceError } from "../failure.js";
+import { httpFailure, SourceError } from "../failure.js";
 import type { Fetch } from "../http-client.js";
 import type { HttpCache } from "../storage/httpCache.js";
+import { type BundleMemory, forgetful, withinPublishRace } from "./bundleMemory.js";
+import { runTogetherModelIds } from "./cliBundles.js";
 import { markdownText, publishedDate } from "./feeds.js";
-import { fetchText } from "./http.js";
+import { scanGzipStream } from "./gzipScan.js";
+import { fetchResponse, fetchText, readResponseStream } from "./http.js";
 
 /**
  * Google Antigravity: the agent-first platform the Gemini CLI is being folded into.
@@ -23,17 +26,23 @@ import { fetchText } from "./http.js";
  * - the models page, as its own Markdown, which is a plan matrix rather than a catalogue: which
  *   model a tier may select inside the IDE, including the ones Google does not make.
  *
- * The CLI's own binary is deliberately not downloaded. It is a single 200 MB Go executable whose
- * strings are run together -- `gemini-3.8-flashgemini-3.7-flash` -- so the quoted-id pattern in
- * ./cliBundles.ts reads zero from it, and `desktop.ts` already measured what a client bundle buys
- * over a catalogue: nothing, at 600 MB a version. The manifest is the build, and the build is what
- * is worth having.
+ * And, since 2026-10-13, the executable the first of those three points at. It was left alone for
+ * as long as there was no way to read it: the strings in a Go binary run together --
+ * `gemini-3.8-flashgemini-3.7-flash` -- so the quoted-id pattern in ./cliBundles.ts reads zero from
+ * it. `runTogetherModelIds` is that way, and what it reads is not in any catalogue: `gemini-4-argon`
+ * and its `low`, `medium` and `high` efforts were in CLI 1.3.4 on 2026-10-13, while the price list
+ * still said `gemini-4` and nothing else here said Argon at all.
+ *
+ * Measured 2026-10-13: 55.3 MB compressed, 183.6 MB unpacked, 3.8 s to stream and scan. It is read
+ * only when the manifest's version moves, which is what the manifest was already for, and streamed
+ * rather than held -- see ./gzipScan.ts for why that distinction is 990 MB of resident memory.
  */
 const MANIFEST_BASE = "https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests";
 const CHANGELOG_MARKDOWN_URL = "https://antigravity.google/docs/changelog.md";
 const CHANGELOG_URL = "https://antigravity.google/docs/changelog/";
 const MODELS_MARKDOWN_URL = "https://antigravity.google/docs/models.md";
 const MODELS_URL = "https://antigravity.google/docs/models/";
+const RELEASES_URL = "https://antigravity.google/releases";
 
 /** The platforms the updater publishes a manifest for, each one build of one release. */
 const PLATFORMS = ["darwin_arm64", "linux_amd64"] as const;
@@ -82,6 +91,84 @@ export async function collectAntigravityBuild(request: Fetch = fetch, cache?: Ht
     trackChanges: true,
     records,
   };
+}
+
+/**
+ * The platform whose build is read for ids. One executable is read rather than both: the names in it
+ * are the service's, not the host's, and the two manifests have never named different versions.
+ */
+const SCANNED_PLATFORM = "linux_amd64";
+
+/** The families Google writes into this client. A seed, not a pattern: see `runTogetherModelIds`. */
+const CLIENT_MODELS = /(?:gemini|gemma)-\d+(?:\.\d+)?/g;
+
+/** Below this the scan found the wrong thing, and the answer is not a model list. */
+const MODEL_FLOOR = 5;
+
+async function cliManifest(request: Fetch, cache?: HttpCache): Promise<z.infer<typeof manifestSchema>> {
+  const body = await fetchText(
+    `${MANIFEST_BASE}/${SCANNED_PLATFORM}.json`,
+    { accept: "application/json" },
+    request,
+    undefined,
+    cache,
+  );
+  return manifestSchema.parse(JSON.parse(body) as unknown);
+}
+
+function cliModels(version: string, ids: readonly string[]): Collection {
+  return {
+    source: "antigravity-cli-models",
+    stream: "github",
+    // The build these ids were read out of, which is the page the changelog's own entries link to.
+    url: `${RELEASES_URL}?tab=hub&version=${version}`,
+    raw: ids.join("\n"),
+    records: ids.map((id) => ({ id, name: id, maker: "Google" })),
+  };
+}
+
+/** The 303-byte half of the question: whether this build has already been read through. */
+export async function antigravityCliModelsUnchanged(
+  request: Fetch = fetch,
+  memory: BundleMemory = forgetful,
+  cache?: HttpCache,
+): Promise<boolean> {
+  const { version } = await cliManifest(request, cache);
+  return memory.lastVersion() === version && memory.ids().length >= MODEL_FLOOR;
+}
+
+/**
+ * The model ids the Antigravity CLI's own executable carries, read once per published build.
+ *
+ * The download URL comes from the manifest and is not stored: what is being asked is which models
+ * this build knows, not where its bytes are, and a path that moves is a change nobody wants an
+ * event for.
+ */
+export async function collectAntigravityCliModels(
+  request: Fetch = fetch,
+  memory: BundleMemory = forgetful,
+  cache?: HttpCache,
+): Promise<Collection> {
+  const manifest = await cliManifest(request, cache);
+  if (memory.lastVersion() === manifest.version) {
+    const known = memory.ids();
+    if (known.length >= MODEL_FLOOR) return cliModels(manifest.version, known);
+  }
+  const response = await fetchResponse(manifest.url, {}, request);
+  // The updater names a build before its bytes are served, the way npm does; see `withinPublishRace`.
+  const pending = memory.ids();
+  if (response.status === 404 && pending.length >= MODEL_FLOOR && withinPublishRace(memory, manifest.version))
+    return cliModels(memory.lastVersion() ?? manifest.version, pending);
+  if (!response.ok) throw httpFailure(`Antigravity CLI ${manifest.version}: HTTP ${response.status}`, response.status);
+  if (!response.body) throw new SourceError("protocol", `Antigravity CLI ${manifest.version}: no body`);
+  const ids = new Set<string>();
+  await scanGzipStream(readResponseStream(response), (text) => {
+    for (const id of runTogetherModelIds(text, CLIENT_MODELS)) ids.add(id);
+  });
+  if (ids.size < MODEL_FLOOR)
+    throw new SourceError("missing-content", `Antigravity CLI ${manifest.version} names ${ids.size} models`);
+  memory.remember(manifest.version);
+  return cliModels(manifest.version, [...ids].sort());
 }
 
 /** `## Antigravity CLI` and its siblings: which surface the versions beneath a heading belong to. */

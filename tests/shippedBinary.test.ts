@@ -1,9 +1,11 @@
 import { expect, test } from "bun:test";
 import { readerStanding } from "../src/events/confidence.js";
+import { saveCollection } from "../src/events/pipeline.js";
 import { eventHeadline, eyebrow, readerImpact } from "../src/events/render/headline.js";
 import type { Event } from "../src/events/types.js";
 import { bundleMemory } from "../src/sources/bundleMemory.js";
 import { claudeCodeUnchanged } from "../src/sources/claudeCode.js";
+import { runTogetherModelIds } from "../src/sources/cliBundles.js";
 import { openDatabase } from "../src/storage/database.js";
 
 const sighting: Event = {
@@ -125,5 +127,68 @@ test("a tarball still missing after a publish takes is a failure again", async (
       : new Response("", { status: 404 });
 
   await expect(collectClaudeCodeModels(request, bundleMemory(db, "claude-code-models"))).rejects.toThrow("HTTP 404");
+  db.close();
+});
+
+test("ids are read out of a string table with no separators, and a run-together name is refused", () => {
+  const seed = /(?:gemini|gemma)-\d+(?:\.\d+)?/g;
+  // The bytes as Antigravity CLI 1.3.4 actually carries them, read 2026-10-13.
+  expect(
+    runTogetherModelIds("Error: %+voffline_accessgemini-2.5-progemini-4-argonGemini 3 Flashaicode_missing", seed),
+  ).toEqual(["gemini-2.5-pro", "gemini-4-argon"]);
+  expect(
+    runTogetherModelIds("reamGenerateContentGemini 4 Argon (High)gemini-4-argon-mediumgemini-3.8-flash-high", seed),
+  ).toEqual(["gemini-3.8-flash-high", "gemini-4-argon-medium"]);
+  // An unknown word with another version behind it is two ids run together, not a codename: the
+  // version alone is kept rather than `gemini-4-argongemini` published as a model.
+  expect(runTogetherModelIds("gemini-4-argongemini-3-pro", seed)).toEqual(["gemini-3-pro", "gemini-4"]);
+  // A word the list knows cannot be the start of a longer one it does not: `low` ends the id even
+  // when the next id's family runs straight into it.
+  expect(runTogetherModelIds("gemini-3.8-flash-lowgemini-3.7-flash-lowgemini-3", seed)).toEqual([
+    "gemini-3",
+    "gemini-3.7-flash-low",
+    "gemini-3.8-flash-low",
+  ]);
+  // A bundle carries its own fixtures, and a fixture invents models; see MAX_MAJOR.
+  expect(runTogetherModelIds("gemini-9001-super-duper", seed)).toEqual([]);
+});
+
+test("the Antigravity CLI's executable is read once per build and names what no catalogue does", async () => {
+  const { collectAntigravityCliModels, antigravityCliModelsUnchanged } = await import("../src/sources/antigravity.js");
+  const db = openDatabase(":memory:");
+  const table =
+    "offline_accessgemini-2.5-progemini-4-argonGemini 3 Flashgemini-4-argon-lowgemini-4-argon-medium" +
+    "gemini-4-argon-highgemini-3.8-flash-highgemma-4aicode_missing";
+  const downloads: string[] = [];
+  const request = async (url: string | URL | Request) => {
+    const asked = String(url);
+    if (asked.endsWith("linux_amd64.json"))
+      return Response.json({ version: "1.3.4", url: "https://storage.googleapis.com/x/cli.tar.gz", sha512: "ab" });
+    downloads.push(asked);
+    return new Response(Bun.gzipSync(Buffer.from(table, "latin1")));
+  };
+  const memory = () => bundleMemory(db, "antigravity-cli-models");
+
+  expect(await antigravityCliModelsUnchanged(request, memory())).toBe(false);
+  const first = await collectAntigravityCliModels(request, memory());
+  expect(first.url).toBe("https://antigravity.google/releases?tab=hub&version=1.3.4");
+  expect(first.records.map((record) => record.id)).toEqual([
+    "gemini-2.5-pro",
+    "gemini-3.8-flash-high",
+    "gemini-4-argon",
+    "gemini-4-argon-high",
+    "gemini-4-argon-low",
+    "gemini-4-argon-medium",
+    "gemma-4",
+  ]);
+  expect(downloads).toHaveLength(1);
+  saveCollection(db, first, []);
+
+  // The same build is not downloaded again, and the collection stays whole: a record dropped here
+  // reads as a model the client stopped knowing about.
+  expect(await antigravityCliModelsUnchanged(request, memory())).toBe(true);
+  const again = await collectAntigravityCliModels(request, memory());
+  expect(again.records).toEqual(first.records);
+  expect(downloads).toHaveLength(1);
   db.close();
 });

@@ -1,4 +1,5 @@
 import type { AppConfig } from "../../config.js";
+import { antigravityCliModelsUnchanged, collectAntigravityCliModels } from "../antigravity.js";
 import { bundleMemory } from "../bundleMemory.js";
 import { claudeCodeUnchanged, collectClaudeCodeModels } from "../claudeCode.js";
 import { CLI_BUNDLES, cliBundleUnchanged, collectCliBundle } from "../cliBundles.js";
@@ -353,6 +354,14 @@ function shippedBinarySources(db: SourceContext["db"]): SourceEntry[] {
       collector: () => collectClaudeCodeModels(fetch, bundleMemory(db, "claude-code-models")),
     },
   ];
+  binaries.push({
+    id: "antigravity-cli-models",
+    vendor: "Google",
+    // 55.3 MB unpacking to 183.6 MB, read only when the updater's manifest names a new build.
+    heavy: true,
+    nothingNew: () => antigravityCliModelsUnchanged(fetch, bundleMemory(db, "antigravity-cli-models")),
+    collector: () => collectAntigravityCliModels(fetch, bundleMemory(db, "antigravity-cli-models")),
+  });
   for (const bundle of CLI_BUNDLES)
     binaries.push({
       id: bundle.source,

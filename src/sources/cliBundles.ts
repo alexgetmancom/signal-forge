@@ -33,6 +33,90 @@ function keep(id: string): boolean {
   return major > 0 && major <= MAX_MAJOR && !PLUMBING.test(id) && !DATED.test(id);
 }
 
+/**
+ * The words a client writes after a version: a size, a variant, or a reasoning effort. A closed list
+ * on purpose -- it is what lets an id be read out of a string table with no separators in it.
+ */
+const SUFFIX = [
+  "flash",
+  "pro",
+  "lite",
+  "ultra",
+  "nano",
+  "mini",
+  "fast",
+  "live",
+  "tts",
+  "image",
+  "preview",
+  "exp",
+  "thinking",
+  "xhigh",
+  "high",
+  "medium",
+  "minimal",
+  "low",
+  "max",
+  "plus",
+  "air",
+  "instruct",
+  "vision",
+  "embedding",
+];
+
+/** The longest word of the list standing at this position, or null when none of them is. */
+function suffixAt(text: string, at: number): string | null {
+  let longest: string | null = null;
+  for (const word of SUFFIX)
+    if (text.startsWith(word, at) && (longest === null || word.length > longest.length)) longest = word;
+  return longest;
+}
+
+/**
+ * Ids out of a binary whose string table has no separators in it.
+ *
+ * A Go executable writes its strings end to end -- `gemini-4-argon-mediumgemini-3.8-flash-high` is
+ * two ids and one run of bytes -- which is why the quoted pattern in `CLI_BUNDLES` reads zero from
+ * one and why these clients were read for their version number alone. Nothing here looks for a
+ * boundary, because there is none: it reads a family and a version, then takes the words it knows
+ * one at a time and stops at the first thing it does not, which is where the next id begins.
+ *
+ * One word it does not know is allowed, directly after the version, and only when a word it does
+ * know follows it or the run of letters ends. That word is the codename, and it is the whole reason
+ * to read a binary at all: `gemini-4-argon` and its three efforts were in Antigravity CLI 1.3.4 on
+ * 2026-10-13, thirteen days after the model was announced and while the price list still said
+ * `gemini-4`. An unknown word with nothing known behind it is two ids run together rather than a
+ * name -- `argongemini` -- so the version alone is kept and nothing is invented. A dash is not the
+ * end of a run: `gemini-4-argongemini-3-pro` ends its first id at `gemini-4`, because what follows
+ * the unknown word is another version and not a word this list holds.
+ */
+export function runTogetherModelIds(text: string, seed: RegExp): string[] {
+  const ids = new Set<string>();
+  for (const match of text.matchAll(seed)) {
+    let at = (match.index ?? 0) + match[0].length;
+    const parts = [match[0].toLowerCase()];
+    const codename = /^-([a-z]{3,12})/.exec(text.slice(at, at + 13))?.[1];
+    if (codename && !suffixAt(codename, 0)) {
+      const after = at + codename.length + 1;
+      const next = text[after];
+      // A word it knows behind the codename, or the end of the run of letters. Anything else is the
+      // next id's own family read as the tail of this one's name.
+      if ((next === "-" && suffixAt(text, after + 1)) || next === undefined || !/[a-z-]/.test(next)) {
+        parts.push(codename);
+        at = after;
+      }
+    }
+    for (let word = text[at] === "-" ? suffixAt(text, at + 1) : null; word; word = suffixAt(text, at + 1)) {
+      parts.push(word);
+      at += word.length + 1;
+      if (text[at] !== "-") break;
+    }
+    const id = parts.join("-");
+    if (keep(id)) ids.add(id);
+  }
+  return sortedIds(ids);
+}
+
 /** Model ids written into a coding client's bundle, for one maker's spelling of them. */
 export function bundleModelIds(text: string, pattern: RegExp): string[] {
   return sortedIds(collectIds(new Set(), text, pattern));

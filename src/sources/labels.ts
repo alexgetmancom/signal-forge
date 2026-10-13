@@ -6,6 +6,7 @@ const STATIC_LABELS: Record<string, string> = {
   stepfun: "StepFun API",
   "openai-docs-index": "OpenAI · docs index",
   "antigravity-cli-build": "Antigravity · CLI build",
+  "antigravity-cli-models": "Antigravity · CLI models",
   "discovery:claude-downloads": "Claude · downloads · discovery",
   "models-dev": "models.dev · catalogue",
   "truefoundry-azure": "TrueFoundry · Azure catalogue",
