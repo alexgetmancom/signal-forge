@@ -8,26 +8,24 @@ import { fetchResponse, readResponseBytes } from "./http.js";
 import { googleCloudHeaders } from "./vertex.js";
 
 /**
- * Vertex AI and the Gemini API, the two billing services a Google model is priced under, and how
- * often each is worth asking.
+ * Read Gemini's own list every pass and Vertex's reseller catalogue hourly. Keep both services in
+ * one collection so a model priced under both retains one record with both service labels.
+ * Only descriptions are used. Measured 2026-10-08: Google's field mask and compact JSON cut Vertex
+ * from 12.31 MB to 835 KB and Gemini from 940 KB to 65 KB, with all 89 records unchanged.
  *
- * The two are nothing alike to read. Vertex AI prices every model Google resells, Anthropic's and
- * Meta's included; the Gemini API prices Google's own, which is the list a Gemini release appears on
- * before it is announced -- Gemini 3.8 Flash TTS and Flash Lite TTS did, on 2026-09-21, and Gemini 4
- * Argon Contributor was priced here before any catalogue carried it. One interval for both meant the
- * cheap list that matters most was read as rarely as the expensive one that matters least.
+ * Prices were asked for on 2026-10-13 and taken back out the same hour, and what went wrong is worth
+ * more than the attempt was. Gemini 4 Argon Contributor is published at $2.00 in, $0.10 cached and
+ * $10.00 out per million; the card that reached the scouts said "$0.1 in · $10 out", because this
+ * list prices one model in many rows and the reader took the lowest of each rate. Two rows are why:
+ * Google writes a cache rate as "Input Caching", which a test for the word "cached" does not catch,
+ * so the cache price was read as an input price and then won for being smaller. Regions and context
+ * tiers are more of the same.
  *
- * So the cadence is per service rather than per source: the small list is read every time the source
- * runs and the large one keeps its hour.
- *
- * Not two sources, which is the other way to say this: a record carries the services it was found
- * under, and splitting the id would have moved 38 Vertex-only models to a new source and announced
- * every one of them as new, to say nothing of changing `services` on the 35 priced under both.
- *
- * The field mask is what keeps the read small -- measured 2026-10-08, descriptions alone and compact
- * JSON cut Vertex from 12.31 MB to 835 KB and Gemini from 940 KB to 65 KB. It now also asks for the
- * usage unit and the first tier's price by name, which is three scalars a row and no bodies; what
- * that costs is `prod traffic` after the next deploy rather than a number guessed here.
+ * So the lesson is not the spelling of one word. The cheapest row of a rate is not what a model
+ * costs, and this list cannot say which row is the headline one without the fields that name the
+ * tier a row belongs to. The next attempt reads `pricingInfo` beside `ServiceRegionalPricing` or it
+ * stays out: a price is the number readers quote back, and `card_amendments(kind='priced')` exists
+ * to put one onto a card that was already sent, which is what should have carried it.
  */
 const SERVICES = {
   "C7E2-9256-1C43": { label: "Vertex AI", everyMs: 3_600_000 },
@@ -40,60 +38,30 @@ const SERVICES = {
  * This is in memory and not in the database on purpose: it is not an observation, it is the pass we
  * would otherwise repeat. A restart simply reads both lists once, which is what every restart did.
  */
-const lastRead = new Map<string, { at: number; readings: readonly SkuReading[] }>();
-
-/**
- * A SKU as the field mask asks for it: what it is called, what it is charged per, and the first
- * tier's price. `startUsageAmount` is not asked for, so the tiers are read in the order the API
- * returns them and only the first is read -- which is the price a reader pays from the first token,
- * and the one a card quotes.
- */
-const skuSchema = z.object({
-  description: z.string(),
-  pricingInfo: z
-    .array(
-      z.object({
-        pricingExpression: z
-          .object({
-            usageUnit: z.string().optional(),
-            tieredRates: z
-              .array(
-                z.object({
-                  unitPrice: z.object({ units: z.string().optional(), nanos: z.number().optional() }).optional(),
-                }),
-              )
-              .optional(),
-          })
-          .optional(),
-      }),
-    )
-    .optional(),
-});
-
-type Sku = z.infer<typeof skuSchema>;
+const lastRead = new Map<string, { at: number; models: readonly string[] }>();
 
 const skusSchema = z.object({
-  skus: z.array(skuSchema).optional(),
+  skus: z.array(z.object({ description: z.string() })).optional(),
   nextPageToken: z.string().optional(),
 });
 
 const MODEL =
   /\b(gemini|gemma|veo|imagen|lyria|glm|minimax|gpt-oss|llama|claude|grok|deepseek|qwen|kimi)[ -]?(\d+(?:\.\d+)?b?)((?:[ -](?:flash|pro|lite|ultra|fast|live|tts|image|cyber|nano|mini|embedding|transcribe|translate|clip|maverick|scout|preview))*)/gi;
 
-/**
- * Words that stand where a codename would and name how a model is billed rather than which model it
- * is. A tier, a region and a modality all sit in this position; `MODEL`'s own list already holds the
- * words that are part of a name, so a word here is one or the other and never both.
- */
 const GOOGLE_FAMILY = new Set(["gemini", "gemma", "veo", "imagen", "lyria"]);
 
 /**
- * The words this price list uses for which deal a row prices rather than which model: a tier, and a
- * region, which is sold as one. Kept apart from the rest of `BILLING_WORD` because a tier is worth
- * recording -- "Gemini 4 Argon Contributor" is a published tier, and what a reader pays depends on
- * which one they are on -- where "input" and "count" are only the shape of a price list.
+ * Words that stand where a codename would and say how a model is billed rather than which model it
+ * is: a tier, a region, a plan, a modality, and the thing being charged for. `MODEL`'s own list
+ * already holds the words that are part of a name, so a word here is one or the other, never both.
+ *
+ * Five of these were learned from production rather than from reading: the first poll after this
+ * list shipped published `gemini-2.5-free`, `gemini-3-paid`, `imagen-4-generation`,
+ * `imagen-4-upscale` and `lyria-3-music` as models, thirteen rows in one batch, of which one was a
+ * model. A closed list of words to refuse is a list nobody can finish, which is why nothing here
+ * rests on it alone: see the two guards in `skuCodename`.
  */
-const BILLING_TIER = new Set([
+const BILLING_WORD = new Set([
   "standard",
   "global",
   "regional",
@@ -105,14 +73,17 @@ const BILLING_TIER = new Set([
   "shared",
   "enterprise",
   "contributor",
-]);
-
-const BILLING_WORD = new Set([
-  ...BILLING_TIER,
+  "free",
+  "paid",
+  "generation",
+  "upscale",
+  "music",
+  "editing",
   "input",
   "output",
   "cached",
   "caching",
+  "cache",
   "text",
   "audio",
   "video",
@@ -150,7 +121,12 @@ const BILLING_WORD = new Set([
  * needed and neither is enough: "Gemini 3.8 Flash Cyber Global Text Input Caching Offpeak" puts a
  * region where this would otherwise read a name, and a tier sits directly after a version whenever
  * the model has no variant at all. A codename that also carries a variant -- `gemini-4-argon-high`
- * -- is not on this list; those are written in the clients, which is `antigravity-binaries`.
+ * -- is not on this list; those are written in the clients, which `antigravity-cli-models` reads.
+ *
+ * Google's own families only. The same reading of "Claude 4.8 Sonnet" is right and nobody asked for
+ * it: Vertex resells thirty-eight models whose names are already on every catalogue this service
+ * reads, and widening a price list's spelling of them announces a row each. A codename is worth
+ * reading where the price list is the first place it is written, which is the maker's own list.
  */
 function skuCodename(description: string, at: number, family: string, variant: string): string | null {
   if (variant.trim() || !GOOGLE_FAMILY.has(family.toLowerCase())) return null;
@@ -181,85 +157,10 @@ export function skuModels(descriptions: readonly string[]): string[] {
   return [...models].sort();
 }
 
-/**
- * Which of a model's three token prices a SKU is for, or nothing if the row is not a token price at
- * all. A price list bills images per image and a tuning node per hour, and neither is what a reader
- * means by what a model costs; `the_modality_a_price_list_bills_for` is the other half of this.
- */
-function rateOf(description: string): "input" | "cachedInput" | "output" | null {
-  const text = description.toLowerCase();
-  if (!/\btokens?\b/.test(text)) return null;
-  if (text.includes("cached")) return "cachedInput";
-  if (text.includes("output")) return "output";
-  return text.includes("input") ? "input" : null;
-}
-
-/**
- * A tier that is a discount rather than a price: the same model, charged less for being allowed to
- * wait. Read as a tier and never as the price, because the lowest number on the list would
- * otherwise become the one on the card -- Gemini's batch rows are half of the standard ones.
- */
-const DISCOUNT_TIER = ["batch", "offpeak", "provisioned"];
-
-/** The tiers a description names, which is what the row is a price for rather than which model. */
-function tiersOf(description: string): string[] {
-  const words = description.toLowerCase().split(/[^a-z]+/);
-  return [...new Set(words.filter((word) => BILLING_TIER.has(word)))].sort();
-}
-
-/** Dollars per usage unit, which for these rows is one token. */
-function priceOf(sku: Sku): number | null {
-  const expression = sku.pricingInfo?.[0]?.pricingExpression;
-  if (expression?.usageUnit !== "count") return null;
-  const price = expression.tieredRates?.[0]?.unitPrice;
-  if (!price) return null;
-  const dollars = Number(price.units ?? "0") + (price.nanos ?? 0) / 1_000_000_000;
-  // A zero is the blank this list writes for a row that is priced elsewhere, and a reader of
-  // `pricing` cannot tell one from a model that is free; `isAResellerFillingInAPrice` reads both the
-  // same way, so writing it would be writing nothing with a number's authority.
-  return Number.isFinite(dollars) && dollars > 0 ? dollars : null;
-}
-
-/** One model as this price list writes it: its name, the tiers it is billed under and its prices. */
-type SkuReading = { model: string; pricingTiers: string[]; pricing: Record<string, number> };
-
-/**
- * The price list read as models rather than as rows. One model is billed many ways -- per modality,
- * per region, per tier -- so the lowest standard price of each rate is the model's price, and a
- * discount tier is recorded as a tier and priced not at all.
- *
- * Prices are dollars per token, which is the unit `priceUnitForSource` gives any source it does not
- * name. A sheet read in the wrong unit is wrong by a million on a card people quote.
- */
-function skuReadings(skus: readonly Sku[]): SkuReading[] {
-  const readings = new Map<string, SkuReading>();
-  for (const sku of skus) {
-    const rate = rateOf(sku.description);
-    const price = DISCOUNT_TIER.some((tier) => sku.description.toLowerCase().includes(tier)) ? null : priceOf(sku);
-    for (const model of skuModels([sku.description])) {
-      const reading = readings.get(model) ?? { model, pricingTiers: [], pricing: {} };
-      reading.pricingTiers = [...new Set([...reading.pricingTiers, ...tiersOf(sku.description)])].sort();
-      const held = reading.pricing[rate ?? ""];
-      if (rate && price !== null && (held === undefined || price < held)) reading.pricing[rate] = price;
-      readings.set(model, reading);
-    }
-  }
-  return [...readings.values()].sort((one, other) => one.model.localeCompare(other.model));
-}
-
-type SkuRecord = {
-  id: string;
-  name: string;
-  maker: string;
-  service: string;
-  services: string[];
-  pricingTiers?: string[];
-  pricing?: Record<string, number>;
-};
+type SkuRecord = { id: string; name: string; maker: string; service: string; services: string[] };
 
 /** One record per model, naming every service it is billed under. */
-function remember(records: Map<string, SkuRecord>, reading: SkuReading, label: string): void {
-  const model = reading.model;
+function remember(records: Map<string, SkuRecord>, model: string, label: string): void {
   // The service is not the maker. GLM 5, Qwen 3.6, Llama 4 and GPT-OSS are all priced here and were
   // all filed under "Google Cloud", so a card for any of them named the wrong company.
   const maker = vendorOfName(model);
@@ -271,15 +172,6 @@ function remember(records: Map<string, SkuRecord>, reading: SkuReading, label: s
     services: [],
   };
   if (!record.services.includes(label)) record.services.push(label);
-  // `pricingTiers` rather than `tiers`, which is not cosmetic: `isAResellerFillingInAPrice` only
-  // forgives a field whose name reads as part of a price, and this one appears on all ninety rows
-  // at once the first time the field mask asks for it. Named `tiers` it was ninety cards.
-  const tiers = [...new Set([...(record.pricingTiers ?? []), ...reading.pricingTiers])].sort();
-  if (tiers.length) record.pricingTiers = tiers;
-  for (const [rate, price] of Object.entries(reading.pricing)) {
-    const held = record.pricing?.[rate];
-    if (held === undefined || price < held) record.pricing = { ...record.pricing, [rate]: price };
-  }
   records.set(model, record);
 }
 
@@ -300,25 +192,25 @@ export async function collectGoogleSkus(
     if (held && now - held.at < everyMs) {
       // Still within this service's interval: the models it last listed stand, so the collection is
       // whole and the source's own interval is free to be shorter than this one.
-      for (const reading of held.readings) remember(records, reading, label);
+      for (const model of held.models) remember(records, model, label);
       continue;
     }
-    const skus: Sku[] = [];
+    const descriptions: string[] = [];
     let cursor = "";
     for (let page = 0; ; page++) {
       if (page >= 20) throw new SourceError("protocol", `Google Cloud SKU pagination exceeded limit for ${label}`);
-      const url = `https://cloudbilling.googleapis.com/v1/services/${service}/skus?pageSize=5000&prettyPrint=false&fields=skus(description,pricingInfo/pricingExpression/usageUnit,pricingInfo/pricingExpression/tieredRates/unitPrice),nextPageToken${cursor ? `&pageToken=${encodeURIComponent(cursor)}` : ""}`;
+      const url = `https://cloudbilling.googleapis.com/v1/services/${service}/skus?pageSize=5000&prettyPrint=false&fields=skus(description),nextPageToken${cursor ? `&pageToken=${encodeURIComponent(cursor)}` : ""}`;
       const response = await fetchResponse(url, { headers }, request);
       if (!response.ok) throw httpFailure(`Google Cloud SKUs for ${label}: HTTP ${response.status}`, response.status);
       const data = skusSchema.parse(JSON.parse((await readResponseBytes(response)).toString("utf8")));
-      skus.push(...(data.skus ?? []));
+      descriptions.push(...(data.skus ?? []).map((sku) => sku.description));
       if (!data.nextPageToken || data.nextPageToken === cursor) break;
       cursor = data.nextPageToken;
     }
-    if (!skus.length) throw new SourceError("empty", `Google Cloud lists no SKUs for ${label}`);
-    const readings = skuReadings(skus);
-    lastRead.set(service, { at: now, readings });
-    for (const reading of readings) remember(records, reading, label);
+    if (!descriptions.length) throw new SourceError("empty", `Google Cloud lists no SKUs for ${label}`);
+    const models = skuModels(descriptions);
+    lastRead.set(service, { at: now, models });
+    for (const model of models) remember(records, model, label);
   }
   return {
     source: "google-skus",
