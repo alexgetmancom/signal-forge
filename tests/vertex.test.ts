@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { generateKeyPairSync, verify } from "node:crypto";
 import { loadConfig } from "../src/config.js";
 import { notificationBlock } from "../src/events/notification.js";
+import { isAResellerFillingInAPrice } from "../src/events/priceWorth.js";
 import { signalClass } from "../src/events/signals.js";
 import type { Event } from "../src/events/types.js";
 import { collectGoogleSkus } from "../src/sources/googleSkus.js";
@@ -255,13 +256,22 @@ test("the SKU field mask retains pagination and each service's cadence", async (
     seen.push(url);
     if (url === account.token_uri) return Response.json({ access_token: "token-1", expires_in: 3599 });
     const query = new URL(url).searchParams;
-    expect(query.get("fields")).toBe("skus(description),nextPageToken");
+    expect(query.get("fields")).toBe(
+      "skus(description,pricingInfo/pricingExpression/usageUnit,pricingInfo/pricingExpression/tieredRates/unitPrice),nextPageToken",
+    );
     expect(query.get("prettyPrint")).toBe("false");
     const firstVertexPage = url.includes("C7E2-9256-1C43") && !query.has("pageToken");
     if (query.has("pageToken")) expect(query.get("pageToken")).toBe("next page+/");
     const model = firstVertexPage ? "claude 4.8" : "gemini 3.8 flash tts";
     return Response.json({
-      skus: [{ description: `Generate content input token count ${model} text` }],
+      skus: [
+        {
+          description: `Generate content input token count ${model} text`,
+          pricingInfo: [
+            { pricingExpression: { usageUnit: "count", tieredRates: [{ unitPrice: { units: "0", nanos: 150 } }] } },
+          ],
+        },
+      ],
       ...(firstVertexPage ? { nextPageToken: "next page+/" } : {}),
     });
   };
@@ -272,6 +282,8 @@ test("the SKU field mask retains pagination and each service's cadence", async (
   expect(seen.filter(service).map(service)).toEqual(["C7E2-9256-1C43", "C7E2-9256-1C43", "AEFD-7695-64FA"]);
   expect(first.records.map((record) => record.id)).toEqual(["claude-4.8", "gemini-3.8-flash-tts"]);
   expect(first.records[1]?.services).toEqual(["Vertex AI", "Gemini API"]);
+  // Dollars per token, the unit `priceUnitForSource` gives a source it does not name by hand.
+  expect(first.records[1]?.pricing).toEqual({ input: 1.5e-7 });
 
   // Five minutes on: Google's own list is asked again, Vertex AI's catalogue is not, and the
   // collection is still whole -- a record dropped here would be read as a model withdrawn.
@@ -283,4 +295,74 @@ test("the SKU field mask retains pagination and each service's cadence", async (
   seen.length = 0;
   await collectGoogleSkus(config, skus, start + 3_600_001);
   expect(seen.filter(service).map(service)).toEqual(["C7E2-9256-1C43", "C7E2-9256-1C43", "AEFD-7695-64FA"]);
+});
+
+test("a codename and a tier Google prices before announcing are read, and the stem is kept", async () => {
+  const price = (nanos: number) => [
+    { pricingExpression: { usageUnit: "count", tieredRates: [{ unitPrice: { units: "0", nanos } }] } },
+  ];
+  const skus = async (url: string) => {
+    if (url === account.token_uri) return Response.json({ access_token: "token-1", expires_in: 3599 });
+    return Response.json({
+      skus: [
+        { description: "Gemini 4 Argon Contributor Input Token Count Text", pricingInfo: price(2000) },
+        { description: "Gemini 4 Argon Contributor Cached Input Token Count Text", pricingInfo: price(100) },
+        { description: "Gemini 4 Argon Contributor Output Token Count Text", pricingInfo: price(10_000) },
+        // Half the standard rate for being allowed to wait: a tier of this model, not its price.
+        { description: "Gemini 4 Argon Contributor Output Token Count Text Batch", pricingInfo: price(5000) },
+        // A region stands where a codename would, and a tier stands there when there is no codename.
+        { description: "Gemini 3.8 Flash Cyber Global Text Input Token Count Caching Offpeak", pricingInfo: price(50) },
+        { description: "Gemini 3 Standard Input Token Count Text", pricingInfo: price(70) },
+        // Priced per image rather than per token, which is not what a reader means by what it costs.
+        {
+          description: "Imagen 4 Fast Image Generation",
+          pricingInfo: [
+            { pricingExpression: { usageUnit: "image", tieredRates: [{ unitPrice: { units: "0", nanos: 2e7 } }] } },
+          ],
+        },
+      ],
+    });
+  };
+  const collection = await collectGoogleSkus(config, skus, Date.parse("2026-10-13T00:00:00Z") + 7_200_000);
+  const byId = new Map(collection.records.map((record) => [record.id, record]));
+  expect([...byId.keys()]).toEqual([
+    "gemini-3",
+    "gemini-3.8-flash-cyber",
+    "gemini-4",
+    "gemini-4-argon",
+    "imagen-4-fast-image",
+  ]);
+  // $2.00, $0.10 and $10.00 per million, as Google's own billing page writes them.
+  expect(byId.get("gemini-4-argon")).toMatchObject({
+    maker: "Google",
+    pricingTiers: ["batch", "contributor"],
+    pricing: { input: 2e-6, cachedInput: 1e-7, output: 1e-5 },
+  });
+  // The row this source has published since 2026-10-07 stays, because retiring it reads as a
+  // withdrawal of a model nobody withdrew.
+  expect(byId.get("gemini-4")?.pricing).toEqual({ input: 2e-6, cachedInput: 1e-7, output: 1e-5 });
+  expect(byId.get("imagen-4-fast-image")?.pricing).toBeUndefined();
+});
+
+test("the poll that first asks for a price answers for every model already on the list, silently", () => {
+  const event = (before: unknown, after: unknown) =>
+    ({
+      source: "google-skus",
+      stream: "api-models",
+      kind: "changed",
+      before_json: JSON.stringify(before),
+      after_json: JSON.stringify(after),
+    }) as unknown as Event;
+  // Ninety rows gain `pricing` on the first poll after the field mask asks for it. That is this
+  // reader learning to ask, not ninety price changes, and a card each is what it would have cost.
+  expect(
+    isAResellerFillingInAPrice(
+      event(
+        { id: "gemini-3.5-flash", services: ["Gemini API"] },
+        { id: "gemini-3.5-flash", services: ["Gemini API"], pricingTiers: ["standard"], pricing: { input: 3e-7 } },
+      ),
+    ),
+  ).toBe(true);
+  // A number that moves is still what a reader pays.
+  expect(isAResellerFillingInAPrice(event({ pricing: { input: 3e-7 } }, { pricing: { input: 9e-7 } }))).toBe(false);
 });
