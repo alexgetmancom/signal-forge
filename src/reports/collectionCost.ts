@@ -20,6 +20,18 @@ import { collectionWindowFrom, dayFrom } from "../storage/collectionDays.js";
  *
  * No source-specific move is prescribed from overlapping collection measurements. The same rise
  * was charged to three light collectors and one heavy source's persistence on 2026-09-27.
+ *
+ * Every reading here is a mean over the section's measured calls, not the worst one. `VmHWM` is
+ * monotone and belongs to the process, so the climb from a fresh process's floor to its working
+ * size is charged in full to whichever section happened to run during it -- and with the service
+ * restarting nineteen times on 2026-10-02, that produced eight sources claiming 211-280 MB of
+ * persistence against a median of 0.1 MB across all 214. Five of those eight were the same day.
+ * Dropping the contaminated buckets is not open to this report: past `HOURLY_METRIC_DAYS` the fold
+ * leaves one bucket per name per day, every day in a fourteen-day window had a restart, and
+ * dropping whole days would leave nothing. A mean survives one such reading in proportion to how
+ * many calls it is one of, which is what makes `anthropic` 0.4 MB over 601 calls rather than 261.
+ * `measure` now charges a name's first call in a process nothing, so new readings carry less of
+ * this, but rows already written keep it for the ninety days they live.
  */
 type CollectionCostSource = {
   id: string;
@@ -30,12 +42,12 @@ type CollectionCostSource = {
   /** The worst and the usual size a child reached; null for a source collected in this process. */
   childPeakMb: number | null;
   averageChildPeakMb: number | null;
-  /** Shared-process peak growth observed while a light collector ran; not uniquely attributed. */
-  observedDuringCollectionMb: number | null;
-  /** Peak growth added while the parent synchronously read and decoded a child answer. */
-  addedByDecodeMb: number | null;
-  /** Peak growth added by the parent's synchronous persistence transaction, in either lane. */
-  addedByPersistenceMb: number | null;
+  /** Mean shared-process peak growth while a light collector ran; not uniquely attributed. */
+  averageObservedDuringCollectionMb: number | null;
+  /** Mean peak growth while the parent synchronously read and decoded a child answer. */
+  averageAddedByDecodeMb: number | null;
+  /** Mean peak growth from the parent's synchronous persistence transaction, in either lane. */
+  averageAddedByPersistenceMb: number | null;
 };
 
 export type CollectionCostReport = {
@@ -46,13 +58,17 @@ export type CollectionCostReport = {
 };
 
 const READING =
-  "childPeakMb is the whole peak of a child that exited. The parent still reads and stores its " +
-  "answer. observedDuringCollectionMb is an upper bound: concurrent collectors can all see one " +
-  "shared-process rise, so it cannot decide which source belongs in a child. " +
-  "addedByDecodeMb and addedByPersistenceMb belong to the named source because those sections " +
-  "run synchronously in the parent; those costs remain even for a child collection. Do not add " +
-  "worst readings from different attempts. " +
-  "Null means that section did not run or was not measured.";
+  "childPeakMb is the whole peak of a child that exited, worst and average. The parent still " +
+  "reads and stores its answer. The three average readings are means over that section's " +
+  "measured calls, not worst cases: the peak is the process's and is monotone, so one restart " +
+  "charges a fresh process's whole climb to whichever section ran during it, and a mean is what " +
+  "survives that in proportion to the calls it is one of. A mean over few calls is still mostly " +
+  "that climb, so read it against collections. " +
+  "averageObservedDuringCollectionMb is an upper bound on top of that: concurrent collectors can " +
+  "all see one shared-process rise, so it cannot decide which source belongs in a child. " +
+  "averageAddedByDecodeMb and averageAddedByPersistenceMb belong to the named source because " +
+  "those sections run synchronously in the parent; those costs remain even for a child " +
+  "collection. Null means that section did not run or was not measured.";
 
 /** The child peaks of the window, per source, from the row each collection wrote. */
 function childPeaks(db: Database, since: string): Map<string, { worst: number; average: number }> {
@@ -71,19 +87,28 @@ function childPeaks(db: Database, since: string): Map<string, { worst: number; a
   );
 }
 
-/** Peak rises in parent sections; async collection overlaps, synchronous decode and persistence do not. */
+/**
+ * Mean peak rise per call in parent sections; async collection overlaps, synchronous decode and
+ * persistence do not.
+ *
+ * `peak_growth_kb` is the sum the bucket accumulated and `calls` is how many calls made it, so the
+ * mean crosses the fold's hourly and daily buckets without caring which it is reading. `MAX` was
+ * the first reading here and could not be kept: see this module's header for the restart that put
+ * eight sources at a quarter of a gigabyte each.
+ */
 function parentGrowth(db: Database, since: string): Map<string, number> {
   return new Map(
     db
-      .query<{ name: string; worstKb: number }, [string]>(
-        `SELECT name,MAX(max_peak_growth_kb) AS worstKb
+      .query<{ name: string; averageKb: number }, [string]>(
+        `SELECT name,SUM(peak_growth_kb)*1.0/SUM(calls) AS averageKb
          FROM code_metrics
          WHERE bucket_start>=? AND
            (name LIKE 'source.collect:%' OR name LIKE 'source.decode:%' OR name LIKE 'source.persist:%')
-         GROUP BY name`,
+         GROUP BY name
+         HAVING SUM(calls)>0`,
       )
       .all(since)
-      .map((row) => [row.name, row.worstKb] as const),
+      .map((row) => [row.name, row.averageKb] as const),
   );
 }
 
@@ -127,16 +152,16 @@ export function collectionCost(db: Database, config: AppConfig, days = 7, now = 
         collections: counts.get(job.id) ?? 0,
         childPeakMb: peak ? round(peak.worst, 1) : null,
         averageChildPeakMb: peak ? round(peak.average, 1) : null,
-        observedDuringCollectionMb: collect === undefined ? null : round(collect / 1024, 1),
-        addedByDecodeMb: decode === undefined ? null : round(decode / 1024, 1),
-        addedByPersistenceMb: persist === undefined ? null : round(persist / 1024, 1),
+        averageObservedDuringCollectionMb: collect === undefined ? null : round(collect / 1024, 1),
+        averageAddedByDecodeMb: decode === undefined ? null : round(decode / 1024, 1),
+        averageAddedByPersistenceMb: persist === undefined ? null : round(persist / 1024, 1),
       };
     })
     .sort(
       (left, right) =>
-        Math.max(right.addedByDecodeMb ?? 0, right.addedByPersistenceMb ?? 0) -
-          Math.max(left.addedByDecodeMb ?? 0, left.addedByPersistenceMb ?? 0) ||
-        (right.observedDuringCollectionMb ?? 0) - (left.observedDuringCollectionMb ?? 0) ||
+        Math.max(right.averageAddedByDecodeMb ?? 0, right.averageAddedByPersistenceMb ?? 0) -
+          Math.max(left.averageAddedByDecodeMb ?? 0, left.averageAddedByPersistenceMb ?? 0) ||
+        (right.averageObservedDuringCollectionMb ?? 0) - (left.averageObservedDuringCollectionMb ?? 0) ||
         (right.childPeakMb ?? 0) - (left.childPeakMb ?? 0) ||
         left.id.localeCompare(right.id),
     );

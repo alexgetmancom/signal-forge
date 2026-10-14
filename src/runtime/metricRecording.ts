@@ -181,11 +181,29 @@ export function recordCodeMetric(
  * safe direction -- it names a suspect rather than clearing one -- and it is why the boot phases are
  * measured in sequence inside one transaction, where the numbers are each section's alone.
  */
+/**
+ * The sections this process has already run once, which is the only call of each that is not
+ * charged for the peak it raises.
+ *
+ * `VmHWM` is monotone and belongs to the process, so a section's first call carries what running
+ * it for the first time costs this process -- JIT, prepared statements, SQLite's page cache -- and
+ * none of that is paid again by the second call. Charged to the section, it is charged to whatever
+ * the scheduler happened to put first after a boot: `collection-cost` had eight sources claiming
+ * 211-280 MB of persistence against a median of 0.1 MB, all of them on days the service restarted
+ * nineteen to twenty-seven times. `peakGrowthKb` already answers 0 for a reading of 0, so a first
+ * call records a growth of nothing rather than a growth of everything.
+ *
+ * Per process, not per database: what it tracks is this process's peak, and a reading taken in one
+ * process says nothing about another's floor.
+ */
+const warmed = new Set<string>();
+
 export function measure<T>(db: Database, name: string, operation: () => T): T;
 export function measure<T>(db: Database, name: string, operation: () => Promise<T>): Promise<T>;
 export function measure<T>(db: Database, name: string, operation: () => T | Promise<T>): T | Promise<T> {
   const started = Date.now();
-  const peakBefore = peakKb();
+  const peakBefore = warmed.has(name) ? peakKb() : 0;
+  warmed.add(name);
   try {
     const result = operation();
     if (result instanceof Promise)

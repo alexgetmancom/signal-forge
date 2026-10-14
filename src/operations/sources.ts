@@ -63,10 +63,15 @@ export function sourcesOperations(db: Database, config: AppConfig, _all: () => O
       startHere: "which collections and persistence steps coincided with a memory peak",
       note:
         "`childPeakMb` is the whole size a child reached. The parent still reads and persists that " +
-        "answer. `addedByDecodeMb` and `addedByPersistenceMb` identify the named source because " +
-        "those sections run synchronously; neither vanishes when collection moves into a child. " +
-        "`observedDuringCollectionMb` is only an upper bound because concurrent collectors can see " +
-        "the same rise, so it cannot justify moving a source into a child. Null means no measurement.",
+        "answer. The three `average` readings are means over that section's calls, never worst " +
+        "cases: the peak is the process's own and is monotone, so one restart charges a fresh " +
+        "process's whole climb to whichever section ran during it, and a mean is what survives " +
+        "that. Read a mean against `collections` -- over few calls it is still mostly that climb. " +
+        "`averageAddedByDecodeMb` and `averageAddedByPersistenceMb` identify the named source " +
+        "because those sections run synchronously; neither vanishes when collection moves into a " +
+        "child. `averageObservedDuringCollectionMb` is an upper bound on top of that, because " +
+        "concurrent collectors can see the same rise, so it cannot justify moving a source into a " +
+        "child. Null means no measurement.",
       mutates: false,
       agent: true,
       // Capped at the metric horizon, not at ninety: the child peaks come from the collection fold,
