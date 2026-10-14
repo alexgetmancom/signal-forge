@@ -74,7 +74,7 @@ const commit = (n: number, message: string) => ({
 test("commit details overlap in fours, keep the oldest evidence, and catch up in complete batches", async () => {
   const db = openDatabase(":memory:");
   const watch = { repo: "anomalyco/opencode", authority: "third_party" as const };
-  const history = Array.from({ length: 33 }, (_, index) => commit(index + 1, `Commit ${index + 1}`));
+  const history = Array.from({ length: 234 }, (_, index) => commit(index + 1, `Commit ${index + 1}`));
   let head = sha(0);
   let active = 0;
   let peak = 0;
@@ -89,10 +89,13 @@ test("commit details overlap in fours, keep the oldest evidence, and catch up in
     if (url.includes("/tarball/")) return new Response(EMPTY_ARCHIVE);
     if (url.includes("/compare/")) {
       const cursor = Number(new URL(url).pathname.split("/compare/")[1]?.split("...")[0]);
-      expect(new URL(url).searchParams.get("per_page")).toBe("30");
-      const commits = history.slice(cursor, cursor + 30);
+      expect(new URL(url).searchParams.get("per_page")).toBe("100");
+      const page = Number(new URL(url).searchParams.get("page"));
+      const end = Number(new URL(url).pathname.split("...")[1]);
+      const start = cursor + (page - 1) * 100;
+      const commits = history.slice(start, Math.min(start + 100, end));
       remaining = commits.length;
-      return Response.json({ status: "ahead", commits });
+      return Response.json({ status: "ahead", total_commits: end - cursor, commits });
     }
     const id = url.split("/").at(-1) ?? "";
     const item = history.find((item) => item.sha === id);
@@ -113,15 +116,22 @@ test("commit details overlap in fours, keep the oldest evidence, and catch up in
     return Response.json({ ...item, files: [{ filename: "models.json", patch }] });
   };
   saveCollection(db, await collectModelMentions(db, config, watch, request), []);
-  head = sha(33);
+  head = sha(233);
   const first = await collectModelMentions(db, config, watch, request);
   expect(peak).toBe(4);
-  expect(read).toEqual(history.slice(0, 30).map((item) => item.sha));
-  expect(first.records[0]?.sha).toBe(sha(30));
+  expect(read).toEqual(history.slice(0, 100).map((item) => item.sha));
+  expect(first.records[0]).toMatchObject({ sha: sha(100), range: { base: sha(0), head: sha(233), page: 2 } });
   expect(first.records[1]).toMatchObject({ id: "gpt-7-nova", commit: "Commit 3", url: history[2]?.html_url });
   saveCollection(db, first, []);
+  head = sha(234);
+  const second = await collectModelMentions(db, config, watch, request);
+  expect(second.records[0]).toMatchObject({ sha: sha(200), range: { base: sha(0), head: sha(233), page: 3 } });
+  saveCollection(db, second, []);
+  const third = await collectModelMentions(db, config, watch, request);
+  expect(third.records).toEqual([{ id: "@head", name: "Last commit read", sha: sha(233) }]);
+  saveCollection(db, third, []);
   const last = await collectModelMentions(db, config, watch, request);
-  expect(last.records).toEqual([{ id: "@head", name: "Last commit read", sha: sha(33) }]);
+  expect(last.records).toEqual([{ id: "@head", name: "Last commit read", sha: sha(234) }]);
   expect(read).toEqual(history.map((item) => item.sha));
   db.close();
 });
@@ -136,7 +146,7 @@ test("a failed detail waits for its siblings and leaves the accepted cursor for 
     if (url.endsWith("/commits/HEAD")) return new Response(head);
     if (url.includes("/tarball/")) return new Response(EMPTY_ARCHIVE);
     if (url.includes("/compare/"))
-      return Response.json({ status: "ahead", commits: [commit(1, "One"), commit(2, "Two")] });
+      return Response.json({ status: "ahead", total_commits: 2, commits: [commit(1, "One"), commit(2, "Two")] });
     if (url.endsWith(sha(1)) && refuse) return new Response(null, { status: 403 });
     await Bun.sleep(5);
     completed++;
@@ -153,6 +163,96 @@ test("a failed detail waits for its siblings and leaves the accepted cursor for 
   const retry = await collectModelMentions(db, config, watch, request);
   expect(retry.records[0]?.sha).toBe(sha(2));
   expect(completed).toBe(3);
+  db.close();
+});
+
+test("a failed later comparison page retries the same frozen range", async () => {
+  const db = openDatabase(":memory:");
+  const watch = { repo: "anomalyco/opencode", authority: "third_party" as const };
+  let head = sha(0);
+  let refuse = true;
+  const compared: string[] = [];
+  const request: Fetch = async (url) => {
+    if (url.endsWith("/commits/HEAD")) return new Response(head);
+    if (url.includes("/tarball/")) return new Response(EMPTY_ARCHIVE);
+    if (url.includes("/compare/")) {
+      compared.push(url);
+      const page = Number(new URL(url).searchParams.get("page"));
+      return Response.json({
+        status: "ahead",
+        total_commits: 101,
+        commits: Array.from({ length: page === 1 ? 100 : 1 }, (_, i) => commit((page - 1) * 100 + i + 1, "Change")),
+      });
+    }
+    if (url.endsWith(sha(101)) && refuse) return new Response(null, { status: 403 });
+    return Response.json({ ...commit(Number(url.split("/").at(-1)), "Change"), files: [] });
+  };
+  saveCollection(db, await collectModelMentions(db, config, watch, request), []);
+  head = sha(101);
+  saveCollection(db, await collectModelMentions(db, config, watch, request), []);
+  const accepted = db.query<{ body: string }, []>("SELECT body FROM records WHERE id='@head'").get()?.body;
+  head = sha(102);
+  await expect(collectModelMentions(db, config, watch, request)).rejects.toMatchObject({ status: 403 });
+  expect(db.query<{ body: string }, []>("SELECT body FROM records WHERE id='@head'").get()?.body).toBe(accepted);
+  refuse = false;
+  const retry = await collectModelMentions(db, config, watch, request);
+  expect(compared[1]).toBe(compared[2]);
+  expect(compared[2]).toContain(`${sha(0)}...${sha(101)}?per_page=100&page=2`);
+  expect(retry.records[0]).toEqual({ id: "@head", name: "Last commit read", sha: sha(101) });
+  db.close();
+});
+
+test("a head with an earlier timestamp does not end a paginated comparison early", async () => {
+  const db = openDatabase(":memory:");
+  const watch = { repo: "anomalyco/opencode", authority: "third_party" as const };
+  const history = [
+    ...Array.from({ length: 99 }, (_, i) => commit(i + 2, "Change")),
+    commit(1, "Head"),
+    commit(101, "Later timestamp"),
+  ];
+  let head = sha(0);
+  const read: string[] = [];
+  const request: Fetch = async (url) => {
+    if (url.endsWith("/commits/HEAD")) return new Response(head);
+    if (url.includes("/tarball/")) return new Response(EMPTY_ARCHIVE);
+    if (url.includes("/compare/")) {
+      const page = Number(new URL(url).searchParams.get("page"));
+      return Response.json({
+        status: "ahead",
+        total_commits: 101,
+        commits: history.slice((page - 1) * 100, page * 100),
+      });
+    }
+    const id = url.split("/").at(-1) ?? "";
+    read.push(id);
+    return Response.json({ ...history.find((item) => item.sha === id), files: [] });
+  };
+  saveCollection(db, await collectModelMentions(db, config, watch, request), []);
+  head = sha(1);
+  const first = await collectModelMentions(db, config, watch, request);
+  expect(first.records[0]).toMatchObject({ sha: head, range: { page: 2 } });
+  saveCollection(db, first, []);
+  const last = await collectModelMentions(db, config, watch, request);
+  expect(last.records[0]).toEqual({ id: "@head", name: "Last commit read", sha: head });
+  expect(read).toEqual(history.map((item) => item.sha));
+  db.close();
+});
+
+test("an incomplete comparison page cannot advance past unread commits", async () => {
+  const db = openDatabase(":memory:");
+  const watch = { repo: "anomalyco/opencode", authority: "third_party" as const };
+  let head = sha(0);
+  const request: Fetch = async (url) => {
+    if (url.endsWith("/commits/HEAD")) return new Response(head);
+    if (url.includes("/tarball/")) return new Response(EMPTY_ARCHIVE);
+    return Response.json({ status: "ahead", total_commits: 101, commits: [commit(1, "One")] });
+  };
+  saveCollection(db, await collectModelMentions(db, config, watch, request), []);
+  head = sha(101);
+  await expect(collectModelMentions(db, config, watch, request)).rejects.toMatchObject({ kind: "protocol" });
+  expect(
+    JSON.parse(db.query<{ body: string }, []>("SELECT body FROM records WHERE id='@head'").get()?.body ?? "{}").sha,
+  ).toBe(sha(0));
   db.close();
 });
 
@@ -175,7 +275,7 @@ test("the first read is a cursor; a later commit tells only the model nothing he
   const request = async (url: string) => {
     if (url.includes("/tarball/")) return new Response(EMPTY_ARCHIVE);
     if (url.includes("/commits/HEAD")) return new Response(head.sha);
-    if (url.includes("/compare/")) return Response.json({ status: "ahead", commits: [head] });
+    if (url.includes("/compare/")) return Response.json({ status: "ahead", total_commits: 1, commits: [head] });
     return Response.json({
       ...head,
       files: [
@@ -248,7 +348,7 @@ test("a model named, then served, is told twice; neither pings; another repo rep
     if (url.includes("/tarball/")) return new Response(EMPTY_ARCHIVE);
     if (url.includes("deepseek")) return stages.answer(String(init?.body));
     if (url.includes("/commits/HEAD")) return new Response(head.sha);
-    if (url.includes("/compare/")) return Response.json({ status: "ahead", commits: [head] });
+    if (url.includes("/compare/")) return Response.json({ status: "ahead", total_commits: 1, commits: [head] });
     return Response.json({ ...head, files: files.current });
   };
   const codex: MentionWatch = { repo: "openai/codex", vendor: "OpenAI", authority: "vendor_owned" };
@@ -434,7 +534,7 @@ test("a gateway is read only in its price table, never for an old model, and the
         usage: { prompt_tokens: 100, completion_tokens: 50, prompt_cache_hit_tokens: 0, prompt_cache_miss_tokens: 100 },
       });
     if (url.includes("/commits/HEAD")) return new Response(head.sha);
-    if (url.includes("/compare/")) return Response.json({ status: "ahead", commits: [head] });
+    if (url.includes("/compare/")) return Response.json({ status: "ahead", total_commits: 1, commits: [head] });
     return Response.json({
       ...head,
       files: [
@@ -817,7 +917,7 @@ test("a repository whose history was rewritten still has its new commits read, a
     const request = async (url: string) => {
       if (url.includes("/tarball/")) return new Response(EMPTY_ARCHIVE);
       if (url.includes("/commits/HEAD")) return new Response(head.sha);
-      if (url.includes("/compare/")) return Response.json({ status, commits: [head] });
+      if (url.includes("/compare/")) return Response.json({ status, total_commits: 1, commits: [head] });
       return Response.json({ ...head, files: [{ filename: "models.json", patch: '+  { "slug": "gpt-7-nova" }' }] });
     };
     saveCollection(db, await collectModelMentions(db, config, watch, request), []);

@@ -86,16 +86,30 @@ const modelsDevModel = z.object({
   limit: z.object({ context: z.number().nullish(), output: z.number().nullish() }).nullish(),
 });
 
+const modelsDevProvider = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  models: z.record(z.string(), modelsDevModel),
+});
+
 const modelsDevSchema = z
-  .record(
-    z.string(),
-    z.object({ id: z.string().min(1), name: z.string().min(1), models: z.record(z.string(), modelsDevModel) }),
-  )
+  .record(z.string(), z.unknown())
   .refine((value) => Object.keys(value).length > 0, "models.dev catalogue has no providers");
 
 type ModelsDevEntry = z.infer<typeof modelsDevModel>;
 
 export const MODELS_DEV_URL = "https://models.dev/api.json";
+
+/** Release each full provider as soon as its validated, narrowed catalogue replaces it. */
+function parseModelsDevCatalogue(body: string): Record<string, z.infer<typeof modelsDevProvider>> {
+  const providers = modelsDevSchema.parse(JSON.parse(body) as unknown);
+  const catalogue: Record<string, z.infer<typeof modelsDevProvider>> = {};
+  for (const id of Object.keys(providers)) {
+    catalogue[id] = modelsDevProvider.parse(providers[id]);
+    delete providers[id];
+  }
+  return catalogue;
+}
 
 /**
  * Every published catalogue at once, keyed by the model rather than by where it is sold. A launch
@@ -103,8 +117,7 @@ export const MODELS_DEV_URL = "https://models.dev/api.json";
  * shape the propagation actually has.
  */
 export async function collectModelsDev(request: Fetch = fetch, cache?: HttpCache): Promise<Collection> {
-  const raw: unknown = JSON.parse(await fetchText(MODELS_DEV_URL, {}, request, undefined, cache));
-  const catalogue = modelsDevSchema.parse(raw);
+  const catalogue = parseModelsDevCatalogue(await fetchText(MODELS_DEV_URL, {}, request, undefined, cache));
   const grouped = new Map<string, { entry: ModelsDevEntry; providers: Set<string> }>();
   // Providers are read in a fixed order. Where no vendor directory is known, the model's fields come
   // from the first provider that lists it; in file order, a provider added near the top changed the

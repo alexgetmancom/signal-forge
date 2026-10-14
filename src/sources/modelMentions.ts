@@ -322,11 +322,60 @@ const commitSchema = z.object({
 const detailSchema = commitSchema.extend({
   files: z.array(z.object({ filename: z.string(), patch: z.string().optional() })).default([]),
 });
-const compareSchema = z.object({ status: z.string(), commits: z.array(commitSchema) });
+/** One complete API page per poll, with four details in flight at a time. */
+const BATCH = 100;
+const compareSchema = z.object({
+  status: z.string(),
+  total_commits: z.number().int().nonnegative(),
+  commits: z.array(commitSchema).max(BATCH),
+});
 
 const CURSOR = "@head";
-/** Commits read in one poll. A busier repository catches up over the following polls. */
-const BATCH = 30;
+
+type CommitCursor = {
+  sha: string;
+  range?: { base: string; head: string; page: number };
+};
+
+/**
+ * Finish a fixed comparison before opening another. Only its first page carries the combined
+ * file diff, which is not read here and was downloaded again for every thirty commits. Later
+ * pages contain only the commit list. The range travels with the accepted cursor, so a failed
+ * detail or rolled-back save retries the same page without skipping history.
+ */
+async function unreadCommits(
+  api: string,
+  cursor: CommitCursor,
+  head: string,
+  headers: Record<string, string>,
+  request: Fetch,
+): Promise<{ commits: z.infer<typeof commitSchema>[]; next: CommitCursor }> {
+  const range = cursor.range ?? { base: cursor.sha, head, page: 1 };
+  let compare: z.infer<typeof compareSchema>;
+  try {
+    compare = compareSchema.parse(
+      JSON.parse(
+        await fetchText(
+          `${api}/compare/${range.base}...${range.head}?per_page=${BATCH}&page=${range.page}`,
+          headers,
+          request,
+        ),
+      ),
+    );
+  } catch (error) {
+    // An inaccessible range after rewritten history follows the current branch again.
+    if (error instanceof SourceHttpError && error.status === 404) return { commits: [], next: { sha: head } };
+    throw error;
+  }
+  if (compare.status !== "ahead" && compare.status !== "diverged") return { commits: [], next: { sha: head } };
+  const commits = compare.commits;
+  const pending = range.page * BATCH < compare.total_commits;
+  if (pending && commits.length !== BATCH)
+    throw new SourceError("protocol", "GitHub comparison ended before its declared commit count");
+  const next: CommitCursor = { sha: pending ? (commits.at(-1)?.sha ?? cursor.sha) : range.head };
+  if (pending) next.range = { ...range, page: range.page + 1 };
+  return { commits, next };
+}
 
 /** Read four immutable commit details together, yielding in history order after every read settles. */
 async function* commitDetails(
@@ -506,7 +555,7 @@ export async function collectModelMentions(
   const cursorRow = db
     .query<{ body: string }, [string, string]>("SELECT body FROM records WHERE source=? AND id=?")
     .get(source, CURSOR);
-  const cursor = cursorRow ? (JSON.parse(cursorRow.body) as { sha?: string }).sha : undefined;
+  const cursor = cursorRow ? (JSON.parse(cursorRow.body) as CommitCursor) : undefined;
   const sha = (
     await fetchText(`${api}/commits/HEAD`, { ...headers, Accept: "application/vnd.github.sha" }, request)
   ).trim();
@@ -519,7 +568,7 @@ export async function collectModelMentions(
   // in five files of minimax-code on 2026-09-24 while the catalogue had M3, and starting from the
   // head meant never reporting it: nothing would add that name again. So a repository is read
   // whole when it is first watched, and from its commits ever after.
-  if (!cursor) {
+  if (!cursor?.sha) {
     const found = await firstReadNames(db, watch.repo, head.sha, headers, request, watch);
     return {
       ...base,
@@ -528,28 +577,9 @@ export async function collectModelMentions(
       silentIds: [CURSOR],
     };
   }
-  if (cursor === head.sha) return { ...base, raw: head, records: [at(cursor)], silentIds: [CURSOR] };
-  let compare: z.infer<typeof compareSchema>;
-  try {
-    compare = compareSchema.parse(
-      // Explicit pagination starts at the oldest unread commit; the unpaged response can skip
-      // history when the comparison exceeds GitHub's 250-commit limit.
-      JSON.parse(await fetchText(`${api}/compare/${cursor}...${head.sha}?per_page=${BATCH}`, headers, request)),
-    );
-  } catch (error) {
-    // The range is gone when history was rewritten under the cursor; read from the head again.
-    if (error instanceof SourceHttpError && error.status === 404)
-      return { ...base, raw: head, records: [at(head.sha)], silentIds: [CURSOR] };
-    throw error;
-  }
-  // `ahead` is the head having commits the cursor does not, and `diverged` is the same after a
-  // rewrite: the commits listed are the ones the head has that the cursor did not either way. Only
-  // `behind` and `identical` leave nothing to read. Reading `ahead` alone moved the cursor to the
-  // head past a force-push and never looked at what the push brought.
-  if (compare.status !== "ahead" && compare.status !== "diverged")
-    return { ...base, raw: compare, records: [at(head.sha)], silentIds: [CURSOR] };
-
-  const batch = compare.commits.slice(0, BATCH);
+  if (!cursor.range && cursor.sha === head.sha)
+    return { ...base, raw: head, records: [at(cursor.sha)], silentIds: [CURSOR] };
+  const { commits: batch, next } = await unreadCommits(api, cursor, head.sha, headers, request);
   const records: RecordData[] = [];
   const silentIds = [CURSOR];
   const seen = new Set<string>();
@@ -602,6 +632,5 @@ export async function collectModelMentions(
       if (stageKnown(db, id, stage)) silentIds.push(recordId);
     }
   }
-  const last = batch.at(-1)?.sha ?? head.sha;
-  return { ...base, raw, records: [at(last), ...records], silentIds };
+  return { ...base, raw, records: [{ ...at(next.sha), ...next }, ...records], silentIds };
 }

@@ -12,6 +12,19 @@ import { aSource } from "./fixtures/build.js";
 
 const modelsUrl = "https://models.dev/api.json";
 
+test("models.dev validates every provider before returning a catalogue", async () => {
+  const model = { id: "gpt-7", name: "GPT 7" };
+  for (const body of [
+    {},
+    {
+      good: { id: "good", name: "Good", models: { model } },
+      bad: { id: "bad", name: "Bad", models: { model: { ...model, name: 7 } } },
+    },
+    { bad: { id: "bad", name: "Bad", models: null } },
+  ])
+    await expect(collectModelsDev(async () => Response.json(body))).rejects.toThrow();
+});
+
 function acceptedCache() {
   const db = openDatabase(":memory:");
   const cache = new HttpCache(db);

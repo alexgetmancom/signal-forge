@@ -405,6 +405,8 @@ function labPageSources({ cache }: SourceContext): SourceEntry[] {
     {
       id: "qwen-blog",
       vendor: "Qwen",
+      // The upstream sends 4.78 MB without validators; thirty minutes cuts repeat reads by two thirds.
+      intervalSeconds: 1800,
       // 4.78 MB of articles, read as bytes without allocating their texts. The child still
       // bounds its first-read claim, measured above 32 MB on 2026-10-04.
       heavy: true,

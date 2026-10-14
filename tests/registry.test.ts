@@ -24,6 +24,7 @@ test("source registry has unique IDs, valid streams, labels and consistent pacin
   expect(definitions.find((definition) => definition.id === "codex-docs")?.heavy).toBe(true);
   expect(definitions.find((definition) => definition.id === "polymarket")?.heavy).not.toBe(true);
   expect(definitions.find((definition) => definition.id === "qwen-blog")?.heavy).toBe(true);
+  expect(definitions.find((definition) => definition.id === "qwen-blog")?.intervalSeconds).toBe(1800);
   for (const definition of definitions.filter(
     (source) => source.id.startsWith("npm:") || source.id === "openai-codex-changelog",
   )) {
