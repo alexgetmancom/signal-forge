@@ -120,6 +120,10 @@ const MODEL_ID = new RegExp(String.raw`(?<![a-z0-9.-])(?:${FAMILY_SHAPE})(?:-[a-
 /**
  * "GPT-6-specific defaults" and "Claude-4-based agents" are prose about a family, not a model.
  * Measured on the Codex history from 2026-08-10: `gpt-6-specific` was one of seven sightings.
+ *
+ * A word for what happened to a model belongs here too, because the family shape accepts any word:
+ * `claude-dropped-1` and `claude-dropped-9` reached the scouts as sightings from the Claude Code
+ * binary, where the string is a line about ids the client stopped sending.
  */
 const PROSE_WORDS = [
   "specific",
@@ -139,6 +143,10 @@ const PROSE_WORDS = [
   "aware",
   "ready",
   "friendly",
+  "dropped",
+  "removed",
+  "deprecated",
+  "unsupported",
 ] as const;
 const PROSE_SUFFIX = new RegExp(`-(?:${PROSE_WORDS.join("|")})$`);
 
@@ -176,7 +184,21 @@ const MAKER_WORDS = new Set(MAKERS.flatMap((maker) => maker.words));
  * `claudeCode.ts` and applied only there, so the two readers of the same names disagreed about
  * this.
  */
-const CLIENT_WORDS = ["agent", "api", "app", "cli", "code", "desktop", "eval", "sdk", "test"] as const;
+const CLIENT_WORDS = [
+  "agent",
+  "api",
+  "app",
+  "cli",
+  "code",
+  "desktop",
+  "eval",
+  "sdk",
+  "test",
+  // A product surface the client names beside its models: `claude-artifact-preview` was read out of
+  // the binary on 2026-10-03 and sent as a sighting. Artifacts is a feature, and no model is named
+  // after one.
+  "artifact",
+] as const;
 /**
  * `claude-powered-preview` is the same prose `claude-4-based` is, one word further in. A stage word
  * where a version belongs widens what the shape accepts, so the word before it has to be a family

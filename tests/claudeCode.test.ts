@@ -10,12 +10,17 @@ import { qwenPosts } from "../src/sources/qwen.js";
 import { modelPages } from "../src/sources/sitemaps.js";
 
 test("the Claude Code binary's model ids, aliases read as their model, tools named like models dropped", () => {
+  // `claude-dropped-1` is a line about ids the client stopped sending and `claude-artifact-preview`
+  // is a feature; both have a model's shape and both reached the scouts as sightings before the
+  // family word had to be a family. The real families beside them are the ones that must survive it.
   const binary = `"claude-opus-4-8" x claude-sonnet-4-5-20250929 claude-opus-4-1-v1 claude-eval-9 claude-desktop-3p
-    anthropic.claude-haiku-4-5-0 claude-mythos-5-1 claude-fable-5`;
+    anthropic.claude-haiku-4-5-0 claude-mythos-5-1 claude-fable-5
+    claude-dropped-1 claude-dropped-9 claude-artifact-preview claude-mythos-preview`;
   expect(claudeModelIds(binary)).toEqual([
     "claude-fable-5",
     "claude-haiku-4-5",
     "claude-mythos-5-1",
+    "claude-mythos-preview",
     "claude-opus-4-1",
     "claude-opus-4-8",
     "claude-sonnet-4-5",
