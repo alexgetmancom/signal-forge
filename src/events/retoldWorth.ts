@@ -99,6 +99,32 @@ export function namesOnlyKnownModels(event: Event, known: readonly string[][]): 
 }
 
 /**
+ * A new documentation page whose address names only models already followed here for weeks.
+ *
+ * `/gemini-api/docs/generate-content/whats-new-gemini-3.7` reached the scouts on 2026-10-07 and
+ * `whats-new-gemini-3.8` on 2026-10-13; Gemini 3.7 Flash was released on 2026-08-13 and 3.8 Flash
+ * on 2026-09-02, and both had been in this database for a month. The page was new, the model was
+ * not, and a scout channel is told about names rather than about pages.
+ *
+ * The weeks are the whole rule, not the knowing: Anthropic's `/models/haiku-5-5/overview` went up
+ * eight hours after Haiku 5.5 was announced, which is a vendor documenting a launch as it happens
+ * and the channel keeps it. `namesOnlyKnownModels` is this question asked of a changed page, where
+ * the strings that changed are the tell; here nothing has changed yet and the address is all there
+ * is.
+ */
+export function pageNamesOnlyLongKnownModels(
+  event: Event,
+  longKnownName: (model: string, detectedAt: string) => boolean,
+): boolean {
+  if (event.stream !== "pages" || event.kind !== "new") return false;
+  const record = recordFor(event);
+  const written = `${event.entity_id} ${String(record?.name ?? "")} ${String(record?.title ?? "")}`;
+  const named = normalizeWebString(written).match(MODEL_NAME) ?? [];
+  if (!named.length) return false;
+  return named.every((model) => longKnownName(model, event.detected_at));
+}
+
+/**
  * The maker a listing belongs to, when the listing is the maker's own. Weights under the maker's own
  * Hugging Face organisation are that maker releasing the model: GLM-4.7 Flash reached the scouts
  * from Vertex Model Garden on 2026-09-18, eight months after `zai-org` published it, because Z.ai's

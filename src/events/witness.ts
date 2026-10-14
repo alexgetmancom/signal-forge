@@ -106,6 +106,11 @@ export function releasedSubjects(db: Database): Set<string> {
  * A story would answer this, but a story is keyed on the name as written, and a reseller writes
  * the maker into it: "Cohere: Command A+" and "Command A+" are two stories about one model. The
  * subject key is what already survives that difference everywhere else in this file.
+ *
+ * It survives less than it looks: a tier in the name is part of the key, so "Muse Glimmer (High)"
+ * keys as `museglimmerhigh` and the Vertex row `meta/muse-glimmer` as `museglimmer`. Muse Glimmer
+ * reached the scouts on 2026-10-12 as a sighting, 34 days after this deployment first saw it,
+ * because of that one word. `firstSightingByStory` is the other half and the two are read together.
  */
 export function firstSightingBySubject(db: Database): Map<string, { at: number; source: string }> {
   const first = new Map<string, { at: number; source: string }>();
@@ -122,6 +127,72 @@ export function firstSightingBySubject(db: Database): Map<string, { at: number; 
       const key = subjectKey(value);
       const seen = first.get(key);
       if (!seen || at < seen.at) first.set(key, { at, source: row.source });
+    }
+  }
+  return first;
+}
+
+/**
+ * When the subject of each of these events was first seen here, read through the story it was
+ * correlated into, and by which source.
+ *
+ * The correlation already decided that two spellings are one model, which is exactly what a subject
+ * key has to guess: `meta/muse-glimmer` is in the story a month of Muse Glimmer sightings built.
+ * Asked of the batch's events rather than of the whole table, because the delivery path pays for it.
+ *
+ * It answers nothing where correlation itself missed -- `qwen-3.8` from a price list became its own
+ * story beside `Qwen3.8-Max` -- so this is read beside `firstSightingBySubject`, never instead.
+ */
+export function firstSightingByStory(
+  db: Database,
+  eventIds: readonly number[],
+): Map<number, { at: number; source: string }> {
+  const first = new Map<number, { at: number; source: string }>();
+  if (!eventIds.length) return first;
+  const places = eventIds.map(() => "?").join(",");
+  const rows = db
+    .query<{ event_id: number; at: string; source: string }, number[]>(
+      `SELECT se.event_id, oldest.detected_at AS at, oldest.source AS source
+         FROM story_events se
+         JOIN (SELECT se2.story_id, e2.detected_at, e2.source,
+                      ROW_NUMBER() OVER (PARTITION BY se2.story_id ORDER BY e2.detected_at, e2.id) AS place
+                 FROM story_events se2 JOIN events e2 ON e2.id = se2.event_id) AS oldest
+           ON oldest.story_id = se.story_id AND oldest.place = 1
+        WHERE se.event_id IN (${places})`,
+    )
+    .all(...eventIds);
+  for (const row of rows) {
+    const at = Date.parse(row.at);
+    if (!Number.isFinite(at)) continue;
+    const seen = first.get(row.event_id);
+    if (!seen || at < seen.at) first.set(row.event_id, { at, source: row.source });
+  }
+  return first;
+}
+
+/**
+ * When each model name was first seen here, as the stories say it, by the key a page's address uses.
+ *
+ * The events are not the whole history: this deployment started from catalogues it read whole, and
+ * a first collection stores records without emitting a difference for any of them. Gemini 3.7 Flash
+ * has been in `records` and in a story since 2026-09-08 and its earliest *event* is 2026-09-27, so
+ * a page about it looked ten days old to a question asked of events alone and five weeks old to a
+ * reader.
+ */
+export function firstStoryByName(db: Database): Map<string, number> {
+  const first = new Map<string, number>();
+  for (const row of db
+    .query<{ title: string; normalized_subject: string; at: string }, []>(
+      "SELECT title,normalized_subject,first_seen_at AS at FROM stories",
+    )
+    .all()) {
+    const at = Date.parse(row.at);
+    if (!Number.isFinite(at)) continue;
+    for (const value of new Set([row.title, row.normalized_subject])) {
+      const key = subjectKey(value);
+      if (!key) continue;
+      const seen = first.get(key);
+      if (seen === undefined || at < seen) first.set(key, at);
     }
   }
   return first;

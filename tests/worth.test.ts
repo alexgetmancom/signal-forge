@@ -1013,6 +1013,125 @@ test("a model followed here for weeks reaching one more venue is not a launch", 
   db.close();
 });
 
+test("a new page naming a model known here for weeks is not a sighting, and one naming a fresh one is", () => {
+  // `whats-new-gemini-3.7` reached the scouts on 2026-10-07, five weeks after Gemini 3.7 Flash was
+  // in every catalogue here: the page was new and the name was not. Anthropic's Haiku 5.5 overview
+  // went up eight hours after the launch and has to survive the same rule, which is why the
+  // question is how long the name has been known rather than whether it is known at all.
+  const db = openDatabase(":memory:");
+  const catalogue: Collection = {
+    source: "openrouter",
+    stream: "openrouter",
+    url: "https://openrouter.ai",
+    raw: [],
+    records: [{ id: "x-ai/grok-4", name: "xAI: Grok 4", maker: "xAI" }],
+  };
+  saveCollection(db, catalogue, [wire], "2026-09-01T10:00:00.000Z");
+  catalogue.records = [
+    { id: "x-ai/grok-4", name: "xAI: Grok 4", maker: "xAI" },
+    { id: "google/gemini-3.7-flash", name: "Google: Gemini 3.7 Flash", maker: "Google" },
+  ];
+  saveCollection(db, catalogue, [wire], "2026-09-02T10:00:00.000Z");
+  const pages = (paths: string[], source: string): Collection => ({
+    source,
+    stream: "pages",
+    url: "https://ai.google.dev",
+    raw: [],
+    records: paths.map((path) => ({ id: path, name: path, path })),
+  });
+  saveCollection(db, pages(["/gemini-api/docs"], "pages:google"), [wire], "2026-10-07T19:00:00.000Z");
+  saveCollection(
+    db,
+    pages(["/gemini-api/docs", "/gemini-api/docs/generate-content/whats-new-gemini-3.7"], "pages:google"),
+    [wire],
+    "2026-10-07T20:13:32.103Z",
+  );
+  catalogue.records = [
+    { id: "x-ai/grok-4", name: "xAI: Grok 4", maker: "xAI" },
+    { id: "google/gemini-3.7-flash", name: "Google: Gemini 3.7 Flash", maker: "Google" },
+    { id: "anthropic/claude-haiku-5.5", name: "Anthropic: Claude Haiku 5.5", maker: "Anthropic" },
+  ];
+  saveCollection(db, catalogue, [wire], "2026-10-07T18:07:00.000Z");
+  saveCollection(db, pages(["/docs/en/models"], "pages:claude-docs"), [wire], "2026-10-08T02:00:00.000Z");
+  saveCollection(
+    db,
+    pages(["/docs/en/models", "/docs/en/models/haiku-5-5/overview"], "pages:claude-docs"),
+    [wire],
+    "2026-10-08T02:35:17.888Z",
+  );
+  // A name this deployment started from has a date in its story and nothing in the events: a first
+  // collection stores every record and emits a difference for none of them. Gemini 3.7 Flash was in
+  // a story from 2026-09-08 and its earliest event is 2026-09-27, so the page about it looked ten
+  // days old to a question asked of events alone and five weeks old to the reader who saw the card.
+  db.query(
+    `INSERT INTO stories(stable_key,title,normalized_subject,vendor,first_seen_at,updated_at,confidence,current_status)
+     VALUES('google:gemini 3.4 flash:0','Gemini 3.4 Flash','gemini 3.4 flash','Google',?,?,'observed','active')`,
+  ).run("2026-09-02T10:00:00.000Z", "2026-09-02T10:00:00.000Z");
+  saveCollection(
+    db,
+    pages(["/gemini-api/docs", "/gemini-api/docs/generate-content/whats-new-gemini-3.4"], "pages:google"),
+    [wire],
+    "2026-10-08T02:50:00.000Z",
+  );
+  prepareDeliveries(db, Date.parse("2026-10-08T03:00:00.000Z"));
+
+  const reasons = suppressed(db);
+  expect(reasons["/gemini-api/docs/generate-content/whats-new-gemini-3.7"]).toBe("names_only_known_models");
+  expect(reasons["/gemini-api/docs/generate-content/whats-new-gemini-3.4"]).toBe("names_only_known_models");
+  expect(reasons["/docs/en/models/haiku-5-5/overview"]).toBeUndefined();
+  db.close();
+});
+
+test("a tier written into the name does not make a month-old model new again", () => {
+  // Muse Glimmer reached the scouts from Vertex on 2026-10-12, 34 days after this deployment first
+  // saw it on an arena. The subject key carries the tier the board wrote and the Vertex row does
+  // not -- `museglimmerhigh` against `museglimmer` -- so the two spellings never met and the
+  // question answered no. Correlation had already put both events in one story, which is the half
+  // the rule now reads; the story is written here rather than grown, because what is under test is
+  // the judgement that reads it and not the correlation that built it.
+  const db = openDatabase(":memory:");
+  const board: Collection = {
+    source: "arena-leaderboards",
+    stream: "leaderboards",
+    url: "https://arena.example/leaderboard",
+    raw: [],
+    records: [{ id: "text:overall:gemma-3", name: "Gemma 3", maker: "Google", rank: 7 }],
+  };
+  saveCollection(db, board, [wire], "2026-09-08T09:00:00.000Z");
+  board.records = [
+    { id: "text:overall:gemma-3", name: "Gemma 3", maker: "Google", rank: 7 },
+    { id: "text:overall:muse-glimmer-high", name: "Muse Glimmer (High)", maker: "Meta", rank: 4 },
+  ];
+  saveCollection(db, board, [wire], "2026-09-08T10:00:00.000Z");
+  const venue: Collection = {
+    source: "vertex-model-garden",
+    stream: "api-models",
+    url: "https://console.cloud.google.com/vertex-ai/model-garden",
+    raw: [],
+    records: [{ id: "google/gemma-3", name: "Gemma 3", maker: "Google" }],
+  };
+  saveCollection(db, venue, [wire], "2026-09-08T10:05:00.000Z");
+  venue.records = [
+    { id: "google/gemma-3", name: "Gemma 3", maker: "Google" },
+    { id: "meta/muse-glimmer", name: "muse-glimmer", maker: "Meta" },
+  ];
+  saveCollection(db, venue, [wire], "2026-10-12T10:00:00.000Z");
+  const story = db
+    .query<{ story_id: number }, []>(
+      `SELECT se.story_id FROM story_events se JOIN events e ON e.id=se.event_id
+        WHERE e.entity_id='text:overall:muse-glimmer-high'`,
+    )
+    .get();
+  db.query("UPDATE story_events SET story_id=? WHERE event_id IN (SELECT id FROM events WHERE entity_id=?)").run(
+    story?.story_id ?? 0,
+    "meta/muse-glimmer",
+  );
+  prepareDeliveries(db, Date.parse("2026-10-12T12:00:00.000Z"));
+
+  expect(suppressed(db)["meta/muse-glimmer"]).toBe("known_here_for_weeks");
+  db.close();
+});
+
 test("one change that reached the whole list is told once, and a reset time redrawn by a minute is not told", () => {
   const db = openDatabase(":memory:");
   const plans = ["plus", "pro", "team"];

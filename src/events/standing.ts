@@ -33,6 +33,7 @@ import {
   isAlreadyOutAtItsMaker,
   isARouteToAReleasedModel,
   namesOnlyKnownModels,
+  pageNamesOnlyLongKnownModels,
   wasReleasedLongBefore,
 } from "./retoldWorth.js";
 import { isModelSighting } from "./signals.js";
@@ -40,7 +41,14 @@ import type { SuppressionReason } from "./suppression.js";
 import type { Event, RecordData } from "./types.js";
 import { displayName } from "./variants.js";
 import { isTrendingFromAnUnfollowedLab, isWeightsBesideTheRelease } from "./weightsWorth.js";
-import { firstSightingBySubject, listingsBySubject, releasedSubjects, subjectKey } from "./witness.js";
+import {
+  firstSightingByStory,
+  firstSightingBySubject,
+  firstStoryByName,
+  listingsBySubject,
+  releasedSubjects,
+  subjectKey,
+} from "./witness.js";
 import {
   addedFieldSignature,
   changeSignature,
@@ -51,8 +59,15 @@ import {
   isMinorBoardMove,
 } from "./worth.js";
 
-/** How long a model has to have been followed here before one more venue listing it is only a line. */
-const LONG_KNOWN_MS = 30 * 24 * 3_600_000;
+/**
+ * How long a model has to have been followed here before one more venue listing it is only a line.
+ *
+ * Three weeks rather than a month because the two readings of "first seen" now agree often enough
+ * to lower it: replayed over the 293 sightings the scouts were sent in the 30 days to 2026-10-14,
+ * 21 days holds back the same three a month holds back, and leaves the two this source exists for
+ * -- `claude-mythos-preview` at 15 days and Step 5 Preview at 19 -- on the wire.
+ */
+const LONG_KNOWN_MS = 21 * 24 * 3_600_000;
 
 /** How long an immediate batch waits for a sentence that is still being written. */
 const SUMMARY_GRACE_MS = 90_000;
@@ -116,6 +131,8 @@ export type BatchView = {
   /** Pages of a tree published in one read that the shallowest address of it already told. */
   deeperPages: Set<number>;
   known: ReturnType<typeof knownModelNames>;
+  /** Whether a model name off a page had been followed here for longer than `LONG_KNOWN_MS` by then. */
+  longKnownName: (model: string, detectedAt: string) => boolean;
   listings: ReturnType<typeof listingsBySubject> | null;
   released: ReadonlySet<string>;
   sighted: (event: Event) => boolean;
@@ -233,7 +250,11 @@ const STANDING_CHECKS: readonly StandingCheck[] = [
       e.signal === "codename" && isARouteToAReleasedModel(e, v.released) ? "already_out_at_its_maker" : null,
   },
   held("released_long_before_this_listing", (db, e) => e.signal === "codename" && wasReleasedLongBefore(db, e)),
-  held("names_only_known_models", (_db, e, v) => e.signal === "codename" && namesOnlyKnownModels(e, v.known)),
+  held(
+    "names_only_known_models",
+    (_db, e, v) =>
+      e.signal === "codename" && (namesOnlyKnownModels(e, v.known) || pageNamesOnlyLongKnownModels(e, v.longKnownName)),
+  ),
   held("fixes_only_release", (_db, e) => e.signal === "release" && isFixesOnlyRelease(e)),
 ];
 
@@ -271,6 +292,77 @@ export function standingReason(db: Database, event: Event, view: BatchView): Sup
   return null;
 }
 
+/**
+ * The two readings of "this deployment has followed it for weeks", built once for the batch.
+ *
+ * One is asked of a catalogue row and answers about the row's own subject; the other is asked of a
+ * new page and answers about a name written into its address. They are one declaration because
+ * they are one reading of the whole history of first sightings, which is the cost on the delivery
+ * path: a batch holding neither kind of event pays nothing for it.
+ */
+function followedForWeeks(
+  db: Database,
+  events: readonly Event[],
+): { longKnown: Set<number>; longKnownName: (model: string, detectedAt: string) => boolean } {
+  // A platform listing a model this deployment has been following for weeks is a venue catching
+  // up, not a release. Command A+ reached the public channel on 2026-09-22 as a launch; Cohere had
+  // shipped it in May. Read from the story, which is where every source's word on a model meets.
+  const catchingUp = events.filter(
+    (event) =>
+      event.kind === "new" && ["api-models", "openrouter"].includes(event.stream) && listsAnotherMakersModel(event),
+  );
+  // A new page whose address names only models this deployment has followed for weeks asks the
+  // same question of the same reading, one stream over, so the sighting map is shared.
+  const pages = events.filter((event) => event.stream === "pages" && event.kind === "new");
+  const longKnown = new Set<number>();
+  let first: ReturnType<typeof firstSightingBySubject> | null = null;
+  if (catchingUp.length || pages.length) first = firstSightingBySubject(db);
+  // A page is asked about a name rather than about a row, and the stories are where a name this
+  // deployment read out of a catalogue it started from has a date at all; see firstStoryByName.
+  const stories = pages.length ? firstStoryByName(db) : null;
+  if (catchingUp.length && first) {
+    // The subject key and the correlated story are two readings of "we have seen this before", and
+    // each misses what the other catches: the key loses a tier written into the name, the story
+    // loses a spelling correlation never merged. The earliest sighting either of them can name,
+    // from a source other than this one, is the one the question is about.
+    const byStory = firstSightingByStory(
+      db,
+      catchingUp.map((event) => event.id),
+    );
+    for (const event of catchingUp) {
+      const record = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
+      const keys = [
+        ...new Set([subjectKey(event.entity_id), subjectKey(displayName(String(record?.name ?? event.entity_id)))]),
+      ];
+      const seen = [...keys.map((key) => first.get(key)), byStory.get(event.id)]
+        .filter((row): row is { at: number; source: string } => row !== undefined && row.source !== event.source)
+        .sort((one, other) => one.at - other.at)[0];
+      if (seen && Date.parse(event.detected_at) - seen.at > LONG_KNOWN_MS) longKnown.add(event.id);
+    }
+  }
+  /**
+   * When a name off a page was first seen here, matched the way a page writes it: an address says
+   * `whats-new-gemini-3.8` and the catalogues carry `gemini-3.8-flash`, so a key the map holds may
+   * carry words past the one asked about. A digit after the asked-for key is another model
+   * entirely -- 3.8 is not 3.85 -- and only a letter is the same one, specified.
+   */
+  const longKnownName = (model: string, detectedAt: string): boolean => {
+    const key = subjectKey(model);
+    if (!key) return false;
+    const dated: [string, number][] = [
+      ...[...(first ?? [])].map(([known, seen]): [string, number] => [known, seen.at]),
+      ...[...(stories ?? [])],
+    ];
+    let earliest: number | null = null;
+    for (const [known, at] of dated) {
+      if (known !== key && !(known.startsWith(key) && /^[a-z]/.test(known.slice(key.length)))) continue;
+      if (earliest === null || at < earliest) earliest = at;
+    }
+    return earliest !== null && Date.parse(detectedAt) - earliest > LONG_KNOWN_MS;
+  };
+  return { longKnown, longKnownName };
+}
+
 /** Everything the standing judgement reads about a batch, built once and shared by its destinations. */
 export function batchViewOf(db: Database, events: readonly Event[]): BatchView {
   // A re-keyed catalogue speaks once per row, twice: the row that left and the identical row that
@@ -296,28 +388,7 @@ export function batchViewOf(db: Database, events: readonly Event[]): BatchView {
       ]);
   }
   const herd = new Set([...byChange.values()].filter((ids) => ids.length >= 3).flatMap((ids) => ids.slice(1)));
-  // A platform listing a model this deployment has been following for weeks is a venue catching
-  // up, not a release. Command A+ reached the public channel on 2026-09-22 as a launch; Cohere had
-  // shipped it in May. Read from the story, which is where every source's word on a model meets.
-  const catchingUp = events.filter(
-    (event) =>
-      event.kind === "new" && ["api-models", "openrouter"].includes(event.stream) && listsAnotherMakersModel(event),
-  );
-  const longKnown = new Set<number>();
-  if (catchingUp.length) {
-    const first = firstSightingBySubject(db);
-    for (const event of catchingUp) {
-      const record = event.after_json ? (JSON.parse(event.after_json) as RecordData) : null;
-      const keys = [
-        ...new Set([subjectKey(event.entity_id), subjectKey(displayName(String(record?.name ?? event.entity_id)))]),
-      ];
-      const seen = keys
-        .map((key) => first.get(key))
-        .filter((row): row is { at: number; source: string } => row !== undefined && row.source !== event.source)
-        .sort((one, other) => one.at - other.at)[0];
-      if (seen && Date.parse(event.detected_at) - seen.at > LONG_KNOWN_MS) longKnown.add(event.id);
-    }
-  }
+  const { longKnown, longKnownName } = followedForWeeks(db, events);
 
   // A sitemap publishes a branch rather than a page, and the root of it is the one card; the same
   // reading of a batch as `herd`, applied to an address. See deeperPagesOfOneTree.
@@ -354,5 +425,17 @@ export function batchViewOf(db: Database, events: readonly Event[]): BatchView {
   const released = events.some((event) => event.signal === "codename" && event.kind === "new")
     ? releasedSubjects(db)
     : new Set<string>();
-  return { renamed, schema, herd, longKnown, deeperPages, known, listings, released, sighted, elsewhereOf };
+  return {
+    renamed,
+    schema,
+    herd,
+    longKnown,
+    deeperPages,
+    known,
+    longKnownName,
+    listings,
+    released,
+    sighted,
+    elsewhereOf,
+  };
 }
