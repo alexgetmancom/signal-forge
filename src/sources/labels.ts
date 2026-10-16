@@ -59,6 +59,7 @@ const STATIC_LABELS: Record<string, string> = {
   "command-code-models": "Command Code · models",
   "google-skus": "Google Cloud · price list",
   "claude-code-models": "Claude Code · model ids",
+  "devin-cli-models": "Devin CLI · model ids",
   "openai-alignment": "OpenAI · alignment blog",
   "openai-deployment-safety": "OpenAI · system cards",
   "openai-learn-index": "OpenAI · learn index",

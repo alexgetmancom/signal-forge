@@ -6,6 +6,7 @@ import { CLI_BUNDLES, cliBundleUnchanged, collectCliBundle } from "../cliBundles
 import { collectCodexModels } from "../codex.js";
 import { collectCommandCodeModels, collectOpenCodeGo, collectOpenCodeZen } from "../codingPlans.js";
 import type { SourceContext, SourceEntry } from "../definition.js";
+import { collectDevinModels, devinModelsUnchanged } from "../devin.js";
 import { collectGithubDiscovery, collectHuggingFaceTrending, GITHUB_DISCOVERY_QUERIES } from "../discovery.js";
 import { collectGithubCommits, collectGithubPulls, collectGithubReleases, githubCommitsUnchanged } from "../github.js";
 import { acceptedEtagUnchanged } from "../http.js";
@@ -88,6 +89,30 @@ const WATCHED_REPOSITORY: SourceKind = {
 const SHIPPED_BINARY: SourceKind = {
   kind: "shipped-binary",
   authority: "vendor_owned",
+  evidence: "binary_string",
+  confidence: "observed",
+  group: "Shipped binaries",
+  stream: "github",
+  intervalSeconds: 300,
+  pace: { group: "registry.npmjs.org", seconds: 5 },
+};
+
+/**
+ * A model id compiled into a client the maker did not publish.
+ *
+ * Everything in `SHIPPED_BINARY` is a maker reading its own client's name out loud. This is the
+ * other half: a third party's client carries the ids it is allowed to call, and a partner is told a
+ * name under an agreement long before a catalogue carries it. Five Anthropic codenames were in
+ * Devin's terminal client on 2026-10-16 and in nothing else this service reads.
+ *
+ * `third_party`, because who shipped the binary is the whole difference -- the maker wrote nothing
+ * here. The evidence is still `binary_string`: the name has been shipped to every user of the
+ * client, which is what that type is for, and how much it is worth is `confidenceFor`'s business.
+ * The pace and the split read are the npm ones; see `nothingNew` in src/sources/definition.ts.
+ */
+const THIRD_PARTY_CLIENT_BINARY: SourceKind = {
+  kind: "third-party-client-binary",
+  authority: "third_party",
   evidence: "binary_string",
   confidence: "observed",
   group: "Shipped binaries",
@@ -375,7 +400,27 @@ function shippedBinarySources(db: SourceContext["db"]): SourceEntry[] {
       collector: () => collectCliBundle(bundle, fetch, bundleMemory(db, bundle.source)),
     });
 
-  return sourcesOfKind(SHIPPED_BINARY, binaries);
+  return [...sourcesOfKind(SHIPPED_BINARY, binaries), ...sourcesOfKind(THIRD_PARTY_CLIENT_BINARY, clients(db))];
+}
+
+/**
+ * Clients somebody else publishes, read for the makers' names in them.
+ *
+ * The vendor is the maker the names belong to rather than the company that shipped the executable:
+ * `stories` correlates on a source's vendor, and an event about `claude-vanilla` filed under
+ * Cognition would correlate with nothing. Who published it is `authority`.
+ */
+function clients(db: SourceContext["db"]): KindMember[] {
+  return [
+    {
+      id: "devin-cli-models",
+      vendor: "Anthropic",
+      // 68.3 MB unpacking to 200.4 MB, read only when the platform build's dist-tag moves.
+      heavy: true,
+      nothingNew: () => devinModelsUnchanged(fetch, bundleMemory(db, "devin-cli-models")),
+      collector: () => collectDevinModels(fetch, bundleMemory(db, "devin-cli-models")),
+    },
+  ];
 }
 
 export function communitySources({ db, config, cache }: SourceContext): SourceEntry[] {
