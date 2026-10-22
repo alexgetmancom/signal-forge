@@ -49,6 +49,8 @@ export const SUPPRESSION_REASONS = [
   "another_effort_of_the_same_debut",
   "a_venues_own_hosting_window",
   "the_first_read_of_a_new_shape",
+  "not_a_model_but_plumbing",
+  "the_reset_it_confirms_was_announced",
 ] as const;
 
 export type SuppressionReason = (typeof SUPPRESSION_REASONS)[number];
@@ -107,6 +109,9 @@ export const SUPPRESSION_DETAIL: Record<SuppressionReason, string> = {
     "The day one venue stops serving a listing, which `lifecycle-deadlines` holds and no card claims as the model's end",
   the_first_read_of_a_new_shape:
     "The first poll that knew to ask about this line, which answers for everything already on it",
+  not_a_model_but_plumbing: "A name whose words only ever describe infrastructure, listed where models are sold",
+  the_reset_it_confirms_was_announced:
+    "The reset this confirms was announced to this destination, and that card is edited instead",
 };
 
 /**

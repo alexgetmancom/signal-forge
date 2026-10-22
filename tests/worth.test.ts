@@ -1627,3 +1627,66 @@ test("an expiry date alone is held, and a pointer moving is not", () => {
     ),
   ).toBe(false);
 });
+
+test("a private evaluation slot of a released model is another serving of it", () => {
+  const db = openDatabase(":memory:");
+  saveCollection(
+    db,
+    {
+      source: "openai",
+      stream: "api-models",
+      url: "https://api.openai.com/v1/models",
+      raw: [],
+      records: [{ id: "gpt-6-astra", name: "GPT-6 Astra" }],
+    },
+    [wire],
+    "2026-10-01T00:00:00.000Z",
+  );
+  const arena: Collection = {
+    source: "arena",
+    stream: "arena",
+    url: "https://lmarena.ai",
+    raw: [],
+    records: [{ id: "seat", name: "gpt-6-astra", maker: "openai" }],
+  };
+  saveCollection(db, arena, [wire], "2026-10-15T18:00:00.000Z");
+  arena.records.push(
+    { id: "slot", name: "gpt-6-astra-api-priv-ev3", maker: "openai" },
+    { id: "wm", name: "gpt-6-astra-wm", maker: "openai" },
+  );
+  saveCollection(db, arena, [wire], "2026-10-15T18:20:00.000Z");
+  prepareDeliveries(db, Date.parse("2026-10-15T18:30:00.000Z"));
+
+  const reasons = suppressed(db);
+  expect(reasons.slot).toBe("another_serving_of_a_known_model");
+  expect(reasons.wm).toBe("another_serving_of_a_known_model");
+  db.close();
+});
+
+test("a test row for a gateway's session affinity is not a model being sold", () => {
+  const db = openDatabase(":memory:");
+  const catalogue: Collection = {
+    source: "dashscope",
+    stream: "api-models",
+    url: "https://dashscope.aliyuncs.com/compatible-mode/v1/models",
+    raw: [],
+    records: [{ id: "qwen3.8-max", name: "Qwen3.8 Max", maker: "Alibaba Model Studio" }],
+  };
+  saveCollection(db, catalogue, [wire], "2026-10-15T00:00:00.000Z");
+  catalogue.records.push(
+    {
+      id: "pre-mock-new-gateway-session-affinity",
+      name: "Pre Mock New Gateway Session Affinity",
+      maker: "Alibaba Model Studio",
+    },
+    { id: "tongyi-skynet-llm-real", name: "Tongyi Skynet LLM", maker: "Alibaba Model Studio" },
+  );
+  saveCollection(db, catalogue, [wire], "2026-10-16T03:15:00.000Z");
+  prepareDeliveries(db, Date.parse("2026-10-16T03:20:00.000Z"));
+
+  const reasons = suppressed(db);
+  expect(reasons["pre-mock-new-gateway-session-affinity"]).toBe("not_a_model_but_plumbing");
+  // A name that is only unfamiliar is still a model: this rule reads words, not novelty.
+  expect(reasons["tongyi-skynet-llm-real"]).toBeUndefined();
+  db.close();
+});

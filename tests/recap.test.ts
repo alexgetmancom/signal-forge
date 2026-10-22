@@ -842,3 +842,55 @@ test("a model nobody can call yet is held, and arrives in the week its catalogue
   ]);
   db.close();
 });
+
+test("one model written four ways is one name in the week, and the count follows", () => {
+  const db = openDatabase(":memory:");
+  const registry: Collection = {
+    source: "huggingface",
+    stream: "weights",
+    url: "https://huggingface.co/models",
+    raw: [],
+    records: [{ id: "anchor/anchor", name: "Anchor", created: "2026-09-01T00:00:00.000Z" }],
+  };
+  saveCollection(db, registry, [wire], "2026-09-08T10:00:00.000Z");
+  // The same NVIDIA model as a registry, a gateway and a catalogue each spell it, inside one week.
+  for (const [id, name] of [
+    ["nvidia/Nemotron-3.5-Super-VL", "Nemotron 3.5 Super VL"],
+    ["nvidia/Nemotron-3.5-Super-VL-120B-A12B", "Nemotron 3.5 Super VL 120B A12B"],
+    ["nvidia/NVIDIA-Nemotron-3.5-Super-VL", "NVIDIA Nemotron 3.5 Super VL"],
+    ["nvidia/NVIDIA-Nemotron-3.5-Super-VL-120B-A12B-BF16", "NVIDIA Nemotron 3.5 Super VL-120B A12B BF16"],
+  ] as const)
+    registry.records.push({ id, name, created: "2026-09-09T00:00:00.000Z", pipeline: "text-generation" });
+  saveCollection(db, registry, [wire], "2026-09-09T10:00:00.000Z");
+
+  const context = recapContext(db, "2026-09-13T18:00:00.000Z");
+  const nvidia = context?.arrivals.find((group) => group.vendor === "NVIDIA");
+  expect(nvidia?.names).toEqual(["Nemotron 3.5 Super VL"]);
+  expect(context?.arrivalCount).toBe(1);
+  db.close();
+});
+
+test("a maker's own name is not repeated inside a line that sits under it", () => {
+  const db = openDatabase(":memory:");
+  const registry: Collection = {
+    source: "huggingface",
+    stream: "weights",
+    url: "https://huggingface.co/models",
+    raw: [],
+    records: [{ id: "anchor/anchor", name: "Anchor", created: "2026-09-01T00:00:00.000Z" }],
+  };
+  saveCollection(db, registry, [wire], "2026-09-08T10:00:00.000Z");
+  // The registry writes the maker in front of the model with no space where the heading has one,
+  // and files it under a handle that shortens the same name.
+  registry.records.push({
+    id: "liquid/LFM2.5-24B-A2B",
+    name: "LiquidAI: LFM2.5-24B-A2B",
+    created: "2026-09-09T00:00:00.000Z",
+    pipeline: "text-generation",
+  });
+  saveCollection(db, registry, [wire], "2026-09-09T10:00:00.000Z");
+
+  const context = recapContext(db, "2026-09-13T18:00:00.000Z");
+  expect(context?.arrivals).toEqual([{ vendor: "Liquid AI", names: ["LFM2.5-24B-A2B"] }]);
+  db.close();
+});

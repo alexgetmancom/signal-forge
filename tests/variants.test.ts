@@ -4,12 +4,14 @@ import {
   arrivalWeight,
   isAnEvaluation,
   isModelVariant,
+  isNotAModel,
   isRepublished,
   isTrainingArtefact,
   modelSubject,
   oneLinePerModel,
   precisionBase,
   servesAnotherModality,
+  sizeBase,
 } from "../src/events/variants.js";
 
 test("a tier, an alias and a snapshot are not releases", () => {
@@ -126,4 +128,34 @@ test("a lab's own FP8 build is the release at another precision", () => {
   expect(precisionBase("Aleph-Alpha/Kolibri-1")).toBe(null);
   // A name that ends in a number is not a precision: Llama 4 Scout 17B is the model.
   expect(precisionBase("Llama 4 Scout 17B Instruct")).toBe(null);
+});
+
+test("a maker's name written on the front of its own model is not a second model", () => {
+  const subject = modelSubject("Nemotron 3.5 Super VL");
+  expect(modelSubject("NVIDIA Nemotron 3.5 Super VL")).toBe(subject);
+  // Only a word the table spells as a maker, and only while a name is left: Google's flagship keeps
+  // its own subject, and a model a maker named after itself keeps one too.
+  expect(modelSubject("Gemini 4 Argon")).not.toBe(modelSubject("4 Argon"));
+  expect(modelSubject("Mistral Large")).toBe(modelSubject("Mistral Large"));
+  expect(modelSubject("Mistral Large 4")).toBe(modelSubject("Large 4"));
+});
+
+test("the size a registry writes down folds into the model it is a size of", () => {
+  expect(sizeBase("Nemotron 3.5 Super VL 120B A12B")).toBe(modelSubject("Nemotron 3.5 Super VL"));
+  expect(sizeBase("NVIDIA Nemotron 3.5 Super VL-120B A12B")).toBe(modelSubject("Nemotron 3.5 Super VL"));
+  expect(sizeBase("Beam 1.0 501B A23B")).toBe(modelSubject("Beam 1.0"));
+  expect(sizeBase("Llama-4-Maverick-17B-128E")).toBe(modelSubject("Llama 4 Maverick"));
+  // A precision is a different fold, and a name with no size on it has nothing to fold.
+  expect(sizeBase("Beam 1.0")).toBe(null);
+  expect(precisionBase("NVIDIA Nemotron 3.5 Super VL-120B A12B BF16")).toBe(
+    modelSubject("NVIDIA Nemotron 3.5 Super VL-120B A12B"),
+  );
+});
+
+test("a word that only ever names infrastructure is not a model", () => {
+  expect(isNotAModel("Pre Mock New Gateway Session Affinity")).toBe(true);
+  expect(isNotAModel("Migration 2026 10 21")).toBe(true);
+  expect(isNotAModel("TypeSafe: Jev Router")).toBe(true);
+  expect(isNotAModel("Gemini 4 Argon")).toBe(false);
+  expect(isNotAModel("Nemotron 3.5 Super VL")).toBe(false);
 });

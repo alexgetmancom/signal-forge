@@ -11,6 +11,7 @@
 import type { Database } from "bun:sqlite";
 import { CONFIDENCE_LEVELS } from "./confidence.js";
 import { pageModel } from "./pageWorth.js";
+import { recordFor } from "./record.js";
 import { isStealthLaunch, stealthSubject } from "./resellers.js";
 import { isMakersAnnouncement } from "./signals.js";
 import { sourceFamily } from "./sourceFamily.js";
@@ -322,4 +323,47 @@ export function pageModelsTold(
     )
     .all(...[destinationId, batchId, new Date(now - PAGE_MODEL_WINDOW_MS).toISOString(), ...(asOf ? [asOf] : [])]);
   return new Set(rows.map(pageModel).filter((model): model is string => model !== null));
+}
+
+/**
+ * The two halves of one reset, which arrive as two records because they are two posts.
+ *
+ * The reset tracker keys a record by the announcement it read, and a reset is announced in one post
+ * and confirmed in another: `2109045392684032299` said a reset was coming at 07:00 and
+ * `2109132167112782291` said it had landed, five and a half hours later. The source was written for
+ * one record whose `stage` moves, and on the evidence it never gets one, so nothing downstream saw
+ * the pair as a pair: five cycles in the twelve days to 2026-10-22 took ten of the news channel's
+ * twenty-two messages.
+ *
+ * Both halves are worth a reader's attention -- the announcement says not to spend the quota, the
+ * confirmation says to -- and a card that is edited says both without interrupting twice, which is
+ * what `queueResetAmendments` does with the card this suppresses the second of. Suppressed only
+ * where the first half was actually sent: a confirmation nobody heard the announcement of is the
+ * only word this destination gets, as on 2026-10-20 when a reset was applied with no announcement
+ * before it.
+ */
+const RESET_PAIR_WINDOW_MS = 24 * 3_600_000;
+const RESET_SOURCE = "codex-resets";
+
+/** The record a reset's own source writes while the reset is still only promised. */
+function isAnnouncedReset(event: Event): boolean {
+  return event.source === RESET_SOURCE && String(recordFor(event)?.stage ?? "").startsWith("Announced");
+}
+
+/** Whether this event confirms a reset whose announcement this destination already has a card for. */
+export function resetConfirmationTold(db: Database, event: Event, destinationId: string, now: number): boolean {
+  const record = recordFor(event);
+  if (event.source !== RESET_SOURCE || record?.stage !== "Applied") return false;
+  return (
+    db
+      .query<Event, [string, string, string]>(
+        `SELECT DISTINCT e.* FROM delivery_events de
+       JOIN deliveries d ON d.id=de.delivery_id
+       JOIN events e ON e.id=de.event_id
+       WHERE d.destination_id=? AND e.source=? AND e.detected_at>=? AND d.status='sent'`,
+      )
+      .all(destinationId, RESET_SOURCE, new Date(now - RESET_PAIR_WINDOW_MS).toISOString())
+      // A banked credit and a plain reset run their own cycles and are not halves of each other.
+      .some((told) => isAnnouncedReset(told) && recordFor(told)?.resetType === record.resetType)
+  );
 }

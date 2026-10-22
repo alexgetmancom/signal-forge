@@ -27,6 +27,7 @@ import {
   releaseKey,
   releaseTold,
   repeatsDeliveredStory,
+  resetConfirmationTold,
 } from "./toldBefore.js";
 import type { Event, RecordData } from "./types.js";
 import { rosterSiblings } from "./witness.js";
@@ -181,6 +182,10 @@ export function speakingEvents(work: Delivering): BatchEvent[] {
       return quiet(event, "announced_before_it_was_sighted");
     // A number that keeps moving waits, then speaks once about the whole move it missed.
     if (baseline?.hold) return quiet(event, "waiting_for_the_move_to_settle");
+    // One reset, announced and then confirmed: the card already sent is edited; see
+    // `resetConfirmationTold`.
+    if (resetConfirmationTold(db, event, target.destination_id, now))
+      return quiet(event, "the_reset_it_confirms_was_announced");
     const model = pageModel(event);
     if (model && toldPages.has(model)) return quiet(event, "another_page_about_the_same_model");
     if (model) toldPages.add(model);

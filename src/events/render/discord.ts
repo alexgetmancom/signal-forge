@@ -119,7 +119,11 @@ export function eventEmbed(
   const stealth = isStealthLaunch(event);
   // The venue spells a stealth model `space-bunny-free` and `stealth/space-bunny-alpha`; the model
   // is Space Bunny, and the spelling stays in the handle underneath for copying.
-  const name = stealth ? stealthName(event) : untouchedName;
+  // A stealth row names no maker, so the title takes the one a catalogue that holds the same model
+  // already wrote down; see `BORROWED_FIELDS`.
+  const name = stealth
+    ? withUntrackedMaker(stealthName(event), vendor, (event.borrowed as RecordData | undefined) ?? null)
+    : untouchedName;
   const newModel = event.kind === "new" && MODEL_STREAMS.has(event.stream);
   const spec = newModel
     ? specLine(

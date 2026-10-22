@@ -39,7 +39,7 @@ import {
 import { isModelSighting } from "./signals.js";
 import type { SuppressionReason } from "./suppression.js";
 import type { Event, RecordData } from "./types.js";
-import { displayName } from "./variants.js";
+import { displayName, isNotAModel } from "./variants.js";
 import { isTrendingFromAnUnfollowedLab, isWeightsBesideTheRelease } from "./weightsWorth.js";
 import {
   firstSightingByStory,
@@ -178,6 +178,17 @@ function held(
   };
 }
 
+/** The streams whose rows are offered as models, which is where a plumbing name is a false launch. */
+const MODEL_ROW_STREAMS = new Set(["api-models", "openrouter", "weights"]);
+
+function isAModelRow(event: Event): boolean {
+  return event.kind === "new" && MODEL_ROW_STREAMS.has(event.stream);
+}
+
+function nameOfRow(event: Event): string {
+  return String(recordFor(event)?.name ?? event.entity_id);
+}
+
 const STANDING_CHECKS: readonly StandingCheck[] = [
   held("renamed_by_the_source", (_db, e, v) => v.renamed.has(e.id), true),
   held("below_the_top_of_the_board", (_db, e) => isMinorBoardMove(e)),
@@ -199,6 +210,8 @@ const STANDING_CHECKS: readonly StandingCheck[] = [
   // One model measured at five reasoning efforts is one debut; see anotherEffortLeadsThisDebut.
   held("another_effort_of_the_same_debut", (db, e) => anotherEffortLeadsThisDebut(db, e)),
   held("another_serving_of_a_known_model", (_db, e, v) => isAnotherServing(e, v.known)),
+  // A test row for a gateway's session affinity is not a launch; see isNotAModel.
+  held("not_a_model_but_plumbing", (_db, e) => isAModelRow(e) && isNotAModel(nameOfRow(e))),
   {
     // Three reasons from one read: the vote costs a query, and splitting them would ask for it
     // three times on the delivery path.

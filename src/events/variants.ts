@@ -1,6 +1,6 @@
 import { normalizeIdentity } from "./identity.js";
 import type { Event, RecordData } from "./types.js";
-import { vendorOfName } from "./vendors.js";
+import { vendorOfName, vendorSpelling } from "./vendors.js";
 
 /**
  * Telling a model apart from another way of billing it.
@@ -97,7 +97,27 @@ export function modelSubject(name: string): string {
     .replace(DATED_SNAPSHOT, "")
     .replace(/\s*\(\d+\)\s*$/, "")
     .replace(/^[^:/]+[:/]/, "");
-  return normalizeIdentity(stripped) || normalizeIdentity(name);
+  return withoutLeadingMaker(normalizeIdentity(stripped) || normalizeIdentity(name));
+}
+
+/**
+ * The maker's name taken off the front, when the maker wrote it there without a separator.
+ *
+ * The strip above only knows a punctuated prefix -- `DeepSeek: DeepSeek V4.1 Flash`,
+ * `deepseek-ai/DeepSeek-V4.1-Flash` -- and a registry writes the same thing with a space. NVIDIA
+ * published one model into the 11-18 October week under four names: `Nemotron 3.5 Super VL`,
+ * `NVIDIA Nemotron 3.5 Super VL`, the same with its size and the same again at BF16. Three of them
+ * were three subjects, so the recap counted three models and spent three of NVIDIA's lines saying
+ * one name.
+ *
+ * Only a word the vendor table spells as a maker comes off, which is why `vendorSpelling` answers
+ * rather than `vendorOfName`: the latter reads `gemini` as Google and would leave `4 argon` behind
+ * as the subject of Google's flagship. And only while two words remain, so a model a maker named
+ * after itself -- Mistral's `mistral-large`, Qwen's `qwen` -- keeps a subject of its own.
+ */
+function withoutLeadingMaker(subject: string): string {
+  const words = subject.split(" ").filter(Boolean);
+  return words.length > 2 && vendorSpelling(words[0] ?? "") !== null ? words.slice(1).join(" ") : subject;
 }
 
 /**
@@ -134,7 +154,25 @@ export function isRepublished(event: Event, record: RecordData | null): boolean 
   // whose name says nothing about its maker -- `google/gnm-v3` -- is left alone rather than guessed
   // at, because a wrong call here deletes a real launch from the week.
   const maker = vendorOfName(subject);
-  return maker !== "Unknown" && !owner.toLowerCase().includes(maker.toLowerCase());
+  return maker !== "Unknown" && !namesTheSameMaker(owner, maker);
+}
+
+/**
+ * Whether a namespace and a maker's label are the same maker, spelled two ways.
+ *
+ * A registry writes the handle and the vendor table writes the name: `liquid/lfm2.5-24b-a2b` sits
+ * under `liquid` and its model resolves to `Liquid AI`, and a plain substring said those were two
+ * makers -- so Liquid AI's own release was dropped from the week of 11-18 October as somebody
+ * else's republication, which is exactly the loss the rule above is written to avoid.
+ *
+ * Folded to letters and digits and compared from the front, because a handle shortens a name rather
+ * than reordering it. `nvidia` against `Qwen` shares no prefix and stays a republication.
+ */
+function namesTheSameMaker(owner: string, maker: string): boolean {
+  const fold = (value: string) => value.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const handle = fold(owner);
+  const label = fold(maker);
+  return Boolean(handle) && Boolean(label) && (handle.startsWith(label) || label.startsWith(handle));
 }
 
 /**
@@ -241,14 +279,55 @@ export function precisionBase(name: string): string | null {
 }
 
 /**
+ * The same model written with its parameter count, which a registry does and a maker's card does not.
+ *
+ * `Nemotron 3.5 Super VL` and `Nemotron 3.5 Super VL 120B A12B` are one model; so are `Beam 1.0`
+ * and `Beam 1.0 501B A23B`, which reached the 11-18 October recap as separate arrivals. The total
+ * and the active count are how a registry tells which checkpoint it is holding, never what the
+ * model is called.
+ *
+ * Like a tier and a precision, it only folds away once the model it is a size of is in hand: a lab
+ * whose only published name carries its size has still published a model, and a maker that sells
+ * two sizes as two products -- Qwen's 27B beside its 235B -- keeps both when neither bare name
+ * arrived.
+ */
+const SIZE_WORD = /[\s:_-](?:a?\d+(?:\.\d+)?[bm]|\d+e)$/i;
+export function sizeBase(name: string): string | null {
+  let trimmed = name.trim();
+  if (!SIZE_WORD.test(trimmed)) return null;
+  while (SIZE_WORD.test(trimmed)) trimmed = trimmed.replace(SIZE_WORD, "");
+  return trimmed.trim() ? modelSubject(trimmed) : null;
+}
+
+/**
  * Something a catalogue serves that is not a model at all.
  *
  * `TypeSafe: Jev Router` picks a model per request; it has a row, a price and no weights. A recap
  * that counts it is counting the catalogue's plumbing.
  */
 const NOT_A_MODEL = /[\s:_-](router|gateway|proxy)$/i;
+/**
+ * A deployment's own plumbing, published into a catalogue that sells models.
+ *
+ * `Pre Mock New Gateway Session Affinity` went to the public channel on 2026-10-16 as "is out",
+ * from Alibaba's own catalogue, which is a maker whose rows are launches by construction. It is a
+ * test row for a gateway's session affinity. `Codex Security` and `Migration 2026 10 21` are the
+ * same shape from other sources: a word that only ever names infrastructure, anywhere in the name,
+ * and no maker ships a model called one.
+ *
+ * Anywhere rather than at the end, which is the whole difference from `NOT_A_MODEL` above: the
+ * plumbing word sits in the middle of these and a suffix rule reads straight past it.
+ *
+ * The list is only words no maker would name a product: a rehearsal over production history held
+ * Pixel Canary, a real stealth launch on the Vercel gateway, because `canary` reads as a deployment
+ * stage to an operator and as a name to a marketer. `sandbox`, `staging`, `smoke` and `internal`
+ * came out with it. A false positive here deletes a launch, which is the expensive direction.
+ */
+const PLUMBING =
+  /(?:^|[\s:_/-])(mock|mocked|dummy|placeholder|affinity|migration|healthcheck|heartbeat)(?:$|[\s:_/-])/i;
 export function isNotAModel(name: string): boolean {
-  return NOT_A_MODEL.test(name.trim());
+  const trimmed = name.trim();
+  return NOT_A_MODEL.test(trimmed) || PLUMBING.test(trimmed);
 }
 
 const TIER_WORD =

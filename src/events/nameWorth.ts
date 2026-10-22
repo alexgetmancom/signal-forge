@@ -63,7 +63,23 @@ const SERVING_WORDS = new Set([
   "azure",
   "sagemaker",
   "foundry",
+  // A deployment slot, not a model. `gpt-6-astra-api-priv-ev3` reached the news channel on
+  // 2026-10-15 as "GPT-6 Astra API Priv Ev3 is out", a private evaluation slot of a model OpenAI
+  // had been selling for weeks: `api` was already read as wiring and the two words that say which
+  // internal copy of it this is were not.
+  "priv",
+  "private",
+  "internal",
+  "backup",
+  "staging",
+  "mock",
 ]);
+
+/**
+ * A numbered slot rather than a version: `ev3` is the third evaluation copy, `wm` the watermarked
+ * one. A maker's own version is a bare number, which `servingTail` reads on its own.
+ */
+const SLOT_WORD = /^(?:ev|eval|wm|rev|exp|canary|shadow)\d*$/;
 
 /** A number straight after the model's name is its version: `grok 4` + `6` is Grok 4.6, not a wiring of Grok 4. */
 function servingTail(words: string[]): boolean {
@@ -74,7 +90,10 @@ function servingTail(words: string[]): boolean {
     // `claude-haiku-4-5-direct-anthropic` is Claude Haiku 4.5 reached on Anthropic's own key.
     // `vendorSpelling` answers only for a word that is a maker's name, where `vendorOfName` would
     // read `sol` as OpenAI and swallow half the tails there are.
-    words.every((word) => SERVING_WORDS.has(word) || /^v?\d+$/.test(word) || vendorSpelling(word) !== null)
+    words.every(
+      (word) =>
+        SERVING_WORDS.has(word) || SLOT_WORD.test(word) || /^v?\d+$/.test(word) || vendorSpelling(word) !== null,
+    )
   );
 }
 

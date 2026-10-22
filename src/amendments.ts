@@ -2,6 +2,7 @@ import type { Database } from "bun:sqlite";
 import type { AppConfig } from "./config.js";
 import { incidentEnded } from "./events/incidents.js";
 import { borrowedFacts } from "./events/priceWorth.js";
+import { recordFor } from "./events/record.js";
 import { type Fact, prices } from "./events/render/common.js";
 import { CAPTION_LIMIT, clipHtml, TEXT_LIMIT, telegramMessage, visibleLength } from "./events/render/telegramCard.js";
 import { stealthSubject } from "./events/resellers.js";
@@ -24,6 +25,7 @@ const LOOKBACK_MS = 3 * 24 * 3_600_000;
 const TELEGRAM_EDIT_MS = 24 * 3_600_000;
 const MAX_ATTEMPTS = 5;
 const RESOLVED_COLOUR = 0x2ecc71;
+const APPLIED_COLOUR = 0x2ecc71;
 
 /** Queues an edit for every single-card message that announced an incident which has now ended. */
 export function queueIncidentAmendments(db: Database, now = Date.now()): number {
@@ -105,6 +107,103 @@ export function queuePriceAmendments(db: Database, now = Date.now()): number {
       .run(candidate.event_id, candidate.delivery_id, new Date(now).toISOString()).changes;
   }
   return queued;
+}
+
+/**
+ * The window a reset's confirmation is still about the card that announced it. The gap was between
+ * one and a half and five and a half hours across the five cycles to 2026-10-22; a day is generous
+ * and still short of the next cycle.
+ */
+const RESET_WINDOW_MS = 24 * 3_600_000;
+
+/**
+ * Queues an edit for the card that announced a reset which has now landed.
+ *
+ * The announcement and the confirmation are two records because they are two posts, and
+ * `resetConfirmationTold` is what stops the second becoming a second message. This is the other
+ * half of that trade: the card a reader already has gains the line saying the reset arrived, so
+ * nothing the second message would have said is lost.
+ */
+export function queueResetAmendments(db: Database, now = Date.now()): number {
+  const applied = db
+    .query<Event, [string]>(
+      `SELECT e.* FROM events e
+       WHERE e.source='codex-resets' AND e.kind='new' AND e.detected_at>=?
+         AND json_extract(e.after_json,'$.stage')='Applied'`,
+    )
+    .all(new Date(now - RESET_WINDOW_MS).toISOString());
+  let queued = 0;
+  for (const confirmation of applied) {
+    const resetType = String(recordFor(confirmation)?.resetType ?? "");
+    // The announcement this confirms: the same cycle's kind, inside the window, and a card about
+    // nothing else -- a digest carrying it would have its other entries rewritten.
+    const cards = db
+      .query<{ event_id: number; delivery_id: number }, [string, string, string, string]>(
+        `SELECT de.event_id AS event_id, d.id AS delivery_id
+         FROM deliveries d
+         JOIN delivery_events de ON de.delivery_id=d.id
+         JOIN events e ON e.id=de.event_id
+         WHERE e.source='codex-resets' AND json_extract(e.after_json,'$.stage') LIKE 'Announced%'
+           AND json_extract(e.after_json,'$.resetType')=?
+           AND e.detected_at>=? AND e.detected_at<=?
+           AND d.status='sent' AND d.external_id IS NOT NULL
+           AND (json_extract(d.destination_json,'$.platform')='discord'
+             OR (json_extract(d.destination_json,'$.platform')='telegram' AND d.updated_at>=?))
+           AND (SELECT COUNT(*) FROM delivery_events other WHERE other.delivery_id=d.id)=1
+           AND NOT EXISTS (SELECT 1 FROM card_amendments a WHERE a.delivery_id=d.id)`,
+      )
+      .all(
+        resetType,
+        new Date(Date.parse(confirmation.detected_at) - RESET_WINDOW_MS).toISOString(),
+        confirmation.detected_at,
+        new Date(now - TELEGRAM_EDIT_MS).toISOString(),
+      )
+      .filter((card) => card.event_id !== confirmation.id);
+    for (const card of cards)
+      queued += db
+        .query("INSERT OR IGNORE INTO card_amendments(event_id,delivery_id,kind,updated_at) VALUES(?,?,'applied',?)")
+        .run(confirmation.id, card.delivery_id, new Date(now).toISOString()).changes;
+  }
+  return queued;
+}
+
+/**
+ * The announcement's card with the confirmation written into it: it said a reset was coming, and
+ * now it says the reset is here, at the hour it happened.
+ *
+ * The title keeps its own shape and gains the tick, for the reason the resolved card does: a reader
+ * scrolling back should be able to tell at a glance which half of the cycle they are looking at
+ * without reading the fields.
+ */
+function appliedCard(body: string, at: string): Record<string, unknown> | null {
+  const payload = JSON.parse(body) as { content?: string; embeds?: Record<string, unknown>[] };
+  const embed = payload.embeds?.[0];
+  if (!embed || payload.embeds?.length !== 1) return null;
+  const fields = Array.isArray(embed.fields) ? (embed.fields as Record<string, unknown>[]) : [];
+  // Twice is worse than not at all, exactly as with a price: a retry that ran against an edited
+  // card would stack a second line under the first.
+  if (fields.some((field) => String(field.name ?? "") === "Reset")) return null;
+  const title = String(embed.title ?? "").replace(/^\S+\s/, "");
+  return {
+    content: payload.content ?? "",
+    embeds: [
+      {
+        ...embed,
+        title: `🎉 ${title}`.slice(0, 250),
+        color: APPLIED_COLOUR,
+        fields: [...fields, { name: "Reset", value: `Applied ${at}`.slice(0, 1024), inline: false }],
+      },
+    ],
+    allowed_mentions: { parse: [] },
+  };
+}
+
+/** An announcement's card rewritten for the reset it promised, which has now landed. */
+function reset(db: Database, amendment: { event_id: number; body: string }): Record<string, unknown> | null {
+  const confirmation = db.query<Event, [number]>("SELECT * FROM events WHERE id=?").get(amendment.event_id);
+  if (!confirmation) return null;
+  const at = recordFor(confirmation)?.announced;
+  return typeof at === "string" && at.trim() ? appliedCard(amendment.body, at.trim()) : null;
 }
 
 /** The borrowed sheet as the one line a card has room for, or nothing when it holds no rate. */
@@ -261,6 +360,22 @@ function repriced(db: Database, amendment: { event_id: number; body: string }): 
   return line ? pricedCard(amendment.body, line, String(borrowed.pricingSource ?? "")) : null;
 }
 
+/**
+ * The card this amendment rewrites, drawn by the reason it was queued for.
+ *
+ * Read from the database at the moment the edit goes out rather than carried on the queue, for the
+ * reason `repriced` gives: an amendment waits its turn and is retried, and the card should say what
+ * is true when it is written.
+ */
+function amendedCard(
+  db: Database,
+  amendment: { kind: string; event_id: number; body: string },
+): Record<string, unknown> | null {
+  if (amendment.kind === "priced") return repriced(db, amendment);
+  if (amendment.kind === "applied") return reset(db, amendment);
+  return resolved(db, amendment);
+}
+
 export async function applyCardAmendments(db: Database, config: AppConfig, request: Fetch = fetch): Promise<void> {
   const pending = db
     .query<
@@ -288,7 +403,7 @@ export async function applyCardAmendments(db: Database, config: AppConfig, reque
   for (const amendment of pending) {
     const telegram = amendment.platform === "telegram";
     if (telegram ? !config.TELEGRAM_BOT_TOKEN : !config.DISCORD_BOT_TOKEN) continue;
-    const card = amendment.kind === "priced" ? repriced(db, amendment) : resolved(db, amendment);
+    const card = amendedCard(db, amendment);
     let status: "pending" | "edited" | "failed" = "failed";
     if (card) {
       const edits: Edit[] = telegram

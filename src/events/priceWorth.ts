@@ -72,7 +72,14 @@ export function isAResellerFillingInAPrice(event: Event): boolean {
  * OpenRouter had them a quarter of an hour later. Waiting for the richer venue spent the lead this
  * tracker exists to have; reading what is already stored spends nothing.
  */
-const BORROWED_FIELDS = ["context", "input", "output", "maxOutputTokens", "reasoning", "pricing"];
+/**
+ * `maker` is here for a title rather than for a fact: a stealth card prints the venue's own name for
+ * the model and the venue publishes no maker, so "Beam is out — free on OpenCode Zen" went to both
+ * public channels on 2026-10-16 for Reflection's Beam 1.0, whose maker the Vercel gateway had
+ * written down seventeen minutes earlier. `STEALTH_NOISE` keeps it off the card's fields, which is
+ * where the venue's own bookkeeping would read as a fact about the model.
+ */
+const BORROWED_FIELDS = ["context", "input", "output", "maxOutputTokens", "reasoning", "pricing", "maker"];
 /**
  * A price is borrowed only from the catalogues whose unit is known. Every other one writes its
  * rates in its own unit, and a sheet read in the wrong one is off by a million on a card people
@@ -171,6 +178,10 @@ export function borrowedFacts(db: Database, event: Event, raw: string): Record<s
       Object.assign(borrowed, { contestedContext: theirs, contestedBy: row.source });
     for (const field of wanted) {
       if (field === "pricing" && !PRICED_BY.has(row.source)) continue;
+      // Whose model it is cannot be guessed from a loose match the way a window can be read from
+      // one: `LIKE '%beam%'` reaches a Sunbeam as readily as Beam, and a card that prints the wrong
+      // maker in its title is worse than one that prints none.
+      if (field === "maker" && !namesTheSameModel(String(fields.id ?? ""), subject)) continue;
       if (borrowed[field] === undefined && fields[field] !== undefined && fields[field] !== null) {
         borrowed[field] = fields[field];
         // A rate is only readable next to the catalogue it came from: one sheet writes dollars per

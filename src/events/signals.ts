@@ -106,7 +106,20 @@ type ClassRule = { name: string; ask: (event: Event, record: RecordData | null) 
 
 const CLASS_RULES: readonly ClassRule[] = [
   // A free model with no maker's name on it can be called the hour it appears, wherever it appears.
-  { name: "free_and_unclaimed_at_a_reseller", ask: (e) => (isStealthLaunch(e) ? "launch" : null) },
+  /**
+   * -- unless the venue itself says the row is not for its shop window. `headline` is the venue's
+   * own verdict, and `isSmallModel` is what writes it: `flint-40b-free` went to the news channel
+   * on 2026-10-21 as "Flint 40b is out" with `headline: false` on the record, because the class was
+   * decided here, one question above the rule that reads that field. A small free variant is still
+   * a sighting worth the scouts; it is not what a release channel is for.
+   *
+   * Only `false` demotes, never a missing field: an OpenRouter stealth row carries no shop window
+   * at all, and `stealth/space-bunny-alpha` is the launch this rule was written for.
+   */
+  {
+    name: "free_and_unclaimed_at_a_reseller",
+    ask: (e, r) => (isStealthLaunch(e) ? (r?.headline === false ? "codename" : "launch") : null),
+  },
   /**
    * A name leaving an arena ends nothing a reader was told had started, and it is the same shape as
    * a page that disappears, so it takes the same class. On 2026-09-15 193 of them reached the

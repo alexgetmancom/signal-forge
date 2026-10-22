@@ -1,5 +1,11 @@
 import { expect, test } from "bun:test";
-import { applyCardAmendments, outageLength, queueIncidentAmendments, queuePriceAmendments } from "../src/amendments.js";
+import {
+  applyCardAmendments,
+  outageLength,
+  queueIncidentAmendments,
+  queuePriceAmendments,
+  queueResetAmendments,
+} from "../src/amendments.js";
 import type { Destination } from "../src/config.js";
 import { prepareDeliveries } from "../src/events/batching.js";
 import { saveCollection } from "../src/events/pipeline.js";
@@ -227,5 +233,96 @@ test("a launch card that already carried a price is left alone", () => {
   db.query("UPDATE deliveries SET status='sent',external_id='123456'").run();
   // The blank is the point: a card whose body already names a rate has nothing to gain.
   expect(queuePriceAmendments(db, Date.parse("2026-10-07T18:14:00.000Z"))).toBe(0);
+  db.close();
+});
+
+test("a reset announced and then applied is one card, edited, not two messages", async () => {
+  const db = openDatabase(":memory:");
+  const announcement = {
+    id: "2109045392684032299",
+    name: "Codex usage limits reset announced",
+    maker: "OpenAI",
+    stage: "Announced, not applied yet",
+    announced: "2026-10-10 22:16 UTC",
+    expected: "2026-10-11 07:00 UTC",
+    resetType: "regular",
+  };
+  const confirmation = {
+    id: "2109132167112782291",
+    name: "Codex usage limits reset for everyone",
+    maker: "OpenAI",
+    stage: "Applied",
+    announced: "2026-10-11 04:01 UTC",
+    resetType: "regular",
+  };
+  const resets = (stage: "baseline" | "announced" | "applied"): Collection => ({
+    source: "codex-resets",
+    stream: "resets",
+    url: "https://codex-resets.com",
+    raw: [],
+    records: [
+      { id: "older", name: "Codex usage limits reset for everyone", stage: "Applied", resetType: "regular" },
+      ...(stage === "baseline" ? [] : stage === "announced" ? [announcement] : [announcement, confirmation]),
+    ],
+  });
+  // The first read of a source is its baseline and speaks for nothing.
+  saveCollection(db, resets("baseline"), [wire], "2026-10-10T20:00:00.000Z");
+  saveCollection(db, resets("announced"), [wire], "2026-10-10T22:28:00.000Z");
+  prepareDeliveries(db, Date.parse("2026-10-10T22:29:00.000Z"));
+  db.query("UPDATE deliveries SET status='sent',external_id='555'").run();
+  expect(db.query<{ n: number }, []>("SELECT COUNT(*) n FROM deliveries").get()?.n).toBe(1);
+
+  // The confirmation arrives five and a half hours later, as its own post and so its own record.
+  saveCollection(db, resets("applied"), [wire], "2026-10-11T04:06:00.000Z");
+  prepareDeliveries(db, Date.parse("2026-10-11T04:07:00.000Z"));
+  expect(db.query<{ n: number }, []>("SELECT COUNT(*) n FROM deliveries").get()?.n).toBe(1);
+  expect(
+    db
+      .query<{ reason: string }, []>("SELECT reason FROM suppressions")
+      .all()
+      .map((row) => row.reason),
+  ).toContain("the_reset_it_confirms_was_announced");
+
+  expect(queueResetAmendments(db, Date.parse("2026-10-11T04:08:00.000Z"))).toBe(1);
+  expect(queueResetAmendments(db, Date.parse("2026-10-11T04:09:00.000Z"))).toBe(0);
+
+  const calls: { body: Record<string, unknown> }[] = [];
+  const request = async (_url: string, init?: RequestInit) => {
+    calls.push({ body: JSON.parse(String(init?.body)) });
+    return Response.json({ id: "555" });
+  };
+  await applyCardAmendments(db, { DISCORD_BOT_TOKEN: "t", destinations: [wire] } as never, request);
+  await applyCardAmendments(db, { DISCORD_BOT_TOKEN: "t", destinations: [wire] } as never, request);
+
+  expect(calls).toHaveLength(1);
+  const embed = (calls[0]?.body.embeds as Record<string, unknown>[] | undefined)?.[0];
+  expect(String(embed?.title)).toStartWith("🎉 ");
+  expect(embed?.fields).toEqual([{ name: "Reset", value: "Applied 2026-10-11 04:01 UTC", inline: false }]);
+  db.close();
+});
+
+test("a reset applied with nothing announced before it is still the only word a reader gets", () => {
+  const db = openDatabase(":memory:");
+  const applied: Collection = {
+    source: "codex-resets",
+    stream: "resets",
+    url: "https://codex-resets.com",
+    raw: [],
+    records: [{ id: "older", name: "Codex usage limits reset for everyone", stage: "Applied", resetType: "regular" }],
+  };
+  saveCollection(db, applied, [wire], "2026-10-19T00:00:00.000Z");
+  applied.records.push({
+    id: "2112432076767289678",
+    name: "Codex usage limits reset for everyone",
+    maker: "OpenAI",
+    stage: "Applied",
+    announced: "2026-10-20 06:33 UTC",
+    resetType: "regular",
+  });
+  saveCollection(db, applied, [wire], "2026-10-20T06:45:00.000Z");
+  prepareDeliveries(db, Date.parse("2026-10-20T06:46:00.000Z"));
+
+  expect(db.query<{ n: number }, []>("SELECT COUNT(*) n FROM deliveries").get()?.n).toBe(1);
+  expect(queueResetAmendments(db, Date.parse("2026-10-20T06:47:00.000Z"))).toBe(0);
   db.close();
 });

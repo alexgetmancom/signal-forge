@@ -16,6 +16,7 @@ import {
   modelSubject,
   precisionBase,
   servesAnotherModality,
+  sizeBase,
   tierBase,
 } from "../events/variants.js";
 import { vendorOf, vendorOfName, vendorRank } from "../events/vendors.js";
@@ -126,6 +127,49 @@ export function arrivalRejection(event: Event, renamed: Set<number>): string | n
 }
 
 /**
+ * Every model this name could be a variant of, from one fold to the whole chain of them.
+ *
+ * A registry writes more than one of these at once: `NVIDIA Nemotron 3.5 Super VL-120B A12B BF16`
+ * is a precision of a size of a model, and a single fold left it standing beside the model itself
+ * in the week of 11-18 October. Each fold returns a subject and every rule here reads one, so the
+ * chain simply folds again until nothing moves.
+ *
+ * The guard the one-step folds had is kept by the callers: a variant is dropped only when something
+ * in the chain is a model actually in hand, so a lab whose only published artefact carries its size
+ * and its precision still has an arrival.
+ */
+function arrivalBases(name: string): string[] {
+  const bases: string[] = [];
+  let current = name;
+  for (let fold = 0; fold < 4; fold++) {
+    const base = tierBase(current) ?? modalityBase(current) ?? precisionBase(current) ?? sizeBase(current);
+    if (!base || bases.includes(base)) break;
+    bases.push(base);
+    current = base;
+  }
+  return bases;
+}
+
+/**
+ * The maker's name taken off a line that already sits under that maker's heading.
+ *
+ * The separators are loosened on both sides for the reason `namesModel` loosens them: the heading
+ * says `Liquid AI` and the registry wrote `LiquidAI:`, so a comparison that spelled the vendor one
+ * way printed "LiquidAI: LFM2.5-24B-A2B" under a heading that already said Liquid AI, on the week
+ * of 11-18 October.
+ */
+function withoutVendorPrefix(name: string, vendor: string): string {
+  const loose = vendor
+    .split(/[\s\-_]+/)
+    .filter(Boolean)
+    .map(escapeForPattern)
+    .join("[\\s\\-_]*");
+  // The separator is required: `DeepSeek V4.1 Flash` is what DeepSeek calls the model and the
+  // maker's name is part of it, where `LiquidAI:` is a namespace the registry wrote in front.
+  return loose ? name.replace(new RegExp(`^${loose}\\s*[:/]\\s*`, "i"), "") || name : name;
+}
+
+/**
  * What arrived, grouped by maker, and the subjects those arrivals are about.
  *
  * The subjects come back with them because a name this period reports as arrived is not also a name
@@ -226,8 +270,7 @@ export function periodArrivals(reading: PeriodReading): {
     // before this week folds away here; a tier of something arriving in the same week is folded
     // in the pass below, because whether the base is in hand depends on collection order and
     // "GPT-6 Luna Pro" led the week's OpenAI line ahead of GPT-6 Luna itself.
-    const base = tierBase(name) ?? modalityBase(name) ?? precisionBase(name);
-    if (base && alreadyNamed.has(base)) continue;
+    if (arrivalBases(name).some((base) => alreadyNamed.has(base))) continue;
     const weight = arrivalWeight(event);
     const held = bySubject.get(subject);
     if (!held || weight > held.weight) bySubject.set(subject, { name, vendor: vendorOf(event, record), weight });
@@ -237,8 +280,7 @@ export function periodArrivals(reading: PeriodReading): {
   // speeds and two prices -- and OpenRouter carried "GPT-6 Luna Pro" for a model OpenAI announced
   // as GPT-6 Luna. Four of the week's twenty-six names were the same four models said twice.
   for (const [subject, arrival] of [...bySubject]) {
-    const base = tierBase(arrival.name) ?? modalityBase(arrival.name) ?? precisionBase(arrival.name);
-    if (base && base !== subject && bySubject.has(base)) bySubject.delete(subject);
+    if (arrivalBases(arrival.name).some((base) => base !== subject && bySubject.has(base))) bySubject.delete(subject);
   }
   // Weight first, then a maker a reader has heard of: a research artefact published as weights
   // outranks a catalogue row on paper and is not what the week was about.
@@ -253,7 +295,7 @@ export function periodArrivals(reading: PeriodReading): {
   for (const arrival of ranked) {
     const names = byVendor.get(arrival.vendor) ?? [];
     // The maker's name is already the heading; repeating it inside every entry is noise.
-    names.push(readableName(arrival.name).replace(new RegExp(`^${escapeForPattern(arrival.vendor)}:\\s*`, "i"), ""));
+    names.push(withoutVendorPrefix(readableName(arrival.name), arrival.vendor));
     byVendor.set(arrival.vendor, names);
   }
   // The three makers this feed's readers pay for come first, in that order, and everything else

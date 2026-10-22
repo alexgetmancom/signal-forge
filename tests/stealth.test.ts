@@ -110,3 +110,35 @@ test("the stripe, the picture's glow and the footer tell one story", () => {
   expect((embed.footer as { text: string }).text).toContain("OpenCode Zen");
   expect((embed.footer as { text: string }).text).not.toContain("OpenCode Go");
 });
+
+test("a venue's own verdict on its shop window decides which room hears it", () => {
+  // `headline` is written by `isSmallModel`: a small free variant is a sighting, not a release.
+  const small = venue("opencode-zen", {
+    free: true,
+    headline: false,
+    id: "flint-40b-free",
+    model: "flint-40b",
+    name: "flint-40b-free",
+  });
+  expect(isStealthLaunch(small)).toBe(true);
+  expect(signalClass(small)).toBe("codename");
+  // The same row in the window is still the launch it was.
+  expect(signalClass(venue("opencode-zen", { ...zen, id: "beam-free", model: "beam", name: "beam-free" }))).toBe(
+    "launch",
+  );
+  // An OpenRouter stealth row carries no shop window at all, and is the launch this rule is for.
+  expect(signalClass(venue("openrouter", openRouter, "openrouter"))).toBe("launch");
+});
+
+test("a stealth card takes the maker a catalogue holding the same model wrote down", () => {
+  const beam = venue("opencode-zen", { free: true, headline: true, id: "beam-free", model: "beam", name: "beam-free" });
+  // Nothing to borrow from: the venue's own word is all the card has.
+  const plain = eventEmbed({ ...beam, signal: "launch" } as never, "https://opencode.ai/zen");
+  expect(String(plain.title)).toBe("🚀 Beam is out — free on OpenCode Zen");
+
+  const borrowed = eventEmbed(
+    { ...beam, signal: "launch", borrowed: { maker: "reflection", context: 1_048_576 } } as never,
+    "https://opencode.ai/zen",
+  );
+  expect(String(borrowed.title)).toBe("🚀 Reflection Beam is out — free on OpenCode Zen");
+});
