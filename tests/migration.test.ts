@@ -357,3 +357,58 @@ test("the output ceiling is renamed in what is stored, values intact and modalit
   expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
   db.close();
 });
+
+test("a Bedrock model stored once per group of regions becomes one subject, keeping every event", () => {
+  const db = new Database(":memory:", { strict: true });
+  applyMigrations(
+    db,
+    readMigrations().filter((migration) => migration.version < 90),
+  );
+  const body = (region: string, retirement: string) => ({
+    provider: "AWS Bedrock",
+    modelId: "anthropic.claude-3-haiku-20240307-v1:0",
+    name: "Claude 3 Haiku",
+    region,
+    retirement,
+  });
+  const groups: [string, string, string][] = [
+    ["aws-bedrock-anthropic-claude-3-haiku-20240307-v1-0-ca-central-1", "ca-central-1", "2026-10-01T00:00:00.000Z"],
+    [
+      "aws-bedrock-anthropic-claude-3-haiku-20240307-v1-0-eu-central-2-sa-east-1",
+      "eu-central-2, sa-east-1",
+      "2026-10-03T00:00:00.000Z",
+    ],
+  ];
+  for (const [id, region, observedAt] of groups) {
+    aRecord(db, {
+      source: "aws-bedrock-lifecycle",
+      id,
+      stream: "deprecations",
+      body: body(region, "November 13, 2026"),
+      observedAt,
+    });
+    anEvent(db, {
+      source: "aws-bedrock-lifecycle",
+      stream: "deprecations",
+      entityId: id,
+      afterJson: JSON.stringify(body(region, "November 13, 2026")),
+    });
+  }
+  // Another source's region-shaped id is not this migration's business.
+  aRecord(db, { source: "openrouter", id: "model-ca-central-1", stream: "openrouter" });
+
+  runMigrations(db);
+
+  const subject = "aws-bedrock-anthropic-claude-3-haiku-20240307-v1-0";
+  // Both sightings are the same model's history, under the key the parser now writes.
+  expect(
+    db.query("SELECT entity_id, COUNT(*) n FROM events WHERE source='aws-bedrock-lifecycle' GROUP BY 1").all(),
+  ).toEqual([{ entity_id: subject, n: 2 }]);
+  // One record stands, the one observed last, so the next collection is a change and not an arrival.
+  expect(
+    db.query("SELECT id, json_extract(body,'$.region') region FROM records WHERE source='aws-bedrock-lifecycle'").all(),
+  ).toEqual([{ id: subject, region: "eu-central-2, sa-east-1" }]);
+  expect(db.query("SELECT id FROM records WHERE source='openrouter'").all()).toEqual([{ id: "model-ca-central-1" }]);
+  expect(db.query("PRAGMA foreign_key_check").all()).toEqual([]);
+  db.close();
+});

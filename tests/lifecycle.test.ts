@@ -5,7 +5,7 @@ import type { Collection } from "../src/events/types.js";
 import { listLifecycleDeadlines, rebuildLifecycleDeadlines, scheduleLifecycleReminders } from "../src/lifecycle.js";
 import { logTo } from "../src/logger.js";
 import { parseOpenAIDeprecations } from "../src/sources/deprecations.js";
-import { parseGeminiDeprecations, parseGroqDeprecations } from "../src/sources/lifecycle.js";
+import { parseAwsBedrockLifecycle, parseGeminiDeprecations, parseGroqDeprecations } from "../src/sources/lifecycle.js";
 import { openDatabase } from "../src/storage/database.js";
 
 const baseConfig = loadConfig({ CONFIG_PATH: new URL("./fixtures/config.json", import.meta.url).pathname });
@@ -299,4 +299,38 @@ test("a router's expiry date is a deadline with no reminders", () => {
   // the whole of the promise this test makes.
   expect(deadline?.reminders).toEqual([]);
   db.close();
+});
+
+test("one Bedrock model listed in three groups of regions is one subject serving all of them", () => {
+  // AWS lists a legacy model once per group of regions and reshuffles the groups between reads. The
+  // region used to be part of the record id, so each group was a subject nobody had heard of: six
+  // cards for two models inside one minute on 2026-10-16.
+  const page = (groups: [string, string][]) =>
+    `<table><tr><th>Model provider</th><th>Model name</th><th>Model ID</th><th>Regions</th><th>EOL date</th></tr>${groups
+      .map(
+        ([regions, eol]) =>
+          `<tr><td>Anthropic</td><td>Claude 3 Haiku</td><td>anthropic.claude-3-haiku-20240307-v1:0</td><td>${regions}</td><td>${eol}</td></tr>`,
+      )
+      .join("")}</table>`;
+  const parsed = parseAwsBedrockLifecycle(
+    page([
+      ["ca-central-1", "November 13, 2026"],
+      ["eu-central-2, sa-east-1", "November 13, 2026"],
+      ["us-west-2, us-east-1", "September 10, 2026"],
+    ]),
+  );
+  expect(parsed.records).toHaveLength(1);
+  expect(parsed.records[0]).toMatchObject({
+    id: "aws-bedrock-anthropic-claude-3-haiku-20240307-v1-0",
+    region: "ca-central-1, eu-central-2, sa-east-1, us-east-1, us-west-2",
+  });
+  // The groups as the page would write them after a reshuffle: the same subject, not a new one.
+  const again = parseAwsBedrockLifecycle(
+    page([
+      ["ca-central-1, eu-central-2", "November 13, 2026"],
+      ["sa-east-1, us-west-2, us-east-1", "September 10, 2026"],
+    ]),
+  );
+  expect(again.records.map((record) => record.id)).toEqual(["aws-bedrock-anthropic-claude-3-haiku-20240307-v1-0"]);
+  expect(again.records[0]?.region).toEqual(parsed.records[0]?.region);
 });

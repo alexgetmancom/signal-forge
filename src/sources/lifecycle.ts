@@ -6,7 +6,6 @@ import { log } from "../logger.js";
 import { slug } from "../text.js";
 import { htmlText } from "./html.js";
 import { fetchText } from "./http.js";
-import { lastOfEach } from "./ids.js";
 
 const GEMINI_DEPRECATIONS_URL = "https://ai.google.dev/gemini-api/docs/deprecations?hl=en";
 const VERTEX_DEPRECATIONS_URL = "https://docs.cloud.google.com/vertex-ai/generative-ai/docs/release-notes";
@@ -147,12 +146,36 @@ function lifecycleStage(value: string | null): string | null {
 const reportedFolds = new Map<string, number>();
 
 /**
- * What a page lists once. Rows that share an id -- one model under two headings, with two dates --
- * are folded into the last, which is what has always stood. The earlier row's dates went with it
- * and nothing said so, so the count is logged, once per page and once more whenever it changes.
+ * The regions of two rows that name one model, as one list.
+ *
+ * AWS lists a legacy model once per group of regions that shares its EOL date, and reshuffles the
+ * groups between reads: on 2026-10-16 Claude 3 Haiku was listed four times, and the three groups
+ * that retire on November 13 arrived as three subjects with three cards in the same minute. The
+ * groups are not three removals, so they are one row here, and the regions of all of them are what
+ * that row serves in. Sorted, because the page's order between groups is not information.
+ */
+function mergedRegions(kept: RecordData, dropped: RecordData): string | null {
+  const regions = [kept, dropped]
+    .flatMap((row) => String(row.region ?? "").split(","))
+    .map((region) => region.trim())
+    .filter(Boolean);
+  return regions.length ? [...new Set(regions)].sort().join(", ") : null;
+}
+
+/**
+ * What a page lists once. Rows that share an id -- one model under two headings, or one model in two
+ * groups of regions -- are folded into the last, which is what has always stood, with the regions of
+ * both. The earlier row's dates went with it and nothing said so, so the count is logged, once per
+ * page and once more whenever it changes.
  */
 function folded(page: string, records: RecordData[]): RecordData[] {
-  const { kept, merged } = lastOfEach(records);
+  const byId = new Map<string, RecordData>();
+  for (const record of records) {
+    const held = byId.get(record.id);
+    byId.set(record.id, held ? { ...record, region: mergedRegions(held, record) } : record);
+  }
+  const kept = [...byId.values()];
+  const merged = records.length - kept.length;
   if (reportedFolds.get(page) !== merged) {
     reportedFolds.set(page, merged);
     if (merged > 0)
@@ -221,9 +244,18 @@ function parseTableRecords(html: string, options: LifecycleTableOptions): Record
         (options.inferStageFromRetirement && retirementDate && tableStage === options.stage
           ? "Deprecated"
           : tableStage);
-      const key = `${options.provider}:${modelId}:${version ?? ""}:${region ?? ""}`;
       records.push({
-        id: slug(key),
+        /**
+         * One model, whatever regions it is listed under.
+         *
+         * The region was part of this key, so every reshuffle of AWS's region groups was a subject
+         * nobody had heard of: `...-v1-0-ca-central-1` and `...-v1-0-eu-central-2-sa-east-1` are one
+         * model deprecated once, and on 2026-10-16 Claude 3 Haiku and Claude 3 Sonnet arrived as six
+         * of them in the same minute. The groups are folded instead, which is what `folded` does for
+         * every page that lists one model twice, and the regions of all of them are kept; migration
+         * 090 renames the keys already stored so this reads as one subject's history and not as 48.
+         */
+        id: slug(`${options.provider}:${modelId}:${version ?? ""}`),
         name,
         maker: options.provider,
         provider: options.provider,
@@ -266,7 +298,7 @@ function parseMarkdownRecords(markdown: string, options: LifecycleTableOptions):
       const retirementDate = parseDateFromText(nullable(retirement)) ?? options.retirementFallback ?? null;
       const deprecated = rowValue(row, headers, options.deprecatedHeaders ?? ["deprecated date", "deprecation date"]);
       records.push({
-        id: slug(`${options.provider}:${modelId}:${version ?? ""}:${region ?? ""}`),
+        id: slug(`${options.provider}:${modelId}:${version ?? ""}`),
         name: rowValue(row, headers, options.nameHeaders ?? ["model name", "model"]) ?? model,
         maker: options.provider,
         provider: options.provider,
