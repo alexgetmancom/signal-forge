@@ -445,6 +445,28 @@ test("Anthropic's own price table is read under the ids its API answers with", (
   expect([...byId.keys()]).not.toContain("web-search");
 });
 
+test("a lifecycle note with a bracket inside it is still a note, not four new models", () => {
+  // The table restated four live models this way at 03:10 on 2026-10-23. Read with the qualifier
+  // stopping at the first `)`, the split failed and the whole sentence became the name: four
+  // models the page had priced for months arrived as new ones, went out as "3 new Anthropic
+  // models", and the real four ids left the table as removals ten minutes later.
+  const parsed = parseAnthropicPricing(
+    [
+      "## Model pricing",
+      "| Model | Base input tokens | Output tokens |",
+      "| :--- | :--- | :--- |",
+      "| Claude Opus 4.1 (retired, except on Bedrock and Claude Models on Google Cloud (Google managed)) | $15 / MTok | $75 / MTok |",
+      "",
+    ].join("\n"),
+  );
+  expect(parsed.records).toHaveLength(1);
+  expect(parsed.records[0]).toMatchObject({
+    id: "claude-opus-4-1",
+    name: "Claude Opus 4.1",
+    qualifier: "retired, except on Bedrock and Claude Models on Google Cloud (Google managed)",
+  });
+});
+
 test("a reshaped Anthropic price page is refused rather than read as every model losing its price", () => {
   expect(() => parseAnthropicPricing("# Pricing\n\nWe have changed how we publish this.\n")).toThrow(SourceError);
   // The table is there and every column this reads prices from is gone: a page that moved.

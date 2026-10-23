@@ -74,11 +74,22 @@ function plain(cell: string): string {
  * lifecycle ("retired, except on Bedrock and Google Cloud") and the prompt length a rate applies to
  * ("for prompts up to 100,000 tokens"). All three are parenthesised and none of them is part of the
  * model's name, so the name is what stands before the bracket and the bracket is kept beside it.
+ *
+ * The bracket is read to the last `)` rather than the first, because a qualifier nests. On
+ * 2026-10-23 at 03:10 the table restated four live models as "Claude Opus 4.1 (retired, except on
+ * Bedrock and Claude Models on Google Cloud (Google managed))", and a qualifier matched as
+ * `([^)]*)` cannot span the inner bracket: the split failed, the whole sentence became the name,
+ * and `identifier` slugged it into
+ * `claude-opus-4-1-retired-except-on-bedrock-and-claude-models-on-google-cloud-google-managed`.
+ * Four models the page had priced for months arrived as four new ones and went to the radar as
+ * "3 new Anthropic models", which readers voted down twice; ten minutes later the real four ids
+ * left the table as removals. A rename is not four launches and a retirement is not a debut, and
+ * the only thing that made it one was a bracket inside a bracket.
  */
 function named(cell: string): { name: string; qualifier: string | null } | null {
   const text = plain(cell);
   if (!text || !/^claude\b/i.test(text)) return null;
-  const split = /^([^(]+?)\s*\(([^)]*)\)\s*$/.exec(text);
+  const split = /^([^(]+?)\s*\((.*)\)\s*$/.exec(text);
   const name = (split?.[1] ?? text).trim();
   return name ? { name, qualifier: split?.[2]?.trim() || null } : null;
 }
