@@ -104,3 +104,47 @@ test("a model that was already out is not taking off when one more catalogue imp
   expect(detectBreakouts(db, [scouts], now)).toEqual([]);
   expect(breakoutOf(db, arrival)).toBeNull();
 });
+
+test("one model listed by two catalogues takes off once, and a reranker never does", () => {
+  // `elorian/glimpse` was two catalogue rows, and on 2026-10-17 each broke out on its own: the
+  // radar was told the same model was taking off at 03:17:03 and again at 03:17:04. The stored
+  // breakout is keyed by event id and cannot see that; taking off is something a model does.
+  const { db, add } = setup();
+  const first = add(
+    "vercel",
+    "api-models",
+    "elorian/glimpse",
+    { id: "elorian/glimpse", name: "Glimpse" },
+    "2026-09-16T23:50:00.000Z",
+  );
+  add(
+    "openrouter",
+    "openrouter",
+    "elorian/glimpse",
+    { id: "elorian/glimpse", name: "Elorian: Glimpse" },
+    "2026-09-17T03:14:00.000Z",
+  );
+  add(
+    "models-dev",
+    "api-models",
+    "elorian/glimpse",
+    { id: "elorian/glimpse", name: "Glimpse" },
+    "2026-09-17T18:59:00.000Z",
+  );
+  const broke = detectBreakouts(db, [scouts], now);
+  expect(broke).toEqual([first]);
+
+  // And the other half of the subject: this path writes its own batch with its own `codename`
+  // signal, so the standing question that holds a modality everywhere else is never put to it.
+  // Cohere Rerank V5 Pro and Fast reached the radar this way at 16:30 on 2026-10-22.
+  const { db: db2, add: add2 } = setup();
+  for (const source of ["vercel", "openrouter", "models-dev"])
+    add2(
+      source,
+      source === "openrouter" ? "openrouter" : "api-models",
+      "cohere/rerank-v5-pro",
+      { id: "cohere/rerank-v5-pro", name: "Cohere-rerank-v5-pro" },
+      "2026-09-17T03:14:00.000Z",
+    );
+  expect(detectBreakouts(db2, [scouts], now)).toEqual([]);
+});

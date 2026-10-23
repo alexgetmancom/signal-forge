@@ -4,8 +4,10 @@ import { storageFailure } from "../failure.js";
 import { readState, writeState } from "../storage/appState.js";
 import { writeTransaction } from "../storage/transaction.js";
 import { isMirror } from "./mirrors.js";
+import { recordFor } from "./record.js";
 import { isUnfollowedMakerAtAReseller, resellerMaker } from "./resellers.js";
 import { wasReleasedLongBefore } from "./retoldWorth.js";
+import { isAJobThisReaderDidNotComeFor } from "./subject.js";
 import type { Event } from "./types.js";
 
 /**
@@ -151,6 +153,14 @@ export function detectBreakouts(db: Database, destinations: readonly Destination
     )
     .all(new Date(now - WATCH_MS).toISOString(), new Date(now).toISOString())
     .filter((event) => isUnfollowedMakerAtAReseller(event) && !breakoutOf(db, event.id))
+    /**
+     * A voice, a picture or a reranker does not take off into this radar, however many catalogues
+     * list it. This path writes its own batch with its own `codename` signal, so the standing
+     * question that holds a modality everywhere else is never put to it: Cohere Rerank V5 Pro and
+     * Fast reached the radar at 16:30 on 2026-10-22 from a maker this service does not follow and
+     * in a craft it does not read for, which is both halves of the subject answering no at once.
+     */
+    .filter((event) => !isAJobThisReaderDidNotComeFor(event, recordFor(event)))
     // A model that was already out is not taking off. Meta's Muse Glimmer 30B, six weeks old and
     // sold by five catalogues, reached Azure on 2026-09-21 and was carded because its Hacker News
     // thread was on the front page; the thread was about the model, not about Azure listing it.
@@ -163,12 +173,22 @@ export function detectBreakouts(db: Database, destinations: readonly Destination
           .get(event.id),
     );
   const broke: number[] = [];
+  /**
+   * The models already told in this pass, because taking off is something a model does and the
+   * candidates are catalogue rows. `elorian/glimpse` was two of them -- the Vercel gateway's and
+   * OpenRouter's -- and on 2026-10-17 each broke out on its own, so the radar was told "🔥 Elorian
+   * Glimpse is taking off: listed by 2 catalogues" at 03:17:03 and "🔭 Elorian: Glimpse · recorded
+   * by 3 unrelated sources, never carded" at 03:17:04. Two cards, one second apart, counting the
+   * same evidence about the same model. The stored breakout is keyed by event id, which cannot see
+   * this; the token is the model, and is what `measure` already counts mentions of.
+   */
+  const told = new Set<string>();
   for (const event of candidates) {
     const maker = resellerMaker(event);
     // A maker that took off with another model already sends its arrivals as cards.
     if (isLearnedMaker(db, maker)) continue;
     const token = nameToken(event);
-    if (!token) continue;
+    if (!token || told.has(token)) continue;
     const measured = measure(db, event, token, now);
     if (!tookOff(measured)) continue;
     writeTransaction(db, () => {
@@ -194,6 +214,7 @@ export function detectBreakouts(db: Database, destinations: readonly Destination
           JSON.stringify(destination),
         );
     });
+    told.add(token);
     broke.push(event.id);
   }
   return broke;
