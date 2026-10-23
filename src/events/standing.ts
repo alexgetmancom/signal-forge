@@ -37,6 +37,7 @@ import {
   wasReleasedLongBefore,
 } from "./retoldWorth.js";
 import { isModelSighting } from "./signals.js";
+import { isAJobThisReaderDidNotComeFor } from "./subject.js";
 import type { SuppressionReason } from "./suppression.js";
 import type { Event, RecordData } from "./types.js";
 import { displayName, isNotAModel } from "./variants.js";
@@ -178,6 +179,46 @@ function held(
   };
 }
 
+/**
+ * The classes a card is told under, and the two channels they are: `launch`, `feature` and `debut`
+ * are the news wire and Telegram, `codename` is the radar. Nothing else here subscribes to them.
+ */
+const SUBSCRIBED_CLASSES = new Set(["launch", "feature", "debut", "codename"]);
+
+/**
+ * A model that makes pictures, video, speech or vectors, held from every channel rather than
+ * demoted to the radar.
+ *
+ * `catalogueClass` has asked this question since the Gemini TTS rows of 2026-09-22 and answered it
+ * by routing: a modality row became a `codename`, which is a sighting, which is the radar. That was
+ * the policy, and the radar is where it put `grok-voice-3.0` twice, `grok-tts`,
+ * `grok-voice-transcribe-2.0`, `bfl/flux-3-image-klein` twice, `gpt-image-2.5-sunburst`,
+ * `voxtral-mini-tts-3` and four Voxtral realtime rows in the week to 2026-10-23. A sighting is
+ * worth having when the model is one somebody here would eventually call, and a voice is not: the
+ * radar watches for what is coming, not for everything that exists. So the answer moves from
+ * routing to holding, and it moves into this layer, which is the one that decides whether a thing
+ * is worth telling anyone at all. Routing could not express it -- there is no class that means
+ * nowhere -- and the standing layer had no modality question at all: `why 65485` lists
+ * thirty-one checks asked of `voxtral-mini-tts-3-0` and none of them is this one.
+ *
+ * Only the four subscribed classes are held. An `article`, a `research` post or a board's `rank`
+ * row still reaches the trail, because the trail is the channel for what is happening rather than
+ * for what to call, and a post about a speech model is a thing that happened.
+ *
+ * And it is asked last, after all thirty of the others, which is the only position it can hold. A
+ * reason asked earlier cannot be overruled later, and modality names are not a corner of this
+ * corpus -- they are spread through all of it, so asked early this question answers for events
+ * seven other rules were already answering: the nano-banana arena seat that
+ * `another_size_of_a_sighted_name` holds, the `gpt-image-2.5-flare` snapshot that
+ * `another_tier_of_a_listed_model` holds, the Grok voice page that the page rules hold. Each would
+ * have come back held either way and `why` would have stopped saying which rule knew why, and the
+ * rule that knew why is the one worth keeping. Last, it changes exactly one thing: an event that
+ * nothing else had a reason to hold, and whose only fault is that this channel is not for it.
+ */
+function isNotThisReadersJob(event: Event): boolean {
+  return SUBSCRIBED_CLASSES.has(event.signal ?? "") && isAJobThisReaderDidNotComeFor(event, recordFor(event));
+}
+
 /** The streams whose rows are offered as models, which is where a plumbing name is a false launch. */
 const MODEL_ROW_STREAMS = new Set(["api-models", "openrouter", "weights"]);
 
@@ -269,6 +310,8 @@ const STANDING_CHECKS: readonly StandingCheck[] = [
       e.signal === "codename" && (namesOnlyKnownModels(e, v.known) || pageNamesOnlyLongKnownModels(e, v.longKnownName)),
   ),
   held("fixes_only_release", (_db, e) => e.signal === "release" && isFixesOnlyRelease(e)),
+  // Asked last on purpose, which for this list is the whole of what it means; see isNotThisReadersJob.
+  held("a_job_this_reader_did_not_come_for", (_db, e) => isNotThisReadersJob(e)),
 ];
 
 /** The names of every standing question, in the order they are asked. */

@@ -128,8 +128,8 @@ test("an arena seating a sighted name at another output size is not a second sig
   // The board shows a stealth name no catalogue carries. That is the sighting, and it speaks.
   arena.records.push({
     id: "seat-1",
-    name: "gemini-nano-banana-2.1 [web-search]",
-    model: "gemini-nano-banana-2.1",
+    name: "gemini-stargazer-2.1 [web-search]",
+    model: "gemini-stargazer-2.1",
   });
   saveCollection(db, arena, [wire], "2026-10-06T20:19:00.000Z");
   prepareDeliveries(db, Date.parse("2026-10-06T21:00:00.000Z"));
@@ -139,7 +139,7 @@ test("an arena seating a sighted name at another output size is not a second sig
   // only what we already told a reader can say this is the same model.
   arena.records = [
     { id: "baseline", name: "baseline", model: "baseline" },
-    { id: "seat-2", name: "gemini-nano-banana-2.1-2k [web-search]", model: "gemini-nano-banana-2.1-2k" },
+    { id: "seat-2", name: "gemini-stargazer-2.1-2k [web-search]", model: "gemini-stargazer-2.1-2k" },
     // A name that is not a size of something sighted here is still the first word on it.
     { id: "seat-3", name: "gemini-nano-plantain-3.0 [web-search]", model: "gemini-nano-plantain-3.0" },
   ];
@@ -336,8 +336,8 @@ test("a snapshot beside its model and a batch tier of a listed model stay quiet,
   // The collection of 2026-09-09 17:07: two models, each with its dated snapshot, and one snapshot
   // whose plain row has not appeared.
   openai.records.push(
-    { id: "gpt-image-2.5-flare", name: "gpt-image-2.5-flare" },
-    { id: "gpt-image-2.5-flare-2026-09-08", name: "gpt-image-2.5-flare-2026-09-08" },
+    { id: "gpt-flare-2.5", name: "gpt-flare-2.5" },
+    { id: "gpt-flare-2.5-2026-09-08", name: "gpt-flare-2.5-2026-09-08" },
     { id: "gpt-solo-2026-09-08", name: "gpt-solo-2026-09-08" },
   );
   saveCollection(db, openai, [wire], "2026-09-09T17:07:50.185Z");
@@ -354,9 +354,9 @@ test("a snapshot beside its model and a batch tier of a listed model stay quiet,
   prepareDeliveries(db, Date.parse("2026-09-10T03:00:00.000Z"));
 
   const reasons = suppressed(db);
-  expect(reasons["gpt-image-2.5-flare-2026-09-08"]).toBe("another_tier_of_a_listed_model");
+  expect(reasons["gpt-flare-2.5-2026-09-08"]).toBe("another_tier_of_a_listed_model");
   expect(reasons["mistralai/codestral-2508:batch"]).toBe("another_tier_of_a_listed_model");
-  expect(reasons["gpt-image-2.5-flare"]).toBeUndefined();
+  expect(reasons["gpt-flare-2.5"]).toBeUndefined();
   expect(reasons["gpt-solo-2026-09-08"]).toBeUndefined();
   db.close();
 });
@@ -461,7 +461,7 @@ test("a model named by several vendor pages is told once", () => {
   });
   const deepmind = site("pages:deepmind", "/anchor");
   saveCollection(db, deepmind, [wire], "2026-09-15T16:00:00.000Z");
-  deepmind.records.push({ id: "/models/model-cards/gemini-3-8-audio", name: "/models/model-cards/gemini-3-8-audio" });
+  deepmind.records.push({ id: "/models/model-cards/gemini-3-8-vision", name: "/models/model-cards/gemini-3-8-vision" });
   saveCollection(db, deepmind, [wire], "2026-09-15T17:31:26.385Z");
   prepareDeliveries(db, Date.parse("2026-09-15T17:50:00.000Z"));
 
@@ -482,7 +482,7 @@ test("a model named by several vendor pages is told once", () => {
   prepareDeliveries(db, Date.parse("2026-09-15T19:30:00.000Z"));
 
   const reasons = suppressed(db);
-  expect(reasons["/models/model-cards/gemini-3-8-audio"]).toBeUndefined();
+  expect(reasons["/models/model-cards/gemini-3-8-vision"]).toBeUndefined();
   expect(reasons["/gemini-api/docs/models/gemini-3.8-live"]).toBe("another_page_about_the_same_model");
   expect(reasons["/gemini-api/docs/models/gemini-3.8-live-extended-thinking"]).toBe(
     "another_page_about_the_same_model",
@@ -791,7 +791,7 @@ test("a vendor page naming none of its products is quiet, one naming a product i
   );
   saveCollection(
     db,
-    pages(["/news/grok-voice-transcribe-2", "/news/grok-voice-transcribe-3"], "pages:xai"),
+    pages(["/news/grok-voice-transcribe-2", "/news/grok-reasoner-3"], "pages:xai"),
     [wire],
     "2026-09-18T20:04:32.306Z",
   );
@@ -800,7 +800,7 @@ test("a vendor page naming none of its products is quiet, one naming a product i
   const reasons = suppressed(db);
   expect(reasons["/news/accenture-embedded-evaluation"]).toBe("a_page_about_no_product");
   expect(reasons["/news/claude-for-life-sciences"]).toBeUndefined();
-  expect(reasons["/news/grok-voice-transcribe-3"]).toBeUndefined();
+  expect(reasons["/news/grok-reasoner-3"]).toBeUndefined();
   expect(reasons["/docs/en/cli-sdks-libraries/cli/sessions-connect"]).toBeUndefined();
   db.close();
 });

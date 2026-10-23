@@ -336,8 +336,10 @@ test("what a model makes is asked and stored, and the two readings of a name are
         { id: "seed", name: "seed" },
         // No word in the name says pictures, and Jev answers that it draws.
         { id: "dreamweaver-1", name: "Dreamweaver 1" },
-        // "live" is in the word list, and Jev answers that it writes text.
-        { id: "gemini-3.8-live", name: "Gemini 3.8 Live" },
+        // "ocr" is in the word list, and Jev answers that it writes text -- which is what it did
+        // for `mistral-ocr-4-0` twice in the month to 2026-10-23. "live" used to stand here and
+        // cannot any more: the rules stopped reading it as a modality, on this report's evidence.
+        { id: "gemini-3.8-ocr", name: "Gemini 3.8 OCR" },
       ],
     },
     [],
@@ -364,7 +366,7 @@ test("what a model makes is asked and stored, and the two readings of a name are
   const report = judgeModality(db, 30, 20, now);
   expect(report.promptVersion).toBe(PROMPT_VERSION);
   expect(report.missedByTheRules.map((row) => row.entity)).toEqual(["dreamweaver-1"]);
-  expect(report.calledByTheRulesOnly.map((row) => row.entity)).toEqual(["gemini-3.8-live"]);
+  expect(report.calledByTheRulesOnly.map((row) => row.entity)).toEqual(["gemini-3.8-ocr"]);
   expect(report.agreed).toEqual({ text: 0, otherModality: 0 });
   expect(report.disagreed).toEqual({ missedByTheRules: 1, calledByTheRulesOnly: 1 });
   expect(report.notComparable).toBe(0);

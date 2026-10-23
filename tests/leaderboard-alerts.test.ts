@@ -14,9 +14,9 @@ const destination: Destination = {
 
 function collection(records: Collection["records"]): Collection {
   return {
-    source: "designarena:image",
+    source: "designarena:websites",
     stream: "leaderboards",
-    url: "https://www.designarena.ai/leaderboard/image",
+    url: "https://www.designarena.ai/leaderboard/websites",
     raw: records,
     trackChanges: true,
     records,
@@ -36,7 +36,7 @@ function textBoard(records: Collection["records"]): Collection {
 }
 
 function model(id: string, rank: number): Collection["records"][number] {
-  return { id, name: id, category: "designarena/image", rank };
+  return { id, name: id, category: "designarena/websites", rank };
 }
 
 function ranked(id: string, rank: number): Collection["records"][number] {
@@ -115,7 +115,7 @@ test("a leaderboard departure waits for two successful snapshots and does not re
   const body = JSON.parse(deliveries(db)[0]?.body ?? "{}") as {
     embeds: { description: string; fields?: unknown[] }[];
   };
-  expect(body.embeds[0]?.description).toContain("Leaves designarena/image");
+  expect(body.embeds[0]?.description).toContain("Leaves designarena/websites");
   expect(body.embeds[0]?.fields).toContainEqual({ name: "Last observed rank", value: "1", inline: true });
   expect(deliveries(db)).toHaveLength(1);
   db.close();

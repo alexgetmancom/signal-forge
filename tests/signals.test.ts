@@ -81,8 +81,8 @@ test("a platform listing another maker's model is a sighting, whoever owns the p
   expect(
     signalClass(
       event(
-        { signal: null, stream: "api-models", kind: "new", source: "openai", entity_id: "whisper-2" },
-        { id: "whisper-2", name: "whisper-2" },
+        { signal: null, stream: "api-models", kind: "new", source: "openai", entity_id: "davinci-003" },
+        { id: "davinci-003", name: "davinci-003" },
       ),
     ),
   ).toBe("launch");

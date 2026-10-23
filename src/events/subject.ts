@@ -40,9 +40,40 @@ import type { Event, RecordData } from "./types.js";
  * `gemini-3.1-flash-image (nano-banana-2)`. A nickname is a weaker instrument than a word -- it
  * ages, and the next line will be called something else -- so the list that fixes this properly is
  * the boards a subject has been measured on, which is a question this file should be asking.
+ *
+ * `transcribe` is the word that cost the most: Mistral shipped eight Voxtral 3 rows on 2026-10-20
+ * and the four called `voxtral-{mini,small}-transcribe-3{,-0}` were classed `launch` and went to
+ * the news channel and Telegram as "Voxtral Mini Transcribe 3.0 is out", while their `-tts-` and
+ * `-realtime-` siblings in the same read were held to the radar by this list. One batch, one
+ * modality, two verdicts, and the only difference was which word the speech model happened to be
+ * named after. The model is speech-to-text and nothing else. `voxtral` is here beside it for the
+ * reason `banana` is: the line's nickname says what the line does when the next build drops the
+ * verb. `whisper` was named in the comment below this one as an example and was never in the list
+ * it illustrated. `flux`, `imagine` and `sora`
+ * are picture and video lines that reached the radar this week -- `bfl/flux-3-image-klein` twice
+ * and `grok-imagine-image-2-medium` -- and were caught only because a second word in those ids
+ * said `image`; the line names have to answer on their own, because `flux-3-klein` will not.
+ *
+ * `realtime` and `live` were in this list and are gone, which is the one word change here that
+ * lets more through rather than less. They had to go the moment the modality answer became a hold:
+ * as a demotion a wrong read cost a card its channel, and as a hold it costs the card. Jev has
+ * labelled these names since prompt version 6 and the two columns of `judge-modality` disagree
+ * exactly here -- `gemini-3.8-live`, `gpt-realtime-translate`, `qwen3-omni-flash-realtime` and
+ * `gpt-live-1-webinar` are all `calledByTheRulesOnly`, read as a modality by the words and as text
+ * by the model that read the record. The names where the rules were right -- `gpt-live-transcribe`,
+ * `gemini-3.5-transcribe-live`, `voxtral-mini-transcribe-realtime-3` -- every one of them says
+ * `transcribe` as well, so the list loses no case it was deciding on its own. Holding
+ * "Introducing Gemini 3.8 Live with Live Avatar" is what the words wanted and a Google flagship
+ * launch is not what this reader did not come for.
+ *
+ * What is deliberately absent is `vision`. A vision-language model reads pictures and writes text,
+ * which is this reader's subject arriving with one more input: Meta's Muse Wonder 1.0 takes text,
+ * image, video, PDF and audio and answers in text, and Tencent's WeVisOne-VL rows are the same
+ * shape. Demoting them would cut the frontier models this feed exists for. `MODALITY_FACETS` below
+ * may read `vision` as a facet, because labelling a card is not routing it.
  */
 const MODALITY_VARIANT =
-  /(?:^|[\s-])(?:tts|stt|asr|embed|embedding|embeddings|rerank|reranker|moderation|ocr|guard|realtime|live|livetranslate|image|images|video|audio|speech|voice|voices|music|imagen|veo|lyria|banana|diffusion|dall[\s-]?e|recraft)(?:[\s-]|$)/;
+  /(?:^|[\s-])(?:tts|stt|asr|transcribe|whisper|embed|embedding|embeddings|rerank|reranker|moderation|ocr|guard|livetranslate|image|images|imagine|video|audio|speech|voice|voices|music|imagen|veo|sora|lyria|banana|voxtral|flux|diffusion|dall[\s-]?e|recraft)(?:[\s-]|$)/;
 
 /**
  * The words a name is read as: one lowercase string where every separator a name, a path or a
@@ -149,6 +180,12 @@ const UNFOLLOWED_MAKERS = new Set([
   "IBM",
   "AI Singapore",
   "Swiss AI",
+  // A voice house, added 2026-10-23 when the modality answer stopped being a demotion and started
+  // being a hold. Eleven v4 Turbo is this file's opening failure and the one case the word list
+  // provably cannot read -- `eleven-v4-turbo` says nothing, which is what
+  // `tests/subjectFit.test.ts` exists to record -- so the name is answered here, where what the
+  // company makes is the fact rather than a reading of it.
+  "ElevenLabs",
 ]);
 
 /**

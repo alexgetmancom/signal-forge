@@ -51,6 +51,7 @@ export const SUPPRESSION_REASONS = [
   "the_first_read_of_a_new_shape",
   "not_a_model_but_plumbing",
   "the_reset_it_confirms_was_announced",
+  "a_job_this_reader_did_not_come_for",
 ] as const;
 
 export type SuppressionReason = (typeof SUPPRESSION_REASONS)[number];
@@ -112,6 +113,8 @@ export const SUPPRESSION_DETAIL: Record<SuppressionReason, string> = {
   not_a_model_but_plumbing: "A name whose words only ever describe infrastructure, listed where models are sold",
   the_reset_it_confirms_was_announced:
     "The reset this confirms was announced to this destination, and that card is edited instead",
+  a_job_this_reader_did_not_come_for:
+    "A model that makes pictures, video, speech or vectors, which no channel here is for",
 };
 
 /**

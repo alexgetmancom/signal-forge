@@ -215,3 +215,30 @@ test("a maker's nickname for a line of models says the modality the name does no
   const flash = listing("models/gemini-4-flash", "Gemini 4 Flash");
   expect(catalogueClass(flash, { id: "models/gemini-4-flash", name: "Gemini 4 Flash" })).toBe("launch");
 });
+
+test("a speech model named after the verb is read as one, and a live text model is not", () => {
+  const row = (id: string): Event =>
+    ({
+      id: 9,
+      source: "mistral",
+      stream: "api-models",
+      entity_id: id,
+      kind: "new",
+      detected_at: "2026-10-20T13:33:03.922Z",
+      after_json: JSON.stringify({ id, name: id }),
+      before_json: null,
+    }) as unknown as Event;
+  // The four rows of the Voxtral 3 read that were classed `launch` and reached the news channel and
+  // Telegram on 2026-10-20, while their `-tts-` siblings in the same batch were held to the radar.
+  for (const id of [
+    "voxtral-mini-transcribe-3",
+    "voxtral-small-transcribe-3-0",
+    "voxtral-mini-tts-3",
+    "google/gemini-3.5-transcribe",
+  ])
+    expect(isAJobThisReaderDidNotComeFor(row(id), { id, name: id })).toBe(true);
+  // And the words the shadow judge measured the rules wrong on, which cost a card now that the
+  // answer is a hold rather than a demotion: a model that answers live answers in text.
+  for (const id of ["gemini-3.8-live", "qwen3-omni-flash-realtime", "microsoft-foundry/gpt-realtime-translate"])
+    expect(isAJobThisReaderDidNotComeFor(row(id), { id, name: id })).toBe(false);
+});
